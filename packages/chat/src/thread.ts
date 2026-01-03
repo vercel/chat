@@ -222,8 +222,25 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // Use native streaming if adapter supports it
     if (this.adapter.stream) {
-      const raw = await this.adapter.stream(this.id, textStream, options);
-      return this.createSentMessage(raw.id, (raw.raw as string) ?? "");
+      // Wrap stream to collect accumulated text while passing through to adapter
+      let accumulated = "";
+      const wrappedStream: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => {
+          const iterator = textStream[Symbol.asyncIterator]();
+          return {
+            async next() {
+              const result = await iterator.next();
+              if (!result.done) {
+                accumulated += result.value;
+              }
+              return result;
+            },
+          };
+        },
+      };
+
+      const raw = await this.adapter.stream(this.id, wrappedStream, options);
+      return this.createSentMessage(raw.id, accumulated);
     }
 
     // Fallback: post + edit with throttling
