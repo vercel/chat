@@ -1,5 +1,16 @@
 # @chat-adapter/slack
 
+## 4.2.0
+
+### Minor Changes
+
+- 0b5197a: Fixed and tested fetchMessages and allMessages
+
+### Patch Changes
+
+- Updated dependencies [0b5197a]
+  - chat@4.2.0
+
 ## 4.1.0
 
 ### Minor Changes
