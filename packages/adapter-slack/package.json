@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.0.2",
+  "version": "4.1.0",
   "description": "Slack adapter for chat",
   "type": "module",
   "main": "./dist/index.js",
