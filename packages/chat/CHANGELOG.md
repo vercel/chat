@@ -1,5 +1,11 @@
 # chat
 
+## 4.2.1
+
+### Patch Changes
+
+- d80ea3f: Refactor
+
 ## 4.2.0
 
 ### Minor Changes
