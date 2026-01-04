@@ -12,6 +12,7 @@
     "recording:export": "tsx src/lib/recorder.ts"
   },
   "dependencies": {
+    "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",

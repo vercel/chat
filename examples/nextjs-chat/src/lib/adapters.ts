@@ -1,4 +1,8 @@
 import {
+  createDiscordAdapter,
+  type DiscordAdapter,
+} from "@chat-adapter/discord";
+import {
   createGoogleChatAdapter,
   type GoogleChatAdapter,
 } from "@chat-adapter/gchat";
@@ -11,12 +15,23 @@ import { recorder, withRecording } from "./recorder";
 const logger = new ConsoleLogger("info");
 
 export type Adapters = {
+  discord?: DiscordAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   gchat?: GoogleChatAdapter;
 };
 
 // Methods to record for each adapter (outgoing API calls)
+const DISCORD_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
 const SLACK_METHODS = [
   "postMessage",
   "editMessage",
@@ -57,6 +72,25 @@ export function buildAdapters(): Adapters {
   recorder.startFetchRecording();
 
   const adapters: Adapters = {};
+
+  // Discord adapter (optional)
+  if (
+    process.env.DISCORD_BOT_TOKEN &&
+    process.env.DISCORD_PUBLIC_KEY &&
+    process.env.DISCORD_APPLICATION_ID
+  ) {
+    adapters.discord = withRecording(
+      createDiscordAdapter({
+        botToken: process.env.DISCORD_BOT_TOKEN,
+        publicKey: process.env.DISCORD_PUBLIC_KEY,
+        applicationId: process.env.DISCORD_APPLICATION_ID,
+        userName: "Chat SDK Bot",
+        logger: logger.child("discord"),
+      }),
+      "discord",
+      DISCORD_METHODS,
+    );
+  }
 
   // Slack adapter (optional)
   if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET) {

@@ -26,6 +26,9 @@ importers:
 
   examples/nextjs-chat:
     dependencies:
+      '@chat-adapter/discord':
+        specifier: workspace:*
+        version: link:../../packages/adapter-discord
       '@chat-adapter/gchat':
         specifier: workspace:*
         version: link:../../packages/adapter-gchat
