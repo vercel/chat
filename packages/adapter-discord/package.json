@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/discord",
-  "version": "0.1.0",
+  "version": "4.3.0",
   "description": "Discord adapter for chat",
   "type": "module",
   "main": "./dist/index.js",

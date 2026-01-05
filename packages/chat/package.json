@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "Unified chat abstraction for Slack, Teams, Google Chat, and Discord",
   "type": "module",
   "main": "./dist/index.js",
