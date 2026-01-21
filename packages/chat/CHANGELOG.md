@@ -1,5 +1,13 @@
 # chat
 
+## 4.4.1
+
+### Patch Changes
+
+- 1882732: Serde from chat singleton
+- b5826c2: Adding private metadata field to `onModalClose` events.
+- 9e8f9e7: Serde support
+
 ## 4.4.0
 
 ### Minor Changes

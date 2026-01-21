@@ -1,5 +1,17 @@
 # @chat-adapter/slack
 
+## 4.4.1
+
+### Patch Changes
+
+- b5826c2: Adding private metadata field to `onModalClose` events.
+- 9e8f9e7: Serde support
+- Updated dependencies [1882732]
+- Updated dependencies [b5826c2]
+- Updated dependencies [9e8f9e7]
+  - chat@4.4.1
+  - @chat-adapter/shared@4.4.1
+
 ## 4.4.0
 
 ### Minor Changes

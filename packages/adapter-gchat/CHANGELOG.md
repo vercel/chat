@@ -1,5 +1,16 @@
 # @chat-adapter/gchat
 
+## 4.4.1
+
+### Patch Changes
+
+- 9e8f9e7: Serde support
+- Updated dependencies [1882732]
+- Updated dependencies [b5826c2]
+- Updated dependencies [9e8f9e7]
+  - chat@4.4.1
+  - @chat-adapter/shared@4.4.1
+
 ## 4.4.0
 
 ### Minor Changes
