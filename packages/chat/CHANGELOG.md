@@ -1,5 +1,11 @@
 # chat
 
+## 4.7.1
+
+### Patch Changes
+
+- 160f1f7: Fetch relatedMessage separately from the event thread.
+
 ## 4.7.0
 
 ### Minor Changes

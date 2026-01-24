@@ -1,5 +1,12 @@
 # @chat-adapter/shared
 
+## 4.7.1
+
+### Patch Changes
+
+- Updated dependencies [160f1f7]
+  - chat@4.7.1
+
 ## 4.7.0
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @chat-adapter/slack
 
+## 4.7.1
+
+### Patch Changes
+
+- 160f1f7: Fetch relatedMessage separately from the event thread.
+- Updated dependencies [160f1f7]
+  - chat@4.7.1
+  - @chat-adapter/shared@4.7.1
+
 ## 4.7.0
 
 ### Minor Changes
