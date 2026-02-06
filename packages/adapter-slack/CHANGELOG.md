@@ -1,5 +1,13 @@
 # @chat-adapter/slack
 
+## 4.7.2
+
+### Patch Changes
+
+- efaa916: Allow streaming when images attached on thread start
+  - chat@4.7.2
+  - @chat-adapter/shared@4.7.2
+
 ## 4.7.1
 
 ### Patch Changes
