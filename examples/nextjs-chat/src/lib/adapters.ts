@@ -9,6 +9,7 @@ import {
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
+import { createXAdapter, type XAdapter } from "@chat-adapter/x";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -21,6 +22,7 @@ export type Adapters = {
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   gchat?: GoogleChatAdapter;
+  x?: XAdapter;
 };
 
 // Methods to record for each adapter (outgoing API calls)
@@ -71,6 +73,14 @@ const GITHUB_METHODS = [
   "addReaction",
   "removeReaction",
   "fetchMessages",
+];
+const X_METHODS = [
+  "postMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "fetchMessages",
+  "openDM",
 ];
 
 /**
@@ -194,6 +204,22 @@ export function buildAdapters(): Adapters {
         GITHUB_METHODS,
       );
     }
+  }
+
+  // X adapter (optional)
+  if (process.env.X_API_KEY && process.env.X_API_SECRET) {
+    adapters.x = withRecording(
+      createXAdapter({
+        apiKey: process.env.X_API_KEY,
+        apiSecret: process.env.X_API_SECRET,
+        accessToken: process.env.X_ACCESS_TOKEN as string,
+        accessTokenSecret: process.env.X_ACCESS_TOKEN_SECRET as string,
+        userName: "Chat SDK Bot",
+        logger: logger.child("x"),
+      }),
+      "x",
+      X_METHODS,
+    );
   }
 
   return adapters;

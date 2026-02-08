@@ -27,7 +27,10 @@
       "@chat-adapter/teams": ["../../packages/adapter-teams/src/index.ts"],
       "@chat-adapter/discord": ["../../packages/adapter-discord/src/index.ts"],
       "@chat-adapter/state-redis": ["../../packages/state-redis/src/index.ts"],
-      "@chat-adapter/state-memory": ["../../packages/state-memory/src/index.ts"]
+      "@chat-adapter/state-memory": [
+        "../../packages/state-memory/src/index.ts"
+      ],
+      "@chat-adapter/x": ["../../packages/adapter-x/src/index.ts"]
     }
   },
   "include": [

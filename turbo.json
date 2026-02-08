@@ -11,7 +11,11 @@
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "X_API_KEY",
+    "X_API_SECRET",
+    "X_ACCESS_TOKEN",
+    "X_ACCESS_TOKEN_SECRET"
   ],
   "tasks": {
     "build": {

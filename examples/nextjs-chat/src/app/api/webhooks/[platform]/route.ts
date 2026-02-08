@@ -37,6 +37,12 @@ export async function GET(
 
   const hasAdapter = bot.webhooks[platform as Platform] !== undefined;
 
+  if (platform === "x") {
+    return bot.webhooks.x!?.(_request, {
+      waitUntil: (task) => after(() => task),
+    });
+  }
+
   if (hasAdapter) {
     return new Response(`${platform} webhook endpoint is active`, {
       status: 200,
