@@ -75,6 +75,37 @@ describe("SlackMarkdownConverter", () => {
     });
   });
 
+  describe("mentions", () => {
+    it("should not double-wrap mentions already in <@user> format", () => {
+      // renderPostable with string containing existing Slack mention
+      expect(converter.renderPostable("Hey <@U12345>. Please select")).toBe(
+        "Hey <@U12345>. Please select",
+      );
+    });
+
+    it("should not double-wrap mentions in markdown input", () => {
+      expect(
+        converter.renderPostable({ markdown: "Hey <@U12345>. Please select" }),
+      ).toBe("Hey <@U12345>. Please select");
+    });
+
+    it("should still convert bare @mentions to Slack format", () => {
+      expect(converter.renderPostable("Hey @george. Please select")).toBe(
+        "Hey <@george>. Please select",
+      );
+    });
+
+    it("should convert bare @mentions in markdown", () => {
+      expect(
+        converter.renderPostable({ markdown: "Hey @george. Please select" }),
+      ).toBe("Hey <@george>. Please select");
+    });
+
+    it("should not double-wrap mentions via fromMarkdown", () => {
+      expect(converter.fromMarkdown("Hey <@U12345>")).toBe("Hey <@U12345>");
+    });
+  });
+
   describe("toPlainText", () => {
     it("should remove bold markers", () => {
       expect(converter.toPlainText("Hello *world*!")).toBe("Hello world!");

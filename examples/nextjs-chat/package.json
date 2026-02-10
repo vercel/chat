@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --inspect",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -14,6 +14,8 @@
   "dependencies": {
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
+    "@chat-adapter/github": "workspace:*",
+    "@chat-adapter/linear": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
     "@chat-adapter/teams": "workspace:*",

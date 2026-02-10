@@ -334,6 +334,7 @@ bot.onNewMessage(/help/i, async (thread, message) => {
 
 // Handle messages in subscribed threads
 bot.onSubscribedMessage(async (thread, message) => {
+  if (!message.isMention) return;
   // Get thread state to check AI mode
   const threadState = await thread.state;
 

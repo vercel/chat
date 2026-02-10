@@ -119,6 +119,19 @@ describe("Streaming Replay Tests", () => {
       // Verify native streaming was used for the response
       expect(ctx.mockClient.chatStream).toHaveBeenCalled();
     });
+
+    it("should handle AI mention with file attachment", async () => {
+      await ctx.sendWebhook(slackFixtures.aiMentionWithFile);
+
+      expectValidMention(ctx.captured, {
+        textContains: "AI",
+        authorUserId: "U0A60JBHJBE",
+        adapterName: "slack",
+      });
+
+      expect(aiModeEnabled).toBe(true);
+      expect(ctx.mockClient.chatStream).toHaveBeenCalled();
+    });
   });
 
   describe("Teams", () => {

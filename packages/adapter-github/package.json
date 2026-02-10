@@ -1,0 +1,60 @@
+{
+  "name": "@chat-adapter/github",
+  "version": "4.8.0",
+  "description": "GitHub adapter for chat - PR comment threads",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "@octokit/auth-app": "^7.1.1",
+    "@octokit/rest": "^21.0.2",
+    "chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel-labs/chat.git",
+    "directory": "packages/adapter-github"
+  },
+  "homepage": "https://github.com/vercel-labs/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel-labs/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "github",
+    "bot",
+    "adapter",
+    "pull-request",
+    "code-review"
+  ],
+  "license": "MIT"
+}

@@ -6,6 +6,8 @@ import {
   createGoogleChatAdapter,
   type GoogleChatAdapter,
 } from "@chat-adapter/gchat";
+import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
+import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import { ConsoleLogger } from "chat";
@@ -16,6 +18,8 @@ const logger = new ConsoleLogger("info");
 
 export type Adapters = {
   discord?: DiscordAdapter;
+  github?: GitHubAdapter;
+  linear?: LinearAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   gchat?: GoogleChatAdapter;
@@ -60,6 +64,21 @@ const GCHAT_METHODS = [
   "addReaction",
   "removeReaction",
   "openDM",
+  "fetchMessages",
+];
+const GITHUB_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "fetchMessages",
+];
+const LINEAR_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
   "fetchMessages",
 ];
 
@@ -148,6 +167,86 @@ export function buildAdapters(): Adapters {
     } catch {
       console.warn(
         "[chat] Invalid GOOGLE_CHAT_CREDENTIALS JSON, skipping gchat adapter",
+      );
+    }
+  }
+
+  // GitHub adapter (optional)
+  // Supports both PAT auth (GITHUB_TOKEN) and GitHub App auth (GITHUB_APP_ID + GITHUB_PRIVATE_KEY)
+  if (process.env.GITHUB_WEBHOOK_SECRET) {
+    if (process.env.GITHUB_TOKEN) {
+      // PAT authentication
+      adapters.github = withRecording(
+        createGitHubAdapter({
+          token: process.env.GITHUB_TOKEN,
+          webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+          userName: process.env.GITHUB_BOT_USERNAME || "chat-sdk-bot",
+          logger: logger.child("github"),
+        }),
+        "github",
+        GITHUB_METHODS,
+      );
+    } else if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) {
+      // GitHub App authentication (multi-tenant if no GITHUB_INSTALLATION_ID)
+      adapters.github = withRecording(
+        createGitHubAdapter({
+          appId: process.env.GITHUB_APP_ID,
+          privateKey: process.env.GITHUB_PRIVATE_KEY,
+          installationId: process.env.GITHUB_INSTALLATION_ID
+            ? parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
+            : undefined,
+          webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+          userName: process.env.GITHUB_BOT_USERNAME || "chat-sdk-bot[bot]",
+          logger: logger.child("github"),
+        }),
+        "github",
+        GITHUB_METHODS,
+      );
+    }
+  }
+
+  // Linear adapter (optional)
+  // Supports API key, OAuth app (client credentials), or pre-obtained access token
+  if (process.env.LINEAR_WEBHOOK_SECRET) {
+    if (process.env.LINEAR_API_KEY) {
+      // API key authentication (simplest)
+      adapters.linear = withRecording(
+        createLinearAdapter({
+          apiKey: process.env.LINEAR_API_KEY,
+          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
+          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
+          logger: logger.child("linear"),
+        }),
+        "linear",
+        LINEAR_METHODS,
+      );
+    } else if (
+      process.env.LINEAR_CLIENT_ID &&
+      process.env.LINEAR_CLIENT_SECRET
+    ) {
+      // OAuth app with client credentials (recommended for apps)
+      adapters.linear = withRecording(
+        createLinearAdapter({
+          clientId: process.env.LINEAR_CLIENT_ID,
+          clientSecret: process.env.LINEAR_CLIENT_SECRET,
+          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
+          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
+          logger: logger.child("linear"),
+        }),
+        "linear",
+        LINEAR_METHODS,
+      );
+    } else if (process.env.LINEAR_ACCESS_TOKEN) {
+      // Pre-obtained OAuth access token
+      adapters.linear = withRecording(
+        createLinearAdapter({
+          accessToken: process.env.LINEAR_ACCESS_TOKEN,
+          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
+          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
+          logger: logger.child("linear"),
+        }),
+        "linear",
+        LINEAR_METHODS,
       );
     }
   }

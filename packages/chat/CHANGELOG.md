@@ -1,5 +1,13 @@
 # chat
 
+## 4.8.0
+
+### Minor Changes
+
+- cca9867: GitHub + Linear integrations
+
+## 4.7.2
+
 ## 4.7.1
 
 ### Patch Changes

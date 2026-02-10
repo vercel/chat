@@ -93,5 +93,115 @@
     ],
     "is_ext_shared_channel": false,
     "event_context": "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDNTSDdHMDFHVSIsImFpZCI6IkEwQTVGVVhQMUVEIiwiY2lkIjoiQzBBNTExTUJDVVcifQ"
+  },
+  "aiMentionWithFile": {
+    "token": "wzuDJx4wCNIQxghRKboieGn6",
+    "team_id": "T0A6R9YLSKA",
+    "api_app_id": "A0A60K08CLC",
+    "event": {
+      "type": "app_mention",
+      "text": "<@U0A56JUFP9A> [AI] I don't really understand this explanation.",
+      "files": [
+        {
+          "id": "F0AD236ATJN",
+          "created": 1770241967,
+          "timestamp": 1770241967,
+          "name": "image.png",
+          "title": "image.png",
+          "mimetype": "image/png",
+          "filetype": "png",
+          "pretty_type": "PNG",
+          "user": "U0A60JBHJBE",
+          "user_team": "T0A6R9YLSKA",
+          "editable": false,
+          "size": 214244,
+          "mode": "hosted",
+          "is_external": false,
+          "external_type": "",
+          "is_public": true,
+          "public_url_shared": false,
+          "display_as_bot": false,
+          "username": "",
+          "url_private": "https://files.slack.com/files-pri/T0A6R9YLSKA-F0XY789ZKLM/image.png",
+          "url_private_download": "https://files.slack.com/files-pri/T0A6R9YLSKA-F0XY789ZKLM/download/image.png",
+          "media_display_type": "unknown",
+          "thumb_64": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_64.png",
+          "thumb_80": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_80.png",
+          "thumb_360": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_360.png",
+          "thumb_360_w": 196,
+          "thumb_360_h": 360,
+          "thumb_480": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_480.png",
+          "thumb_480_w": 261,
+          "thumb_480_h": 480,
+          "thumb_160": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_160.png",
+          "thumb_720": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_720.png",
+          "thumb_720_w": 391,
+          "thumb_720_h": 720,
+          "thumb_800": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_800.png",
+          "thumb_800_w": 800,
+          "thumb_800_h": 1472,
+          "thumb_960": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_960.png",
+          "thumb_960_w": 522,
+          "thumb_960_h": 960,
+          "thumb_1024": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_1024.png",
+          "thumb_1024_w": 557,
+          "thumb_1024_h": 1024,
+          "original_w": 800,
+          "original_h": 1472,
+          "thumb_tiny": "AwAwABu9cLMyjyHVTnnIqDy77vMnT/ParQ3bmyQQD0CkUfMScEcHupoArol2HBaVSueRkdM/7vpVoZxzRRQBE7uqu3y/KeMvj8OnFAdgBgo49S3fGccCnkP2ZR16r+Xf/PtThnvQAxctGMtgnupz/T+lPoByM1GDNjlUJ/3iP6UAOIJPce/FAJ3fdbp14/z/APqowrEsu3djGcZ/CmgJFt/1a544GMn/ADmgBxJAJ2sxHTpk06mYwCxKA+u3/wCv9afQB//Z",
+          "permalink": "https://example.slack.com/files/U0A56JUFP9A/F0XY789ZKLM/image.png",
+          "permalink_public": "https://slack-files.com/T0A6R9YLSKA-F0XY789ZKLM-8c92d4a7f3",
+          "is_starred": false,
+          "skipped_shares": true,
+          "has_rich_preview": false,
+          "file_access": "visible"
+        }
+      ],
+      "upload": false,
+      "user": "U0A60JBHJBE",
+      "display_as_bot": false,
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "dGY07",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "user",
+                  "user_id": "U0A56JUFP9A"
+                },
+                {
+                  "type": "text",
+                  "text": " [AI] I don't really understand this explanation."
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "ts": "1770241970.822989",
+      "client_msg_id": "ed0f98a2-235e-40e9-ba5a-88d77dc14d85",
+      "channel": "C0ACELCQBAB",
+      "assistant_thread": {
+        "action_token": "10442059173734.10229338706656.8fa22794d81cd1c8d11947967bca4cf7"
+      },
+      "event_ts": "1770241970.822989"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0ACYL5R65B",
+    "event_time": 1770241970,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T0A6R9YLSKA",
+        "user_id": "U0A56JUFP9A",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "4-eyJldCI6ImFwcF9tZW50aW9uIiwidGlkIjoiVDBBNlI5WUxTS0EiLCJhaWQiOiJBMEE2MEswOENMQyIsImNpZCI6IkMwQUNFTENRQkFCIn0"
   }
 }

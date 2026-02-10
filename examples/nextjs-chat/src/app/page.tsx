@@ -15,6 +15,12 @@ export default function Home() {
         <li>
           <code>/api/webhooks/gchat</code> - Google Chat events
         </li>
+        <li>
+          <code>/api/webhooks/github</code> - GitHub PR comment events
+        </li>
+        <li>
+          <code>/api/webhooks/linear</code> - Linear issue comment events
+        </li>
       </ul>
 
       <h2>Features</h2>
@@ -52,6 +58,24 @@ TEAMS_APP_PASSWORD=...`}
 
       <h3>Google Chat</h3>
       <pre>{`GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}`}</pre>
+
+      <h3>GitHub</h3>
+      <pre>
+        {`# PAT auth (simple)
+GITHUB_TOKEN=ghp_...
+GITHUB_WEBHOOK_SECRET=...
+
+# OR GitHub App auth (recommended)
+GITHUB_APP_ID=...
+GITHUB_PRIVATE_KEY=...
+GITHUB_WEBHOOK_SECRET=...`}
+      </pre>
+
+      <h3>Linear</h3>
+      <pre>
+        {`LINEAR_API_KEY=lin_api_...
+LINEAR_WEBHOOK_SECRET=...`}
+      </pre>
     </main>
   );
 }

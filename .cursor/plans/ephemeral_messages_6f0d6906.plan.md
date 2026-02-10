@@ -32,6 +32,7 @@ todos:
   - id: docs
     content: Add compatibility table to README with platform behavior notes
     status: completed
+isProject: false
 ---
 
 # Ephemeral Messages Implementation
@@ -304,6 +305,7 @@ await thread.postEphemeral(user, "Only you can see this!", {
   fallbackToDM: true,
 });
 ```
+````
 
 The `fallbackToDM` option is required and controls behavior on platforms without
 native ephemeral support:
@@ -356,7 +358,8 @@ if (!result) {
   // Message was not sent - handle accordingly or skip
 }
 ```
-````
+
+```
 
 ## Files to Modify
 
@@ -364,11 +367,13 @@ if (!result) {
 
 types and interface methods
 
-2. `packages/chat/src/thread.ts` - Implement postEphemeral with fallback logic
-3. `packages/chat/src/index.ts` - Export EphemeralMessage, PostEphemeralOptions
+1. `packages/chat/src/thread.ts` - Implement postEphemeral with fallback logic
+2. `packages/chat/src/index.ts` - Export EphemeralMessage, PostEphemeralOptions
 
 types
 
-4. `packages/adapter-slack/src/index.ts` - Implement postEphemeral
-5. `packages/adapter-gchat/src/index.ts` - Implement postEphemeral
-6. `README.md` - Add ephemeral messages documentation section
+1. `packages/adapter-slack/src/index.ts` - Implement postEphemeral
+2. `packages/adapter-gchat/src/index.ts` - Implement postEphemeral
+3. `README.md` - Add ephemeral messages documentation section
+
+```

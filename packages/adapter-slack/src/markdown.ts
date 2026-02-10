@@ -37,7 +37,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    * @name → <@name>
    */
   private convertMentionsToSlack(text: string): string {
-    return text.replace(/@(\w+)/g, "<@$1>");
+    return text.replace(/(?<!<)@(\w+)/g, "<@$1>");
   }
 
   /**
@@ -109,7 +109,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
     if (isTextNode(node)) {
       // Convert @mentions to Slack format <@mention>
-      return node.value.replace(/@(\w+)/g, "<@$1>");
+      return node.value.replace(/(?<!<)@(\w+)/g, "<@$1>");
     }
 
     if (isStrongNode(node)) {

@@ -84,6 +84,8 @@ export interface SlackEvent {
     original_w?: number;
     original_h?: number;
   }>;
+  team?: string;
+  team_id?: string;
 }
 
 /** Slack reaction event payload */
@@ -107,6 +109,7 @@ interface SlackWebhookPayload {
   event?: SlackEvent | SlackReactionEvent;
   event_id?: string;
   event_time?: number;
+  team_id?: string;
 }
 
 /** Slack interactive payload (block_actions) for button clicks */
@@ -340,7 +343,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
       // Process event asynchronously
       if (event.type === "message" || event.type === "app_mention") {
-        this.handleMessageEvent(event as SlackEvent, options);
+        const slackEvent = event as SlackEvent;
+        if (!slackEvent.team && !slackEvent.team_id && payload.team_id) {
+          slackEvent.team_id = payload.team_id;
+        }
+        this.handleMessageEvent(slackEvent, options);
       } else if (
         event.type === "reaction_added" ||
         event.type === "reaction_removed"

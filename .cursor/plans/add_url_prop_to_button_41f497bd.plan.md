@@ -47,6 +47,7 @@ todos:
   - id: readme
     content: Update README.md Rich Cards section to document LinkButton
     status: completed
+isProject: false
 ---
 
 # Add LinkButton Component
@@ -115,96 +116,96 @@ import { Button, LinkButton, Actions, Card } from "chat";
 
 1. **[packages/chat/src/cards.ts](packages/chat/src/cards.ts)**
 
-   - Add `LinkButtonElement` interface (after `ButtonElement`)
-   - Add `LinkButtonOptions` interface (after `ButtonOptions`)
-   - Add `LinkButton()` function (after `Button()`)
-   - Update `ActionsElement.children` type to
+- Add `LinkButtonElement` interface (after `ButtonElement`)
+- Add `LinkButtonOptions` interface (after `ButtonOptions`)
+- Add `LinkButton()` function (after `Button()`)
+- Update `ActionsElement.children` type to
 
 `(ButtonElement | LinkButtonElement)[]`
 
 - Update `AnyCardElement` union to include `LinkButtonElement`
 - Add `LinkButton` to debug name map
 
-2. **[packages/chat/src/jsx-runtime.ts](packages/chat/src/jsx-runtime.ts)**
+1. **[packages/chat/src/jsx-runtime.ts](packages/chat/src/jsx-runtime.ts)**
 
-   - Add `LinkButtonProps` interface
-   - Add `LinkButton` to component type union
-   - Add `isLinkButtonProps` type guard
-   - Handle `LinkButton` in `toCardElement`
-   - Export `LinkButton` and `LinkButtonProps`
+- Add `LinkButtonProps` interface
+- Add `LinkButton` to component type union
+- Add `isLinkButtonProps` type guard
+- Handle `LinkButton` in `toCardElement`
+- Export `LinkButton` and `LinkButtonProps`
 
-3. **[packages/chat/src/index.ts](packages/chat/src/index.ts)**
+2. **[packages/chat/src/index.ts](packages/chat/src/index.ts)**
 
-   - Export `LinkButton` function
-   - Export `LinkButtonElement`, `LinkButtonOptions` types
-   - Export `LinkButtonProps` from jsx-runtime
+- Export `LinkButton` function
+- Export `LinkButtonElement`, `LinkButtonOptions` types
+- Export `LinkButtonProps` from jsx-runtime
 
 ### Adapters
 
-4. **[packages/adapter-slack/src/cards.ts](packages/adapter-slack/src/cards.ts)**
+1. **[packages/adapter-slack/src/cards.ts](packages/adapter-slack/src/cards.ts)**
 
-   - Import `LinkButtonElement` from chat
-   - Update `convertActionsToBlock` to handle both button types
-   - Add `convertLinkButtonToElement` that sets `url` property
+- Import `LinkButtonElement` from chat
+- Update `convertActionsToBlock` to handle both button types
+- Add `convertLinkButtonToElement` that sets `url` property
 
-5. **[packages/adapter-discord/src/cards.ts](packages/adapter-discord/src/cards.ts)**
+2. **[packages/adapter-discord/src/cards.ts](packages/adapter-discord/src/cards.ts)**
 
-   - Import `LinkButtonElement` from chat
-   - Update `convertActionsElement` to handle both button types
-   - Add `convertLinkButtonElement` using `ButtonStyle.Link` (5) with `url` (no
+- Import `LinkButtonElement` from chat
+- Update `convertActionsElement` to handle both button types
+- Add `convertLinkButtonElement` using `ButtonStyle.Link` (5) with `url` (no
 
 `custom_id`)
 
-6. **[packages/adapter-teams/src/cards.ts](packages/adapter-teams/src/cards.ts)**
+1. **[packages/adapter-teams/src/cards.ts](packages/adapter-teams/src/cards.ts)**
 
-   - Import `LinkButtonElement` from chat
-   - Update `convertActionsToElements` to handle both button types
-   - Add `convertLinkButtonToAction` using `Action.OpenUrl` with `url`
+- Import `LinkButtonElement` from chat
+- Update `convertActionsToElements` to handle both button types
+- Add `convertLinkButtonToAction` using `Action.OpenUrl` with `url`
 
-7. **[packages/adapter-gchat/src/cards.ts](packages/adapter-gchat/src/cards.ts)**
+2. **[packages/adapter-gchat/src/cards.ts](packages/adapter-gchat/src/cards.ts)**
 
-   - Import `LinkButtonElement` from chat
-   - Update `convertActionsToWidget` to handle both button types
-   - Add `convertLinkButtonToGoogleButton` using `openLink: { url }` in onClick
+- Import `LinkButtonElement` from chat
+- Update `convertActionsToWidget` to handle both button types
+- Add `convertLinkButtonToGoogleButton` using `openLink: { url }` in onClick
 
 ### Tests
 
-8. **[packages/chat/src/cards.test.ts](packages/chat/src/cards.test.ts)**
+1. **[packages/chat/src/cards.test.ts](packages/chat/src/cards.test.ts)**
 
-   - Add `describe("LinkButton")` block with tests for:
-     - Creates a link button element
-     - Creates a styled link button
+- Add `describe("LinkButton")` block with tests for:
+  - Creates a link button element
+  - Creates a styled link button
 
-9. **[packages/chat/src/jsx-runtime.test.ts](packages/chat/src/jsx-runtime.test.ts)**
+2. **[packages/chat/src/jsx-runtime.test.ts](packages/chat/src/jsx-runtime.test.ts)**
 
-   - Add test for `jsx(LinkButton, { url, children })`
+- Add test for `jsx(LinkButton, { url, children })`
 
-10. **[packages/chat/src/jsx-runtime.test.tsx](packages/chat/src/jsx-runtime.test.tsx)**
+3. **[packages/chat/src/jsx-runtime.test.tsx](packages/chat/src/jsx-runtime.test.tsx)**
 
-    - Add test for `<LinkButton url="...">Label</LinkButton>` in Actions
+- Add test for `<LinkButton url="...">Label</LinkButton>` in Actions
 
-11. **[packages/adapter-slack/src/cards.test.ts](packages/adapter-slack/src/cards.test.ts)**
+4. **[packages/adapter-slack/src/cards.test.ts](packages/adapter-slack/src/cards.test.ts)**
 
-    - Add test: "converts link buttons with url property"
+- Add test: "converts link buttons with url property"
 
-12. **[packages/adapter-discord/src/cards.test.ts](packages/adapter-discord/src/cards.test.ts)**
+5. **[packages/adapter-discord/src/cards.test.ts](packages/adapter-discord/src/cards.test.ts)**
 
-    - Add test: "converts link buttons using Link style"
+- Add test: "converts link buttons using Link style"
 
-13. **[packages/adapter-teams/src/cards.test.ts](packages/adapter-teams/src/cards.test.ts)**
+6. **[packages/adapter-teams/src/cards.test.ts](packages/adapter-teams/src/cards.test.ts)**
 
-    - Add test: "converts link buttons to Action.OpenUrl"
+- Add test: "converts link buttons to Action.OpenUrl"
 
-14. **[packages/adapter-gchat/src/cards.test.ts](packages/adapter-gchat/src/cards.test.ts)**
+7. **[packages/adapter-gchat/src/cards.test.ts](packages/adapter-gchat/src/cards.test.ts)**
 
-    - Add test: "converts link buttons with openLink"
+- Add test: "converts link buttons with openLink"
 
 ### Documentation
 
-15. **[README.md](README.md)**
+1. **[README.md](README.md)**
 
-    - Add `LinkButton` to import in "Rich Cards with Buttons" section
-    - Add example showing LinkButton usage alongside Button
+- Add `LinkButton` to import in "Rich Cards with Buttons" section
+  - Add example showing LinkButton usage alongside Button
 
 ## Platform-Specific Output
 

@@ -1,5 +1,18 @@
 # @chat-adapter/shared
 
+## 4.8.0
+
+### Patch Changes
+
+- Updated dependencies [cca9867]
+  - chat@4.8.0
+
+## 4.7.2
+
+### Patch Changes
+
+- chat@4.7.2
+
 ## 4.7.1
 
 ### Patch Changes
