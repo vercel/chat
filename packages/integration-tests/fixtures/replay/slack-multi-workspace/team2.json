@@ -1,0 +1,50 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U0B2H7P8VTX",
+  "teamId": "T0B3ZCXXNRV",
+  "teamName": "montosandbox2",
+  "mention": {
+    "token": "xPqRs7tUvWnYz1A3bCdEfGhI",
+    "team_id": "T0B3ZCXXNRV",
+    "enterprise_id": "E0B4K2LMN5Q",
+    "api_app_id": "A0A9LGGJSAJ",
+    "event": {
+      "type": "app_mention",
+      "user": "U0B1JRWK4YP",
+      "ts": "1770677100.789012",
+      "client_msg_id": "aa11bb22-cc33-dd44-ee55-ff6677889900",
+      "text": "<@U0B2H7P8VTX> hello from team 2",
+      "team": "T0B3ZCXXNRV",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "R2xYZ",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                { "type": "user", "user_id": "U0B2H7P8VTX" },
+                { "type": "text", "text": " hello from team 2" }
+              ]
+            }
+          ]
+        }
+      ],
+      "channel": "C0B5FGHJKLM",
+      "event_ts": "1770677100.789012"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0BXYZ12345",
+    "event_time": 1770677100,
+    "authorizations": [
+      {
+        "enterprise_id": "E0B4K2LMN5Q",
+        "team_id": "T0B3ZCXXNRV",
+        "user_id": "U0B2H7P8VTX",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  }
+}

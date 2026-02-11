@@ -1,5 +1,12 @@
 # @chat-adapter/github
 
+## 4.9.0
+
+### Patch Changes
+
+- chat@4.9.0
+- @chat-adapter/shared@4.9.0
+
 ## 4.8.0
 
 ### Minor Changes

@@ -2,10 +2,11 @@
  * Tests for the Slack adapter - webhook handling, message operations, and format conversion.
  */
 
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
-import type { Logger } from "chat";
+import type { ChatInstance, Logger, StateAdapter } from "chat";
 import { describe, expect, it, vi } from "vitest";
+import type { SlackInstallation } from "./index";
 import { createSlackAdapter, SlackAdapter } from "./index";
 
 const mockLogger: Logger = {
@@ -877,5 +878,398 @@ describe("formatted text extraction", () => {
 
     const message = adapter.parseMessage(event);
     expect(message.text).toContain("@john");
+  });
+});
+
+// ============================================================================
+// Multi-workspace Test Helpers
+// ============================================================================
+
+function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
+  const cache = new Map<string, unknown>();
+  return {
+    cache,
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+    isSubscribed: vi.fn().mockResolvedValue(false),
+    listSubscriptions: vi.fn().mockImplementation(async function* () {}),
+    acquireLock: vi.fn().mockResolvedValue(null),
+    releaseLock: vi.fn().mockResolvedValue(undefined),
+    extendLock: vi.fn().mockResolvedValue(true),
+    get: vi.fn().mockImplementation(async (key: string) => {
+      return cache.get(key) ?? null;
+    }),
+    set: vi.fn().mockImplementation(async (key: string, value: unknown) => {
+      cache.set(key, value);
+    }),
+    delete: vi.fn().mockImplementation(async (key: string) => {
+      cache.delete(key);
+    }),
+  };
+}
+
+function createMockChatInstance(state: StateAdapter): ChatInstance {
+  return {
+    processMessage: vi.fn(),
+    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
+    processReaction: vi.fn(),
+    processAction: vi.fn(),
+    processModalSubmit: vi.fn().mockResolvedValue(undefined),
+    processModalClose: vi.fn(),
+    getState: () => state,
+    getUserName: () => "test-bot",
+    getLogger: () => mockLogger,
+  };
+}
+
+// ============================================================================
+// Multi-workspace Mode Tests
+// ============================================================================
+
+describe("multi-workspace mode", () => {
+  const secret = "test-signing-secret";
+
+  it("creates adapter without botToken", () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+    expect(adapter.name).toBe("slack");
+  });
+
+  it("setInstallation throws before initialize", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await expect(
+      adapter.setInstallation("T123", { botToken: "xoxb-token" }),
+    ).rejects.toThrow("Adapter not initialized");
+  });
+
+  it("setInstallation / getInstallation round-trip", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    const installation: SlackInstallation = {
+      botToken: "xoxb-workspace-token",
+      botUserId: "U_BOT_123",
+      teamName: "Test Team",
+    };
+
+    await adapter.setInstallation("T_TEAM_1", installation);
+    const retrieved = await adapter.getInstallation("T_TEAM_1");
+
+    expect(retrieved).toEqual(installation);
+  });
+
+  it("getInstallation returns null for unknown team", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    const result = await adapter.getInstallation("T_UNKNOWN");
+    expect(result).toBeNull();
+  });
+
+  it("deleteInstallation removes data", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    await adapter.setInstallation("T_TEAM_2", {
+      botToken: "xoxb-token",
+    });
+    expect(await adapter.getInstallation("T_TEAM_2")).not.toBeNull();
+
+    await adapter.deleteInstallation("T_TEAM_2");
+    expect(await adapter.getInstallation("T_TEAM_2")).toBeNull();
+  });
+
+  it("handleWebhook resolves token from state for event_callback", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.setInstallation("T_MULTI_1", {
+      botToken: "xoxb-multi-token-1",
+      botUserId: "U_BOT_M1",
+    });
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_MULTI_1",
+      event: {
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "Hello multi",
+        ts: "1234567890.123456",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    // processMessage should have been called (message was dispatched)
+    expect(chatInstance.processMessage).toHaveBeenCalled();
+  });
+
+  it("handleWebhook resolves token for interactive payloads", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.setInstallation("T_INTER_1", {
+      botToken: "xoxb-inter-token",
+    });
+
+    const payload = JSON.stringify({
+      type: "block_actions",
+      team: { id: "T_INTER_1" },
+      user: {
+        id: "U123",
+        username: "testuser",
+        name: "Test User",
+      },
+      container: {
+        type: "message",
+        message_ts: "1234567890.123456",
+        channel_id: "C456",
+      },
+      channel: { id: "C456", name: "general" },
+      message: { ts: "1234567890.123456" },
+      actions: [{ type: "button", action_id: "test_action", value: "v" }],
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+  });
+
+  it("URL verification works without token", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const body = JSON.stringify({
+      type: "url_verification",
+      challenge: "challenge-multi-123",
+    });
+    const request = createWebhookRequest(body, secret);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({ challenge: "challenge-multi-123" });
+  });
+});
+
+// ============================================================================
+// Multi-workspace Mode with Encryption Tests
+// ============================================================================
+
+describe("multi-workspace mode with encryption", () => {
+  const secret = "test-signing-secret";
+  const encryptionKey = randomBytes(32).toString("base64");
+
+  it("setInstallation encrypts token", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      encryptionKey,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    await adapter.setInstallation("T_ENC_1", {
+      botToken: "xoxb-secret-token",
+      botUserId: "U_BOT_E1",
+    });
+
+    // Check raw state value is encrypted (has iv/data/tag, not plaintext)
+    const rawValue = state.cache.get("slack:installation:T_ENC_1") as Record<
+      string,
+      unknown
+    >;
+    expect(rawValue).toBeDefined();
+    const rawToken = rawValue.botToken as Record<string, unknown>;
+    expect(rawToken).toHaveProperty("iv");
+    expect(rawToken).toHaveProperty("data");
+    expect(rawToken).toHaveProperty("tag");
+    // Should NOT contain the plaintext token
+    expect(rawToken).not.toBe("xoxb-secret-token");
+  });
+
+  it("getInstallation decrypts token", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      encryptionKey,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    await adapter.setInstallation("T_ENC_2", {
+      botToken: "xoxb-encrypted-token",
+      teamName: "Encrypted Team",
+    });
+
+    const installation = await adapter.getInstallation("T_ENC_2");
+    expect(installation).not.toBeNull();
+    expect(installation?.botToken).toBe("xoxb-encrypted-token");
+    expect(installation?.teamName).toBe("Encrypted Team");
+  });
+
+  it("invalid encryption key throws at construction", () => {
+    const shortKey = randomBytes(16).toString("base64");
+    expect(() =>
+      createSlackAdapter({
+        signingSecret: secret,
+        logger: mockLogger,
+        encryptionKey: shortKey,
+      }),
+    ).toThrow("Encryption key must decode to exactly 32 bytes");
+  });
+});
+
+// ============================================================================
+// handleOAuthCallback Tests
+// ============================================================================
+
+describe("handleOAuthCallback", () => {
+  const secret = "test-signing-secret";
+
+  it("exchanges code for token and saves installation", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      logger: mockLogger,
+    });
+
+    // Mock the oauth.v2.access call on the internal client
+    const mockClient = (adapter as unknown as { client: { oauth: unknown } })
+      .client;
+    (
+      mockClient as unknown as {
+        oauth: { v2: { access: ReturnType<typeof vi.fn> } };
+      }
+    ).oauth = {
+      v2: {
+        access: vi.fn().mockResolvedValue({
+          ok: true,
+          access_token: "xoxb-oauth-bot-token",
+          bot_user_id: "U_BOT_OAUTH",
+          team: { id: "T_OAUTH_1", name: "OAuth Team" },
+        }),
+      },
+    };
+
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123",
+    );
+    const result = await adapter.handleOAuthCallback(request);
+
+    expect(result.teamId).toBe("T_OAUTH_1");
+    expect(result.installation.botToken).toBe("xoxb-oauth-bot-token");
+    expect(result.installation.botUserId).toBe("U_BOT_OAUTH");
+    expect(result.installation.teamName).toBe("OAuth Team");
+
+    // Verify it was persisted
+    const stored = await adapter.getInstallation("T_OAUTH_1");
+    expect(stored).not.toBeNull();
+    expect(stored?.botToken).toBe("xoxb-oauth-bot-token");
+  });
+
+  it("throws without clientId and clientSecret", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=test",
+    );
+    await expect(adapter.handleOAuthCallback(request)).rejects.toThrow(
+      "clientId and clientSecret are required",
+    );
+  });
+});
+
+// ============================================================================
+// withBotToken Tests
+// ============================================================================
+
+describe("withBotToken", () => {
+  const secret = "test-signing-secret";
+
+  it("sets token for duration of callback", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    let callbackRan = false;
+    await adapter.withBotToken("xoxb-context-token", async () => {
+      callbackRan = true;
+    });
+    expect(callbackRan).toBe(true);
+  });
+
+  it("concurrent calls with different tokens are isolated", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    const tokens: string[] = [];
+
+    await Promise.all([
+      adapter.withBotToken("xoxb-token-A", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        tokens.push("A");
+      }),
+      adapter.withBotToken("xoxb-token-B", async () => {
+        tokens.push("B");
+      }),
+    ]);
+
+    expect(tokens).toContain("A");
+    expect(tokens).toContain("B");
   });
 });

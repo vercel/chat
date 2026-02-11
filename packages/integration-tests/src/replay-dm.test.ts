@@ -169,9 +169,11 @@ describe("DM Replay Tests", () => {
       expect(state.dmThreadId).toContain(slackFixtures.dmChannelId);
 
       // Verify DM was opened
-      expect(mockSlackClient.conversations.open).toHaveBeenCalledWith({
-        users: state.dmRequestMessage?.author.userId,
-      });
+      expect(mockSlackClient.conversations.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          users: state.dmRequestMessage?.author.userId,
+        }),
+      );
 
       // Verify DM message was sent
       expect(mockSlackClient.chat.postMessage).toHaveBeenCalledWith(

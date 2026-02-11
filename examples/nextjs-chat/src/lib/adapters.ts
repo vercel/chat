@@ -118,17 +118,34 @@ export function buildAdapters(): Adapters {
   }
 
   // Slack adapter (optional)
-  if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET) {
-    adapters.slack = withRecording(
-      createSlackAdapter({
-        botToken: process.env.SLACK_BOT_TOKEN,
-        signingSecret: process.env.SLACK_SIGNING_SECRET,
-        userName: "Chat SDK Bot",
-        logger: logger.child("slack"),
-      }),
-      "slack",
-      SLACK_METHODS,
-    );
+  // Multi-workspace mode: use SLACK_CLIENT_ID + SLACK_CLIENT_SECRET (no bot token)
+  // Single-workspace mode: use SLACK_BOT_TOKEN
+  if (process.env.SLACK_SIGNING_SECRET) {
+    if (process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET) {
+      adapters.slack = withRecording(
+        createSlackAdapter({
+          signingSecret: process.env.SLACK_SIGNING_SECRET,
+          clientId: process.env.SLACK_CLIENT_ID,
+          clientSecret: process.env.SLACK_CLIENT_SECRET,
+          encryptionKey: process.env.SLACK_ENCRYPTION_KEY,
+          userName: "Chat SDK Bot",
+          logger: logger.child("slack"),
+        }),
+        "slack",
+        SLACK_METHODS,
+      );
+    } else if (process.env.SLACK_BOT_TOKEN) {
+      adapters.slack = withRecording(
+        createSlackAdapter({
+          botToken: process.env.SLACK_BOT_TOKEN,
+          signingSecret: process.env.SLACK_SIGNING_SECRET,
+          userName: "Chat SDK Bot",
+          logger: logger.child("slack"),
+        }),
+        "slack",
+        SLACK_METHODS,
+      );
+    }
   }
 
   // Teams adapter (optional)

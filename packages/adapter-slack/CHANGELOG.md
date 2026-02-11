@@ -1,5 +1,16 @@
 # @chat-adapter/slack
 
+## 4.9.0
+
+### Minor Changes
+
+- 8979049: Add multi-workspace support. A single Slack adapter instance can now serve multiple workspaces by resolving bot tokens per-request via AsyncLocalStorage. Includes OAuth V2 flow handling, installation management (set/get/delete), optional AES-256-GCM token encryption at rest, and a withBotToken helper for out-of-webhook contexts
+
+### Patch Changes
+
+- chat@4.9.0
+- @chat-adapter/shared@4.9.0
+
 ## 4.8.0
 
 ### Patch Changes

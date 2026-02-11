@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
@@ -39,12 +40,19 @@ import {
   toModalElement,
 } from "chat";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
+import type { EncryptedTokenData } from "./crypto";
+import {
+  decodeKey,
+  decryptToken,
+  encryptToken,
+  isEncryptedTokenData,
+} from "./crypto";
 import { SlackFormatConverter } from "./markdown";
 import { modalToSlackView, type SlackModalResponse } from "./modals";
 
 export interface SlackAdapterConfig {
-  /** Bot token (xoxb-...) */
-  botToken: string;
+  /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
+  botToken?: string;
   /** Signing secret for webhook verification */
   signingSecret: string;
   /** Logger instance for error reporting */
@@ -53,6 +61,22 @@ export interface SlackAdapterConfig {
   userName?: string;
   /** Bot user ID (will be fetched if not provided) */
   botUserId?: string;
+  /**
+   * Base64-encoded 32-byte AES-256-GCM encryption key.
+   * If provided, bot tokens stored via setInstallation() will be encrypted at rest.
+   */
+  encryptionKey?: string;
+  /** Slack app client ID (required for OAuth / multi-workspace) */
+  clientId?: string;
+  /** Slack app client secret (required for OAuth / multi-workspace) */
+  clientSecret?: string;
+}
+
+/** Data stored per Slack workspace installation */
+export interface SlackInstallation {
+  botToken: string;
+  botUserId?: string;
+  teamName?: string;
 }
 
 /** Slack-specific thread ID data */
@@ -197,7 +221,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   private client: WebClient;
   private signingSecret: string;
-  private botToken: string;
+  private defaultBotToken: string | undefined;
   private chat: ChatInstance | null = null;
   private logger: Logger;
   private _botUserId: string | null = null;
@@ -205,27 +229,70 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private formatConverter = new SlackFormatConverter();
   private static USER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+  // Multi-workspace support
+  private clientId: string | undefined;
+  private clientSecret: string | undefined;
+  private encryptionKey: Buffer | undefined;
+  private requestContext = new AsyncLocalStorage<{
+    token: string;
+    botUserId?: string;
+  }>();
+
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
   get botUserId(): string | undefined {
+    const ctx = this.requestContext.getStore();
+    if (ctx?.botUserId) return ctx.botUserId;
     return this._botUserId || undefined;
   }
 
   constructor(config: SlackAdapterConfig) {
     this.client = new WebClient(config.botToken);
     this.signingSecret = config.signingSecret;
-    this.botToken = config.botToken;
+    this.defaultBotToken = config.botToken;
     this.logger = config.logger;
     this.userName = config.userName || "bot";
     this._botUserId = config.botUserId || null;
+
+    this.clientId = config.clientId;
+    this.clientSecret = config.clientSecret;
+
+    if (config.encryptionKey) {
+      this.encryptionKey = decodeKey(config.encryptionKey);
+    }
+  }
+
+  /**
+   * Get the current bot token for API calls.
+   * Checks request context (multi-workspace) → default token (single-workspace) → throws.
+   */
+  private getToken(): string {
+    const ctx = this.requestContext.getStore();
+    if (ctx?.token) return ctx.token;
+    if (this.defaultBotToken) return this.defaultBotToken;
+    throw new ChatError(
+      "No bot token available. In multi-workspace mode, ensure the webhook is being processed.",
+      "MISSING_BOT_TOKEN",
+    );
+  }
+
+  /**
+   * Add the current token to API call options.
+   * Workaround for Slack WebClient types not including `token` in per-method args.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: Slack types don't include token in method args
+  private withToken<T extends Record<string, any>>(
+    options: T,
+  ): T & { token: string } {
+    return { ...options, token: this.getToken() };
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
 
-    // Fetch bot user ID and bot ID if not provided
-    if (!this._botUserId) {
+    // Only fetch bot user ID in single-workspace mode (when default token is available)
+    if (this.defaultBotToken && !this._botUserId) {
       try {
-        const authResult = await this.client.auth.test();
+        const authResult = await this.client.auth.test(this.withToken({}));
         this._botUserId = authResult.user_id as string;
         this._botId = (authResult.bot_id as string) || null;
         if (authResult.user) {
@@ -238,6 +305,205 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } catch (error) {
         this.logger.warn("Could not fetch bot user ID", { error });
       }
+    }
+
+    if (!this.defaultBotToken) {
+      this.logger.info("Slack adapter initialized in multi-workspace mode");
+    }
+  }
+
+  // ===========================================================================
+  // Multi-workspace installation management
+  // ===========================================================================
+
+  private installationKey(teamId: string): string {
+    return `slack:installation:${teamId}`;
+  }
+
+  /**
+   * Save a Slack workspace installation.
+   * Call this from your OAuth callback route after a successful installation.
+   */
+  async setInstallation(
+    teamId: string,
+    installation: SlackInstallation,
+  ): Promise<void> {
+    if (!this.chat) {
+      throw new ChatError(
+        "Adapter not initialized. Ensure chat.initialize() has been called first.",
+        "NOT_INITIALIZED",
+      );
+    }
+
+    const state = this.chat.getState();
+    const key = this.installationKey(teamId);
+
+    const dataToStore = this.encryptionKey
+      ? {
+          ...installation,
+          botToken: encryptToken(installation.botToken, this.encryptionKey),
+        }
+      : installation;
+
+    await state.set(key, dataToStore);
+    this.logger.info("Slack installation saved", {
+      teamId,
+      teamName: installation.teamName,
+    });
+  }
+
+  /**
+   * Retrieve a Slack workspace installation.
+   */
+  async getInstallation(teamId: string): Promise<SlackInstallation | null> {
+    if (!this.chat) {
+      throw new ChatError(
+        "Adapter not initialized. Ensure chat.initialize() has been called first.",
+        "NOT_INITIALIZED",
+      );
+    }
+
+    const state = this.chat.getState();
+    const key = this.installationKey(teamId);
+    const stored = await state.get<
+      | SlackInstallation
+      | (Omit<SlackInstallation, "botToken"> & {
+          botToken: EncryptedTokenData;
+        })
+    >(key);
+
+    if (!stored) return null;
+
+    if (this.encryptionKey && isEncryptedTokenData(stored.botToken)) {
+      return {
+        ...stored,
+        botToken: decryptToken(
+          stored.botToken as EncryptedTokenData,
+          this.encryptionKey,
+        ),
+      };
+    }
+
+    return stored as SlackInstallation;
+  }
+
+  /**
+   * Handle the Slack OAuth V2 callback.
+   * Accepts the incoming request, extracts the authorization code,
+   * exchanges it for tokens, and saves the installation.
+   */
+  async handleOAuthCallback(
+    request: Request,
+  ): Promise<{ teamId: string; installation: SlackInstallation }> {
+    if (!this.clientId || !this.clientSecret) {
+      throw new ChatError(
+        "clientId and clientSecret are required for OAuth. Pass them in createSlackAdapter().",
+        "MISSING_OAUTH_CONFIG",
+      );
+    }
+
+    const url = new URL(request.url);
+    const code = url.searchParams.get("code");
+    if (!code) {
+      throw new ChatError(
+        "Missing 'code' query parameter in OAuth callback request.",
+        "MISSING_OAUTH_CODE",
+      );
+    }
+
+    const redirectUri = url.searchParams.get("redirect_uri") ?? undefined;
+
+    const result = await this.client.oauth.v2.access({
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      code,
+      redirect_uri: redirectUri,
+    });
+
+    if (!result.ok || !result.access_token || !result.team?.id) {
+      throw new ChatError(
+        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`,
+        "OAUTH_FAILED",
+      );
+    }
+
+    const teamId = result.team.id;
+    const installation: SlackInstallation = {
+      botToken: result.access_token,
+      botUserId: result.bot_user_id,
+      teamName: result.team.name,
+    };
+
+    await this.setInstallation(teamId, installation);
+
+    return { teamId, installation };
+  }
+
+  /**
+   * Remove a Slack workspace installation.
+   */
+  async deleteInstallation(teamId: string): Promise<void> {
+    if (!this.chat) {
+      throw new ChatError(
+        "Adapter not initialized. Ensure chat.initialize() has been called first.",
+        "NOT_INITIALIZED",
+      );
+    }
+
+    const state = this.chat.getState();
+    await state.delete(this.installationKey(teamId));
+    this.logger.info("Slack installation deleted", { teamId });
+  }
+
+  /**
+   * Run a function with a specific bot token in context.
+   * Use this for operations outside webhook handling (cron jobs, workflows).
+   */
+  withBotToken<T>(token: string, fn: () => T): T {
+    return this.requestContext.run({ token }, fn);
+  }
+
+  // ===========================================================================
+  // Private helpers
+  // ===========================================================================
+
+  /**
+   * Resolve the bot token for a team from the state adapter.
+   */
+  private async resolveTokenForTeam(
+    teamId: string,
+  ): Promise<{ token: string; botUserId?: string } | null> {
+    try {
+      const installation = await this.getInstallation(teamId);
+      if (installation) {
+        return {
+          token: installation.botToken,
+          botUserId: installation.botUserId,
+        };
+      }
+      this.logger.warn("No installation found for team", { teamId });
+      return null;
+    } catch (error) {
+      this.logger.error("Failed to resolve token for team", {
+        teamId,
+        error,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Extract team_id from an interactive payload (form-urlencoded).
+   */
+  private extractTeamIdFromInteractive(body: string): string | null {
+    try {
+      const params = new URLSearchParams(body);
+      const payloadStr = params.get("payload");
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return payload.team?.id || payload.team_id || null;
+    } catch {
+      return null;
     }
   }
 
@@ -259,7 +525,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      const result = await this.client.users.info({ user: userId });
+      const result = await this.client.users.info(
+        this.withToken({ user: userId }),
+      );
       const user = result.user as {
         name?: string;
         real_name?: string;
@@ -318,6 +586,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Check if this is a form-urlencoded interactive payload
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("application/x-www-form-urlencoded")) {
+      // In multi-workspace mode, resolve token before processing
+      if (!this.defaultBotToken) {
+        const teamId = this.extractTeamIdFromInteractive(body);
+        if (teamId) {
+          const ctx = await this.resolveTokenForTeam(teamId);
+          if (ctx) {
+            return this.requestContext.run(ctx, () =>
+              this.handleInteractivePayload(body, options),
+            );
+          }
+        }
+        this.logger.warn("Could not resolve token for interactive payload");
+      }
       return this.handleInteractivePayload(body, options);
     }
 
@@ -329,19 +610,42 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return new Response("Invalid JSON", { status: 400 });
     }
 
-    // Handle URL verification challenge
+    // Handle URL verification challenge (no token needed)
     if (payload.type === "url_verification" && payload.challenge) {
       return new Response(JSON.stringify({ challenge: payload.challenge }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // Handle events
+    // In multi-workspace mode, resolve token from team_id before processing events
+    if (!this.defaultBotToken && payload.type === "event_callback") {
+      const teamId = payload.team_id;
+      if (teamId) {
+        const ctx = await this.resolveTokenForTeam(teamId);
+        if (ctx) {
+          return this.requestContext.run(ctx, () => {
+            this.processEventPayload(payload, options);
+            return new Response("ok", { status: 200 });
+          });
+        }
+        this.logger.warn("Could not resolve token for team", { teamId });
+        return new Response("ok", { status: 200 });
+      }
+    }
+
+    // Single-workspace mode or fallback
+    this.processEventPayload(payload, options);
+    return new Response("ok", { status: 200 });
+  }
+
+  /** Extract and dispatch events from a validated payload */
+  private processEventPayload(
+    payload: SlackWebhookPayload,
+    options?: WebhookOptions,
+  ): void {
     if (payload.type === "event_callback" && payload.event) {
-      // Respond immediately to avoid timeout
       const event = payload.event;
 
-      // Process event asynchronously
       if (event.type === "message" || event.type === "app_mention") {
         const slackEvent = event as SlackEvent;
         if (!slackEvent.team && !slackEvent.team_id && payload.team_id) {
@@ -355,8 +659,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         this.handleReactionEvent(event as SlackReactionEvent, options);
       }
     }
-
-    return new Response("ok", { status: 200 });
   }
 
   /**
@@ -701,8 +1003,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const rawEmoji = event.reaction;
     const normalizedEmoji = defaultEmojiResolver.fromSlack(rawEmoji);
 
-    // Check if reaction is from this bot
+    // Check if reaction is from this bot (check request context for multi-workspace)
+    const ctx = this.requestContext.getStore();
     const isMe =
+      (ctx?.botUserId && event.user === ctx.botUserId) ||
       (this._botUserId !== null && event.user === this._botUserId) ||
       (this._botId !== null && event.user === this._botId);
 
@@ -787,7 +1091,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     original_h?: number;
   }): Attachment {
     const url = file.url_private;
-    const botToken = this.botToken;
+    // Capture token at attachment creation time (during webhook processing context)
+    const botToken = this.getToken();
 
     // Determine type based on mimetype
     let type: Attachment["type"] = "file";
@@ -872,14 +1177,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.postMessage({
-          channel,
-          thread_ts: threadTs,
-          text: fallbackText, // Fallback for notifications
-          blocks,
-          unfurl_links: false,
-          unfurl_media: false,
-        });
+        const result = await this.client.chat.postMessage(
+          this.withToken({
+            channel,
+            thread_ts: threadTs,
+            text: fallbackText, // Fallback for notifications
+            blocks,
+            unfurl_links: false,
+            unfurl_media: false,
+          }),
+        );
 
         this.logger.debug("Slack API: chat.postMessage response", {
           messageId: result.ts,
@@ -905,13 +1212,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         textLength: text.length,
       });
 
-      const result = await this.client.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        text,
-        unfurl_links: false,
-        unfurl_media: false,
-      });
+      const result = await this.client.chat.postMessage(
+        this.withToken({
+          channel,
+          thread_ts: threadTs,
+          text,
+          unfurl_links: false,
+          unfurl_media: false,
+        }),
+      );
 
       this.logger.debug("Slack API: chat.postMessage response", {
         messageId: result.ts,
@@ -951,13 +1260,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.postEphemeral({
-          channel,
-          thread_ts: threadTs || undefined,
-          user: userId,
-          text: fallbackText,
-          blocks,
-        });
+        const result = await this.client.chat.postEphemeral(
+          this.withToken({
+            channel,
+            thread_ts: threadTs || undefined,
+            user: userId,
+            text: fallbackText,
+            blocks,
+          }),
+        );
 
         this.logger.debug("Slack API: chat.postEphemeral response", {
           messageTs: result.message_ts,
@@ -985,12 +1296,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         textLength: text.length,
       });
 
-      const result = await this.client.chat.postEphemeral({
-        channel,
-        thread_ts: threadTs || undefined,
-        user: userId,
-        text,
-      });
+      const result = await this.client.chat.postEphemeral(
+        this.withToken({
+          channel,
+          thread_ts: threadTs || undefined,
+          user: userId,
+          text,
+        }),
+      );
 
       this.logger.debug("Slack API: chat.postEphemeral response", {
         messageTs: result.message_ts,
@@ -1021,10 +1334,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     try {
-      const result = await this.client.views.open({
-        trigger_id: triggerId,
-        view,
-      });
+      const result = await this.client.views.open(
+        this.withToken({
+          trigger_id: triggerId,
+          view,
+        }),
+      );
 
       this.logger.debug("Slack API: views.open response", {
         viewId: result.view?.id,
@@ -1049,10 +1364,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     try {
-      const result = await this.client.views.update({
-        view_id: viewId,
-        view,
-      });
+      const result = await this.client.views.update(
+        this.withToken({
+          view_id: viewId,
+          view,
+        }),
+      );
 
       this.logger.debug("Slack API: views.update response", {
         viewId: result.view?.id,
@@ -1100,6 +1417,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           uploadArgs.thread_ts = threadTs;
         }
 
+        uploadArgs.token = this.getToken();
         const result = (await this.client.files.uploadV2(uploadArgs)) as {
           ok: boolean;
           files?: Array<{ id?: string }>;
@@ -1151,12 +1469,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.update({
-          channel,
-          ts: messageId,
-          text: fallbackText,
-          blocks,
-        });
+        const result = await this.client.chat.update(
+          this.withToken({
+            channel,
+            ts: messageId,
+            text: fallbackText,
+            blocks,
+          }),
+        );
 
         this.logger.debug("Slack API: chat.update response", {
           messageId: result.ts,
@@ -1182,11 +1502,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         textLength: text.length,
       });
 
-      const result = await this.client.chat.update({
-        channel,
-        ts: messageId,
-        text,
-      });
+      const result = await this.client.chat.update(
+        this.withToken({
+          channel,
+          ts: messageId,
+          text,
+        }),
+      );
 
       this.logger.debug("Slack API: chat.update response", {
         messageId: result.ts,
@@ -1209,10 +1531,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: chat.delete", { channel, messageId });
 
-      await this.client.chat.delete({
-        channel,
-        ts: messageId,
-      });
+      await this.client.chat.delete(
+        this.withToken({
+          channel,
+          ts: messageId,
+        }),
+      );
 
       this.logger.debug("Slack API: chat.delete response", { ok: true });
     } catch (error) {
@@ -1237,11 +1561,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         emoji: name,
       });
 
-      await this.client.reactions.add({
-        channel,
-        timestamp: messageId,
-        name,
-      });
+      await this.client.reactions.add(
+        this.withToken({
+          channel,
+          timestamp: messageId,
+          name,
+        }),
+      );
 
       this.logger.debug("Slack API: reactions.add response", { ok: true });
     } catch (error) {
@@ -1266,11 +1592,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         emoji: name,
       });
 
-      await this.client.reactions.remove({
-        channel,
-        timestamp: messageId,
-        name,
-      });
+      await this.client.reactions.remove(
+        this.withToken({
+          channel,
+          timestamp: messageId,
+          name,
+        }),
+      );
 
       this.logger.debug("Slack API: reactions.remove response", { ok: true });
     } catch (error) {
@@ -1302,6 +1630,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
+    const token = this.getToken();
     const streamer = this.client.chatStream({
       channel,
       thread_ts: threadTs,
@@ -1309,8 +1638,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       recipient_team_id: options.recipientTeamId,
     });
 
+    let first = true;
     for await (const chunk of textStream) {
-      await streamer.append({ markdown_text: chunk });
+      if (first) {
+        // Pass token on first append so the streamer uses it for all subsequent calls
+        // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
+        await streamer.append({ markdown_text: chunk, token } as any);
+        first = false;
+      } else {
+        await streamer.append({ markdown_text: chunk });
+      }
     }
     const result = await streamer.stop();
     const messageTs = (result.message?.ts ?? result.ts) as string;
@@ -1332,7 +1669,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: conversations.open", { userId });
 
-      const result = await this.client.conversations.open({ users: userId });
+      const result = await this.client.conversations.open(
+        this.withToken({ users: userId }),
+      );
 
       if (!result.channel?.id) {
         throw new NetworkError(
@@ -1410,12 +1749,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       cursor,
     });
 
-    const result = await this.client.conversations.replies({
-      channel,
-      ts: threadTs,
-      limit,
-      cursor,
-    });
+    const result = await this.client.conversations.replies(
+      this.withToken({
+        channel,
+        ts: threadTs,
+        limit,
+        cursor,
+      }),
+    );
 
     const slackMessages = (result.messages || []) as SlackEvent[];
     const nextCursor = (
@@ -1471,13 +1812,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Slack API max is 1000 messages per request
     const fetchLimit = Math.min(1000, Math.max(limit * 2, 200));
 
-    const result = await this.client.conversations.replies({
-      channel,
-      ts: threadTs,
-      limit: fetchLimit,
-      latest,
-      inclusive: false, // Don't include the cursor message itself
-    });
+    const result = await this.client.conversations.replies(
+      this.withToken({
+        channel,
+        ts: threadTs,
+        limit: fetchLimit,
+        latest,
+        inclusive: false, // Don't include the cursor message itself
+      }),
+    );
 
     const slackMessages = (result.messages || []) as SlackEvent[];
 
@@ -1520,7 +1863,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: conversations.info", { channel });
 
-      const result = await this.client.conversations.info({ channel });
+      const result = await this.client.conversations.info(
+        this.withToken({ channel }),
+      );
       const channelInfo = result.channel as { name?: string } | undefined;
 
       this.logger.debug("Slack API: conversations.info response", {
@@ -1552,13 +1897,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
 
     try {
-      const result = await this.client.conversations.replies({
-        channel,
-        ts: threadTs,
-        oldest: messageId,
-        inclusive: true,
-        limit: 1,
-      });
+      const result = await this.client.conversations.replies(
+        this.withToken({
+          channel,
+          ts: threadTs,
+          oldest: messageId,
+          inclusive: true,
+          limit: 1,
+        }),
+      );
 
       const messages = (result.messages || []) as SlackEvent[];
       const target = messages.find((msg) => msg.ts === messageId);
@@ -1665,6 +2012,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * - _botId is the bot ID (B_xxx) - matches event.bot_id
    */
   private isMessageFromSelf(event: SlackEvent): boolean {
+    // Check request context first (multi-workspace)
+    const ctx = this.requestContext.getStore();
+    if (ctx?.botUserId && event.user === ctx.botUserId) {
+      return true;
+    }
+
     // Primary check: user ID match (for messages sent as the bot user)
     if (this._botUserId && event.user === this._botUserId) {
       return true;
@@ -1697,6 +2050,9 @@ export function createSlackAdapter(config: SlackAdapterConfig): SlackAdapter {
 
 // Re-export card converter for advanced use
 export { cardToBlockKit, cardToFallbackText } from "./cards";
+export type { EncryptedTokenData } from "./crypto";
+// Re-export crypto utilities for advanced use
+export { decodeKey } from "./crypto";
 // Re-export format converter for advanced use
 export {
   SlackFormatConverter,

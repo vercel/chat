@@ -107,12 +107,14 @@ describe("fetchMessages Replay Tests - Slack", () => {
     });
 
     // Forward direction: uses requested limit, native cursor pagination
-    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith({
-      channel: SLACK_CHANNEL,
-      ts: SLACK_THREAD_TS,
-      limit: 25,
-      cursor: undefined,
-    });
+    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: SLACK_CHANNEL,
+        ts: SLACK_THREAD_TS,
+        limit: 25,
+        cursor: undefined,
+      }),
+    );
   });
 
   it("should call API with correct params for backward direction", async () => {
@@ -123,13 +125,15 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     // Backward direction: uses larger batch size min(1000, max(limit*2, 200))
     // For limit=50: min(1000, max(100, 200)) = 200
-    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith({
-      channel: SLACK_CHANNEL,
-      ts: SLACK_THREAD_TS,
-      limit: 200,
-      latest: undefined,
-      inclusive: false,
-    });
+    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: SLACK_CHANNEL,
+        ts: SLACK_THREAD_TS,
+        limit: 200,
+        latest: undefined,
+        inclusive: false,
+      }),
+    );
   });
 
   it("should return all messages in chronological order", async () => {
@@ -350,11 +354,13 @@ describe("allMessages Replay Tests - Slack", () => {
     }
 
     // allMessages uses forward direction with limit 100
-    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith({
-      channel: SLACK_CHANNEL,
-      ts: SLACK_THREAD_TS,
-      limit: 100,
-      cursor: undefined,
-    });
+    expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: SLACK_CHANNEL,
+        ts: SLACK_THREAD_TS,
+        limit: 100,
+        cursor: undefined,
+      }),
+    );
   });
 });
