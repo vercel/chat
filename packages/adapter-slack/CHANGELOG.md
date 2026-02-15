@@ -1,5 +1,14 @@
 # @chat-adapter/slack
 
+## 4.10.1
+
+### Patch Changes
+
+- c99b183: Added support for creating modals from ephemeral messages.
+- Updated dependencies [c99b183]
+  - chat@4.10.1
+  - @chat-adapter/shared@4.10.1
+
 ## 4.10.0
 
 ### Minor Changes

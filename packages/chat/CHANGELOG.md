@@ -1,5 +1,11 @@
 # chat
 
+## 4.10.1
+
+### Patch Changes
+
+- c99b183: Added support for creating modals from ephemeral messages.
+
 ## 4.10.0
 
 ### Minor Changes

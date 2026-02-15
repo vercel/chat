@@ -1,5 +1,13 @@
 # @chat-adapter/linear
 
+## 4.10.1
+
+### Patch Changes
+
+- Updated dependencies [c99b183]
+  - chat@4.10.1
+  - @chat-adapter/shared@4.10.1
+
 ## 4.10.0
 
 ### Patch Changes
