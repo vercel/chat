@@ -950,10 +950,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs, each top-level message starts a new thread (same model as channels).
-    // Thread replies use thread_ts to stay in the same conversation.
+    // For DMs: top-level messages use empty threadTs (matches openDM subscriptions),
+    // thread replies use thread_ts for per-conversation isolation.
+    // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
-    const threadTs = event.thread_ts || event.ts;
+    const threadTs = isDM
+      ? (event.thread_ts || "")
+      : (event.thread_ts || event.ts);
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,

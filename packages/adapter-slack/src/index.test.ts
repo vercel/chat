@@ -1281,7 +1281,7 @@ describe("withBotToken", () => {
 describe("DM message handling", () => {
   const secret = "test-signing-secret";
 
-  it("DM messages use per-message threadTs (not empty)", async () => {
+  it("top-level DM messages use empty threadTs (matches openDM subscriptions)", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);
     const adapter = createSlackAdapter({
@@ -1308,7 +1308,7 @@ describe("DM message handling", () => {
 
     expect(chatInstance.processMessage).toHaveBeenCalledWith(
       adapter,
-      "slack:D_DM_CHAN:1234567890.111111",
+      "slack:D_DM_CHAN:",
       expect.any(Function),
       undefined,
     );
