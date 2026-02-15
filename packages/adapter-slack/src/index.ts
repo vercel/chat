@@ -954,9 +954,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // thread replies use thread_ts for per-conversation isolation.
     // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
-    const threadTs = isDM
-      ? (event.thread_ts || "")
-      : (event.thread_ts || event.ts);
+    const threadTs = isDM ? event.thread_ts || "" : event.thread_ts || event.ts;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
