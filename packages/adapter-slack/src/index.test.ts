@@ -1273,3 +1273,143 @@ describe("withBotToken", () => {
     expect(tokens).toContain("B");
   });
 });
+
+// ============================================================================
+// DM Message Handling Tests
+// ============================================================================
+
+describe("DM message handling", () => {
+  const secret = "test-signing-secret";
+
+  it("DM messages use per-message threadTs (not empty)", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "D_DM_CHAN",
+        channel_type: "im",
+        text: "hello from DM",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:D_DM_CHAN:1234567890.111111",
+      expect.any(Function),
+      undefined,
+    );
+  });
+
+  it("DM thread replies use parent thread_ts", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "D_DM_CHAN",
+        channel_type: "im",
+        text: "reply in DM thread",
+        ts: "1234567890.222222",
+        thread_ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:D_DM_CHAN:1234567890.111111",
+      expect.any(Function),
+      undefined,
+    );
+  });
+
+  it("DM messages have isMention set to true", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    // Capture the factory function to invoke it
+    chatInstance.processMessage = vi.fn();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "D_DM_CHAN",
+        channel_type: "im",
+        text: "hello from DM",
+        ts: "1234567890.333333",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    // Get the factory function passed to processMessage
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+    expect(message.isMention).toBe(true);
+  });
+
+  it("channel messages do NOT have isMention auto-set", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    chatInstance.processMessage = vi.fn();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "C_CHANNEL",
+        text: "hello from channel",
+        ts: "1234567890.444444",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+    expect(message.isMention).toBeUndefined();
+  });
+});

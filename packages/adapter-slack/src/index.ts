@@ -950,11 +950,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs (channel_type: "im"), use empty threadTs so all messages in the DM
-    // match the DM subscription created by openDM(). This treats the entire DM
-    // conversation as a single "thread" for subscription purposes.
+    // For DMs, each top-level message starts a new thread (same model as channels).
+    // Thread replies use thread_ts to stay in the same conversation.
     const isDM = event.channel_type === "im";
-    const threadTs = isDM ? "" : event.thread_ts || event.ts;
+    const threadTs = event.thread_ts || event.ts;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -965,7 +964,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.chat.processMessage(
       this,
       threadId,
-      () => this.parseSlackMessage(event, threadId),
+      async () => {
+        const msg = await this.parseSlackMessage(event, threadId);
+        // In DMs, all messages are implicitly directed at the bot
+        if (isDM) msg.isMention = true;
+        return msg;
+      },
       options,
     );
   }
