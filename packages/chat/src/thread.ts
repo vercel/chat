@@ -1,6 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
 import { cardToFallbackText } from "./cards";
+import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
 import { type CardJSXElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
@@ -16,6 +17,7 @@ import type {
   AdapterPostableMessage,
   Attachment,
   Author,
+  Channel,
   EphemeralMessage,
   PostableMessage,
   PostEphemeralOptions,
@@ -106,6 +108,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private _currentMessage?: Message;
   /** Update interval for fallback streaming */
   private _streamingUpdateIntervalMs: number;
+  /** Cached channel instance */
+  private _channel?: Channel<TState>;
 
   constructor(config: ThreadImplConfig) {
     this.id = config.id;
@@ -208,6 +212,58 @@ export class ThreadImpl<TState = Record<string, unknown>>
       const merged = { ...existing, ...newState };
       await this._stateAdapter.set(key, merged, THREAD_STATE_TTL_MS);
     }
+  }
+
+  /**
+   * Get the Channel containing this thread.
+   * Lazy-created and cached.
+   */
+  get channel(): Channel<TState> {
+    if (!this._channel) {
+      const channelId = deriveChannelId(this.adapter, this.id);
+      this._channel = new ChannelImpl<TState>({
+        id: channelId,
+        adapter: this.adapter,
+        stateAdapter: this._stateAdapter,
+        isDM: this.isDM,
+      });
+    }
+    return this._channel;
+  }
+
+  /**
+   * Iterate messages newest first (backward from most recent).
+   * Auto-paginates lazily.
+   */
+  get messages(): AsyncIterable<Message> {
+    const adapter = this.adapter;
+    const threadId = this.id;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        let cursor: string | undefined;
+
+        while (true) {
+          const result = await adapter.fetchMessages(threadId, {
+            cursor,
+            direction: "backward",
+          });
+
+          // Messages within a page are chronological (oldest first),
+          // but we want newest first, so reverse the page
+          const reversed = [...result.messages].reverse();
+          for (const message of reversed) {
+            yield message;
+          }
+
+          if (!result.nextCursor || result.messages.length === 0) {
+            break;
+          }
+
+          cursor = result.nextCursor;
+        }
+      },
+    };
   }
 
   get allMessages(): AsyncIterable<Message> {

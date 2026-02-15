@@ -14,6 +14,7 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
@@ -21,6 +22,8 @@ import type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   ModalElement,
   ModalResponse,
@@ -28,6 +31,7 @@ import type {
   ReactionEvent,
   StreamOptions,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
 } from "chat";
 
@@ -115,6 +119,10 @@ export interface SlackEvent {
   }>;
   team?: string;
   team_id?: string;
+  /** Number of replies in the thread (present on thread parent messages) */
+  reply_count?: number;
+  /** Timestamp of the latest reply (present on thread parent messages) */
+  latest_reply?: string;
 }
 
 /** Slack reaction event payload */
@@ -2051,6 +2059,286 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         this.createAttachment(file),
       ),
     });
+  }
+
+  // =========================================================================
+  // Channel-level methods
+  // =========================================================================
+
+  /**
+   * Derive channel ID from a Slack thread ID.
+   * Slack thread IDs are "slack:CHANNEL:THREAD_TS", channel ID is "slack:CHANNEL".
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { channel } = this.decodeThreadId(threadId);
+    return `slack:${channel}`;
+  }
+
+  /**
+   * Fetch channel-level messages (conversations.history, not thread replies).
+   */
+  async fetchChannelMessages(
+    channelId: string,
+    options: FetchOptions = {},
+  ): Promise<FetchResult<unknown>> {
+    // Channel ID format: "slack:CHANNEL"
+    const channel = channelId.split(":")[1];
+    if (!channel) {
+      throw new ValidationError(
+        "slack",
+        `Invalid Slack channel ID: ${channelId}`,
+      );
+    }
+
+    const direction = options.direction ?? "backward";
+    const limit = options.limit || 100;
+
+    try {
+      if (direction === "forward") {
+        return await this.fetchChannelMessagesForward(
+          channel,
+          limit,
+          options.cursor,
+        );
+      }
+      return await this.fetchChannelMessagesBackward(
+        channel,
+        limit,
+        options.cursor,
+      );
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  private async fetchChannelMessagesForward(
+    channel: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("Slack API: conversations.history (forward)", {
+      channel,
+      limit,
+      cursor,
+    });
+
+    const result = await this.client.conversations.history(
+      this.withToken({
+        channel,
+        limit,
+        oldest: cursor,
+        inclusive: cursor ? false : undefined,
+      }),
+    );
+
+    const slackMessages = ((result.messages || []) as SlackEvent[]).reverse(); // Slack returns newest-first, we want oldest-first
+
+    const messages = await Promise.all(
+      slackMessages.map((msg) => {
+        const threadTs = msg.thread_ts || msg.ts || "";
+        const threadId = `slack:${channel}:${threadTs}`;
+        return this.parseSlackMessage(msg, threadId);
+      }),
+    );
+
+    // For forward pagination, cursor points to newer messages
+    let nextCursor: string | undefined;
+    if (result.has_more && slackMessages.length > 0) {
+      const newest = slackMessages[slackMessages.length - 1];
+      if (newest?.ts) {
+        nextCursor = newest.ts;
+      }
+    }
+
+    return {
+      messages,
+      nextCursor,
+    };
+  }
+
+  private async fetchChannelMessagesBackward(
+    channel: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("Slack API: conversations.history (backward)", {
+      channel,
+      limit,
+      cursor,
+    });
+
+    const result = await this.client.conversations.history(
+      this.withToken({
+        channel,
+        limit,
+        latest: cursor,
+        inclusive: cursor ? false : undefined,
+      }),
+    );
+
+    const slackMessages = (result.messages || []) as SlackEvent[];
+    // Slack returns newest-first for conversations.history; reverse for chronological
+    const chronological = [...slackMessages].reverse();
+
+    const messages = await Promise.all(
+      chronological.map((msg) => {
+        const threadTs = msg.thread_ts || msg.ts || "";
+        const threadId = `slack:${channel}:${threadTs}`;
+        return this.parseSlackMessage(msg, threadId);
+      }),
+    );
+
+    // For backward pagination, cursor points to older messages
+    let nextCursor: string | undefined;
+    if (result.has_more && chronological.length > 0) {
+      const oldest = chronological[0];
+      if (oldest?.ts) {
+        nextCursor = oldest.ts;
+      }
+    }
+
+    return {
+      messages,
+      nextCursor,
+    };
+  }
+
+  /**
+   * List threads in a Slack channel.
+   * Fetches channel history and filters for messages with replies.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {},
+  ): Promise<ListThreadsResult<unknown>> {
+    const channel = channelId.split(":")[1];
+    if (!channel) {
+      throw new ValidationError(
+        "slack",
+        `Invalid Slack channel ID: ${channelId}`,
+      );
+    }
+
+    const limit = options.limit || 50;
+
+    try {
+      this.logger.debug("Slack API: conversations.history (listThreads)", {
+        channel,
+        limit,
+        cursor: options.cursor,
+      });
+
+      const result = await this.client.conversations.history(
+        this.withToken({
+          channel,
+          limit: Math.min(limit * 3, 200), // Fetch extra since not all have threads
+          cursor: options.cursor,
+        }),
+      );
+
+      const slackMessages = (result.messages || []) as SlackEvent[];
+
+      // Filter messages that have replies (they are thread parents)
+      const threadMessages = slackMessages.filter(
+        (msg) => (msg.reply_count ?? 0) > 0,
+      );
+
+      // Take up to `limit` threads
+      const selected = threadMessages.slice(0, limit);
+
+      const threads: ThreadSummary[] = await Promise.all(
+        selected.map(async (msg) => {
+          const threadTs = msg.ts || "";
+          const threadId = `slack:${channel}:${threadTs}`;
+          const rootMessage = await this.parseSlackMessage(msg, threadId);
+
+          return {
+            id: threadId,
+            rootMessage,
+            replyCount: msg.reply_count,
+            lastReplyAt: msg.latest_reply
+              ? new Date(Number.parseFloat(msg.latest_reply) * 1000)
+              : undefined,
+          };
+        }),
+      );
+
+      const nextCursor = (
+        result as { response_metadata?: { next_cursor?: string } }
+      ).response_metadata?.next_cursor;
+
+      return {
+        threads,
+        nextCursor: nextCursor || undefined,
+      };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  /**
+   * Fetch Slack channel info/metadata.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    const channel = channelId.split(":")[1];
+    if (!channel) {
+      throw new ValidationError(
+        "slack",
+        `Invalid Slack channel ID: ${channelId}`,
+      );
+    }
+
+    try {
+      this.logger.debug("Slack API: conversations.info (channel)", { channel });
+
+      const result = await this.client.conversations.info(
+        this.withToken({ channel }),
+      );
+
+      const info = result.channel as {
+        id?: string;
+        name?: string;
+        is_im?: boolean;
+        is_mpim?: boolean;
+        num_members?: number;
+        purpose?: { value?: string };
+        topic?: { value?: string };
+      };
+
+      return {
+        id: channelId,
+        name: info?.name ? `#${info.name}` : undefined,
+        isDM: info?.is_im || info?.is_mpim || false,
+        memberCount: info?.num_members,
+        metadata: {
+          purpose: info?.purpose?.value,
+          topic: info?.topic?.value,
+        },
+      };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  /**
+   * Post a top-level message to a channel (not in a thread).
+   */
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage,
+  ): Promise<RawMessage<unknown>> {
+    const channel = channelId.split(":")[1];
+    if (!channel) {
+      throw new ValidationError(
+        "slack",
+        `Invalid Slack channel ID: ${channelId}`,
+      );
+    }
+
+    // Use the existing postMessage logic but with no threadTs
+    // Build a synthetic thread ID with empty threadTs
+    const syntheticThreadId = `slack:${channel}:`;
+    return this.postMessage(syntheticThreadId, message);
   }
 
   renderFormatted(content: FormattedContent): string {

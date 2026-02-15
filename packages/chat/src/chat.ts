@@ -1,3 +1,4 @@
+import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
   getChatSingleton,
   hasChatSingleton,
@@ -12,6 +13,7 @@ import type {
   ActionHandler,
   Adapter,
   Author,
+  Channel,
   ChatConfig,
   ChatInstance,
   EmojiValue,
@@ -535,6 +537,9 @@ export class Chat<
         if (typed._type === "chat:Thread") {
           return ThreadImpl.fromJSON(value as SerializedThread);
         }
+        if (typed._type === "chat:Channel") {
+          return ChannelImpl.fromJSON(value as SerializedChannel);
+        }
         if (typed._type === "chat:Message") {
           return Message.fromJSON(value as SerializedMessage);
         }
@@ -1014,6 +1019,56 @@ export class Chat<
 
     const threadId = await adapter.openDM(userId);
     return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
+   * Get a Channel by its channel ID.
+   *
+   * The adapter is automatically inferred from the channel ID prefix.
+   *
+   * @param channelId - Channel ID (e.g., "slack:C123ABC", "gchat:spaces/ABC123")
+   * @returns A Channel that can be used to list threads, post messages, iterate messages, etc.
+   *
+   * @example
+   * ```typescript
+   * const channel = chat.channel("slack:C123ABC");
+   *
+   * // Iterate messages newest first
+   * for await (const msg of channel.messages) {
+   *   console.log(msg.text);
+   * }
+   *
+   * // List threads
+   * for await (const t of channel.threads()) {
+   *   console.log(t.rootMessage.text, t.replyCount);
+   * }
+   *
+   * // Post to channel
+   * await channel.post("Hello channel!");
+   * ```
+   */
+  channel(channelId: string): Channel<TState> {
+    const adapterName = channelId.split(":")[0];
+    if (!adapterName) {
+      throw new ChatError(
+        `Invalid channel ID: ${channelId}`,
+        "INVALID_CHANNEL_ID",
+      );
+    }
+
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${adapterName}" not found for channel ID "${channelId}"`,
+        "ADAPTER_NOT_FOUND",
+      );
+    }
+
+    return new ChannelImpl<TState>({
+      id: channelId,
+      adapter,
+      stateAdapter: this._stateAdapter,
+    });
   }
 
   /**

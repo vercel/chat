@@ -1,4 +1,10 @@
 // Main exports
+
+export {
+  ChannelImpl,
+  deriveChannelId,
+  type SerializedChannel,
+} from "./channel";
 export { Chat } from "./chat";
 export {
   Message,
@@ -190,6 +196,8 @@ export type {
   AdapterPostableMessage,
   Attachment,
   Author,
+  Channel,
+  ChannelInfo,
   ChatConfig,
   ChatInstance,
   CustomEmojiMap,
@@ -202,6 +210,8 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Lock,
   Logger,
   LogLevel,
@@ -217,6 +227,7 @@ export type {
   ModalSubmitEvent,
   ModalSubmitHandler,
   ModalUpdateResponse,
+  Postable,
   PostableAst,
   PostableCard,
   PostableMarkdown,
@@ -232,6 +243,7 @@ export type {
   SubscribedMessageHandler,
   Thread,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
   WellKnownEmoji,
 } from "./types";
