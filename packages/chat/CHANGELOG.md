@@ -1,5 +1,11 @@
 # chat
 
+## 4.10.0
+
+### Minor Changes
+
+- c7d51cb: Added support for passing arbitrary metadata through the modal lifecycle via a new privateMetadata field.
+
 ## 4.9.1
 
 ## 4.9.0

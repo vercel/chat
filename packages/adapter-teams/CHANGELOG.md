@@ -1,5 +1,13 @@
 # @chat-adapter/teams
 
+## 4.10.0
+
+### Patch Changes
+
+- Updated dependencies [c7d51cb]
+  - chat@4.10.0
+  - @chat-adapter/shared@4.10.0
+
 ## 4.9.1
 
 ### Patch Changes
