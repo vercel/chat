@@ -8,6 +8,7 @@ import {
   Fields,
   Image,
   LinkButton,
+  RadioSelect,
   Section,
   Select,
   SelectOption,
@@ -406,5 +407,195 @@ describe("cardToBlockKit with select elements", () => {
     expect(elements[0].type).toBe("static_select");
     expect(elements[0].placeholder).toBeUndefined();
     expect(elements[0].initial_option).toBeUndefined();
+  });
+});
+
+describe("cardToBlockKit with radio select elements", () => {
+  it("converts actions with radio select element", () => {
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "plan",
+            label: "Choose Plan",
+            options: [
+              SelectOption({ label: "Basic", value: "basic" }),
+              SelectOption({ label: "Pro", value: "pro" }),
+              SelectOption({ label: "Enterprise", value: "enterprise" }),
+            ],
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("actions");
+
+    const elements = blocks[0].elements as Array<{
+      type: string;
+      action_id: string;
+      options: Array<{ text: { type: string; text: string }; value: string }>;
+    }>;
+    expect(elements).toHaveLength(1);
+    expect(elements[0].type).toBe("radio_buttons");
+    expect(elements[0].action_id).toBe("plan");
+    expect(elements[0].options).toHaveLength(3);
+  });
+
+  it("uses mrkdwn type for radio select labels", () => {
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "option",
+            label: "Choose",
+            options: [SelectOption({ label: "Option A", value: "a" })],
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      options: Array<{ text: { type: string; text: string } }>;
+    }>;
+    expect(elements[0].options[0].text.type).toBe("mrkdwn");
+    expect(elements[0].options[0].text.text).toBe("Option A");
+  });
+
+  it("limits radio select options to 10", () => {
+    const options = Array.from({ length: 15 }, (_, i) =>
+      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` }),
+    );
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "many_options",
+            label: "Many Options",
+            options,
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      options: Array<unknown>;
+    }>;
+    expect(elements[0].options).toHaveLength(10);
+  });
+});
+
+describe("cardToBlockKit with select option descriptions", () => {
+  it("includes description in select options with plain_text type", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Select({
+            id: "plan",
+            label: "Plan",
+            options: [
+              SelectOption({
+                label: "Basic",
+                value: "basic",
+                description: "For individuals",
+              }),
+              SelectOption({
+                label: "Pro",
+                value: "pro",
+                description: "For teams",
+              }),
+            ],
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      options: Array<{
+        text: { type: string; text: string };
+        value: string;
+        description?: { type: string; text: string };
+      }>;
+    }>;
+    expect(elements[0].options[0].description).toEqual({
+      type: "plain_text",
+      text: "For individuals",
+    });
+    expect(elements[0].options[1].description).toEqual({
+      type: "plain_text",
+      text: "For teams",
+    });
+  });
+
+  it("includes description in radio select options with mrkdwn type", () => {
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "plan",
+            label: "Plan",
+            options: [
+              SelectOption({
+                label: "Basic",
+                value: "basic",
+                description: "For *individuals*",
+              }),
+              SelectOption({
+                label: "Pro",
+                value: "pro",
+                description: "For _teams_",
+              }),
+            ],
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      options: Array<{
+        text: { type: string; text: string };
+        value: string;
+        description?: { type: string; text: string };
+      }>;
+    }>;
+    expect(elements[0].options[0].description).toEqual({
+      type: "mrkdwn",
+      text: "For *individuals*",
+    });
+    expect(elements[0].options[1].description).toEqual({
+      type: "mrkdwn",
+      text: "For _teams_",
+    });
+  });
+
+  it("omits description when not provided", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Select({
+            id: "category",
+            label: "Category",
+            options: [
+              SelectOption({ label: "Bug", value: "bug" }),
+              SelectOption({ label: "Feature", value: "feature" }),
+            ],
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      options: Array<{
+        description?: unknown;
+      }>;
+    }>;
+    expect(elements[0].options[0].description).toBeUndefined();
+    expect(elements[0].options[1].description).toBeUndefined();
   });
 });

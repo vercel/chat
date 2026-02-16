@@ -1,4 +1,4 @@
-import { Modal, Select, SelectOption, TextInput } from "chat";
+import { Modal, RadioSelect, Select, SelectOption, TextInput } from "chat";
 import { describe, expect, it } from "vitest";
 import {
   decodeModalMetadata,
@@ -398,5 +398,197 @@ describe("decodeModalMetadata", () => {
     const encoded = encodeModalMetadata(original);
     const decoded = decodeModalMetadata(encoded);
     expect(decoded).toEqual(original);
+  });
+});
+
+describe("modalToSlackView with radio select", () => {
+  it("converts radio select element with options", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        RadioSelect({
+          id: "plan",
+          label: "Choose Plan",
+          options: [
+            SelectOption({ label: "Basic", value: "basic" }),
+            SelectOption({ label: "Pro", value: "pro" }),
+            SelectOption({ label: "Enterprise", value: "enterprise" }),
+          ],
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks).toHaveLength(1);
+    expect(view.blocks[0]).toMatchObject({
+      type: "input",
+      block_id: "plan",
+      label: { type: "plain_text", text: "Choose Plan" },
+      element: {
+        type: "radio_buttons",
+        action_id: "plan",
+      },
+    });
+    const element = view.blocks[0].element as {
+      options: Array<{ text: { type: string; text: string }; value: string }>;
+    };
+    expect(element.options).toHaveLength(3);
+  });
+
+  it("converts optional radio select", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        RadioSelect({
+          id: "preference",
+          label: "Preference",
+          optional: true,
+          options: [
+            SelectOption({ label: "Yes", value: "yes" }),
+            SelectOption({ label: "No", value: "no" }),
+          ],
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toMatchObject({
+      type: "input",
+      optional: true,
+    });
+  });
+
+  it("uses mrkdwn type for radio select labels", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        RadioSelect({
+          id: "option",
+          label: "Choose",
+          options: [SelectOption({ label: "Option A", value: "a" })],
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    const element = view.blocks[0].element as {
+      options: Array<{ text: { type: string; text: string } }>;
+    };
+    expect(element.options[0].text.type).toBe("mrkdwn");
+    expect(element.options[0].text.text).toBe("Option A");
+  });
+
+  it("limits radio select options to 10", () => {
+    const options = Array.from({ length: 15 }, (_, i) =>
+      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` }),
+    );
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        RadioSelect({
+          id: "many_options",
+          label: "Many Options",
+          options,
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    const element = view.blocks[0].element as {
+      options: Array<unknown>;
+    };
+    expect(element.options).toHaveLength(10);
+  });
+});
+
+describe("modalToSlackView with select option descriptions", () => {
+  it("includes description in select options with plain_text type", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        Select({
+          id: "plan",
+          label: "Plan",
+          options: [
+            SelectOption({
+              label: "Basic",
+              value: "basic",
+              description: "For individuals",
+            }),
+            SelectOption({
+              label: "Pro",
+              value: "pro",
+              description: "For teams",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    const element = view.blocks[0].element as {
+      options: Array<{
+        description?: { type: string; text: string };
+      }>;
+    };
+    expect(element.options[0].description).toEqual({
+      type: "plain_text",
+      text: "For individuals",
+    });
+    expect(element.options[1].description).toEqual({
+      type: "plain_text",
+      text: "For teams",
+    });
+  });
+
+  it("includes description in radio select options with mrkdwn type", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        RadioSelect({
+          id: "plan",
+          label: "Plan",
+          options: [
+            SelectOption({
+              label: "Basic",
+              value: "basic",
+              description: "For *individuals*",
+            }),
+            SelectOption({
+              label: "Pro",
+              value: "pro",
+              description: "For _teams_",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    const element = view.blocks[0].element as {
+      options: Array<{
+        description?: { type: string; text: string };
+      }>;
+    };
+    expect(element.options[0].description).toEqual({
+      type: "mrkdwn",
+      text: "For *individuals*",
+    });
+    expect(element.options[1].description).toEqual({
+      type: "mrkdwn",
+      text: "For _teams_",
+    });
   });
 });

@@ -160,6 +160,9 @@ export interface SelectOptions {
 }
 
 export function Select(options: SelectOptions): SelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("Select requires at least one option");
+  }
   return {
     type: "select",
     id: options.id,
@@ -192,6 +195,9 @@ export interface RadioSelectOptions {
 }
 
 export function RadioSelect(options: RadioSelectOptions): RadioSelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("RadioSelect requires at least one option");
+  }
   return {
     type: "radio_select",
     id: options.id,

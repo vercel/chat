@@ -23,7 +23,7 @@ import {
   toCardElement,
   toModalElement,
 } from "./jsx-runtime";
-import { Modal, Select, SelectOption, TextInput } from "./modals";
+import { Modal, RadioSelect, Select, SelectOption, TextInput } from "./modals";
 
 // ============================================================================
 // jsx() and jsxs() Factory Tests
@@ -122,9 +122,12 @@ describe("toCardElement", () => {
     expect(actionsEl?.type).toBe("actions");
     if (actionsEl?.type === "actions") {
       expect(actionsEl.children).toHaveLength(1);
-      expect(actionsEl.children[0].id).toBe("btn1");
-      expect(actionsEl.children[0].label).toBe("Click Me");
-      expect(actionsEl.children[0].style).toBe("primary");
+      const btn = actionsEl.children[0];
+      if (btn.type === "button") {
+        expect(btn.id).toBe("btn1");
+        expect(btn.label).toBe("Click Me");
+        expect(btn.style).toBe("primary");
+      }
     }
   });
 
@@ -135,7 +138,10 @@ describe("toCardElement", () => {
     const card = toCardElement(cardElement);
 
     if (card?.children[0]?.type === "actions") {
-      expect(card.children[0].children[0].label).toBe("Label from children");
+      const btn = card.children[0].children[0];
+      if (btn.type === "button") {
+        expect(btn.label).toBe("Label from children");
+      }
     }
   });
 
@@ -471,7 +477,10 @@ describe("edge cases", () => {
     const result = toCardElement(card);
 
     if (result?.children[0].type === "actions") {
-      expect(result.children[0].children[0].value).toBe("custom-value");
+      const btn = result.children[0].children[0];
+      if (btn.type === "button") {
+        expect(btn.value).toBe("custom-value");
+      }
     }
   });
 
@@ -591,5 +600,230 @@ describe("toModalElement", () => {
     const parsed = JSON.parse(modal?.privateMetadata as string);
     expect(parsed.chatId).toBe("abc");
     expect(parsed.scope).toBe("team");
+  });
+
+  it("converts a Modal with RadioSelect and options", () => {
+    const option1 = jsx(SelectOption, { label: "Yes", value: "yes" });
+    const option2 = jsx(SelectOption, { label: "No", value: "no" });
+    const radioSelect = jsxs(RadioSelect, {
+      id: "confirm",
+      label: "Confirm",
+      children: [option1, option2],
+    });
+    const jsxElement = jsxs(Modal, {
+      callbackId: "radio_modal",
+      title: "Radio Form",
+      children: [radioSelect],
+    });
+    const modal = toModalElement(jsxElement);
+
+    expect(modal).not.toBeNull();
+    expect(modal?.children).toHaveLength(1);
+    expect(modal?.children[0].type).toBe("radio_select");
+    const radioChild = modal?.children[0] as { options: unknown[] };
+    expect(radioChild.options).toHaveLength(2);
+  });
+
+  it("converts SelectOption with description in Modal", () => {
+    const option1 = jsx(SelectOption, {
+      label: "Basic",
+      value: "basic",
+      description: "For individuals",
+    });
+    const option2 = jsx(SelectOption, {
+      label: "Pro",
+      value: "pro",
+      description: "For teams",
+    });
+    const select = jsxs(Select, {
+      id: "plan",
+      label: "Plan",
+      children: [option1, option2],
+    });
+    const jsxElement = jsxs(Modal, {
+      callbackId: "desc_modal",
+      title: "Plan Selection",
+      children: [select],
+    });
+    const modal = toModalElement(jsxElement);
+
+    expect(modal).not.toBeNull();
+    const selectChild = modal?.children[0] as {
+      options: Array<{ label: string; value: string; description?: string }>;
+    };
+    expect(selectChild.options[0].description).toBe("For individuals");
+    expect(selectChild.options[1].description).toBe("For teams");
+  });
+
+  it("throws when Select has no SelectOption children", () => {
+    const select = jsxs(Select, {
+      id: "empty",
+      label: "Empty Select",
+      children: [],
+    });
+    const modal = jsxs(Modal, {
+      callbackId: "test",
+      title: "Test",
+      children: [select],
+    });
+    expect(() => toModalElement(modal)).toThrow(
+      "Select requires at least one option",
+    );
+  });
+
+  it("throws when RadioSelect has no SelectOption children", () => {
+    const radioSelect = jsxs(RadioSelect, {
+      id: "empty",
+      label: "Empty RadioSelect",
+      children: [],
+    });
+    const modal = jsxs(Modal, {
+      callbackId: "test",
+      title: "Test",
+      children: [radioSelect],
+    });
+    expect(() => toModalElement(modal)).toThrow(
+      "RadioSelect requires at least one option",
+    );
+  });
+});
+
+// ============================================================================
+// JSX Select and RadioSelect in Cards Tests
+// ============================================================================
+
+describe("toCardElement with Select elements", () => {
+  it("converts Select in Actions", () => {
+    const option1 = jsx(SelectOption, { label: "High", value: "high" });
+    const option2 = jsx(SelectOption, { label: "Low", value: "low" });
+    const select = jsxs(Select, {
+      id: "priority",
+      label: "Priority",
+      children: [option1, option2],
+    });
+    const actions = jsxs(Actions, { children: [select] });
+    const cardElement = jsxs(Card, { children: [actions] });
+    const card = toCardElement(cardElement);
+
+    expect(card?.children).toHaveLength(1);
+    const actionsEl = card?.children[0];
+    expect(actionsEl?.type).toBe("actions");
+    if (actionsEl?.type === "actions") {
+      expect(actionsEl.children).toHaveLength(1);
+      const selectEl = actionsEl.children[0];
+      expect(selectEl.type).toBe("select");
+      if (selectEl.type === "select") {
+        expect(selectEl.id).toBe("priority");
+        expect(selectEl.options).toHaveLength(2);
+      }
+    }
+  });
+
+  it("converts RadioSelect in Actions", () => {
+    const option1 = jsx(SelectOption, { label: "Yes", value: "yes" });
+    const option2 = jsx(SelectOption, { label: "No", value: "no" });
+    const radioSelect = jsxs(RadioSelect, {
+      id: "confirm",
+      label: "Confirm",
+      children: [option1, option2],
+    });
+    const actions = jsxs(Actions, { children: [radioSelect] });
+    const cardElement = jsxs(Card, { children: [actions] });
+    const card = toCardElement(cardElement);
+
+    expect(card?.children).toHaveLength(1);
+    const actionsEl = card?.children[0];
+    expect(actionsEl?.type).toBe("actions");
+    if (actionsEl?.type === "actions") {
+      expect(actionsEl.children).toHaveLength(1);
+      const radioEl = actionsEl.children[0];
+      expect(radioEl.type).toBe("radio_select");
+      if (radioEl.type === "radio_select") {
+        expect(radioEl.id).toBe("confirm");
+        expect(radioEl.options).toHaveLength(2);
+      }
+    }
+  });
+
+  it("converts SelectOption with description in Card Actions", () => {
+    const option1 = jsx(SelectOption, {
+      label: "Basic",
+      value: "basic",
+      description: "For individuals",
+    });
+    const option2 = jsx(SelectOption, {
+      label: "Pro",
+      value: "pro",
+      description: "For teams",
+    });
+    const select = jsxs(Select, {
+      id: "plan",
+      label: "Plan",
+      children: [option1, option2],
+    });
+    const actions = jsxs(Actions, { children: [select] });
+    const cardElement = jsxs(Card, { children: [actions] });
+    const card = toCardElement(cardElement);
+
+    const actionsEl = card?.children[0];
+    if (actionsEl?.type === "actions") {
+      const selectEl = actionsEl.children[0];
+      if (selectEl.type === "select") {
+        expect(selectEl.options[0].description).toBe("For individuals");
+        expect(selectEl.options[1].description).toBe("For teams");
+      }
+    }
+  });
+
+  it("converts mixed Buttons, Select, and RadioSelect in Actions", () => {
+    const button = jsx(Button, { id: "submit", label: "Submit" });
+    const option = jsx(SelectOption, { label: "Option", value: "opt" });
+    const select = jsxs(Select, {
+      id: "dropdown",
+      label: "Dropdown",
+      children: [option],
+    });
+    const radioSelect = jsxs(RadioSelect, {
+      id: "choice",
+      label: "Choice",
+      children: [option],
+    });
+    const actions = jsxs(Actions, { children: [button, select, radioSelect] });
+    const cardElement = jsxs(Card, { children: [actions] });
+    const card = toCardElement(cardElement);
+
+    const actionsEl = card?.children[0];
+    if (actionsEl?.type === "actions") {
+      expect(actionsEl.children).toHaveLength(3);
+      expect(actionsEl.children[0].type).toBe("button");
+      expect(actionsEl.children[1].type).toBe("select");
+      expect(actionsEl.children[2].type).toBe("radio_select");
+    }
+  });
+
+  it("throws when Select in Actions has no options", () => {
+    const select = jsxs(Select, {
+      id: "empty",
+      label: "Empty",
+      children: [],
+    });
+    const actions = jsxs(Actions, { children: [select] });
+    const card = jsxs(Card, { children: [actions] });
+    expect(() => toCardElement(card)).toThrow(
+      "Select requires at least one option",
+    );
+  });
+
+  it("throws when RadioSelect in Actions has no options", () => {
+    const radioSelect = jsxs(RadioSelect, {
+      id: "empty",
+      label: "Empty",
+      children: [],
+    });
+    const actions = jsxs(Actions, { children: [radioSelect] });
+    const card = jsxs(Card, { children: [actions] });
+    expect(() => toCardElement(card)).toThrow(
+      "RadioSelect requires at least one option",
+    );
   });
 });
