@@ -1,5 +1,11 @@
 # chat
 
+## 4.11.0
+
+### Minor Changes
+
+- 417374b: Adding inline Select components and Radio buttons to cards
+
 ## 4.10.1
 
 ### Patch Changes
