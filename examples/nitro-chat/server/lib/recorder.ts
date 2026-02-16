@@ -11,7 +11,7 @@
  *   4. Retrieve logs: await recorder.getRecords()
  *
  * CLI to export recordings:
- *   pnpm --filter example-nitro-chat exec tsx server/lib/recorder.ts [sessionId]
+ *   pnpm --filter example-nitro-chat exec node server/lib/recorder.ts [sessionId]
  */
 
 import { createClient, type RedisClientType } from "redis";
