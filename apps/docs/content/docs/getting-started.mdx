@@ -4,20 +4,22 @@ description: Install Chat SDK and create your first multi-platform bot.
 type: guide
 ---
 
-This guide walks through setting up a Chat SDK bot with Next.js and Slack. The same pattern applies to any platform or framework.
+This guide walks through setting up a Chat SDK bot with Next.js. The same pattern applies to any platform or framework.
 
 ## Install dependencies
 
-Install the core SDK, a platform adapter, and a state adapter:
+Install the core SDK, one or more platform [adapters](/docs/adapters), and a [state adapter](/docs/state):
 
 ```sh title="Terminal"
 pnpm add chat @chat-adapter/slack @chat-adapter/state-redis
 ```
 
+Swap `@chat-adapter/slack` for whichever platform you're targeting — `@chat-adapter/teams`, `@chat-adapter/gchat`, `@chat-adapter/discord`, etc.
+
 For development without Redis, use the in-memory state adapter instead:
 
 ```sh title="Terminal"
-pnpm add chat @chat-adapter/slack @chat-adapter/state-memory
+pnpm add chat @chat-adapter/state-memory
 ```
 
 ## Create your bot
@@ -90,28 +92,20 @@ The `waitUntil` option ensures message processing completes after the HTTP respo
 
 ## Set environment variables
 
-Create a `.env.local` file with your platform credentials:
+Create a `.env.local` file with your platform credentials. The required variables depend on which adapters you're using:
 
 ```bash title=".env.local"
-# Slack
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_SIGNING_SECRET=your-signing-secret
-
 # Redis (required for production)
 REDIS_URL=redis://localhost:6379
+
+# Platform credentials (see adapter docs for details)
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_SIGNING_SECRET=your-signing-secret
 ```
 
 ## Platform setup
 
-Each platform requires app configuration on their developer portal. See the [adapters](/docs/adapters) page for platform-specific setup instructions.
-
-### Slack
-
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps)
-2. Enable **Event Subscriptions** and point the request URL to `https://your-domain.com/api/webhooks/slack`
-3. Subscribe to bot events: `app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`, `reaction_added`, `reaction_removed`
-4. Add OAuth scopes: `app_mentions:read`, `channels:history`, `chat:write`, `groups:history`, `im:history`, `mpim:history`, `reactions:read`, `reactions:write`, `users:read`
-5. Install the app to your workspace and copy the **Bot User OAuth Token** and **Signing Secret**
+Each platform requires app configuration on their developer portal. See the [adapter docs](/docs/adapters) for platform-specific setup instructions — credentials, event subscriptions, OAuth scopes, and webhook URLs.
 
 ## Add more platforms
 

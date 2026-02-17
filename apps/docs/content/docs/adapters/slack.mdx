@@ -125,6 +125,7 @@ Go to **OAuth & Permissions** and add these **Bot Token Scopes**:
 | `groups:read` | View basic private channel info |
 | `im:history` | Read direct messages |
 | `im:read` | View basic DM info |
+| `mpim:history` | Read messages in group DMs |
 | `reactions:read` | View emoji reactions |
 | `reactions:write` | Add/remove emoji reactions |
 | `users:read` | View user info (for display names) |
@@ -159,6 +160,9 @@ Enable **Manage Distribution** under **Basic Information**, then set up an OAuth
    - `message.channels` — messages in public channels
    - `message.groups` — messages in private channels
    - `message.im` — direct messages
+   - `message.mpim` — messages in group DMs
+   - `reaction_added` — when a reaction is added
+   - `reaction_removed` — when a reaction is removed
 5. Click **Save Changes**
 
 ### 6. Enable interactivity (optional)
