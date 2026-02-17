@@ -319,11 +319,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return;
     }
 
-    // Detect if the interaction is inside a thread channel (type 11 = public, 12 = private)
+    // Detect if the interaction is inside a thread channel
+    // Discord channel types: 11 = public thread, 12 = private thread
     const channel = interaction.channel;
-    const isThread =
-      channel?.type === ChannelType.PublicThread ||
-      channel?.type === ChannelType.PrivateThread;
+    const isThread = channel?.type === 11 || channel?.type === 12;
     const parentChannelId =
       isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
 

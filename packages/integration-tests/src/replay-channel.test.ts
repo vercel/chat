@@ -322,8 +322,10 @@ describe("Replay Tests - Channel", () => {
 
   describe("Discord", () => {
     let ctx: DiscordTestContext;
+    let capturedAction: ActionEvent | null = null;
 
     afterEach(async () => {
+      capturedAction = null;
       if (ctx) {
         await ctx.chat.shutdown();
         ctx.cleanup();
@@ -331,12 +333,11 @@ describe("Replay Tests - Channel", () => {
       vi.clearAllMocks();
     });
 
-    it("should derive correct channel ID from thread", async () => {
+    it("should derive correct channel ID from thread via mention", async () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
           onMention: async (thread) => {
-            // Thread ID should include guild:channel:thread
             const channel = thread.channel;
             expect(channel).toBeDefined();
             expect(channel.id).toBe(
@@ -347,6 +348,61 @@ describe("Replay Tests - Channel", () => {
       );
 
       await ctx.sendGatewayEvent(discordFixtures.mention);
+    });
+
+    it("should handle channel-post button click in thread", async () => {
+      ctx = await createDiscordTestContext(
+        { applicationId: discordFixtures.applicationId },
+        {
+          onAction: async (event) => {
+            capturedAction = event;
+          },
+        },
+      );
+
+      // Button click happens inside a thread (channel type 11 with parent_id)
+      const response = await ctx.sendWebhook(
+        discordFixtures.channel_post_action as Record<string, unknown>,
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.type).toBe(6); // DEFERRED_UPDATE_MESSAGE
+
+      expectValidAction(capturedAction, {
+        actionId: "channel-post",
+        userId: discordFixtures.userId,
+        userName: discordFixtures.userName,
+        adapterName: "discord",
+        isDM: false,
+      });
+    });
+
+    it("should resolve parent channel from thread interaction", async () => {
+      ctx = await createDiscordTestContext(
+        { applicationId: discordFixtures.applicationId },
+        {
+          onAction: async (event) => {
+            capturedAction = event;
+          },
+        },
+      );
+
+      await ctx.sendWebhook(
+        discordFixtures.channel_post_action as Record<string, unknown>,
+      );
+
+      // The action's thread should have the 4-part ID (guild:channel:thread)
+      expect(capturedAction?.thread.id).toBe(
+        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}:${discordFixtures.threadChannelId}`,
+      );
+
+      // Channel should point to the parent channel, not the thread
+      const channel = capturedAction?.thread.channel;
+      expect(channel).toBeDefined();
+      expect(channel?.id).toBe(
+        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`,
+      );
     });
 
     it("should have channel.isDM = false for guild channels", async () => {
@@ -361,6 +417,31 @@ describe("Replay Tests - Channel", () => {
       );
 
       await ctx.sendGatewayEvent(discordFixtures.mention);
+    });
+
+    it("should post to parent channel via channel.post", async () => {
+      ctx = await createDiscordTestContext(
+        { applicationId: discordFixtures.applicationId },
+        {
+          onAction: async (event) => {
+            capturedAction = event;
+          },
+        },
+      );
+
+      await ctx.sendWebhook(
+        discordFixtures.channel_post_action as Record<string, unknown>,
+      );
+
+      const channel = capturedAction?.thread.channel as Channel;
+      await channel.post("Hello from channel!");
+
+      // Verify message was posted to the parent channel, not the thread
+      expect(ctx.mockApi.messages.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: "Hello from channel!",
+        }),
+      );
     });
   });
 });
