@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-type CenteredSectionProps = {
-  title: string;
-  description: string;
+interface CenteredSectionProps {
   children: ReactNode;
-};
+  description: string;
+  title: string;
+}
 
 export const CenteredSection = ({
   title,

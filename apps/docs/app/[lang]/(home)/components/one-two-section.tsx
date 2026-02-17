@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-type OneTwoSectionProps = {
-  title: string;
-  description: string;
+interface OneTwoSectionProps {
   children?: ReactNode;
-};
+  description: string;
+  title: string;
+}
 
 export const OneTwoSection = ({
   title,
