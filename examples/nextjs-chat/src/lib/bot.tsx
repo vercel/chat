@@ -376,7 +376,8 @@ bot.onModalSubmit("feedback_form", async (event) => {
   });
   await event.relatedMessage?.edit(`${emoji.check} **Feedback received!**`);
   const target = event.relatedChannel || event.relatedThread;
-  await target?.post(
+  await target?.postEphemeral(
+    event.user,
     <Card title={`${emoji.check} Feedback received!`}>
       <Text>Thank you for your feedback!</Text>
       <Fields>
@@ -386,6 +387,7 @@ bot.onModalSubmit("feedback_form", async (event) => {
         <Field label="Email" value={email} />
       </Fields>
     </Card>,
+    { fallbackToDM: false },
   );
 });
 

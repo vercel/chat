@@ -146,12 +146,21 @@ describe("decodeThreadId", () => {
     });
   });
 
+  it("decodes channel-only ID (no threadTs)", () => {
+    const result = adapter.decodeThreadId("slack:C12345");
+    expect(result).toEqual({
+      channel: "C12345",
+      threadTs: "",
+    });
+  });
+
   it("throws on invalid thread ID format", () => {
     expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
-    expect(() => adapter.decodeThreadId("slack:C12345")).toThrow(
+    expect(() => adapter.decodeThreadId("slack")).toThrow(ValidationError);
+    expect(() => adapter.decodeThreadId("teams:C12345:123")).toThrow(
       ValidationError,
     );
-    expect(() => adapter.decodeThreadId("teams:C12345:123")).toThrow(
+    expect(() => adapter.decodeThreadId("slack:A:B:C:D")).toThrow(
       ValidationError,
     );
   });

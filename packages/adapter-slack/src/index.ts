@@ -2119,7 +2119,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   decodeThreadId(threadId: string): SlackThreadId {
     const parts = threadId.split(":");
-    if (parts.length !== 3 || parts[0] !== "slack") {
+    if (parts.length < 2 || parts.length > 3 || parts[0] !== "slack") {
       throw new ValidationError(
         "slack",
         `Invalid Slack thread ID: ${threadId}`,
@@ -2127,7 +2127,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
     return {
       channel: parts[1] as string,
-      threadTs: parts[2] as string,
+      threadTs: parts.length === 3 ? (parts[2] as string) : "",
     };
   }
 

@@ -1,0 +1,203 @@
+{
+  "botName": "Vercel Support Agent",
+  "botUserId": "U0A60JRP336",
+  "slashCommand": {
+    "token": "wzuDJx4wCNIQxghRKboieGn6",
+    "team_id": "T0A6R9YLSKA",
+    "team_domain": "vishalslackbotdev",
+    "channel_id": "C0ACELCQBAB",
+    "channel_name": "support-agent-dev",
+    "user_id": "U0A60JBHJBE",
+    "user_name": "testuser",
+    "command": "/test-feedback",
+    "text": "",
+    "api_app_id": "A0A60K08CLC",
+    "is_enterprise_install": "false",
+    "response_url": "https://hooks.slack.com/commands/T0A6R9YLSKA/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
+    "trigger_id": "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405"
+  },
+  "slashCommandWithArgs": {
+    "token": "wzuDJx4wCNIQxghRKboieGn6",
+    "team_id": "T0A6R9YLSKA",
+    "team_domain": "vishalslackbotdev",
+    "channel_id": "C0ACELCQBAB",
+    "channel_name": "support-agent-dev",
+    "user_id": "U0A60JBHJBE",
+    "user_name": "testuser",
+    "command": "/test-feedback",
+    "text": "some arguments here",
+    "api_app_id": "A0A60K08CLC",
+    "is_enterprise_install": "false",
+    "response_url": "https://hooks.slack.com/commands/T0A6R9YLSKA/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
+    "trigger_id": "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405"
+  },
+  "viewSubmission": {
+    "type": "view_submission",
+    "team": {
+      "id": "T0A6R9YLSKA",
+      "domain": "vishalslackbotdev"
+    },
+    "user": {
+      "id": "U0A60JBHJBE",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T0A6R9YLSKA"
+    },
+    "api_app_id": "A0A60K08CLC",
+    "token": "wzuDJx4wCNIQxghRKboieGn6",
+    "trigger_id": "10508000345735.10229338706656.1d14116e4b7b4893f2fad4c24f913293",
+    "view": {
+      "id": "V0AF71PAUQK",
+      "team_id": "T0A6R9YLSKA",
+      "type": "modal",
+      "blocks": [
+        {
+          "type": "input",
+          "block_id": "message",
+          "label": {
+            "type": "plain_text",
+            "text": "Your Feedback",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "message",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Tell us what you think...",
+              "emoji": true
+            },
+            "multiline": true
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "category",
+          "label": {
+            "type": "plain_text",
+            "text": "Category",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "static_select",
+            "action_id": "category",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Select a category",
+              "emoji": true
+            },
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Bug Report",
+                  "emoji": true
+                },
+                "value": "bug"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Feature Request",
+                  "emoji": true
+                },
+                "value": "feature"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "email",
+          "label": {
+            "type": "plain_text",
+            "text": "Email (optional)",
+            "emoji": true
+          },
+          "optional": true,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "email",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "your@email.com",
+              "emoji": true
+            },
+            "multiline": false
+          }
+        }
+      ],
+      "private_metadata": "{\"c\":\"40949e29-3f28-4d70-964a-f334eb40c5d7\"}",
+      "callback_id": "feedback_form",
+      "state": {
+        "values": {
+          "message": {
+            "message": {
+              "type": "plain_text_input",
+              "value": "Hello!"
+            }
+          },
+          "category": {
+            "category": {
+              "type": "static_select",
+              "selected_option": {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Feature Request",
+                  "emoji": true
+                },
+                "value": "feature"
+              }
+            }
+          },
+          "email": {
+            "email": {
+              "type": "plain_text_input",
+              "value": "hello@vercel.com"
+            }
+          }
+        }
+      },
+      "hash": "1771309947.RiIIx55y",
+      "title": {
+        "type": "plain_text",
+        "text": "Send Feedback",
+        "emoji": true
+      },
+      "clear_on_close": false,
+      "notify_on_close": true,
+      "close": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "Send",
+        "emoji": true
+      },
+      "previous_view_id": null,
+      "root_view_id": "V0AF71PAUQK",
+      "app_id": "A0A60K08CLC",
+      "external_id": "",
+      "app_installed_team_id": "T0A6R9YLSKA",
+      "bot_id": "B0A69UHH201"
+    },
+    "response_urls": [],
+    "is_enterprise_install": false,
+    "enterprise": null
+  },
+  "slashCommandModalContext": {
+    "contextId": "40949e29-3f28-4d70-964a-f334eb40c5d7",
+    "channel": {
+      "_type": "chat:Channel",
+      "id": "slack:C0ACELCQBAB",
+      "adapterName": "slack"
+    }
+  }
+}
