@@ -1,0 +1,246 @@
+---
+title: Slack bot with Next.js
+description: Build a Slack bot from scratch using Chat SDK and Next.js.
+type: guide
+prerequisites:
+  - /docs/getting-started
+related:
+  - /docs/adapters/slack
+  - /docs/cards
+  - /docs/modals
+  - /docs/streaming
+---
+
+This guide walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+
+## Prerequisites
+
+- Node.js 18+
+- [pnpm](https://pnpm.io) (or npm/yarn)
+- A Slack workspace where you can install apps
+- A Redis instance for state management (or use the in-memory adapter for development)
+
+## Create a Next.js app
+
+Scaffold a new Next.js project and install Chat SDK dependencies:
+
+```sh title="Terminal"
+npx create-next-app@latest my-slack-bot --typescript --app
+cd my-slack-bot
+pnpm add chat @chat-adapter/slack @chat-adapter/state-redis
+```
+
+For local development without Redis, use the in-memory state adapter instead:
+
+```sh title="Terminal"
+pnpm add @chat-adapter/state-memory
+```
+
+## Create a Slack app
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App** then **From scratch**
+3. Enter an app name and select your workspace
+4. Click **Create App**
+
+### Configure bot token scopes
+
+Go to **OAuth & Permissions** and add these **Bot Token Scopes**:
+
+| Scope | Description |
+|-------|-------------|
+| `app_mentions:read` | Receive @mention events |
+| `channels:history` | Read messages in public channels |
+| `channels:read` | View basic channel info |
+| `chat:write` | Send messages |
+| `groups:history` | Read messages in private channels |
+| `im:history` | Read direct messages |
+| `reactions:read` | View emoji reactions |
+| `reactions:write` | Add/remove emoji reactions |
+| `users:read` | View user info (for display names) |
+
+### Install app to workspace
+
+1. Go to **OAuth & Permissions**
+2. Click **Install to Workspace** and authorize
+3. Copy the **Bot User OAuth Token** (`xoxb-...`) — you'll need this as `SLACK_BOT_TOKEN`
+
+### Get signing secret
+
+1. Go to **Basic Information**
+2. Under **App Credentials**, copy the **Signing Secret** — you'll need this as `SLACK_SIGNING_SECRET`
+
+## Configure environment variables
+
+Create a `.env.local` file in your project root:
+
+```bash title=".env.local"
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_SIGNING_SECRET=your-signing-secret
+REDIS_URL=redis://localhost:6379
+```
+
+## Create the bot
+
+Create `lib/bot.ts` with a `Chat` instance configured with the Slack adapter:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      botToken: process.env.SLACK_BOT_TOKEN!,
+      signingSecret: process.env.SLACK_SIGNING_SECRET!,
+    }),
+  },
+  state: createRedisState({ url: process.env.REDIS_URL! }),
+});
+
+// Respond when someone @mentions the bot
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello! I'm listening to this thread now.");
+});
+
+// Respond to follow-up messages in subscribed threads
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+`onNewMention` fires when a user @mentions your bot. Calling `thread.subscribe()` tells the SDK to track that thread, so subsequent messages trigger `onSubscribedMessage`.
+
+## Create the webhook route
+
+Create a dynamic API route that handles incoming webhooks:
+
+```typescript title="app/api/webhooks/[platform]/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+type Platform = keyof typeof bot.webhooks;
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ platform: string }> }
+) {
+  const { platform } = await params;
+
+  const handler = bot.webhooks[platform as Platform];
+  if (!handler) {
+    return new Response(`Unknown platform: ${platform}`, { status: 404 });
+  }
+
+  return handler(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+This creates a `POST /api/webhooks/slack` endpoint. The `waitUntil` option ensures message processing completes after the HTTP response is sent — required on serverless platforms where the function would otherwise terminate before your handlers finish.
+
+## Configure event subscriptions
+
+Back in the Slack app settings:
+
+1. Go to **Event Subscriptions**
+2. Toggle **Enable Events** to On
+3. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
+4. Under **Subscribe to bot events**, add:
+   - `app_mention` — when someone @mentions your bot
+   - `message.channels` — messages in public channels
+   - `message.groups` — messages in private channels
+   - `message.im` — direct messages
+5. Click **Save Changes**
+
+<Callout type="info">
+  During local development, use a tunneling tool like [ngrok](https://ngrok.com) or [`vercel dev`](https://vercel.com/docs/cli/dev) to expose your local server. Set the Request URL to your tunnel URL, e.g. `https://abc123.ngrok.io/api/webhooks/slack`.
+</Callout>
+
+## Test locally
+
+1. Start your development server (`pnpm dev`)
+2. Expose it with a tunnel (e.g. `ngrok http 3000`)
+3. Update the Slack Event Subscriptions **Request URL** to your tunnel URL
+4. Invite your bot to a Slack channel (`/invite @mybot`)
+5. @mention the bot — it should respond with "Hello! I'm listening to this thread now."
+6. Reply in the thread — it should echo your message back
+
+## Add interactive features
+
+Chat SDK supports rich interactive messages using a JSX-like syntax. Update your bot to send cards with buttons:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat, Card, CardText as Text, Actions, Button, Divider } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      botToken: process.env.SLACK_BOT_TOKEN!,
+      signingSecret: process.env.SLACK_SIGNING_SECRET!,
+    }),
+  },
+  state: createRedisState({ url: process.env.REDIS_URL! }),
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post(
+    <Card title="Welcome!">
+      <Text>I'm now listening to this thread. Try clicking a button:</Text>
+      <Divider />
+      <Actions>
+        <Button id="hello" style="primary">Say Hello</Button>
+        <Button id="info">Show Info</Button>
+      </Actions>
+    </Card>
+  );
+});
+
+bot.onAction("hello", async (event) => {
+  await event.thread.post(`Hello, ${event.user.fullName}!`);
+});
+
+bot.onAction("info", async (event) => {
+  await event.thread.post(`You're on ${event.thread.adapter.name}.`);
+});
+```
+
+For interactive components to work, enable interactivity in your Slack app:
+
+1. Go to **Interactivity & Shortcuts**
+2. Toggle **Interactivity** to On
+3. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
+
+<Callout type="info">
+  The file extension must be `.tsx` (not `.ts`) when using JSX components like `Card` and `Button`. Make sure your `tsconfig.json` has `"jsx": "react-jsx"` and `"jsxImportSource": "chat"`.
+</Callout>
+
+## Deploy to Vercel
+
+Deploy your bot to Vercel:
+
+```sh title="Terminal"
+vercel deploy
+```
+
+After deployment:
+
+1. Update the Slack **Event Subscriptions** Request URL to your production URL (e.g. `https://my-slack-bot.vercel.app/api/webhooks/slack`)
+2. Update the **Interactivity** Request URL to the same production URL
+3. Set your environment variables in the Vercel dashboard (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`)
+
+## Next steps
+
+- [Cards](/docs/cards) — Build rich interactive messages with buttons, fields, and selects
+- [Modals](/docs/modals) — Open forms and dialogs from button clicks
+- [Streaming](/docs/streaming) — Stream AI-generated responses to chat
+- [Actions](/docs/actions) — Handle button clicks, select menus, and other interactions
+- [Slack adapter](/docs/adapters/slack) — Multi-workspace OAuth, token encryption, and full configuration reference
