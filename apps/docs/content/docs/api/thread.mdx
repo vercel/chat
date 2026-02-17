@@ -1,0 +1,186 @@
+---
+title: Thread
+description: Represents a conversation thread with methods for posting, subscribing, and state management.
+type: reference
+---
+
+A `Thread` is provided to your event handlers and represents a conversation thread on any platform. You don't create threads directly — they come from handler callbacks or `chat.openDM()`.
+
+## Properties
+
+<TypeTable
+  type={{
+    id: {
+      description: 'Full thread ID in adapter:channel:thread format.',
+      type: 'string',
+    },
+    channelId: {
+      description: 'Channel/conversation ID.',
+      type: 'string',
+    },
+    adapter: {
+      description: 'The platform adapter this thread belongs to.',
+      type: 'Adapter',
+    },
+    isDM: {
+      description: 'Whether this is a direct message conversation.',
+      type: 'boolean',
+    },
+    channel: {
+      description: 'The Channel containing this thread.',
+      type: 'Channel',
+    },
+    recentMessages: {
+      description: 'Cached messages from the webhook payload.',
+      type: 'Message[]',
+    },
+  }}
+/>
+
+## post
+
+Post a message to the thread. Accepts strings, structured messages, cards, and streams.
+
+```typescript
+// Plain text
+await thread.post("Hello!");
+
+// Markdown
+await thread.post({ markdown: "**Bold** text" });
+
+// AST
+await thread.post({ ast: root([paragraph([text("Hello")])]) });
+
+// Card
+await thread.post(Card({ title: "Hi", children: [Text("Hello")] }));
+
+// Stream
+await thread.post(result.textStream);
+```
+
+**Parameters:** `message: string | PostableMessage | CardJSXElement`
+
+**Returns:** `Promise<SentMessage>` — the sent message with `edit()`, `delete()`, `addReaction()`, and `removeReaction()` methods.
+
+See [Posting Messages](/docs/posting-messages) for details on each format.
+
+## postEphemeral
+
+Post a message visible only to a specific user.
+
+```typescript
+await thread.postEphemeral(userId, "Only you can see this", {
+  fallbackToDM: true,
+});
+```
+
+<TypeTable
+  type={{
+    user: {
+      description: 'User ID string or Author object.',
+      type: 'string | Author',
+    },
+    message: {
+      description: 'Message content (streaming not supported).',
+      type: 'AdapterPostableMessage | CardJSXElement',
+    },
+    'options.fallbackToDM': {
+      description: 'If true, falls back to DM when native ephemeral is not supported. If false, returns null.',
+      type: 'boolean',
+    },
+  }}
+/>
+
+**Returns:** `Promise<EphemeralMessage | null>`
+
+## subscribe / unsubscribe
+
+Manage thread subscriptions. Subscribed threads route all messages to `onSubscribedMessage` handlers.
+
+```typescript
+await thread.subscribe();
+await thread.unsubscribe();
+const subscribed = await thread.isSubscribed();
+```
+
+Subscriptions persist across restarts via your state adapter.
+
+## state
+
+Store typed, per-thread state that persists across requests. State has a 30-day TTL.
+
+```typescript
+// Read state
+const state = await thread.state; // TState | null
+
+// Merge into existing state
+await thread.setState({ aiMode: true });
+
+// Replace state entirely
+await thread.setState({ aiMode: false }, { replace: true });
+```
+
+## startTyping
+
+Show a typing indicator in the thread. No-op on platforms that don't support it.
+
+```typescript
+await thread.startTyping();
+```
+
+## messages / allMessages
+
+Iterate through message history.
+
+```typescript
+// Newest first (auto-paginates)
+for await (const msg of thread.messages) {
+  console.log(msg.text);
+}
+
+// Oldest first (auto-paginates)
+for await (const msg of thread.allMessages) {
+  console.log(msg.text);
+}
+```
+
+## refresh
+
+Re-fetch messages from the API and update `recentMessages`.
+
+```typescript
+await thread.refresh();
+```
+
+## mentionUser
+
+Get a platform-specific @-mention string for a user.
+
+```typescript
+await thread.post(`Hey ${thread.mentionUser(userId)}, check this out!`);
+```
+
+## SentMessage
+
+Returned by `thread.post()`. Extends `Message` with mutation methods.
+
+<TypeTable
+  type={{
+    'edit(newContent)': {
+      description: 'Edit this message.',
+      type: '(content: string | PostableMessage | CardJSXElement) => Promise<SentMessage>',
+    },
+    'delete()': {
+      description: 'Delete this message.',
+      type: '() => Promise<void>',
+    },
+    'addReaction(emoji)': {
+      description: 'Add a reaction to this message.',
+      type: '(emoji: EmojiValue | string) => Promise<void>',
+    },
+    'removeReaction(emoji)': {
+      description: 'Remove a reaction from this message.',
+      type: '(emoji: EmojiValue | string) => Promise<void>',
+    },
+  }}
+/>
