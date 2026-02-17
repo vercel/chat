@@ -598,9 +598,23 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return new Response("Invalid signature", { status: 401 });
     }
 
-    // Check if this is a form-urlencoded interactive payload
+    // Check if this is a form-urlencoded payload
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("application/x-www-form-urlencoded")) {
+      const params = new URLSearchParams(body);
+      if (params.has("command") && !params.has("payload")) {
+        const teamId = params.get("team_id");
+        if (!this.defaultBotToken && teamId) {
+          const ctx = await this.resolveTokenForTeam(teamId);
+          if (ctx) {
+            return this.requestContext.run(ctx, () =>
+              this.handleSlashCommand(params, options),
+            );
+          }
+          this.logger.warn("Could not resolve token for slash command");
+        }
+        return this.handleSlashCommand(params, options);
+      }
       // In multi-workspace mode, resolve token before processing
       if (!this.defaultBotToken) {
         const teamId = this.extractTeamIdFromInteractive(body);
@@ -713,6 +727,52 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       default:
         return new Response("", { status: 200 });
     }
+  }
+
+  /**
+   * Handle Slack slash command payloads.
+   * Slash commands are sent as form-urlencoded with command, text, user_id, channel_id, etc.
+   */
+  private async handleSlashCommand(
+    params: URLSearchParams,
+    options?: WebhookOptions,
+  ): Promise<Response> {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring slash command");
+      return new Response("", { status: 200 });
+    }
+
+    const command = params.get("command") || "";
+    const text = params.get("text") || "";
+    const userId = params.get("user_id") || "";
+    const channelId = params.get("channel_id") || "";
+    const triggerId = params.get("trigger_id") || undefined;
+
+    this.logger.debug("Processing Slack slash command", {
+      command,
+      text,
+      userId,
+      channelId,
+      triggerId,
+    });
+    const userInfo = await this.lookupUser(userId);
+    const event = {
+      command,
+      text,
+      user: {
+        userId,
+        userName: userInfo.displayName,
+        fullName: userInfo.realName,
+        isBot: false,
+        isMe: false,
+      },
+      adapter: this as Adapter,
+      raw: Object.fromEntries(params),
+      triggerId,
+      channelId: channelId ? `slack:${channelId}` : "",
+    };
+    this.chat.processSlashCommand(event, options);
+    return new Response("", { status: 200 });
   }
 
   /**

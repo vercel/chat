@@ -238,6 +238,8 @@ export type {
   ReactionEvent,
   ReactionHandler,
   SentMessage,
+  SlashCommandEvent,
+  SlashCommandHandler,
   StateAdapter,
   StreamOptions,
   SubscribedMessageHandler,

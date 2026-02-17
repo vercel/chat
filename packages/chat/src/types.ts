@@ -375,12 +375,15 @@ export interface ChatInstance {
   /**
    * Process a modal submit event from an adapter.
    *
-   * @param event - The modal submit event (without relatedThread/relatedMessage)
-   * @param contextId - Context ID for retrieving stored thread/message context
+   * @param event - The modal submit event (without relatedThread/relatedMessage/relatedChannel)
+   * @param contextId - Context ID for retrieving stored thread/message/channel context
    * @param options - Webhook options
    */
   processModalSubmit(
-    event: Omit<ModalSubmitEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalSubmitEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
     options?: WebhookOptions,
   ): Promise<ModalResponse | undefined>;
@@ -388,13 +391,31 @@ export interface ChatInstance {
   /**
    * Process a modal close event from an adapter.
    *
-   * @param event - The modal close event (without relatedThread/relatedMessage)
-   * @param contextId - Context ID for retrieving stored thread/message context
+   * @param event - The modal close event (without relatedThread/relatedMessage/relatedChannel)
+   * @param contextId - Context ID for retrieving stored thread/message/channel context
    * @param options - Webhook options
    */
   processModalClose(
-    event: Omit<ModalCloseEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalCloseEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
+    options?: WebhookOptions,
+  ): void;
+
+  /**
+   * Process an incoming slash command from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   *
+   * @param event - The slash command event
+   * @param options - Webhook options including waitUntil
+   */
+  processSlashCommand(
+    event: Omit<SlashCommandEvent, "channel" | "openModal"> & {
+      adapter: Adapter;
+      channelId: string;
+    },
     options?: WebhookOptions,
   ): void;
 
@@ -1455,6 +1476,11 @@ export interface ModalSubmitEvent<TRawMessage = unknown> {
    * This is a SentMessage with edit/delete capabilities.
    */
   relatedMessage?: SentMessage<TRawMessage>;
+  /**
+   * The channel where the modal was originally triggered from.
+   * Available when the modal was opened via SlashCommandEvent.openModal().
+   */
+  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
 }
 
 /**
@@ -1487,6 +1513,11 @@ export interface ModalCloseEvent<TRawMessage = unknown> {
    * This is a SentMessage with edit/delete capabilities.
    */
   relatedMessage?: SentMessage<TRawMessage>;
+  /**
+   * The channel where the modal was originally triggered from.
+   * Available when the modal was opened via SlashCommandEvent.openModal().
+   */
+  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
 }
 
 export type ModalErrorsResponse = {
@@ -1519,3 +1550,99 @@ export type ModalSubmitHandler = (
 ) => Promise<ModalResponse | undefined>;
 
 export type ModalCloseHandler = (event: ModalCloseEvent) => Promise<void>;
+
+// =============================================================================
+// Slash Command Events
+// =============================================================================
+
+/**
+ * Event emitted when a user invokes a slash command.
+ *
+ * Slash commands are triggered when a user types `/command` in the message composer.
+ * The event provides access to the channel where the command was invoked, allowing
+ * you to post responses using standard SDK methods.
+ *
+ * @example
+ * ```typescript
+ * chat.onSlashCommand("/help", async (event) => {
+ *   // Post visible to everyone in the channel
+ *   await event.channel.post("Here are the available commands...");
+ * });
+ *
+ * chat.onSlashCommand("/secret", async (event) => {
+ *   // Post ephemeral (only the invoking user sees it)
+ *   await event.channel.postEphemeral(
+ *     event.user,
+ *     "This is just for you!",
+ *     { fallbackToDM: false }
+ *   );
+ * });
+ *
+ * chat.onSlashCommand("/feedback", async (event) => {
+ *   // Open a modal
+ *   await event.openModal({
+ *     type: "modal",
+ *     callbackId: "feedback_modal",
+ *     title: "Submit Feedback",
+ *     children: [{ type: "text_input", id: "feedback", label: "Your feedback" }],
+ *   });
+ * });
+ * ```
+ */
+export interface SlashCommandEvent<TState = Record<string, unknown>> {
+  /** The slash command name (e.g., "/help") */
+  command: string;
+
+  /** Arguments text after the command (e.g., "topic search" from "/help topic search") */
+  text: string;
+
+  /** The user who invoked the command */
+  user: Author;
+
+  /** The channel where the command was invoked */
+  channel: Channel<TState>;
+
+  /** The adapter that received this event */
+  adapter: Adapter;
+
+  /** Platform-specific raw payload */
+  raw: unknown;
+
+  /** Trigger ID for opening modals (time-limited, typically ~3 seconds) */
+  triggerId?: string;
+
+  /**
+   * Open a modal/dialog form in response to this slash command.
+   *
+   * @param modal - The modal element to display (JSX or ModalElement)
+   * @returns The view/dialog ID, or undefined if modals are not supported
+   */
+  openModal(
+    modal: ModalElement | CardJSXElement,
+  ): Promise<{ viewId: string } | undefined>;
+}
+
+/**
+ * Handler for slash command events.
+ *
+ * @example
+ * ```typescript
+ * // Handle a specific command
+ * chat.onSlashCommand("/status", async (event) => {
+ *   await event.channel.post("All systems operational!");
+ * });
+ *
+ * // Handle multiple commands
+ * chat.onSlashCommand(["/help", "/info"], async (event) => {
+ *   await event.channel.post(`You invoked ${event.command}`);
+ * });
+ *
+ * // Catch-all handler
+ * chat.onSlashCommand(async (event) => {
+ *   console.log(`Command: ${event.command}, Args: ${event.text}`);
+ * });
+ * ```
+ */
+export type SlashCommandHandler<TState = Record<string, unknown>> = (
+  event: SlashCommandEvent<TState>,
+) => Promise<void>;

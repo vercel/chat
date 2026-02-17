@@ -29,6 +29,8 @@ import type {
   ReactionEvent,
   ReactionHandler,
   SentMessage,
+  SlashCommandEvent,
+  SlashCommandHandler,
   StateAdapter,
   SubscribedMessageHandler,
   Thread,
@@ -43,8 +45,9 @@ const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
 interface StoredModalContext {
-  thread: SerializedThread;
+  thread?: SerializedThread;
   message?: SerializedMessage;
+  channel?: SerializedChannel;
 }
 
 interface MessagePattern<TState = Record<string, unknown>> {
@@ -75,6 +78,12 @@ interface ModalSubmitPattern {
 interface ModalClosePattern {
   callbackIds: string[];
   handler: ModalCloseHandler;
+}
+
+interface SlashCommandPattern<TState = Record<string, unknown>> {
+  /** If specified, only these commands trigger the handler. Empty means all commands. */
+  commands: string[];
+  handler: SlashCommandHandler<TState>;
 }
 
 /**
@@ -171,6 +180,7 @@ export class Chat<
   private actionHandlers: ActionPattern[] = [];
   private modalSubmitHandlers: ModalSubmitPattern[] = [];
   private modalCloseHandlers: ModalClosePattern[] = [];
+  private slashCommandHandlers: SlashCommandPattern<TState>[] = [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -503,6 +513,72 @@ export class Chat<
   }
 
   /**
+   * Register a handler for slash command events.
+   *
+   * Slash commands are triggered when a user types `/command` in the message composer.
+   * Use `event.channel.post()` or `event.channel.postEphemeral()` to respond.
+   *
+   * @example
+   * ```typescript
+   * // Handle a specific command
+   * chat.onSlashCommand("/help", async (event) => {
+   *   await event.channel.post("Here are the available commands...");
+   * });
+   *
+   * // Handle multiple commands
+   * chat.onSlashCommand(["/status", "/health"], async (event) => {
+   *   await event.channel.post("All systems operational!");
+   * });
+   *
+   * // Handle all commands (catch-all)
+   * chat.onSlashCommand(async (event) => {
+   *   console.log(`Received command: ${event.command} ${event.text}`);
+   * });
+   *
+   * // Open a modal from a slash command
+   * chat.onSlashCommand("/feedback", async (event) => {
+   *   await event.openModal({
+   *     callbackId: "feedback_modal",
+   *     title: "Submit Feedback",
+   *     inputs: [{ id: "feedback", type: "text_input", label: "Your feedback" }],
+   *   });
+   * });
+   * ```
+   *
+   * @param commandOrHandler - Either a command, array of commands, or the handler
+   * @param handler - The handler (if command filter is provided)
+   */
+  onSlashCommand(handler: SlashCommandHandler<TState>): void;
+  onSlashCommand(command: string, handler: SlashCommandHandler<TState>): void;
+  onSlashCommand(
+    commands: string[],
+    handler: SlashCommandHandler<TState>,
+  ): void;
+  onSlashCommand(
+    commandOrHandler: string | string[] | SlashCommandHandler<TState>,
+    handler?: SlashCommandHandler<TState>,
+  ): void {
+    if (typeof commandOrHandler === "function") {
+      this.slashCommandHandlers.push({
+        commands: [],
+        handler: commandOrHandler,
+      });
+      this.logger.debug("Registered slash command handler for all commands");
+    } else if (handler) {
+      const commands = Array.isArray(commandOrHandler)
+        ? commandOrHandler
+        : [commandOrHandler];
+      const normalizedCommands = commands.map((cmd) =>
+        cmd.startsWith("/") ? cmd : `/${cmd}`,
+      );
+      this.slashCommandHandlers.push({ commands: normalizedCommands, handler });
+      this.logger.debug("Registered slash command handler", {
+        commands: normalizedCommands,
+      });
+    }
+  }
+
+  /**
    * Get an adapter by name with type safety.
    */
   getAdapter<K extends keyof TAdapters>(name: K): TAdapters[K] {
@@ -619,19 +695,21 @@ export class Chat<
   }
 
   async processModalSubmit(
-    event: Omit<ModalSubmitEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalSubmitEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
     _options?: WebhookOptions,
   ): Promise<ModalResponse | undefined> {
-    const { relatedThread, relatedMessage } = await this.retrieveModalContext(
-      event.adapter.name,
-      contextId,
-    );
+    const { relatedThread, relatedMessage, relatedChannel } =
+      await this.retrieveModalContext(event.adapter.name, contextId);
 
     const fullEvent: ModalSubmitEvent = {
       ...event,
       relatedThread,
       relatedMessage,
+      relatedChannel,
     };
 
     for (const { callbackIds, handler } of this.modalSubmitHandlers) {
@@ -650,20 +728,22 @@ export class Chat<
   }
 
   processModalClose(
-    event: Omit<ModalCloseEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalCloseEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
     options?: WebhookOptions,
   ): void {
     const task = (async () => {
-      const { relatedThread, relatedMessage } = await this.retrieveModalContext(
-        event.adapter.name,
-        contextId,
-      );
+      const { relatedThread, relatedMessage, relatedChannel } =
+        await this.retrieveModalContext(event.adapter.name, contextId);
 
       const fullEvent: ModalCloseEvent = {
         ...event,
         relatedThread,
         relatedMessage,
+        relatedChannel,
       };
 
       for (const { callbackIds, handler } of this.modalCloseHandlers) {
@@ -687,19 +767,127 @@ export class Chat<
   }
 
   /**
+   * Process an incoming slash command from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   */
+  processSlashCommand(
+    event: Omit<SlashCommandEvent, "channel" | "openModal"> & {
+      adapter: Adapter;
+      channelId: string;
+    },
+    options?: WebhookOptions,
+  ): void {
+    const task = this.handleSlashCommandEvent(event).catch((err) => {
+      this.logger.error("Slash command processing error", {
+        error: err,
+        command: event.command,
+        text: event.text,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  /**
+   * Handle a slash command event internally.
+   */
+  private async handleSlashCommandEvent(
+    event: Omit<SlashCommandEvent, "channel" | "openModal"> & {
+      adapter: Adapter;
+      channelId: string;
+    },
+  ): Promise<void> {
+    this.logger.debug("Incoming slash command", {
+      adapter: event.adapter.name,
+      command: event.command,
+      text: event.text,
+      user: event.user.userName,
+    });
+    if (event.user.isMe) {
+      this.logger.debug("Skipping slash command from self", {
+        command: event.command,
+      });
+      return;
+    }
+    const channel = new ChannelImpl<TState>({
+      id: event.channelId,
+      adapter: event.adapter,
+      stateAdapter: this._stateAdapter,
+    });
+    const fullEvent: SlashCommandEvent<TState> = {
+      ...event,
+      channel,
+      openModal: async (modal) => {
+        if (!event.triggerId) {
+          this.logger.warn("Cannot open modal: no triggerId available");
+          return undefined;
+        }
+        if (!event.adapter.openModal) {
+          this.logger.warn(
+            `Cannot open modal: ${event.adapter.name} does not support modals`,
+          );
+          return undefined;
+        }
+        let modalElement: ModalElement = modal as ModalElement;
+        if (isJSX(modal)) {
+          const converted = toModalElement(modal);
+          if (!converted) {
+            throw new Error("Invalid JSX element: must be a Modal element");
+          }
+          modalElement = converted;
+        }
+        const contextId = crypto.randomUUID();
+        this.storeModalContext(
+          event.adapter.name,
+          contextId,
+          undefined,
+          undefined,
+          channel,
+        );
+        return event.adapter.openModal(
+          event.triggerId,
+          modalElement,
+          contextId,
+        );
+      },
+    };
+    this.logger.debug("Checking slash command handlers", {
+      handlerCount: this.slashCommandHandlers.length,
+      command: event.command,
+    });
+    for (const { commands, handler } of this.slashCommandHandlers) {
+      if (commands.length === 0) {
+        this.logger.debug("Running catch-all slash command handler");
+        await handler(fullEvent);
+        continue;
+      }
+      if (commands.includes(event.command)) {
+        this.logger.debug("Running matched slash command handler", {
+          command: event.command,
+        });
+        await handler(fullEvent);
+      }
+    }
+  }
+
+  /**
    * Store modal context server-side with a context ID.
-   * Called when opening a modal to preserve thread/message for the submit handler.
+   * Called when opening a modal to preserve thread/message/channel for the submit handler.
    */
   private storeModalContext(
     adapterName: string,
     contextId: string,
-    thread: ThreadImpl<TState>,
+    thread?: ThreadImpl<TState>,
     message?: Message,
+    channel?: ChannelImpl<TState>,
   ): void {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
-      thread: thread.toJSON(),
+      thread: thread?.toJSON(),
       message: message?.toJSON(),
+      channel: channel?.toJSON(),
     };
     this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS).catch((err) => {
       this.logger.error("Failed to store modal context", {
@@ -711,7 +899,7 @@ export class Chat<
 
   /**
    * Retrieve and delete modal context from server-side storage.
-   * Called when processing modal submit/close to reconstruct thread/message.
+   * Called when processing modal submit/close to reconstruct thread/message/channel.
    */
   private async retrieveModalContext(
     adapterName: string,
@@ -719,30 +907,51 @@ export class Chat<
   ): Promise<{
     relatedThread: Thread | undefined;
     relatedMessage: SentMessage | undefined;
+    relatedChannel: Channel | undefined;
   }> {
     if (!contextId) {
-      return { relatedThread: undefined, relatedMessage: undefined };
+      return {
+        relatedThread: undefined,
+        relatedMessage: undefined,
+        relatedChannel: undefined,
+      };
     }
 
     const key = `modal-context:${adapterName}:${contextId}`;
     const stored = await this._stateAdapter.get<StoredModalContext>(key);
 
     if (!stored) {
-      return { relatedThread: undefined, relatedMessage: undefined };
+      return {
+        relatedThread: undefined,
+        relatedMessage: undefined,
+        relatedChannel: undefined,
+      };
     }
 
-    // Reconstruct thread with adapter directly
     const adapter = this.adapters.get(adapterName);
-    const thread = ThreadImpl.fromJSON(stored.thread, adapter);
+
+    // Reconstruct thread with adapter directly (if present)
+    let relatedThread: Thread | undefined;
+    if (stored.thread) {
+      relatedThread = ThreadImpl.fromJSON(stored.thread, adapter) as Thread;
+    }
 
     // Reconstruct message if present
     let relatedMessage: SentMessage | undefined;
-    if (stored.message) {
+    if (stored.message && relatedThread) {
       const message = Message.fromJSON(stored.message);
-      relatedMessage = thread.createSentMessageFromMessage(message);
+      relatedMessage = (
+        relatedThread as ThreadImpl<TState>
+      ).createSentMessageFromMessage(message);
     }
 
-    return { relatedThread: thread as Thread, relatedMessage };
+    // Reconstruct channel if present
+    let relatedChannel: Channel | undefined;
+    if (stored.channel) {
+      relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
+    }
+
+    return { relatedThread, relatedMessage, relatedChannel };
   }
 
   /**
@@ -838,11 +1047,14 @@ export class Chat<
           }
         }
         const contextId = crypto.randomUUID();
+        const channel = (thread as ThreadImpl<TState>)
+          .channel as ChannelImpl<TState>;
         this.storeModalContext(
           event.adapter.name,
           contextId,
           thread as ThreadImpl<TState>,
           message,
+          channel,
         );
         return event.adapter.openModal(
           event.triggerId,

@@ -246,36 +246,49 @@ bot.onAction("goodbye", async (event) => {
   );
 });
 
+// Feedback modal component
+const FeedbackModal = (
+  <Modal
+    callbackId="feedback_form"
+    title="Send Feedback"
+    submitLabel="Send"
+    closeLabel="Cancel"
+    notifyOnClose
+  >
+    <TextInput
+      id="message"
+      label="Your Feedback"
+      placeholder="Tell us what you think..."
+      multiline
+    />
+    <Select id="category" label="Category" placeholder="Select a category">
+      <SelectOption label="Bug Report" value="bug" />
+      <SelectOption label="Feature Request" value="feature" />
+      <SelectOption label="General Feedback" value="general" />
+      <SelectOption label="Other" value="other" />
+    </Select>
+    <TextInput
+      id="email"
+      label="Email (optional)"
+      placeholder="your@email.com"
+      optional
+    />
+  </Modal>
+);
+
 // Open feedback modal
 bot.onAction("feedback", async (event) => {
-  await event.openModal(
-    <Modal
-      callbackId="feedback_form"
-      title="Send Feedback"
-      submitLabel="Send"
-      closeLabel="Cancel"
-      notifyOnClose
-    >
-      <TextInput
-        id="message"
-        label="Your Feedback"
-        placeholder="Tell us what you think..."
-        multiline
-      />
-      <Select id="category" label="Category" placeholder="Select a category">
-        <SelectOption label="Bug Report" value="bug" />
-        <SelectOption label="Feature Request" value="feature" />
-        <SelectOption label="General Feedback" value="general" />
-        <SelectOption label="Other" value="other" />
-      </Select>
-      <TextInput
-        id="email"
-        label="Email (optional)"
-        placeholder="your@email.com"
-        optional
-      />
-    </Modal>,
-  );
+  await event.openModal(FeedbackModal);
+});
+
+// Opens feedback modal via /feedback
+bot.onSlashCommand("/test-feedback", async (event) => {
+  const result = await event.openModal(FeedbackModal);
+  if (!result) {
+    await event.channel.post(
+      `${emoji.warning} Couldn't open the feedback modal. Please try again.`,
+    );
+  }
 });
 
 // Open bug report modal with privateMetadata carrying context from button value
@@ -362,7 +375,8 @@ bot.onModalSubmit("feedback_form", async (event) => {
     user: event.user.userName,
   });
   await event.relatedMessage?.edit(`${emoji.check} **Feedback received!**`);
-  await event.relatedThread?.post(
+  const target = event.relatedChannel || event.relatedThread;
+  await target?.post(
     <Card title={`${emoji.check} Feedback received!`}>
       <Text>Thank you for your feedback!</Text>
       <Fields>
