@@ -4,6 +4,7 @@
     "index",
     "chat",
     "thread",
+    "channel",
     "message",
     "postable-message",
     "cards",
