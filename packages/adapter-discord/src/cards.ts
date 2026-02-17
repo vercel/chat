@@ -107,7 +107,7 @@ function processChild(
       textParts.push("───────────");
       break;
     case "actions":
-      components.push(convertActionsElement(child));
+      components.push(...convertActionsToRows(child));
       break;
     case "section":
       processSectionElement(child, textParts, fields, components);
@@ -136,9 +136,10 @@ function convertTextElement(element: TextElement): string {
 }
 
 /**
- * Convert an actions element to a Discord action row.
+ * Convert an actions element to Discord action rows.
+ * Discord limits each action row to 5 components, so we chunk buttons.
  */
-function convertActionsElement(element: ActionsElement): DiscordActionRow {
+function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
   const buttons: DiscordButton[] = element.children
     .filter((child) => child.type === "button" || child.type === "link-button")
     .map((button) => {
@@ -148,10 +149,15 @@ function convertActionsElement(element: ActionsElement): DiscordActionRow {
       return convertButtonElement(button);
     });
 
-  return {
-    type: 1, // Action Row
-    components: buttons,
-  };
+  // Discord allows max 5 buttons per action row
+  const rows: DiscordActionRow[] = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push({
+      type: 1, // Action Row
+      components: buttons.slice(i, i + 5),
+    });
+  }
+  return rows;
 }
 
 /**
