@@ -4,18 +4,12 @@
     "index",
     "getting-started",
     "usage",
-    "---State Adapters---",
-    "...state",
+    "posting-messages",
+    "---Features---",
+    "...",
     "---Platform Adapters---",
     "...adapters",
-    "---Features---",
-    "cards",
-    "actions",
-    "modals",
-    "emoji",
-    "streaming",
-    "files",
-    "direct-messages",
-    "ephemeral-messages"
+    "---State Adapters---",
+    "...state"
   ]
 }
