@@ -158,6 +158,7 @@ bot.onModalSubmit("feedback_form", async (event) => {
 | `privateMetadata` | `string` (optional) | Custom context from the Modal component |
 | `relatedThread` | `Thread` (optional) | Thread where the modal was triggered |
 | `relatedMessage` | `SentMessage` (optional) | Message with the button that opened the modal |
+| `relatedChannel` | `Channel` (optional) | Channel where the modal was triggered (from [slash commands](/docs/slash-commands)) |
 | `adapter` | `Adapter` | The platform adapter |
 | `raw` | `unknown` | Platform-specific payload |
 

@@ -169,6 +169,14 @@ For buttons, modals, and other interactive components:
 2. Toggle **Interactivity** to On
 3. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
 
+### 7. Configure slash commands (optional)
+
+1. Go to **Slash Commands** in your app settings
+2. Click **Create New Command**
+3. Set **Command** (e.g., `/feedback`)
+4. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
+5. Add a description and click **Save**
+
 ## Configuration
 
 | Option | Required | Description |
@@ -197,6 +205,7 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 | Reactions (add/remove) | Yes |
 | Cards (Block Kit) | Yes |
 | Modals | Yes |
+| Slash commands | Yes |
 | Streaming | Native API |
 | DMs | Yes |
 | Ephemeral messages | Yes (native) |

@@ -12,6 +12,7 @@
     "cards",
     "actions",
     "modals",
+    "slash-commands",
     "emoji",
     "streaming",
     "files",
