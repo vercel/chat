@@ -235,6 +235,140 @@ describe("DM Replay Tests", () => {
     });
   });
 
+  describe("Slack - Direct DM (implicit mention)", () => {
+    let chat: Chat<{ slack: SlackAdapter }>;
+    let mockSlackClient: MockSlackClient;
+    let tracker: ReturnType<typeof createWaitUntilTracker>;
+    let state: DMFlowState;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      state = createDMFlowState();
+
+      const slackAdapter = createSlackAdapter({
+        botToken: SLACK_BOT_TOKEN,
+        signingSecret: SLACK_SIGNING_SECRET,
+        logger: mockLogger,
+      });
+      mockSlackClient = createMockSlackClient();
+      mockSlackClient.auth.test.mockResolvedValue({
+        ok: true,
+        user_id: slackFixtures.botUserId,
+        user: slackFixtures.botName,
+      });
+      injectMockSlackClient(slackAdapter, mockSlackClient);
+
+      chat = new Chat({
+        userName: slackFixtures.botName,
+        adapters: { slack: slackAdapter },
+        state: createMemoryState(),
+        logger: "error",
+      });
+
+      chat.onNewMention(async (thread, message) => {
+        state.mentionMessage = message;
+        await thread.subscribe();
+        await thread.post(`Hi! You said: ${message.text}`);
+      });
+
+      chat.onSubscribedMessage(async (thread, message) => {
+        state.dmMessage = message;
+        await thread.post(`Follow-up: ${message.text}`);
+      });
+
+      tracker = createWaitUntilTracker();
+    });
+
+    afterEach(async () => {
+      await chat.shutdown();
+    });
+
+    const sendWebhook = async (fixture: unknown) => {
+      await chat.webhooks.slack(
+        createSignedSlackRequest(JSON.stringify(fixture)),
+        { waitUntil: tracker.waitUntil },
+      );
+      await tracker.waitForAll();
+    };
+
+    it("should treat direct DM as mention (no prior channel interaction)", async () => {
+      // Send a DM directly — no channel mention or openDM flow needed
+      await sendWebhook(slackFixtures.dmMessage);
+
+      // DM messages have isMention=true, so onNewMention fires
+      expect(state.mentionMessage).not.toBeNull();
+      expect(state.mentionMessage?.text).toBe("Hey!");
+    });
+
+    it("should use empty threadTs for top-level DM messages", async () => {
+      await sendWebhook(slackFixtures.dmMessage);
+
+      expect(state.mentionMessage).not.toBeNull();
+      // Top-level DM → threadId is "slack:<channel>:" with empty threadTs
+      expect(state.mentionMessage?.threadId).toBe(
+        `slack:${slackFixtures.dmChannelId}:`,
+      );
+    });
+
+    it("should respond to direct DM", async () => {
+      await sendWebhook(slackFixtures.dmMessage);
+
+      expect(mockSlackClient.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: slackFixtures.dmChannelId,
+          text: expect.stringContaining("Hi! You said: Hey!"),
+        }),
+      );
+    });
+
+    it("should receive follow-up DM as subscribed message", async () => {
+      // First DM triggers onNewMention and subscribes
+      await sendWebhook(slackFixtures.dmMessage);
+      expect(state.mentionMessage).not.toBeNull();
+
+      // Second DM in same thread triggers onSubscribedMessage
+      const followUp = {
+        ...slackFixtures.dmMessage,
+        event: {
+          ...slackFixtures.dmMessage.event,
+          ts: "1767377010.000000",
+          text: "Another message",
+        },
+      };
+      await sendWebhook(followUp);
+
+      expect(state.dmMessage).not.toBeNull();
+      expect(state.dmMessage?.text).toBe("Another message");
+
+      expect(mockSlackClient.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: slackFixtures.dmChannelId,
+          text: expect.stringContaining("Follow-up: Another message"),
+        }),
+      );
+    });
+
+    it("should use thread_ts for DM thread replies", async () => {
+      // A DM reply with thread_ts should use that as the threadTs
+      const dmReply = {
+        ...slackFixtures.dmMessage,
+        event: {
+          ...slackFixtures.dmMessage.event,
+          ts: "1767377010.000000",
+          thread_ts: slackFixtures.dmMessage.event.ts,
+          text: "Threaded reply",
+        },
+      };
+      await sendWebhook(dmReply);
+
+      expect(state.mentionMessage).not.toBeNull();
+      // DM reply with thread_ts → threadId includes the parent ts
+      expect(state.mentionMessage?.threadId).toBe(
+        `slack:${slackFixtures.dmChannelId}:${slackFixtures.dmMessage.event.ts}`,
+      );
+    });
+  });
+
   describe("Google Chat", () => {
     let chat: Chat<{ gchat: GoogleChatAdapter }>;
     let gchatAdapter: GoogleChatAdapter;
