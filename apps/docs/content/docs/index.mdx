@@ -1,0 +1,77 @@
+---
+title: Introduction
+description: A unified SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more.
+type: overview
+---
+
+Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it to Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear.
+
+## Why Chat SDK?
+
+Building a chat bot that works across multiple platforms typically means maintaining separate codebases, learning different APIs, and handling platform-specific quirks individually. Chat SDK abstracts these differences behind a unified interface.
+
+- **Single codebase** for all platforms
+- **Type-safe** adapters and event handlers with full TypeScript support
+- **Event-driven** architecture with handlers for mentions, messages, reactions, button clicks, and modals
+- **Thread subscriptions** for multi-turn conversations
+- **Rich UI** with JSX cards, buttons, and modals that render natively on each platform
+- **AI streaming** with first-class support for streaming LLM responses
+- **Serverless-ready** with distributed state via Redis and message deduplication
+
+## How it works
+
+Chat SDK has three core concepts:
+
+1. **Chat** — the main entry point that coordinates adapters and routes events to your handlers
+2. **Adapters** — platform-specific implementations that handle webhook parsing, message formatting, and API calls
+3. **State** — a pluggable persistence layer for thread subscriptions and distributed locking
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      botToken: process.env.SLACK_BOT_TOKEN!,
+      signingSecret: process.env.SLACK_SIGNING_SECRET!,
+    }),
+  },
+  state: createRedisState({ url: process.env.REDIS_URL! }),
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello! I'm listening to this thread.");
+});
+```
+
+## Supported platforms
+
+| Platform | Package | Mentions | Reactions | Cards | Modals | Streaming | DMs |
+|----------|---------|----------|-----------|-------|--------|-----------|-----|
+| Slack | `@chat-adapter/slack` | Yes | Yes | Yes | Yes | Native | Yes |
+| Microsoft Teams | `@chat-adapter/teams` | Yes | Read-only | Yes | No | Post+Edit | Yes |
+| Google Chat | `@chat-adapter/gchat` | Yes | Yes | Yes | No | Post+Edit | Yes |
+| Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
+| GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
+| Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+
+## Packages
+
+The SDK is distributed as a set of packages you install based on your needs:
+
+| Package | Description |
+|---------|-------------|
+| `chat` | Core SDK with `Chat` class, types, JSX runtime, and utilities |
+| `@chat-adapter/slack` | Slack adapter |
+| `@chat-adapter/teams` | Microsoft Teams adapter |
+| `@chat-adapter/gchat` | Google Chat adapter |
+| `@chat-adapter/discord` | Discord adapter |
+| `@chat-adapter/github` | GitHub Issues adapter |
+| `@chat-adapter/linear` | Linear Issues adapter |
+| `@chat-adapter/state-redis` | Redis state adapter (production) |
+| `@chat-adapter/state-ioredis` | ioredis state adapter (alternative) |
+| `@chat-adapter/state-memory` | In-memory state adapter (development) |

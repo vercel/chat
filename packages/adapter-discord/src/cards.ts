@@ -107,7 +107,7 @@ function processChild(
       textParts.push("───────────");
       break;
     case "actions":
-      components.push(convertActionsElement(child));
+      components.push(...convertActionsToRows(child));
       break;
     case "section":
       processSectionElement(child, textParts, fields, components);
@@ -136,20 +136,28 @@ function convertTextElement(element: TextElement): string {
 }
 
 /**
- * Convert an actions element to a Discord action row.
+ * Convert an actions element to Discord action rows.
+ * Discord limits each action row to 5 components, so we chunk buttons.
  */
-function convertActionsElement(element: ActionsElement): DiscordActionRow {
-  const buttons: DiscordButton[] = element.children.map((button) => {
-    if (button.type === "link-button") {
-      return convertLinkButtonElement(button);
-    }
-    return convertButtonElement(button);
-  });
+function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
+  const buttons: DiscordButton[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
+      if (button.type === "link-button") {
+        return convertLinkButtonElement(button);
+      }
+      return convertButtonElement(button);
+    });
 
-  return {
-    type: 1, // Action Row
-    components: buttons,
-  };
+  // Discord allows max 5 buttons per action row
+  const rows: DiscordActionRow[] = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push({
+      type: 1, // Action Row
+      components: buttons.slice(i, i + 5),
+    });
+  }
+  return rows;
 }
 
 /**
@@ -259,7 +267,9 @@ function childToFallbackText(child: CardChild): string | null {
         .map((f) => `**${convertEmoji(f.label)}**: ${convertEmoji(f.value)}`)
         .join("\n");
     case "actions":
-      return `[${child.children.map((b) => convertEmoji(b.label)).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c))

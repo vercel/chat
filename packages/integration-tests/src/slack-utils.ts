@@ -115,6 +115,10 @@ export function createMockSlackClient() {
         channel: "C123456",
         message: { ts: "1234567890.123456" },
       }),
+      postEphemeral: vi.fn().mockResolvedValue({
+        ok: true,
+        message_ts: "1234567890.123457",
+      }),
       update: vi.fn().mockResolvedValue({
         ok: true,
         ts: "1234567890.123456",
@@ -169,6 +173,7 @@ export function createMockSlackClient() {
     clearMocks: () => {
       client.auth.test.mockClear();
       client.chat.postMessage.mockClear();
+      client.chat.postEphemeral.mockClear();
       client.chat.update.mockClear();
       client.chat.delete.mockClear();
       client.chatStream.mockClear();

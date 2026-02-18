@@ -1,0 +1,128 @@
+{
+  "botName": "Chat SDK Demo",
+  "appId": "57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+  "userId": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
+  "userName": "Malte Ubl",
+  "conversationId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407",
+  "baseConversationId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2",
+  "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+  "mention": {
+    "text": "<at>Chat SDK Demo</at> Hey",
+    "textFormat": "plain",
+    "attachments": [
+      {
+        "contentType": "text/html",
+        "content": "<p><span itemtype=\"http://schema.skype.com/Mention\" itemscope=\"\" itemid=\"0\">Chat SDK Demo</span>&nbsp;Hey</p>"
+      }
+    ],
+    "type": "message",
+    "timestamp": "2026-02-17T01:01:47.4513813Z",
+    "localTimestamp": "2026-02-16T17:01:47.4513813-08:00",
+    "id": "1771290107407",
+    "channelId": "msteams",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "from": {
+      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
+      "name": "Malte Ubl",
+      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+    },
+    "conversation": {
+      "isGroup": true,
+      "conversationType": "channel",
+      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407"
+    },
+    "recipient": {
+      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "name": "Chat SDK Demo"
+    },
+    "entities": [
+      {
+        "mentioned": {
+          "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+          "name": "Chat SDK Demo"
+        },
+        "text": "<at>Chat SDK Demo</at>",
+        "type": "mention"
+      },
+      {
+        "locale": "en-US",
+        "country": "US",
+        "platform": "Web",
+        "timezone": "America/Los_Angeles",
+        "type": "clientInfo"
+      }
+    ],
+    "channelData": {
+      "teamsChannelId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2",
+      "teamsTeamId": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2",
+      "channel": {
+        "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2"
+      },
+      "team": {
+        "id": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2"
+      },
+      "tenant": {
+        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+      }
+    },
+    "locale": "en-US",
+    "localTimezone": "America/Los_Angeles"
+  },
+  "channel_post_action": {
+    "type": "message",
+    "timestamp": "2026-02-17T01:02:17.37Z",
+    "localTimestamp": "2026-02-16T17:02:17.37-08:00",
+    "id": "f:56006e85-7a67-25c7-704d-7f0a1e45eeec",
+    "channelId": "msteams",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "from": {
+      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
+      "name": "Malte Ubl",
+      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+    },
+    "conversation": {
+      "isGroup": true,
+      "conversationType": "channel",
+      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407",
+      "name": "Chat SDK"
+    },
+    "recipient": {
+      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "name": "Chat SDK Demo"
+    },
+    "entities": [
+      {
+        "locale": "en-US",
+        "country": "US",
+        "platform": "Web",
+        "timezone": "America/Los_Angeles",
+        "type": "clientInfo"
+      }
+    ],
+    "channelData": {
+      "channel": {
+        "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2"
+      },
+      "team": {
+        "id": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2"
+      },
+      "tenant": {
+        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+      },
+      "source": {
+        "name": "message"
+      },
+      "legacy": {
+        "replyToId": "1:1X-7vrJOSUUg4X45QJiuCw7M7j5PsWdK7UF4fTiDsxDA"
+      }
+    },
+    "replyToId": "1771290108656",
+    "value": {
+      "actionId": "channel-post"
+    },
+    "locale": "en-US",
+    "localTimezone": "America/Los_Angeles"
+  }
+}

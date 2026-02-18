@@ -300,9 +300,11 @@ describe("Discord Replay Tests", () => {
 
       await ctx.sendWebhook(discordFixtures.buttonClickHello);
 
-      // Thread ID format: discord:{guildId}:{threadId}
+      // Thread ID format: discord:{guildId}:{parentChannelId}:{threadId}
+      // When the interaction happens in a thread, the parent channel is included
+      const REAL_CHANNEL_ID = discordFixtures.metadata.channelId;
       expect(capturedAction?.thread.id).toBe(
-        `discord:${REAL_GUILD_ID}:${REAL_THREAD_ID}`,
+        `discord:${REAL_GUILD_ID}:${REAL_CHANNEL_ID}:${REAL_THREAD_ID}`,
       );
       expect(capturedAction?.threadId).toBe(capturedAction?.thread.id);
     });

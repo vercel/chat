@@ -22,6 +22,15 @@ async function storeModalContext(ctx: SlackTestContext): Promise<void> {
   await ctx.state.set(key, { thread, message }, 3600000); // 1 hour TTL
 }
 
+async function storeEphemeralModalContext(
+  ctx: SlackTestContext,
+): Promise<void> {
+  await ctx.state.connect();
+  const { contextId, thread, message } = slackFixtures.ephemeralModalContext;
+  const key = `modal-context:slack:${contextId}`;
+  await ctx.state.set(key, { thread, message }, 3600000);
+}
+
 describe("Replay Tests - Modals", () => {
   describe("Slack", () => {
     let ctx: SlackTestContext;
@@ -211,6 +220,101 @@ describe("Replay Tests - Modals", () => {
           channel: "C0A9GJ2PUTB",
           ts: "1769220161.503009",
           text: expect.stringContaining("Feedback received! Thank you."),
+        }),
+      );
+    });
+
+    it("should handle button click from ephemeral message and provide triggerId for modal", async () => {
+      ctx = createSlackTestContext(
+        { botName: slackFixtures.botName, botUserId: slackFixtures.botUserId },
+        {
+          onAction: async (event) => {
+            capturedAction = event;
+            if (event.actionId === "ephemeral_modal") {
+              openModalCalled = true;
+            }
+          },
+        },
+      );
+
+      await ctx.sendSlackAction(slackFixtures.ephemeralAction);
+
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.actionId).toBe("ephemeral_modal");
+      expect(capturedAction?.triggerId).toBe(
+        "10541689532400.10229338706656.500e194be18c7e17dd828032cc9a769f",
+      );
+      expect(openModalCalled).toBe(true);
+
+      expect(capturedAction?.messageId).toMatch(/^ephemeral:/);
+      expect(capturedAction?.messageId).toContain("1771126609.000200");
+
+      expect(capturedAction?.threadId).toBe(
+        "slack:C0ACELCQBAB:1771126602.612659",
+      );
+      expect(capturedAction?.thread.channelId).toBe("C0ACELCQBAB");
+    });
+
+    it("should allow editing relatedMessage from ephemeral modal submission", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(
+          new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        );
+
+      ctx = createSlackTestContext(
+        { botName: slackFixtures.botName, botUserId: slackFixtures.botUserId },
+        {
+          onModalSubmit: async (event) => {
+            capturedModalSubmit = event;
+            if (event.relatedMessage) {
+              await event.relatedMessage.edit("Updated ephemeral content!");
+            }
+          },
+        },
+      );
+
+      await storeEphemeralModalContext(ctx);
+      vi.clearAllMocks();
+      await ctx.sendSlackViewSubmission(slackFixtures.ephemeralViewSubmission);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://hooks.slack.com/actions/T0A6R9YLSKA/10497963005175/6JXlnuaOBOquTvi51uTnoFgi",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            replace_original: true,
+            text: "Updated ephemeral content!",
+            thread_ts: "1771126602.612659",
+          }),
+        }),
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it("should allow posting to relatedThread from ephemeral modal submission", async () => {
+      ctx = createSlackTestContext(
+        { botName: slackFixtures.botName, botUserId: slackFixtures.botUserId },
+        {
+          onModalSubmit: async (event) => {
+            capturedModalSubmit = event;
+            if (event.relatedThread) {
+              await event.relatedThread.post("Response posted to thread!");
+            }
+          },
+        },
+      );
+
+      await storeEphemeralModalContext(ctx);
+      vi.clearAllMocks();
+      await ctx.sendSlackViewSubmission(slackFixtures.ephemeralViewSubmission);
+
+      expect(ctx.mockClient.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C0ACELCQBAB",
+          thread_ts: "1771126602.612659",
+          text: expect.stringContaining("Response posted to thread!"),
         }),
       );
     });

@@ -12,6 +12,7 @@ import { Modal, type ModalElement, TextInput } from "./modals";
 import type {
   ActionEvent,
   Adapter,
+  ModalSubmitEvent,
   ReactionEvent,
   StateAdapter,
 } from "./types";
@@ -1043,6 +1044,666 @@ describe("Chat", () => {
       );
 
       expect(mockAdapter.isDM).toHaveBeenCalledWith("slack:C123:1234.5678");
+    });
+  });
+
+  describe("Slash Commands", () => {
+    it("should call onSlashCommand handler for all commands", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/help",
+        text: "topic",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+      const receivedEvent = handler.mock.calls[0][0];
+      expect(receivedEvent.command).toBe("/help");
+      expect(receivedEvent.text).toBe("topic");
+      expect(receivedEvent.channel).toBeDefined();
+    });
+
+    it("should call onSlashCommand handler for specific command", async () => {
+      const helpHandler = vi.fn().mockResolvedValue(undefined);
+      const statusHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onSlashCommand("/help", helpHandler);
+      chat.onSlashCommand("/status", statusHandler);
+
+      const helpEvent = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(helpEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(helpHandler).toHaveBeenCalled();
+      expect(statusHandler).not.toHaveBeenCalled();
+    });
+
+    it("should call onSlashCommand handler for multiple commands", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onSlashCommand(["/status", "/health"], handler);
+
+      const statusEvent = {
+        command: "/status",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      const healthEvent = {
+        command: "/health",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      const helpEvent = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(statusEvent);
+      chat.processSlashCommand(healthEvent);
+      chat.processSlashCommand(helpEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Should be called for /status and /health, but not /help
+      expect(handler).toHaveBeenCalledTimes(2);
+    });
+
+    it("should skip slash commands from self", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "BOT",
+          userName: "testbot",
+          fullName: "Test Bot",
+          isBot: true,
+          isMe: true,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should normalize command names without leading slash", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      // Register with "help" (no slash) - should be normalized to "/help"
+      chat.onSlashCommand("help", handler);
+
+      const event = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should provide channel.post method", async () => {
+      const handler = vi.fn().mockImplementation(async (event) => {
+        await event.channel.post("Hello from slash command!");
+      });
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(handler).toHaveBeenCalled();
+      expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
+        "slack:C456",
+        "Hello from slash command!",
+      );
+    });
+
+    it("should provide openModal method that calls adapter.openModal", async () => {
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: ModalElement,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const handler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+      expect(capturedEvent?.openModal).toBeDefined();
+
+      // Call openModal with a ModalElement
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "feedback_modal",
+        title: "Feedback",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(mockAdapter.openModal).toHaveBeenCalledWith(
+        "trigger-123",
+        modal,
+        expect.any(String), // contextId
+      );
+      expect(result).toEqual({ viewId: "V123" });
+    });
+
+    it("should convert JSX Modal to ModalElement in openModal", async () => {
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: unknown,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const handler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const jsxModal = jsx(Modal, {
+        callbackId: "jsx_modal",
+        title: "JSX Modal",
+        children: [jsx(TextInput, { id: "name", label: "Name" })],
+      });
+      const result = await capturedEvent?.openModal(jsxModal);
+
+      expect(mockAdapter.openModal).toHaveBeenCalledWith(
+        "trigger-123",
+        expect.objectContaining({
+          type: "modal",
+          callbackId: "jsx_modal",
+          title: "JSX Modal",
+        }),
+        expect.any(String), // contextId
+      );
+      expect(result).toEqual({ viewId: "V123" });
+    });
+
+    it("should return undefined from openModal when triggerId is missing", async () => {
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: ModalElement,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const handler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "test_modal",
+        title: "Test Modal",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(result).toBeUndefined();
+      expect(mockAdapter.openModal).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        "Cannot open modal: no triggerId available",
+      );
+    });
+
+    it("should return undefined from openModal when adapter does not support modals", async () => {
+      const adapterWithoutModals: Adapter = {
+        ...mockAdapter,
+        openModal: undefined,
+      };
+
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: ModalElement,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const handler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(handler);
+
+      const event = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: adapterWithoutModals,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "test_modal",
+        title: "Test Modal",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(result).toBeUndefined();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        "Cannot open modal: slack does not support modals",
+      );
+    });
+
+    it("should run both specific and catch-all handlers", async () => {
+      const specificHandler = vi.fn().mockResolvedValue(undefined);
+      const catchAllHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onSlashCommand("/help", specificHandler);
+      chat.onSlashCommand(catchAllHandler);
+
+      const event = {
+        command: "/help",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+      };
+
+      chat.processSlashCommand(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(specificHandler).toHaveBeenCalled();
+      expect(catchAllHandler).toHaveBeenCalled();
+    });
+
+    it("should store channel context when opening modal and provide relatedChannel in modal submit", async () => {
+      // Open a modal from slash command
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: ModalElement,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const slashHandler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(slashHandler);
+
+      const slashCommandEvent = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(slashCommandEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Open modal
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "slash_feedback",
+        title: "Feedback",
+        children: [],
+      };
+      await capturedEvent?.openModal(modal);
+
+      // Get the contextId from the openModal call
+      const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[2];
+
+      // Now submit the modal
+      let modalSubmitEvent: ModalSubmitEvent | undefined;
+      const modalSubmitHandler = vi
+        .fn()
+        .mockImplementation(async (event: ModalSubmitEvent) => {
+          modalSubmitEvent = event;
+        });
+      chat.onModalSubmit("slash_feedback", modalSubmitHandler);
+
+      await chat.processModalSubmit(
+        {
+          callbackId: "slash_feedback",
+          viewId: "V123",
+          values: { message: "Great feedback!" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          adapter: mockAdapter,
+          raw: {},
+        },
+        contextId,
+      );
+
+      expect(modalSubmitHandler).toHaveBeenCalled();
+      expect(modalSubmitEvent?.relatedChannel).toBeDefined();
+      expect(modalSubmitEvent?.relatedChannel?.id).toBe("slack:C456");
+      expect(modalSubmitEvent?.relatedThread).toBeUndefined();
+      expect(modalSubmitEvent?.relatedMessage).toBeUndefined();
+    });
+
+    it("should allow posting to relatedChannel from modal submit handler", async () => {
+      let capturedEvent:
+        | {
+            openModal: (
+              modal: ModalElement,
+            ) => Promise<{ viewId: string } | undefined>;
+          }
+        | undefined;
+      const slashHandler = vi.fn().mockImplementation(async (event) => {
+        capturedEvent = event;
+      });
+      chat.onSlashCommand(slashHandler);
+
+      const slashCommandEvent = {
+        command: "/feedback",
+        text: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: { channel_id: "C456" },
+        channelId: "slack:C456",
+        triggerId: "trigger-123",
+      };
+
+      chat.processSlashCommand(slashCommandEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "slash_feedback_post",
+        title: "Feedback",
+        children: [],
+      };
+      await capturedEvent?.openModal(modal);
+      const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[2];
+      chat.onModalSubmit("slash_feedback_post", async (event) => {
+        if (event.relatedChannel) {
+          await event.relatedChannel.post("Thank you for your feedback!");
+        }
+        return undefined;
+      });
+
+      await chat.processModalSubmit(
+        {
+          callbackId: "slash_feedback_post",
+          viewId: "V123",
+          values: { message: "Great feedback!" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          adapter: mockAdapter,
+          raw: {},
+        },
+        contextId,
+      );
+
+      expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
+        "slack:C456",
+        "Thank you for your feedback!",
+      );
+    });
+
+    it("should provide relatedChannel from action-triggered modal (extracted from thread)", async () => {
+      let capturedActionEvent: ActionEvent | undefined;
+      const actionHandler = vi
+        .fn()
+        .mockImplementation(async (event: ActionEvent) => {
+          capturedActionEvent = event;
+        });
+      chat.onAction("feedback_button", actionHandler);
+
+      const actionEvent: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "feedback_button",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C789:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+        triggerId: "trigger-action-123",
+      };
+
+      chat.processAction(actionEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(actionHandler).toHaveBeenCalled();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "action_feedback",
+        title: "Feedback",
+        children: [],
+      };
+      await capturedActionEvent?.openModal(modal);
+
+      let modalSubmitEvent: ModalSubmitEvent | undefined;
+      const modalSubmitHandler = vi
+        .fn()
+        .mockImplementation(async (event: ModalSubmitEvent) => {
+          modalSubmitEvent = event;
+        });
+      chat.onModalSubmit("action_feedback", modalSubmitHandler);
+
+      const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[2];
+
+      await chat.processModalSubmit(
+        {
+          callbackId: "action_feedback",
+          viewId: "V456",
+          values: { message: "Button feedback!" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          adapter: mockAdapter,
+          raw: {},
+        },
+        contextId,
+      );
+
+      expect(modalSubmitHandler).toHaveBeenCalled();
+      expect(modalSubmitEvent?.relatedChannel).toBeDefined();
+      expect(modalSubmitEvent?.relatedChannel?.id).toBe("slack:C789");
+      expect(modalSubmitEvent?.relatedThread).toBeDefined();
+      expect(modalSubmitEvent?.relatedThread?.id).toBe("slack:C789:1234.5678");
     });
   });
 });

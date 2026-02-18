@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -8,6 +8,12 @@
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2
+  },
+  "files": {
+    "includes": [
+      "**/*",
+      "!apps/docs"
+    ]
   },
   "linter": {
     "enabled": true,

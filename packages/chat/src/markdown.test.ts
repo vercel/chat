@@ -512,7 +512,9 @@ describe("BaseFormatConverter", () => {
       });
       const result = converter.renderPostable({ card });
       expect(result).toContain("Confirm");
-      expect(result).toContain("[Yes] [No]");
+      // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+      expect(result).not.toContain("[Yes]");
+      expect(result).not.toContain("[No]");
     });
 
     it("handles card with fields", () => {

@@ -1,0 +1,250 @@
+---
+title: Code review GitHub bot with Hono and Redis
+description: Build a GitHub bot that reviews pull requests using AI SDK, Vercel Sandbox, and Chat SDK.
+type: guide
+prerequisites: []
+related:
+  - /docs/adapters/github
+  - /docs/state/redis
+---
+
+This guide walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+
+## Prerequisites
+
+- Node.js 18+
+- [pnpm](https://pnpm.io) (or npm/yarn)
+- A GitHub repository where you have admin access
+- A Redis instance for state management
+- A [Vercel](https://vercel.com) account
+
+## Create a Hono app
+
+Scaffold a new Hono project and install dependencies:
+
+```sh title="Terminal"
+pnpm create hono my-review-bot
+cd my-review-bot
+pnpm add @octokit/rest @vercel/sandbox ai bash-tool chat @chat-adapter/github @chat-adapter/state-redis
+```
+
+<Callout type="info">
+  Select the `vercel` template when prompted by `create-hono`. This sets up the project for Vercel deployment with the correct entry point.
+</Callout>
+
+## Configure a GitHub webhook
+
+1. Go to your repository **Settings** then **Webhooks** then **Add webhook**
+2. Set **Payload URL** to `https://your-domain.com/api/webhooks/github`
+3. Set **Content type** to `application/json`
+4. Set a **Secret** and save it — you'll need this as `GITHUB_WEBHOOK_SECRET`
+5. Under **Which events would you like to trigger this webhook?**, select **Let me select individual events** and check:
+   - **Issue comments** (for @mention on the PR conversation tab)
+   - **Pull request review comments** (for @mention on inline review threads)
+
+### Get credentials
+
+1. Go to [Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens) and create a token with `repo` scope — you'll need this as `GITHUB_TOKEN`
+2. Copy the **Webhook secret** you set above — you'll need this as `GITHUB_WEBHOOK_SECRET`
+
+## Configure environment variables
+
+Create a `.env` file in your project root:
+
+```bash title=".env"
+GITHUB_TOKEN=ghp_your_personal_access_token
+GITHUB_WEBHOOK_SECRET=your_webhook_secret
+REDIS_URL=redis://localhost:6379
+BOT_USERNAME=my-review-bot
+```
+
+The model (`anthropic/claude-sonnet-4.6`) uses AI Gateway. Develop locally by linking to your Vercel project with `vc link` then pulling your OIDC token with `vc pull --environment development`.
+
+## Define the review function
+
+Create the core review logic. This clones the repo into a Vercel Sandbox, then uses AI SDK with a bash tool to let Claude analyze the diff and read files directly.
+
+```typescript title="src/review.ts" lineNumbers
+import { Sandbox } from "@vercel/sandbox";
+import { ToolLoopAgent, stepCountIs } from "ai";
+import { createBashTool } from "bash-tool";
+
+interface ReviewInput {
+  owner: string;
+  repo: string;
+  prBranch: string;
+  baseBranch: string;
+}
+
+export async function reviewPullRequest(input: ReviewInput): Promise<string> {
+  const { owner, repo, prBranch, baseBranch } = input;
+
+  const sandbox = await Sandbox.create({
+    source: {
+      type: "git",
+      url: `https://github.com/${owner}/${repo}`,
+      username: "x-access-token",
+      password: process.env.GITHUB_TOKEN,
+      depth: 50,
+    },
+    timeout: 5 * 60 * 1000,
+  });
+
+  try {
+    await sandbox.runCommand("git", ["fetch", "origin", prBranch, baseBranch]);
+    await sandbox.runCommand("git", ["checkout", prBranch]);
+
+    const diffResult = await sandbox.runCommand("git", [
+      "diff",
+      `origin/${baseBranch}...HEAD`,
+    ]);
+    const diff = await diffResult.output("stdout");
+
+    const { tools } = await createBashTool({ sandbox });
+
+    const agent = new ToolLoopAgent({
+      model: "anthropic/claude-sonnet-4.6",
+      tools,
+      stopWhen: stepCountIs(20),
+    });
+
+    const result = await agent.generate({
+      prompt: `You are reviewing a pull request for bugs and issues.
+
+Here is the diff for this PR:
+
+\`\`\`diff
+${diff}
+\`\`\`
+
+Use the bash and readFile tools to inspect any files you need more context on.
+
+Look for bugs, security issues, performance problems, and missing error handling.
+Organize findings by severity (critical, warning, suggestion).
+If the code looks good, say so.`,
+    });
+
+    return result.text;
+  } finally {
+    await sandbox.stop();
+  }
+}
+```
+
+The `createBashTool` gives the agent `bash`, `readFile`, and `writeFile` tools — all scoped to the sandbox. The agent can run `git diff`, read source files, and explore the repo freely without any code escaping the sandbox.
+
+The function returns the review text instead of posting it directly. This lets the Chat SDK handler post it as a threaded reply.
+
+## Create the bot
+
+Create a `Chat` instance with the GitHub adapter. When someone @mentions the bot on a PR, it fetches the PR metadata, runs the review, and posts the result back to the thread.
+
+```typescript title="src/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createGitHubAdapter } from "@chat-adapter/github";
+import { createRedisState } from "@chat-adapter/state-redis";
+import { Octokit } from "@octokit/rest";
+import { reviewPullRequest } from "./review";
+import type { GitHubRawMessage } from "@chat-adapter/github";
+
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+export const bot = new Chat({
+  userName: process.env.BOT_USERNAME!,
+  adapters: {
+    github: createGitHubAdapter({
+      token: process.env.GITHUB_TOKEN!,
+      webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+      userName: process.env.BOT_USERNAME!,
+    }),
+  },
+  state: createRedisState({
+    url: process.env.REDIS_URL!,
+  }),
+});
+
+bot.onNewMention(async (thread, message) => {
+  const raw = message.raw as GitHubRawMessage;
+  const { owner, repo, prNumber } = {
+    owner: raw.repository.owner.login,
+    repo: raw.repository.name,
+    prNumber: raw.prNumber,
+  };
+
+  // Fetch PR branch info
+  const { data: pr } = await octokit.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+  });
+
+  await thread.post("Starting code review...");
+  await thread.subscribe();
+
+  const review = await reviewPullRequest({
+    owner,
+    repo,
+    prBranch: pr.head.ref,
+    baseBranch: pr.base.ref,
+  });
+
+  await thread.post(review);
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post(
+    "I've already reviewed this PR. @mention me on a new PR to start another review."
+  );
+});
+```
+
+`onNewMention` fires when a user @mentions the bot — for example, `@codereview can you review this?`. The handler extracts the PR details from the message's raw payload, runs the sandboxed review, and posts the result. Calling `thread.subscribe()` lets the bot respond to follow-up messages in the same thread.
+
+## Handle the webhook
+
+Create the Hono app with a single webhook route that delegates to Chat SDK:
+
+```typescript title="src/index.ts" lineNumbers
+import { Hono } from "hono";
+import { bot } from "./bot";
+
+const app = new Hono();
+
+app.post("/api/webhooks/github", async (c) => {
+  const handler = bot.webhooks.github;
+  if (!handler) {
+    return c.text("GitHub adapter not configured", 404);
+  }
+
+  return handler(c.req.raw, {
+    waitUntil: (task) => c.executionCtx.waitUntil(task),
+  });
+});
+
+export default app;
+```
+
+Chat SDK's GitHub adapter handles signature verification, event parsing, and routing internally. The `waitUntil` option ensures the review completes after the HTTP response is sent.
+
+## Test locally
+
+1. Start your development server (`pnpm dev`)
+2. Expose it with a tunnel (e.g. `ngrok http 3000`)
+3. Update the webhook URL in your GitHub repository settings to your tunnel URL
+4. Open a pull request
+5. Comment `@my-review-bot can you review this?` — the bot should respond with "Starting code review..." followed by the full review
+
+## Deploy to Vercel
+
+Deploy your bot to Vercel:
+
+```sh title="Terminal"
+vercel deploy
+```
+
+After deployment, set your environment variables in the Vercel dashboard (`GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `REDIS_URL`, `BOT_USERNAME`). Update the webhook URL in your GitHub repository settings to your production URL.
+
+## Next steps
+
+- [GitHub adapter](/docs/adapters/github) — Authentication options, thread model, and full configuration reference
+- [Redis state](/docs/state/redis) — Production state adapter for subscriptions and distributed locking

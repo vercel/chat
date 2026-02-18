@@ -40,16 +40,20 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   FetchOptions,
   FetchResult,
   FileUpload,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   RawMessage,
   ReactionEvent,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
 } from "chat";
 import {
@@ -1662,6 +1666,511 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       id: threadId,
       channelId: conversationId,
       metadata: {},
+    };
+  }
+
+  /**
+   * Derive channel ID from a Teams thread ID.
+   * Teams conversation IDs may include ";messageid=XXX" for threading.
+   * Strip the messageid part to get the base channel/conversation.
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
+    // Strip ;messageid=XXX from conversation ID
+    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    return this.encodeThreadId({
+      conversationId: baseConversationId,
+      serviceUrl,
+    });
+  }
+
+  /**
+   * Fetch channel-level messages (all messages in the conversation, not filtered by thread).
+   * Uses the Graph API for chat messages.
+   */
+  async fetchChannelMessages(
+    channelId: string,
+    options: FetchOptions = {},
+  ): Promise<FetchResult<unknown>> {
+    if (!this.graphClient) {
+      throw new NotImplementedError(
+        "Teams fetchChannelMessages requires appTenantId for Microsoft Graph API access.",
+        "fetchChannelMessages",
+      );
+    }
+
+    const { conversationId } = this.decodeThreadId(channelId);
+    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const limit = options.limit || 50;
+    const direction = options.direction ?? "backward";
+
+    try {
+      // Check if we have channel context (team channel vs group chat)
+      let channelContext: TeamsChannelContext | null = null;
+      if (this.chat) {
+        const cachedContext = await this.chat
+          .getState()
+          .get<string>(`teams:channelContext:${baseConversationId}`);
+        if (cachedContext) {
+          try {
+            channelContext = JSON.parse(cachedContext) as TeamsChannelContext;
+          } catch {
+            // Ignore invalid cache
+          }
+        }
+      }
+
+      this.logger.debug("Teams Graph API: fetchChannelMessages", {
+        conversationId: baseConversationId,
+        hasChannelContext: !!channelContext,
+        limit,
+        direction,
+      });
+
+      let graphMessages: GraphChatMessage[];
+      let hasMoreMessages = false;
+
+      if (channelContext) {
+        // Team channel: use /teams/{teamId}/channels/{channelId}/messages
+        const apiUrl = `/teams/${encodeURIComponent(channelContext.teamId)}/channels/${encodeURIComponent(channelContext.channelId)}/messages`;
+
+        if (direction === "forward") {
+          const allMessages: GraphChatMessage[] = [];
+          let nextLink: string | undefined;
+          do {
+            const request = nextLink
+              ? this.graphClient.api(nextLink)
+              : this.graphClient.api(apiUrl).top(50);
+            const response = await request.get();
+            allMessages.push(...((response.value || []) as GraphChatMessage[]));
+            nextLink = response["@odata.nextLink"];
+          } while (nextLink);
+
+          allMessages.reverse();
+          let startIndex = 0;
+          if (options.cursor) {
+            const cursor = options.cursor;
+            startIndex = allMessages.findIndex(
+              (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+            );
+            if (startIndex === -1) startIndex = allMessages.length;
+          }
+          hasMoreMessages = startIndex + limit < allMessages.length;
+          graphMessages = allMessages.slice(startIndex, startIndex + limit);
+        } else {
+          const request = this.graphClient.api(apiUrl).top(limit);
+          const response = await request.get();
+          graphMessages = (response.value || []) as GraphChatMessage[];
+          graphMessages.reverse();
+          hasMoreMessages = graphMessages.length >= limit;
+        }
+      } else {
+        // Group chat / 1:1: use /chats/{chatId}/messages
+        const apiUrl = `/chats/${encodeURIComponent(baseConversationId)}/messages`;
+
+        if (direction === "forward") {
+          const allMessages: GraphChatMessage[] = [];
+          let nextLink: string | undefined;
+          do {
+            const request = nextLink
+              ? this.graphClient.api(nextLink)
+              : this.graphClient
+                  .api(apiUrl)
+                  .top(50)
+                  .orderby("createdDateTime desc");
+            const response = await request.get();
+            allMessages.push(...((response.value || []) as GraphChatMessage[]));
+            nextLink = response["@odata.nextLink"];
+          } while (nextLink);
+
+          allMessages.reverse();
+          let startIndex = 0;
+          if (options.cursor) {
+            const cursor = options.cursor;
+            startIndex = allMessages.findIndex(
+              (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+            );
+            if (startIndex === -1) startIndex = allMessages.length;
+          }
+          hasMoreMessages = startIndex + limit < allMessages.length;
+          graphMessages = allMessages.slice(startIndex, startIndex + limit);
+        } else {
+          let request = this.graphClient
+            .api(apiUrl)
+            .top(limit)
+            .orderby("createdDateTime desc");
+          if (options.cursor) {
+            request = request.filter(`createdDateTime lt ${options.cursor}`);
+          }
+          const response = await request.get();
+          graphMessages = (response.value || []) as GraphChatMessage[];
+          graphMessages.reverse();
+          hasMoreMessages = graphMessages.length >= limit;
+        }
+      }
+
+      const messages = graphMessages.map((msg) => {
+        const isFromBot =
+          msg.from?.application?.id === this.config.appId ||
+          msg.from?.user?.id === this.config.appId;
+        return new Message({
+          id: msg.id,
+          threadId: channelId,
+          text: this.extractTextFromGraphMessage(msg),
+          formatted: this.formatConverter.toAst(
+            this.extractTextFromGraphMessage(msg),
+          ),
+          raw: msg,
+          author: {
+            userId:
+              msg.from?.user?.id || msg.from?.application?.id || "unknown",
+            userName:
+              msg.from?.user?.displayName ||
+              msg.from?.application?.displayName ||
+              "unknown",
+            fullName:
+              msg.from?.user?.displayName ||
+              msg.from?.application?.displayName ||
+              "unknown",
+            isBot: !!msg.from?.application,
+            isMe: isFromBot,
+          },
+          metadata: {
+            dateSent: msg.createdDateTime
+              ? new Date(msg.createdDateTime)
+              : new Date(),
+            edited: !!msg.lastModifiedDateTime,
+          },
+          attachments: this.extractAttachmentsFromGraphMessage(msg),
+        });
+      });
+
+      let nextCursor: string | undefined;
+      if (hasMoreMessages && graphMessages.length > 0) {
+        if (direction === "forward") {
+          const lastMsg = graphMessages[graphMessages.length - 1];
+          if (lastMsg?.createdDateTime) nextCursor = lastMsg.createdDateTime;
+        } else {
+          const oldestMsg = graphMessages[0];
+          if (oldestMsg?.createdDateTime)
+            nextCursor = oldestMsg.createdDateTime;
+        }
+      }
+
+      return { messages, nextCursor };
+    } catch (error) {
+      this.logger.error("Teams Graph API: fetchChannelMessages error", {
+        error,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * List threads in a Teams channel.
+   * For team channels, fetches messages and filters for those with replies.
+   * For group chats, threads are based on message IDs in conversation references.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {},
+  ): Promise<ListThreadsResult<unknown>> {
+    if (!this.graphClient) {
+      throw new NotImplementedError(
+        "Teams listThreads requires appTenantId for Microsoft Graph API access.",
+        "listThreads",
+      );
+    }
+
+    const { conversationId, serviceUrl } = this.decodeThreadId(channelId);
+    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const limit = options.limit || 50;
+
+    try {
+      // Check for channel context
+      let channelContext: TeamsChannelContext | null = null;
+      if (this.chat) {
+        const cachedContext = await this.chat
+          .getState()
+          .get<string>(`teams:channelContext:${baseConversationId}`);
+        if (cachedContext) {
+          try {
+            channelContext = JSON.parse(cachedContext) as TeamsChannelContext;
+          } catch {
+            // Ignore
+          }
+        }
+      }
+
+      this.logger.debug("Teams Graph API: listThreads", {
+        conversationId: baseConversationId,
+        hasChannelContext: !!channelContext,
+        limit,
+      });
+
+      const threads: ThreadSummary[] = [];
+
+      if (channelContext) {
+        // Team channel: fetch messages and find those with replies
+        const apiUrl = `/teams/${encodeURIComponent(channelContext.teamId)}/channels/${encodeURIComponent(channelContext.channelId)}/messages`;
+        const response = await this.graphClient.api(apiUrl).top(limit).get();
+        const messages = (response.value || []) as (GraphChatMessage & {
+          replies?: GraphChatMessage[];
+        })[];
+
+        for (const msg of messages) {
+          if (!msg.id) continue;
+          const threadId = this.encodeThreadId({
+            conversationId: `${baseConversationId};messageid=${msg.id}`,
+            serviceUrl,
+          });
+
+          const isFromBot =
+            msg.from?.application?.id === this.config.appId ||
+            msg.from?.user?.id === this.config.appId;
+
+          threads.push({
+            id: threadId,
+            rootMessage: new Message({
+              id: msg.id,
+              threadId,
+              text: this.extractTextFromGraphMessage(msg),
+              formatted: this.formatConverter.toAst(
+                this.extractTextFromGraphMessage(msg),
+              ),
+              raw: msg,
+              author: {
+                userId:
+                  msg.from?.user?.id || msg.from?.application?.id || "unknown",
+                userName:
+                  msg.from?.user?.displayName ||
+                  msg.from?.application?.displayName ||
+                  "unknown",
+                fullName:
+                  msg.from?.user?.displayName ||
+                  msg.from?.application?.displayName ||
+                  "unknown",
+                isBot: !!msg.from?.application,
+                isMe: isFromBot,
+              },
+              metadata: {
+                dateSent: msg.createdDateTime
+                  ? new Date(msg.createdDateTime)
+                  : new Date(),
+                edited: !!msg.lastModifiedDateTime,
+              },
+              attachments: this.extractAttachmentsFromGraphMessage(msg),
+            }),
+            lastReplyAt: msg.lastModifiedDateTime
+              ? new Date(msg.lastModifiedDateTime)
+              : undefined,
+          });
+        }
+      } else {
+        // Group chat: list recent messages as "threads"
+        const apiUrl = `/chats/${encodeURIComponent(baseConversationId)}/messages`;
+        const response = await this.graphClient
+          .api(apiUrl)
+          .top(limit)
+          .orderby("createdDateTime desc")
+          .get();
+
+        const messages = (response.value || []) as GraphChatMessage[];
+
+        for (const msg of messages) {
+          if (!msg.id) continue;
+          const threadId = this.encodeThreadId({
+            conversationId: `${baseConversationId};messageid=${msg.id}`,
+            serviceUrl,
+          });
+
+          const isFromBot =
+            msg.from?.application?.id === this.config.appId ||
+            msg.from?.user?.id === this.config.appId;
+
+          threads.push({
+            id: threadId,
+            rootMessage: new Message({
+              id: msg.id,
+              threadId,
+              text: this.extractTextFromGraphMessage(msg),
+              formatted: this.formatConverter.toAst(
+                this.extractTextFromGraphMessage(msg),
+              ),
+              raw: msg,
+              author: {
+                userId:
+                  msg.from?.user?.id || msg.from?.application?.id || "unknown",
+                userName:
+                  msg.from?.user?.displayName ||
+                  msg.from?.application?.displayName ||
+                  "unknown",
+                fullName:
+                  msg.from?.user?.displayName ||
+                  msg.from?.application?.displayName ||
+                  "unknown",
+                isBot: !!msg.from?.application,
+                isMe: isFromBot,
+              },
+              metadata: {
+                dateSent: msg.createdDateTime
+                  ? new Date(msg.createdDateTime)
+                  : new Date(),
+                edited: !!msg.lastModifiedDateTime,
+              },
+              attachments: this.extractAttachmentsFromGraphMessage(msg),
+            }),
+          });
+        }
+      }
+
+      this.logger.debug("Teams Graph API: listThreads result", {
+        threadCount: threads.length,
+      });
+
+      return { threads };
+    } catch (error) {
+      this.logger.error("Teams Graph API: listThreads error", { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch Teams channel/conversation info.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    const { conversationId } = this.decodeThreadId(channelId);
+    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+
+    // Check for channel context
+    let channelContext: TeamsChannelContext | null = null;
+    if (this.chat) {
+      const cachedContext = await this.chat
+        .getState()
+        .get<string>(`teams:channelContext:${baseConversationId}`);
+      if (cachedContext) {
+        try {
+          channelContext = JSON.parse(cachedContext) as TeamsChannelContext;
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
+    if (channelContext && this.graphClient) {
+      try {
+        this.logger.debug("Teams Graph API: GET channel info", {
+          teamId: channelContext.teamId,
+          channelId: channelContext.channelId,
+        });
+
+        const response = await this.graphClient
+          .api(
+            `/teams/${encodeURIComponent(channelContext.teamId)}/channels/${encodeURIComponent(channelContext.channelId)}`,
+          )
+          .get();
+
+        return {
+          id: channelId,
+          name: response.displayName,
+          isDM: false,
+          memberCount: response.memberCount,
+          metadata: {
+            membershipType: response.membershipType,
+            description: response.description,
+            raw: response,
+          },
+        };
+      } catch (error) {
+        this.logger.warn("Teams Graph API: channel info failed", { error });
+      }
+    }
+
+    // Fallback for group chats or when Graph API is not available
+    return {
+      id: channelId,
+      isDM: this.isDM(channelId),
+      metadata: {
+        conversationId: baseConversationId,
+      },
+    };
+  }
+
+  /**
+   * Post a message to the channel top-level (not in a thread).
+   * Uses a conversation reference without ;messageid= to post at the top level.
+   */
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage,
+  ): Promise<RawMessage<unknown>> {
+    const { conversationId, serviceUrl } = this.decodeThreadId(channelId);
+    // Ensure we use the base conversation ID (no messageid)
+    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+
+    const files = extractFiles(message);
+    const fileAttachments =
+      files.length > 0 ? await this.filesToAttachments(files) : [];
+
+    const card = extractCard(message);
+    let activity: Partial<Activity>;
+
+    if (card) {
+      const adaptiveCard = cardToAdaptiveCard(card);
+      activity = {
+        type: ActivityTypes.Message,
+        attachments: [
+          {
+            contentType: "application/vnd.microsoft.card.adaptive",
+            content: adaptiveCard,
+          },
+          ...fileAttachments,
+        ],
+      };
+    } else {
+      const text = convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "teams",
+      );
+      activity = {
+        type: ActivityTypes.Message,
+        text,
+        textFormat: "markdown",
+        attachments: fileAttachments.length > 0 ? fileAttachments : undefined,
+      };
+    }
+
+    const conversationReference = {
+      channelId: "msteams",
+      serviceUrl,
+      conversation: { id: baseConversationId },
+    };
+
+    let messageId = "";
+
+    try {
+      await this.botAdapter.continueConversationAsync(
+        this.config.appId,
+        conversationReference as Partial<ConversationReference>,
+        async (context) => {
+          const response = await context.sendActivity(activity);
+          messageId = response?.id || "";
+        },
+      );
+    } catch (error) {
+      this.logger.error("Teams API: postChannelMessage failed", {
+        conversationId: baseConversationId,
+        error,
+      });
+      this.handleTeamsError(error, "postChannelMessage");
+    }
+
+    this.logger.debug("Teams API: postChannelMessage response", { messageId });
+
+    return {
+      id: messageId,
+      threadId: channelId,
+      raw: activity,
     };
   }
 

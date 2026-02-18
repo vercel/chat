@@ -1,5 +1,25 @@
 # chat
 
+## 4.11.0
+
+### Minor Changes
+
+- 417374b: Adding inline Select components and Radio buttons to cards
+
+## 4.10.1
+
+### Patch Changes
+
+- c99b183: Added support for creating modals from ephemeral messages.
+
+## 4.10.0
+
+### Minor Changes
+
+- c7d51cb: Added support for passing arbitrary metadata through the modal lifecycle via a new privateMetadata field.
+
+## 4.9.1
+
 ## 4.9.0
 
 ## 4.8.0

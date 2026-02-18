@@ -44,6 +44,8 @@
  * ```
  */
 
+import type { RadioSelectElement, SelectElement } from "./modals";
+
 // ============================================================================
 // Card Element Types
 // ============================================================================
@@ -101,11 +103,16 @@ export interface DividerElement {
   type: "divider";
 }
 
-/** Container for action buttons */
+/** Container for action buttons and selects */
 export interface ActionsElement {
   type: "actions";
-  /** Button and link button elements */
-  children: (ButtonElement | LinkButtonElement)[];
+  /** Button, link button, select, and radio select elements */
+  children: (
+    | ButtonElement
+    | LinkButtonElement
+    | SelectElement
+    | RadioSelectElement
+  )[];
 }
 
 /** Section container for grouping elements */
@@ -146,7 +153,9 @@ type AnyCardElement =
   | CardElement
   | ButtonElement
   | LinkButtonElement
-  | FieldElement;
+  | FieldElement
+  | SelectElement
+  | RadioSelectElement;
 
 /** Root card element */
 export interface CardElement {
@@ -283,7 +292,7 @@ export function Section(children: CardChild[]): SectionElement {
 }
 
 /**
- * Create an Actions container for buttons.
+ * Create an Actions container for buttons and selects.
  *
  * @example
  * ```ts
@@ -291,11 +300,18 @@ export function Section(children: CardChild[]): SectionElement {
  *   Button({ id: "ok", label: "OK" }),
  *   Button({ id: "cancel", label: "Cancel" }),
  *   LinkButton({ url: "https://example.com", label: "Learn More" }),
+ *   Select({ id: "priority", label: "Priority", options: [...] }),
+ *   RadioSelect({ id: "status", label: "Status", options: [...] }),
  * ])
  * ```
  */
 export function Actions(
-  children: (ButtonElement | LinkButtonElement)[],
+  children: (
+    | ButtonElement
+    | LinkButtonElement
+    | SelectElement
+    | RadioSelectElement
+  )[],
 ): ActionsElement {
   return {
     type: "actions",
@@ -501,7 +517,9 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
     el.type !== "card" &&
     el.type !== "button" &&
     el.type !== "link-button" &&
-    el.type !== "field";
+    el.type !== "field" &&
+    el.type !== "select" &&
+    el.type !== "radio_select";
 
   // Call the appropriate builder function based on component type
   switch (componentName) {
@@ -534,8 +552,17 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
     case "Actions":
       return Actions(
         convertedChildren.filter(
-          (c): c is ButtonElement | LinkButtonElement =>
-            c.type === "button" || c.type === "link-button",
+          (
+            c,
+          ): c is
+            | ButtonElement
+            | LinkButtonElement
+            | SelectElement
+            | RadioSelectElement =>
+            c.type === "button" ||
+            c.type === "link-button" ||
+            c.type === "select" ||
+            c.type === "radio_select",
         ),
       );
 
@@ -656,7 +683,9 @@ function childToFallbackText(child: CardChild): string | null {
     case "fields":
       return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
     case "actions":
-      return `[${child.children.map((b) => b.label).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c))

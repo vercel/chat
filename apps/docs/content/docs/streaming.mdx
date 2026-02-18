@@ -1,0 +1,80 @@
+---
+title: Streaming
+description: Stream real-time text responses from AI models and other async sources to chat platforms.
+type: guide
+prerequisites:
+  - /docs/usage
+---
+
+Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time streaming of AI responses and other incremental content to chat platforms.
+
+## AI SDK integration
+
+Pass an AI SDK `textStream` directly to `thread.post()`:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+
+const agent = new ToolLoopAgent({
+  model: "anthropic/claude-3.5-haiku",
+  instructions: "You are a helpful assistant.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+
+## Custom streams
+
+Any async iterable works:
+
+```typescript title="lib/bot.ts" lineNumbers
+const stream = (async function* () {
+  yield "Processing";
+  yield "...";
+  yield " done!";
+})();
+
+await thread.post(stream);
+```
+
+## Platform behavior
+
+| Platform | Method | Description |
+|----------|--------|-------------|
+| Slack | Native streaming API | Uses Slack's `chatStream` for smooth, real-time updates |
+| Teams | Post + Edit | Posts a message then edits it as chunks arrive |
+| Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
+| Discord | Post + Edit | Posts a message then edits it as chunks arrive |
+
+The post+edit fallback throttles edits to avoid rate limits. Configure the update interval when creating your `Chat` instance:
+
+```typescript title="lib/bot.ts" lineNumbers
+const bot = new Chat({
+  // ...
+  streamingUpdateIntervalMs: 500, // Default: 500ms
+});
+```
+
+## Streaming with conversation history
+
+Combine message history with streaming for multi-turn AI conversations:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onSubscribedMessage(async (thread, message) => {
+  // Fetch recent messages for context
+  const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
+
+  const history = result.messages
+    .filter((msg) => msg.text.trim())
+    .map((msg) => ({
+      role: msg.author.isMe ? "assistant" as const : "user" as const,
+      content: msg.text,
+    }));
+
+  const response = await agent.stream({ prompt: history });
+  await thread.post(response.textStream);
+});
+```

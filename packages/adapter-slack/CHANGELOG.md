@@ -1,5 +1,46 @@
 # @chat-adapter/slack
 
+## 4.11.0
+
+### Minor Changes
+
+- 417374b: Adding inline Select components and Radio buttons to cards
+
+### Patch Changes
+
+- Updated dependencies [417374b]
+  - chat@4.11.0
+  - @chat-adapter/shared@4.11.0
+
+## 4.10.1
+
+### Patch Changes
+
+- c99b183: Added support for creating modals from ephemeral messages.
+- Updated dependencies [c99b183]
+  - chat@4.10.1
+  - @chat-adapter/shared@4.10.1
+
+## 4.10.0
+
+### Minor Changes
+
+- c7d51cb: Added support for passing arbitrary metadata through the modal lifecycle via a new privateMetadata field.
+
+### Patch Changes
+
+- Updated dependencies [c7d51cb]
+  - chat@4.10.0
+  - @chat-adapter/shared@4.10.0
+
+## 4.9.1
+
+### Patch Changes
+
+- Updated dependencies [18ce1d0]
+  - @chat-adapter/shared@4.9.1
+  - chat@4.9.1
+
 ## 4.9.0
 
 ### Minor Changes

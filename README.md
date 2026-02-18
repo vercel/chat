@@ -12,6 +12,7 @@ A unified SDK for building chat bots across Slack, Microsoft Teams, Google Chat,
 - **Rich cards with buttons** - TSX or object-based cards
 - **Action callbacks** - Handle button clicks across platforms
 - **Modals & form inputs** - Collect user input via modal dialogs
+- **Slash commands** - Handle `/command` invocations with responses or modals
 - **File uploads** - Send files with messages
 - **DM support** - Initiate direct messages programmatically
 - Message deduplication for platform quirks
@@ -202,6 +203,7 @@ import {
   TextInput,
   Select,
   SelectOption,
+  RadioSelect,
 } from "chat";
 
 // Simple card with buttons
@@ -243,6 +245,25 @@ await thread.post(
   <Card title="Product Update">
     <Image url="https://example.com/product.png" alt="Product screenshot" />
     <CardText>Check out our new feature!</CardText>
+  </Card>
+);
+
+// Card with inline select and radio buttons
+await thread.post(
+  <Card title="Task Settings">
+    <Actions>
+      <Select id="priority" label="Priority" placeholder="Select priority">
+        <SelectOption label="High" value="high" description="Urgent tasks" />
+        <SelectOption label="Medium" value="medium" />
+        <SelectOption label="Low" value="low" />
+      </Select>
+      <RadioSelect id="status" label="Status">
+        <SelectOption label="Open" value="open" />
+        <SelectOption label="In Progress" value="in_progress" />
+        <SelectOption label="Done" value="done" />
+      </RadioSelect>
+      <Button id="save" style="primary">Save</Button>
+    </Actions>
   </Card>
 );
 ```
@@ -325,7 +346,8 @@ bot.onAction("feedback", async (event) => {
 | `Modal`        | Container with `callbackId`, `title`, `submitLabel`, `closeLabel`, `notifyOnClose` |
 | `TextInput`    | Text field with `id`, `label`, `placeholder`, `initialValue`, `multiline`, `optional`, `maxLength`    |
 | `Select`       | Dropdown with `id`, `label`, `placeholder`, `initialOption`, `optional`                               |
-| `SelectOption` | Option for Select with `label` and `value`                                                            |
+| `RadioSelect`  | Radio button group with `id`, `label`, `initialOption`, `optional`                                    |
+| `SelectOption` | Option for Select/RadioSelect with `label`, `value`, and `description` (optional)                     |
 
 ### Handling Modal Submissions
 
@@ -391,7 +413,29 @@ bot.onModalClose("feedback_form", async (event: ModalCloseEvent) => {
 });
 ```
 
-The `ModalSubmitEvent` includes `callbackId`, `viewId`, `values`, `user`, `adapter`, `relatedThread`, `relatedMessage`, and `raw` properties. The `ModalCloseEvent` includes the same properties except `values`.
+The `ModalSubmitEvent` includes `callbackId`, `viewId`, `values`, `user`, `adapter`, `relatedThread`, `relatedMessage`, `relatedChannel`, and `raw` properties. The `ModalCloseEvent` includes the same properties except `values`.
+
+## Slash Commands
+
+Handle slash command invocations from users:
+
+```tsx
+bot.onSlashCommand("/feedback", async (event) => {
+  await event.openModal(
+    <Modal callbackId="feedback_form" title="Send Feedback">
+      <TextInput id="message" label="Your Feedback" multiline />
+    </Modal>
+  );
+});
+
+bot.onModalSubmit("feedback_form", async (event) => {
+  if (event.relatedChannel) {
+    await event.relatedChannel.post(`Feedback received: ${event.values.message}`);
+  }
+});
+```
+
+The `SlashCommandEvent` includes `command`, `text`, `user`, `channel`, `triggerId`, `openModal()`, `adapter`, and `raw` properties.
 
 ## AI Integration & Streaming
 

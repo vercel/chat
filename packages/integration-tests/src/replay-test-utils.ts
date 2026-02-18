@@ -24,6 +24,7 @@ import {
   type Message,
   type ModalSubmitEvent,
   type ReactionEvent,
+  type SlashCommandEvent,
   type StateAdapter,
   type Thread,
 } from "chat";
@@ -149,6 +150,7 @@ export interface SlackTestContext {
   sendWebhook: (fixture: unknown) => Promise<void>;
   sendSlackAction: (fixture: unknown) => Promise<void>;
   sendSlackViewSubmission: (fixture: unknown) => Promise<Response>;
+  sendSlackSlashCommand: (fixture: Record<string, string>) => Promise<Response>;
 }
 
 /**
@@ -162,6 +164,7 @@ export function createSlackTestContext(
     onAction?: (event: ActionEvent) => Promise<void>;
     onReaction?: (event: ReactionEvent) => Promise<void>;
     onModalSubmit?: (event: ModalSubmitEvent) => Promise<void>;
+    onSlashCommand?: (event: SlashCommandEvent) => Promise<void>;
   },
 ): SlackTestContext {
   const adapter = createSlackAdapter({
@@ -228,6 +231,10 @@ export function createSlackTestContext(
     });
   }
 
+  if (handlers.onSlashCommand) {
+    chat.onSlashCommand(handlers.onSlashCommand);
+  }
+
   const tracker = createWaitUntilTracker();
 
   return {
@@ -254,6 +261,15 @@ export function createSlackTestContext(
     },
     sendSlackViewSubmission: async (fixture: unknown) => {
       const body = `payload=${encodeURIComponent(JSON.stringify(fixture))}`;
+      const response = await chat.webhooks.slack(
+        createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
+        { waitUntil: tracker.waitUntil },
+      );
+      await tracker.waitForAll();
+      return response;
+    },
+    sendSlackSlashCommand: async (fixture: Record<string, string>) => {
+      const body = new URLSearchParams(fixture).toString();
       const response = await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
         { waitUntil: tracker.waitUntil },
@@ -625,6 +641,47 @@ export function expectValidReaction(
   }
 
   expect(reaction?.raw).toBeDefined();
+}
+
+/**
+ * Assert that a slash command event was captured correctly.
+ */
+export function expectValidSlashCommand(
+  event: SlashCommandEvent | null,
+  options: {
+    command: string;
+    text?: string;
+    userId?: string;
+    userName?: string;
+    adapterName: string;
+    channelId?: string;
+  },
+): void {
+  expect(event).not.toBeNull();
+  expect(event?.command).toBe(options.command);
+
+  if (options.text !== undefined) {
+    expect(event?.text).toBe(options.text);
+  }
+
+  if (options.userId) {
+    expect(event?.user.userId).toBe(options.userId);
+  }
+
+  if (options.userName) {
+    expect(event?.user.userName).toBe(options.userName);
+  }
+
+  expect(event?.user.isBot).toBe(false);
+  expect(event?.user.isMe).toBe(false);
+
+  expect(event?.adapter.name).toBe(options.adapterName);
+
+  if (options.channelId) {
+    expect(event?.channel.id).toContain(options.channelId);
+  }
+
+  expect(event?.raw).toBeDefined();
 }
 
 /**

@@ -11,17 +11,21 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
   FetchOptions,
   FetchResult,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   RawMessage,
   ReactionEvent,
   StateAdapter,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
 } from "chat";
 import { convertEmojiPlaceholders, defaultEmojiResolver, Message } from "chat";
@@ -1895,6 +1899,427 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       };
     } catch (error) {
       this.handleGoogleChatError(error, "fetchThread");
+    }
+  }
+
+  /**
+   * Derive channel ID from a Google Chat thread ID.
+   * gchat:{spaceName}:{encodedThreadName} -> gchat:{spaceName}
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { spaceName } = this.decodeThreadId(threadId);
+    return `gchat:${spaceName}`;
+  }
+
+  /**
+   * Fetch channel-level messages (top-level posts only, not thread replies).
+   *
+   * Google Chat doesn't support server-side filtering for thread roots,
+   * so we fetch messages and filter client-side. A message is a thread root
+   * when the message ID prefix (before the dot) matches its thread ID.
+   * For example: message "spaces/X/messages/ABC.ABC" in thread "spaces/X/threads/ABC"
+   * is a root, while "spaces/X/messages/ABC.DEF" is a reply.
+   */
+  async fetchChannelMessages(
+    channelId: string,
+    options: FetchOptions = {},
+  ): Promise<FetchResult<unknown>> {
+    // Channel ID format: "gchat:spaces/ABC123"
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`,
+      );
+    }
+
+    const api = this.impersonatedChatApi || this.chatApi;
+    const direction = options.direction ?? "backward";
+    const limit = options.limit || 100;
+
+    try {
+      if (direction === "backward") {
+        return this.fetchChannelMessagesBackward(
+          api,
+          spaceName,
+          channelId,
+          limit,
+          options.cursor,
+        );
+      }
+
+      return this.fetchChannelMessagesForward(
+        api,
+        spaceName,
+        channelId,
+        limit,
+        options.cursor,
+      );
+    } catch (error) {
+      this.handleGoogleChatError(error, "fetchChannelMessages");
+    }
+  }
+
+  /**
+   * Check if a GChat message is a thread root (not a reply).
+   *
+   * Thread root messages have a name like "spaces/X/messages/THREAD_ID.THREAD_ID"
+   * where both parts of the dotted message ID match. Thread replies have
+   * "spaces/X/messages/THREAD_ID.DIFFERENT_ID".
+   *
+   * Messages without a thread field (e.g., in non-threaded spaces) are always top-level.
+   */
+  private isThreadRoot(msg: chat_v1.Schema$Message): boolean {
+    // Messages without thread info are top-level
+    if (!msg.thread?.name || !msg.name) return true;
+
+    // Extract the thread ID from thread.name: "spaces/X/threads/THREAD_ID"
+    const threadParts = msg.thread.name.split("/");
+    const threadId = threadParts[threadParts.length - 1];
+
+    // Extract message ID parts from name: "spaces/X/messages/THREAD_ID.MSG_ID"
+    const msgParts = msg.name.split("/");
+    const msgIdFull = msgParts[msgParts.length - 1] || "";
+    const dotIndex = msgIdFull.indexOf(".");
+    if (dotIndex === -1) return true; // No dot = top-level
+
+    const msgThreadPart = msgIdFull.slice(0, dotIndex);
+    const msgIdPart = msgIdFull.slice(dotIndex + 1);
+
+    // Thread root: both parts match the thread ID
+    return msgThreadPart === msgIdPart && msgThreadPart === threadId;
+  }
+
+  /**
+   * Fetch channel messages backward (most recent first), filtered to thread roots only.
+   * Over-fetches and filters client-side since the API doesn't support this filter.
+   */
+  private async fetchChannelMessagesBackward(
+    api: chat_v1.Chat,
+    spaceName: string,
+    channelId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("GChat API: spaces.messages.list (channel, backward)", {
+      spaceName,
+      limit,
+      cursor,
+    });
+
+    // Over-fetch to compensate for filtered-out thread replies
+    const topLevel: chat_v1.Schema$Message[] = [];
+    let pageToken = cursor;
+    let apiNextPageToken: string | undefined;
+
+    // Keep fetching pages until we have enough top-level messages
+    while (topLevel.length < limit) {
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: Math.min(limit * 3, 1000),
+        pageToken,
+        orderBy: "createTime desc",
+      });
+
+      const pageMessages = response.data.messages || [];
+      if (pageMessages.length === 0) break;
+
+      for (const msg of pageMessages) {
+        if (this.isThreadRoot(msg)) {
+          topLevel.push(msg);
+        }
+      }
+
+      apiNextPageToken = response.data.nextPageToken ?? undefined;
+      if (!apiNextPageToken) break;
+      pageToken = apiNextPageToken;
+    }
+
+    // Take only the requested limit and reverse to chronological order
+    const selected = topLevel.slice(0, limit).reverse();
+
+    const messages = await Promise.all(
+      selected.map((msg) =>
+        this.parseGChatListMessage(msg, spaceName, channelId),
+      ),
+    );
+
+    return {
+      messages,
+      nextCursor: topLevel.length >= limit ? apiNextPageToken : undefined,
+    };
+  }
+
+  /**
+   * Fetch channel messages forward (oldest first), filtered to thread roots only.
+   */
+  private async fetchChannelMessagesForward(
+    api: chat_v1.Chat,
+    spaceName: string,
+    channelId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("GChat API: spaces.messages.list (channel, forward)", {
+      spaceName,
+      limit,
+      cursor,
+    });
+
+    // Fetch all messages and filter to thread roots
+    const allRawMessages: chat_v1.Schema$Message[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: 1000,
+        pageToken,
+      });
+      allRawMessages.push(...(response.data.messages || []));
+      pageToken = response.data.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    // Filter to thread roots only
+    const topLevel = allRawMessages.filter((msg) => this.isThreadRoot(msg));
+
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = topLevel.findIndex((msg) => msg.name === cursor);
+      if (cursorIndex >= 0) startIndex = cursorIndex + 1;
+    }
+
+    const selectedMessages = topLevel.slice(startIndex, startIndex + limit);
+
+    const messages = await Promise.all(
+      selectedMessages.map((msg) =>
+        this.parseGChatListMessage(msg, spaceName, channelId),
+      ),
+    );
+
+    let nextCursor: string | undefined;
+    if (startIndex + limit < topLevel.length && selectedMessages.length > 0) {
+      const lastMsg = selectedMessages[selectedMessages.length - 1];
+      if (lastMsg?.name) nextCursor = lastMsg.name;
+    }
+
+    return { messages, nextCursor };
+  }
+
+  /**
+   * List threads in a Google Chat space.
+   * Fetches messages and deduplicates by thread name.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {},
+  ): Promise<ListThreadsResult<unknown>> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`,
+      );
+    }
+
+    const api = this.impersonatedChatApi || this.chatApi;
+    const limit = options.limit || 50;
+
+    try {
+      this.logger.debug("GChat API: spaces.messages.list (listThreads)", {
+        spaceName,
+        limit,
+        cursor: options.cursor,
+      });
+
+      // Fetch recent messages ordered by createTime desc
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: Math.min(limit * 3, 1000), // Fetch more to account for dedup
+        pageToken: options.cursor,
+        orderBy: "createTime desc",
+      });
+
+      const rawMessages = response.data.messages || [];
+
+      // Group by thread name, keeping the first (most recent) message per thread
+      const threadMap = new Map<
+        string,
+        { rootMsg: chat_v1.Schema$Message; count: number }
+      >();
+      for (const msg of rawMessages) {
+        const threadName = msg.thread?.name;
+        if (!threadName) continue;
+        const existing = threadMap.get(threadName);
+        if (existing) {
+          existing.count++;
+        } else {
+          threadMap.set(threadName, { rootMsg: msg, count: 1 });
+        }
+      }
+
+      // Convert to ThreadSummary (limited)
+      const threads: ThreadSummary[] = [];
+      let count = 0;
+      for (const [threadName, { rootMsg, count: replyCount }] of threadMap) {
+        if (count >= limit) break;
+
+        const threadId = this.encodeThreadId({
+          spaceName,
+          threadName,
+        });
+
+        const message = await this.parseGChatListMessage(
+          rootMsg,
+          spaceName,
+          threadId,
+        );
+
+        threads.push({
+          id: threadId,
+          rootMessage: message,
+          replyCount,
+          lastReplyAt: rootMsg.createTime
+            ? new Date(rootMsg.createTime)
+            : undefined,
+        });
+        count++;
+      }
+
+      this.logger.debug("GChat API: listThreads result", {
+        threadCount: threads.length,
+      });
+
+      return {
+        threads,
+        nextCursor: response.data.nextPageToken ?? undefined,
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "listThreads");
+    }
+  }
+
+  /**
+   * Fetch Google Chat space info/metadata.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`,
+      );
+    }
+
+    try {
+      this.logger.debug("GChat API: spaces.get (channelInfo)", { spaceName });
+
+      const response = await this.chatApi.spaces.get({ name: spaceName });
+      const space = response.data;
+
+      // Try to get member count
+      let memberCount: number | undefined;
+      try {
+        const membersResponse = await this.chatApi.spaces.members.list({
+          parent: spaceName,
+          pageSize: 1,
+        });
+        // The API doesn't return total count directly, but we can check if there are members
+        if (membersResponse.data.memberships) {
+          memberCount = membersResponse.data.memberships.length;
+        }
+      } catch {
+        // Member list may not be accessible
+      }
+
+      return {
+        id: channelId,
+        name: space.displayName ?? undefined,
+        isDM:
+          space.spaceType === "DIRECT_MESSAGE" ||
+          space.singleUserBotDm === true,
+        memberCount,
+        metadata: {
+          spaceType: space.spaceType,
+          spaceThreadingState: space.spaceThreadingState,
+          raw: space,
+        },
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "fetchChannelInfo");
+    }
+  }
+
+  /**
+   * Post a message to a space top-level (starts a new conversation, not in a thread).
+   */
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage,
+  ): Promise<RawMessage<unknown>> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`,
+      );
+    }
+
+    try {
+      const card = extractCard(message);
+
+      if (card) {
+        const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const googleCard = cardToGoogleCard(card, {
+          cardId,
+          endpointUrl: this.endpointUrl,
+        });
+
+        this.logger.debug("GChat API: spaces.messages.create (channel, card)", {
+          spaceName,
+        });
+
+        const response = await this.chatApi.spaces.messages.create({
+          parent: spaceName,
+          requestBody: {
+            cardsV2: [googleCard],
+            // No thread field - creates a new conversation
+          },
+        });
+
+        return {
+          id: response.data.name || "",
+          threadId: channelId,
+          raw: response.data,
+        };
+      }
+
+      // Regular text message
+      const text = convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "gchat",
+      );
+
+      this.logger.debug("GChat API: spaces.messages.create (channel)", {
+        spaceName,
+        textLength: text.length,
+      });
+
+      const response = await this.chatApi.spaces.messages.create({
+        parent: spaceName,
+        requestBody: {
+          text,
+          // No thread field - creates a new conversation
+        },
+      });
+
+      return {
+        id: response.data.name || "",
+        threadId: channelId,
+        raw: response.data,
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "postChannelMessage");
     }
   }
 

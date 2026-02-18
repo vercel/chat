@@ -98,6 +98,44 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectSentMessage(ctx.mockClient, "Thanks for the");
     });
+
+    it("should handle static_select action and extract value from selected_option", async () => {
+      await ctx.sendWebhook(slackFixtures.mention);
+      vi.clearAllMocks();
+
+      await ctx.sendSlackAction(slackFixtures.staticSelectAction);
+
+      expectValidAction(capturedAction, {
+        actionId: "quick_action",
+        userId: "U03STHCA1JM",
+        userName: "malte",
+        adapterName: "slack",
+        channelId: "C0A511MBCUW",
+        isDM: false,
+      });
+
+      expect(capturedAction?.value).toBe("greet");
+      expectSentMessage(ctx.mockClient, "Action received: quick_action");
+    });
+
+    it("should handle radio_buttons action and extract value from selected_option", async () => {
+      await ctx.sendWebhook(slackFixtures.mention);
+      vi.clearAllMocks();
+
+      await ctx.sendSlackAction(slackFixtures.radioButtonsAction);
+
+      expectValidAction(capturedAction, {
+        actionId: "plan_selected",
+        userId: "U03STHCA1JM",
+        userName: "malte",
+        adapterName: "slack",
+        channelId: "C0A511MBCUW",
+        isDM: false,
+      });
+
+      expect(capturedAction?.value).toBe("all_text");
+      expectSentMessage(ctx.mockClient, "Action received: plan_selected");
+    });
   });
 
   describe("Teams", () => {

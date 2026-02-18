@@ -138,7 +138,10 @@ function childToFallbackText(
         .map((f) => `${convertText(f.label)}: ${convertText(f.value)}`)
         .join("\n");
     case "actions":
-      return `[${child.children.map((b) => convertText(b.label)).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // Fallback text is used for notifications and screen readers where buttons aren't actionable.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c, convertText))

@@ -1,0 +1,49 @@
+---
+title: Direct messages
+description: Initiate DM conversations with users programmatically.
+type: guide
+prerequisites:
+  - /docs/usage
+---
+
+Open direct message conversations with users using `bot.openDM()`. The adapter is automatically inferred from the user ID format.
+
+## Open a DM
+
+### From an Author object
+
+The most common pattern — use the `author` from an incoming message:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onSubscribedMessage(async (thread, message) => {
+  if (message.text === "DM me") {
+    const dmThread = await bot.openDM(message.author);
+    await dmThread.post("Hello! This is a private message.");
+  }
+});
+```
+
+### From a user ID
+
+Pass a user ID string directly. The adapter is inferred from the ID format:
+
+```typescript title="lib/bot.ts"
+const dmThread = await bot.openDM("U1234567890"); // Slack
+```
+
+| Format | Platform |
+|--------|----------|
+| `U...` | Slack |
+| `29:...` | Teams |
+| `users/...` | Google Chat |
+| Snowflake (numeric) | Discord |
+
+## Check if a thread is a DM
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onSubscribedMessage(async (thread, message) => {
+  if (thread.isDM) {
+    await thread.post("This is a private conversation.");
+  }
+});
+```

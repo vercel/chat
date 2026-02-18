@@ -1,0 +1,117 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "applicationId": "1457469483726668048",
+  "guildId": "1457468924290662599",
+  "channelId": "1459213904352645277",
+  "threadChannelId": "1473118766652199044",
+  "userId": "1033044521375764530",
+  "userName": "malte2384",
+  "mention": {
+    "type": "GATEWAY_MESSAGE_CREATE",
+    "timestamp": 1771289283264,
+    "data": {
+      "type": 0,
+      "tts": false,
+      "timestamp": "2026-02-17T00:48:03.193000+00:00",
+      "pinned": false,
+      "nonce": "1473118765716602880",
+      "mentions": [
+        {
+          "username": "Chat SDK Demo",
+          "public_flags": 524288,
+          "primary_guild": null,
+          "id": "1457469483726668048",
+          "global_name": null,
+          "display_name_styles": null,
+          "discriminator": "6184",
+          "collectibles": null,
+          "clan": null,
+          "bot": true,
+          "avatar_decoration_data": null,
+          "avatar": null
+        }
+      ],
+      "mention_roles": [],
+      "mention_everyone": false,
+      "member": {
+        "roles": [],
+        "nick": null,
+        "joined_at": "2026-01-04T20:21:10.139000+00:00",
+        "banner": null
+      },
+      "id": "1473118766652199044",
+      "flags": 0,
+      "embeds": [],
+      "edited_timestamp": null,
+      "content": "<@1457469483726668048> Test",
+      "components": [],
+      "channel_type": 0,
+      "channel_id": "1459213904352645277",
+      "author": {
+        "username": "malte2384",
+        "public_flags": 0,
+        "primary_guild": null,
+        "id": "1033044521375764530",
+        "global_name": "Malte",
+        "display_name_styles": null,
+        "discriminator": "0",
+        "collectibles": null,
+        "clan": null,
+        "avatar_decoration_data": null
+      },
+      "attachments": [],
+      "guild_id": "1457468924290662599"
+    }
+  },
+  "channel_post_action": {
+    "application_id": "1457469483726668048",
+    "channel": {
+      "guild_id": "1457468924290662599",
+      "id": "1473118766652199044",
+      "member_count": 2,
+      "member_ids_preview": [
+        "1457469483726668048",
+        "1033044521375764530"
+      ],
+      "name": "Thread 2/17/2026, 12:48:03 AM",
+      "parent_id": "1459213904352645277",
+      "permissions": "9007199254740991",
+      "type": 11
+    },
+    "channel_id": "1473118766652199044",
+    "data": {
+      "component_type": 2,
+      "custom_id": "channel-post",
+      "id": 8
+    },
+    "guild_id": "1457468924290662599",
+    "id": "1473118791343800450",
+    "member": {
+      "banner": null,
+      "collectibles": null,
+      "display_name_styles": null,
+      "joined_at": "2026-01-04T20:21:10.139000+00:00",
+      "nick": null,
+      "permissions": "9007199254740991",
+      "roles": [],
+      "user": {
+        "avatar_decoration_data": null,
+        "clan": null,
+        "collectibles": null,
+        "discriminator": "0",
+        "display_name_styles": null,
+        "global_name": "Malte",
+        "id": "1033044521375764530",
+        "primary_guild": null,
+        "public_flags": 0,
+        "username": "malte2384"
+      }
+    },
+    "message": {
+      "id": "1473118771026727144"
+    },
+    "token": "aW50ZXJhY3Rpb246MTQ3MzExODc5MTM0MzgwMDQ1MDp1MEsxUEtSSGRWak9IRk9ucTh5ZW9nTDFKZ2lveHRxRXcyNnRwaUdUc2wwSEVwWGNWT21nUHJXU2x0NHlTaGNmRkFDTVlQaHBEMHBsWEZUek42SVN2U09BUWdyMkh5ancxa1U5VXlxd1R5dkhuWXcwNzVIVnRLZFlPYjRLUlYyeQ",
+    "type": 3,
+    "version": 1
+  }
+}

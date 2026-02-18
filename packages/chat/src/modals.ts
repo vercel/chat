@@ -11,6 +11,7 @@ import type { FieldsElement, TextElement } from "./cards";
 export const VALID_MODAL_CHILD_TYPES = [
   "text_input",
   "select",
+  "radio_select",
   "text",
   "fields",
 ] as const;
@@ -18,6 +19,7 @@ export const VALID_MODAL_CHILD_TYPES = [
 export type ModalChild =
   | TextInputElement
   | SelectElement
+  | RadioSelectElement
   | TextElement
   | FieldsElement;
 
@@ -28,6 +30,8 @@ export interface ModalElement {
   submitLabel?: string;
   closeLabel?: string;
   notifyOnClose?: boolean;
+  /** Arbitrary string passed through the modal lifecycle (e.g., JSON context). */
+  privateMetadata?: string;
   children: ModalChild[];
 }
 
@@ -55,6 +59,16 @@ export interface SelectElement {
 export interface SelectOptionElement {
   label: string;
   value: string;
+  description?: string;
+}
+
+export interface RadioSelectElement {
+  type: "radio_select";
+  id: string;
+  label: string;
+  options: SelectOptionElement[];
+  initialOption?: string;
+  optional?: boolean;
 }
 
 export function isModalElement(value: unknown): value is ModalElement {
@@ -95,6 +109,8 @@ export interface ModalOptions {
   submitLabel?: string;
   closeLabel?: string;
   notifyOnClose?: boolean;
+  /** Arbitrary string passed through the modal lifecycle (e.g., JSON context). */
+  privateMetadata?: string;
   children?: ModalChild[];
 }
 
@@ -106,6 +122,7 @@ export function Modal(options: ModalOptions): ModalElement {
     submitLabel: options.submitLabel,
     closeLabel: options.closeLabel,
     notifyOnClose: options.notifyOnClose,
+    privateMetadata: options.privateMetadata,
     children: options.children ?? [],
   };
 }
@@ -143,6 +160,9 @@ export interface SelectOptions {
 }
 
 export function Select(options: SelectOptions): SelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("Select requires at least one option");
+  }
   return {
     type: "select",
     id: options.id,
@@ -157,10 +177,34 @@ export function Select(options: SelectOptions): SelectElement {
 export function SelectOption(options: {
   label: string;
   value: string;
+  description?: string;
 }): SelectOptionElement {
   return {
     label: options.label,
     value: options.value,
+    description: options.description,
+  };
+}
+
+export interface RadioSelectOptions {
+  id: string;
+  label: string;
+  options: SelectOptionElement[];
+  initialOption?: string;
+  optional?: boolean;
+}
+
+export function RadioSelect(options: RadioSelectOptions): RadioSelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("RadioSelect requires at least one option");
+  }
+  return {
+    type: "radio_select",
+    id: options.id,
+    label: options.label,
+    options: options.options,
+    initialOption: options.initialOption,
+    optional: options.optional,
   };
 }
 
@@ -195,6 +239,7 @@ const modalComponentMap = new Map<unknown, string>([
   [Modal, "Modal"],
   [TextInput, "TextInput"],
   [Select, "Select"],
+  [RadioSelect, "RadioSelect"],
   [SelectOption, "SelectOption"],
 ]);
 
@@ -233,6 +278,7 @@ export function fromReactModalElement(
         submitLabel: props.submitLabel as string | undefined,
         closeLabel: props.closeLabel as string | undefined,
         notifyOnClose: props.notifyOnClose as boolean | undefined,
+        privateMetadata: props.privateMetadata as string | undefined,
         children: filterModalChildren(convertedChildren),
       });
 
@@ -260,10 +306,23 @@ export function fromReactModalElement(
         optional: props.optional as boolean | undefined,
       });
 
+    case "RadioSelect":
+      return RadioSelect({
+        id: props.id as string,
+        label: props.label as string,
+        options: convertedChildren.filter(
+          (c): c is SelectOptionElement =>
+            c !== null && "label" in c && "value" in c && !("type" in c),
+        ),
+        initialOption: props.initialOption as string | undefined,
+        optional: props.optional as boolean | undefined,
+      });
+
     case "SelectOption":
       return SelectOption({
         label: props.label as string,
         value: props.value as string,
+        description: props.description as string | undefined,
       });
 
     default:

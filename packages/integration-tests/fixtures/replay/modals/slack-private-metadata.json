@@ -1,0 +1,372 @@
+{
+  "botName": "mybot",
+  "botUserId": "U0A9G5N5URZ",
+  "mention": {
+    "token": "cwbDyEwNtuJ7kp947hNkYcO9",
+    "team_id": "T0A8YAUUGMU",
+    "enterprise_id": "E0A9D9SMZ0R",
+    "api_app_id": "A0A9LGGJSAJ",
+    "event": {
+      "type": "app_mention",
+      "user": "U0A8WUV28QM",
+      "ts": "1771116676.529969",
+      "client_msg_id": "9e292f36-7186-44e9-a91f-a929890569ae",
+      "text": "<@U0A9G5N5URZ> test",
+      "team": "T0A8YAUUGMU",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "cp01Y",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "user",
+                  "user_id": "U0A9G5N5URZ"
+                },
+                {
+                  "type": "text",
+                  "text": " test"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "channel": "C0A9D9RTBMF",
+      "event_ts": "1771116676.529969"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0AEZLEKY5T",
+    "event_time": 1771116676,
+    "authorizations": [
+      {
+        "enterprise_id": "E0A9D9SMZ0R",
+        "team_id": "T0A8YAUUGMU",
+        "user_id": "U0A9G5N5URZ",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  },
+  "action": {
+    "type": "block_actions",
+    "user": {
+      "id": "U0A8WUV28QM",
+      "username": "sd0a90bkva4s_user",
+      "name": "sd0a90bkva4s_user",
+      "team_id": "T0A8YAUUGMU"
+    },
+    "api_app_id": "A0A9LGGJSAJ",
+    "token": "cwbDyEwNtuJ7kp947hNkYcO9",
+    "container": {
+      "type": "message",
+      "message_ts": "1771116682.586579",
+      "channel_id": "C0A9D9RTBMF",
+      "is_ephemeral": false,
+      "thread_ts": "1771116676.529969"
+    },
+    "trigger_id": "10526038289633.10304368968742.5aa4a10bba75d137a3ba31e28ac3a3a9",
+    "team": {
+      "id": "T0A8YAUUGMU",
+      "domain": "e0a9d9smz0r-bg8l5fr1",
+      "enterprise_id": "E0A9D9SMZ0R",
+      "enterprise_name": "montovercelsandbox"
+    },
+    "enterprise": {
+      "id": "E0A9D9SMZ0R",
+      "name": "montovercelsandbox"
+    },
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C0A9D9RTBMF",
+      "name": "general"
+    },
+    "message": {
+      "user": "U0A9G5N5URZ",
+      "type": "message",
+      "ts": "1771116682.586579",
+      "bot_id": "B0AA1EN4LU9",
+      "app_id": "A0A9LGGJSAJ",
+      "text": "*:wave: Welcome!* Connected via slack",
+      "team": "T0A8YAUUGMU",
+      "thread_ts": "1771116676.529969",
+      "parent_user_id": "U0A8WUV28QM",
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "9oxnb",
+          "text": {
+            "type": "plain_text",
+            "text": ":wave: Welcome!",
+            "emoji": true
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "YD1Z6",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "report",
+              "text": {
+                "type": "plain_text",
+                "text": "Report Bug",
+                "emoji": true
+              },
+              "value": "bug"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.com/actions/T0A8YAUUGMU/10541398916688/KPV6AfGZG7ppH61gPa8Kpur7",
+    "actions": [
+      {
+        "action_id": "report",
+        "block_id": "YD1Z6",
+        "text": {
+          "type": "plain_text",
+          "text": "Report Bug",
+          "emoji": true
+        },
+        "value": "bug",
+        "type": "button",
+        "action_ts": "1771116685.733929"
+      }
+    ]
+  },
+  "viewSubmission": {
+    "type": "view_submission",
+    "team": {
+      "id": "T0A8YAUUGMU",
+      "domain": "e0a9d9smz0r-bg8l5fr1",
+      "enterprise_id": "E0A9D9SMZ0R",
+      "enterprise_name": "montovercelsandbox"
+    },
+    "user": {
+      "id": "U0A8WUV28QM",
+      "username": "sd0a90bkva4s_user",
+      "name": "sd0a90bkva4s_user",
+      "team_id": "T0A8YAUUGMU"
+    },
+    "api_app_id": "A0A9LGGJSAJ",
+    "token": "cwbDyEwNtuJ7kp947hNkYcO9",
+    "trigger_id": "10526038284865.10304368968742.5dc6e5fcf88f88b9deb73ab0957bc3c4",
+    "view": {
+      "id": "V0AEWMF8C3D",
+      "team_id": "T0A8YAUUGMU",
+      "type": "modal",
+      "blocks": [
+        {
+          "type": "input",
+          "block_id": "title",
+          "label": {
+            "type": "plain_text",
+            "text": "Bug Title",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "title",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Brief description of the issue",
+              "emoji": true
+            },
+            "multiline": false
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "steps",
+          "label": {
+            "type": "plain_text",
+            "text": "Steps to Reproduce",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "steps",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "1. Go to...\\n2. Click on...",
+              "emoji": true
+            },
+            "multiline": true
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "severity",
+          "label": {
+            "type": "plain_text",
+            "text": "Severity",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "static_select",
+            "action_id": "severity",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Low",
+                  "emoji": true
+                },
+                "value": "low"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Medium",
+                  "emoji": true
+                },
+                "value": "medium"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "High",
+                  "emoji": true
+                },
+                "value": "high"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "Critical",
+                  "emoji": true
+                },
+                "value": "critical"
+              }
+            ]
+          }
+        }
+      ],
+      "private_metadata": "{\"c\":\"5f3ed339-458b-4fdc-9f29-c47af593bcde\",\"m\":\"{\\\"reportType\\\":\\\"bug\\\",\\\"threadId\\\":\\\"slack:C0A9D9RTBMF:1771116676.529969\\\",\\\"reporter\\\":\\\"U0A8WUV28QM\\\"}\"}",
+      "callback_id": "report_form",
+      "state": {
+        "values": {
+          "title": {
+            "title": {
+              "type": "plain_text_input",
+              "value": "tes"
+            }
+          },
+          "steps": {
+            "steps": {
+              "type": "plain_text_input",
+              "value": "test"
+            }
+          },
+          "severity": {
+            "severity": {
+              "type": "static_select",
+              "selected_option": {
+                "text": {
+                  "type": "plain_text",
+                  "text": "High",
+                  "emoji": true
+                },
+                "value": "high"
+              }
+            }
+          }
+        }
+      },
+      "hash": "1771116686.WlRuF27e",
+      "title": {
+        "type": "plain_text",
+        "text": "Report Bug",
+        "emoji": true
+      },
+      "clear_on_close": false,
+      "notify_on_close": false,
+      "close": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "Submit",
+        "emoji": true
+      },
+      "previous_view_id": null,
+      "root_view_id": "V0AEWMF8C3D",
+      "app_id": "A0A9LGGJSAJ",
+      "external_id": "",
+      "app_installed_team_id": "T0A8YAUUGMU",
+      "bot_id": "B0AA1EN4LU9"
+    },
+    "response_urls": [],
+    "is_enterprise_install": false,
+    "enterprise": {
+      "id": "E0A9D9SMZ0R",
+      "name": "montovercelsandbox"
+    }
+  },
+  "modalContext": {
+    "contextId": "5f3ed339-458b-4fdc-9f29-c47af593bcde",
+    "thread": {
+      "_type": "chat:Thread",
+      "id": "slack:C0A9D9RTBMF:1771116676.529969",
+      "channelId": "C0A9D9RTBMF",
+      "isDM": false,
+      "adapterName": "slack"
+    },
+    "message": {
+      "_type": "chat:Message",
+      "id": "1771116682.586579",
+      "threadId": "slack:C0A9D9RTBMF:1771116676.529969",
+      "text": ":wave: Welcome! Connected via slack",
+      "formatted": {
+        "type": "root",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": ":wave: Welcome!"
+              }
+            ]
+          }
+        ]
+      },
+      "raw": {
+        "user": "U0A9G5N5URZ",
+        "type": "message",
+        "ts": "1771116682.586579",
+        "bot_id": "B0AA1EN4LU9",
+        "app_id": "A0A9LGGJSAJ",
+        "team": "T0A8YAUUGMU",
+        "thread_ts": "1771116676.529969"
+      },
+      "author": {
+        "userId": "U0A9G5N5URZ",
+        "userName": "mybot",
+        "fullName": "mybot",
+        "isBot": true,
+        "isMe": true
+      },
+      "metadata": {
+        "dateSent": "2026-02-15T00:31:22.586Z",
+        "edited": false
+      },
+      "attachments": []
+    }
+  }
+}

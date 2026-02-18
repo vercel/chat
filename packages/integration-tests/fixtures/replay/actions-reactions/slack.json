@@ -81,5 +81,115 @@
     },
     "type": "event_callback",
     "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+  },
+  "staticSelectAction": {
+    "type": "block_actions",
+    "user": {
+      "id": "U03STHCA1JM",
+      "username": "malte",
+      "name": "malte",
+      "team_id": "T03SH7G01GU"
+    },
+    "api_app_id": "A0A5FUXP1ED",
+    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "container": {
+      "type": "message",
+      "message_ts": "1767326126.896109",
+      "channel_id": "C0A511MBCUW",
+      "is_ephemeral": false,
+      "thread_ts": "1767326125.870439"
+    },
+    "trigger_id": "10215325802133.3901254001572.staticselect123",
+    "team": {
+      "id": "T03SH7G01GU",
+      "domain": "vercelslacktesting"
+    },
+    "channel": {
+      "id": "C0A511MBCUW",
+      "name": "chat-sdk"
+    },
+    "message": {
+      "user": "U0A56JUFP9A",
+      "type": "message",
+      "ts": "1767326126.896109",
+      "thread_ts": "1767326125.870439"
+    },
+    "actions": [
+      {
+        "type": "static_select",
+        "action_id": "quick_action",
+        "block_id": "ikh4M",
+        "selected_option": {
+          "text": {
+            "type": "plain_text",
+            "text": "Say Hello",
+            "emoji": true
+          },
+          "value": "greet"
+        },
+        "placeholder": {
+          "type": "plain_text",
+          "text": "Choose...",
+          "emoji": true
+        },
+        "action_ts": "1767326130.289415"
+      }
+    ],
+    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10231680918177/staticSelectExample"
+  },
+  "radioButtonsAction": {
+    "type": "block_actions",
+    "user": {
+      "id": "U03STHCA1JM",
+      "username": "malte",
+      "name": "malte",
+      "team_id": "T03SH7G01GU"
+    },
+    "api_app_id": "A0A5FUXP1ED",
+    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "container": {
+      "type": "message",
+      "message_ts": "1767326126.896109",
+      "channel_id": "C0A511MBCUW",
+      "is_ephemeral": false,
+      "thread_ts": "1767326125.870439"
+    },
+    "trigger_id": "10215325802133.3901254001572.radiobuttons123",
+    "team": {
+      "id": "T03SH7G01GU",
+      "domain": "vercelslacktesting"
+    },
+    "channel": {
+      "id": "C0A511MBCUW",
+      "name": "chat-sdk"
+    },
+    "message": {
+      "user": "U0A56JUFP9A",
+      "type": "message",
+      "ts": "1767326126.896109",
+      "thread_ts": "1767326125.870439"
+    },
+    "actions": [
+      {
+        "type": "radio_buttons",
+        "action_id": "plan_selected",
+        "block_id": "yCgjj",
+        "selected_option": {
+          "text": {
+            "type": "mrkdwn",
+            "text": "*All text elements*",
+            "verbatim": false
+          },
+          "value": "all_text",
+          "description": {
+            "type": "mrkdwn",
+            "text": "Headers, body text, labels, and placeholders",
+            "verbatim": false
+          }
+        },
+        "action_ts": "1767326135.289415"
+      }
+    ],
+    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10231680918177/radioButtonsExample"
   }
 }

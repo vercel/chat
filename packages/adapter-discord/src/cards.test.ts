@@ -277,7 +277,9 @@ describe("cardToFallbackText", () => {
     expect(text).toContain("Your order is ready");
     expect(text).toContain("**Order ID**: #1234");
     expect(text).toContain("**Status**: Ready");
-    expect(text).toContain("[Schedule Pickup] [Delay]");
+    // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+    expect(text).not.toContain("[Schedule Pickup]");
+    expect(text).not.toContain("[Delay]");
   });
 
   it("handles card with only title", () => {

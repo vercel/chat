@@ -344,5 +344,189 @@
       },
       "attachments": []
     }
+  },
+  "ephemeralAction": {
+    "type": "block_actions",
+    "user": {
+      "id": "U0A60JBHJBE",
+      "username": "vishal.yathish",
+      "name": "vishal.yathish",
+      "team_id": "T0A6R9YLSKA"
+    },
+    "api_app_id": "A0A6YH3HM43",
+    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "container": {
+      "type": "message",
+      "message_ts": "1771126609.000200",
+      "channel_id": "C0ACELCQBAB",
+      "is_ephemeral": true,
+      "thread_ts": "1771126602.612659"
+    },
+    "trigger_id": "10541689532400.10229338706656.500e194be18c7e17dd828032cc9a769f",
+    "team": {
+      "id": "T0A6R9YLSKA",
+      "domain": "vishalslackbotdev"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C0ACELCQBAB",
+      "name": "support-agent-dev"
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.com/actions/T0A6R9YLSKA/10497963005175/6JXlnuaOBOquTvi51uTnoFgi",
+    "actions": [
+      {
+        "action_id": "ephemeral_modal",
+        "block_id": "g/2hQ",
+        "text": {
+          "type": "plain_text",
+          "text": "Open Modal",
+          "emoji": true
+        },
+        "style": "primary",
+        "type": "button",
+        "action_ts": "1771126610.436992"
+      }
+    ]
+  },
+  "ephemeralViewSubmission": {
+    "type": "view_submission",
+    "team": {
+      "id": "T0A6R9YLSKA",
+      "domain": "vishalslackbotdev"
+    },
+    "user": {
+      "id": "U0A60JBHJBE",
+      "username": "vishal.yathish",
+      "name": "vishal.yathish",
+      "team_id": "T0A6R9YLSKA"
+    },
+    "api_app_id": "A0A6YH3HM43",
+    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "trigger_id": "10513412613426.10229338706656.56d90cbf0a2ef4d7fc85f753d0425473",
+    "view": {
+      "id": "V0AFG9NQY65",
+      "team_id": "T0A6R9YLSKA",
+      "type": "modal",
+      "blocks": [
+        {
+          "type": "input",
+          "block_id": "response",
+          "label": {
+            "type": "plain_text",
+            "text": "Your Response",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "response",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "Type something...",
+              "emoji": true
+            },
+            "multiline": false,
+            "dispatch_action_config": {
+              "trigger_actions_on": ["on_enter_pressed"]
+            }
+          }
+        }
+      ],
+      "private_metadata": "{\"c\":\"7c626a37-a151-4aa0-a9e7-5fd2a76ce639\"}",
+      "callback_id": "ephemeral_modal_form",
+      "state": {
+        "values": {
+          "response": {
+            "response": {
+              "type": "plain_text_input",
+              "value": "Hello!"
+            }
+          }
+        }
+      },
+      "hash": "1771126611.bXwO8lOR",
+      "title": {
+        "type": "plain_text",
+        "text": "Ephemeral Modal",
+        "emoji": true
+      },
+      "clear_on_close": false,
+      "notify_on_close": false,
+      "close": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "Submit",
+        "emoji": true
+      },
+      "previous_view_id": null,
+      "root_view_id": "V0AFG9NQY65",
+      "app_id": "A0A6YH3HM43",
+      "external_id": "",
+      "app_installed_team_id": "T0A6R9YLSKA",
+      "bot_id": "B0A7HR8P8D7"
+    },
+    "response_urls": [],
+    "is_enterprise_install": false,
+    "enterprise": null
+  },
+  "ephemeralModalContext": {
+    "contextId": "7c626a37-a151-4aa0-a9e7-5fd2a76ce639",
+    "thread": {
+      "_type": "chat:Thread",
+      "id": "slack:C0ACELCQBAB:1771126602.612659",
+      "channelId": "C0ACELCQBAB",
+      "isDM": false,
+      "adapterName": "slack"
+    },
+    "message": {
+      "_type": "chat:Message",
+      "id": "ephemeral:1771126609.000200:eyJyZXNwb25zZVVybCI6Imh0dHBzOi8vaG9va3Muc2xhY2suY29tL2FjdGlvbnMvVDBBNlI5WUxTS0EvMTA0OTc5NjMwMDUxNzUvNkpYbG51YU9CT3F1VHZpNTF1VG5vRmdpIiwidXNlcklkIjoiVTBBNjBKQkhKQkUifQ==",
+      "threadId": "slack:C0ACELCQBAB:1771126602.612659",
+      "text": "This is an ephemeral message with a button to open a modal.",
+      "formatted": {
+        "type": "root",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "This is an ephemeral message with a button to open a modal."
+              }
+            ]
+          }
+        ]
+      },
+      "raw": {
+        "user": "U0A6PEGC2TH",
+        "type": "message",
+        "ts": "1771126609.000200",
+        "bot_id": "B0A7HR8P8D7",
+        "app_id": "A0A6YH3HM43",
+        "team": "T0A6R9YLSKA",
+        "thread_ts": "1771126602.612659"
+      },
+      "author": {
+        "userId": "U0A6PEGC2TH",
+        "userName": "Vercel Support Insights",
+        "fullName": "Vercel Support Insights",
+        "isBot": true,
+        "isMe": true
+      },
+      "metadata": {
+        "dateSent": "2026-02-15T12:36:49.000Z",
+        "edited": false
+      },
+      "attachments": []
+    }
   }
 }

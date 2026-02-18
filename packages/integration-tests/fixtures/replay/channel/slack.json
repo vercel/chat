@@ -1,0 +1,84 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U0A56JUFP9A",
+  "mention": {
+    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "team_id": "T03SH7G01GU",
+    "api_app_id": "A0A5FUXP1ED",
+    "event": {
+      "type": "app_mention",
+      "user": "U03STHCA1JM",
+      "ts": "1771287144.743569",
+      "client_msg_id": "e9376250-e6bc-4a1c-bfde-41361dcf5bdd",
+      "text": "<@U0A56JUFP9A> Hey",
+      "team": "T03SH7G01GU",
+      "channel": "C0A511MBCUW",
+      "event_ts": "1771287144.743569"
+    },
+    "type": "event_callback",
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T03SH7G01GU",
+        "user_id": "U0A56JUFP9A",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ]
+  },
+  "channel_post_action": {
+    "type": "block_actions",
+    "user": {
+      "id": "U03STHCA1JM",
+      "username": "malte",
+      "name": "malte",
+      "team_id": "T03SH7G01GU"
+    },
+    "api_app_id": "A0A5FUXP1ED",
+    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "container": {
+      "type": "message",
+      "message_ts": "1771287149.605429",
+      "channel_id": "C0A511MBCUW",
+      "is_ephemeral": false,
+      "thread_ts": "1771287144.743569"
+    },
+    "trigger_id": "10518733222661.3901254001572.936ae4d48e9645d620cee6cdf8af6692",
+    "team": {
+      "id": "T03SH7G01GU",
+      "domain": "vercelslacktesting"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C0A511MBCUW",
+      "name": "chat-sdk"
+    },
+    "message": {
+      "user": "U0A56JUFP9A",
+      "type": "message",
+      "ts": "1771287149.605429",
+      "bot_id": "B0A5XAH4F6U",
+      "app_id": "A0A5FUXP1ED",
+      "thread_ts": "1771287144.743569",
+      "parent_user_id": "U03STHCA1JM"
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10522162348242/cwSz6xkHs9KAoerR2SmGYMun",
+    "actions": [
+      {
+        "action_id": "channel-post",
+        "block_id": "kXGLy",
+        "text": {
+          "type": "plain_text",
+          "text": "Channel Post",
+          "emoji": true
+        },
+        "type": "button",
+        "action_ts": "1771287154.085947"
+      }
+    ]
+  }
+}

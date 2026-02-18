@@ -1,0 +1,222 @@
+---
+title: Modals
+description: Modal form components for collecting user input.
+type: reference
+---
+
+Modals display form dialogs that collect structured user input. Currently supported on Slack.
+
+```typescript
+import { Modal, TextInput, Select, RadioSelect, SelectOption } from "chat";
+```
+
+## Modal
+
+Top-level container for a form dialog. Open a modal from an `onAction` handler using `event.openModal()`.
+
+```typescript
+bot.onAction("open-form", async (event) => {
+  await event.openModal(
+    Modal({
+      callbackId: "feedback",
+      title: "Submit Feedback",
+      submitLabel: "Send",
+      children: [
+        TextInput({ id: "comment", label: "Comment", multiline: true }),
+      ],
+    })
+  );
+});
+```
+
+<TypeTable
+  type={{
+    callbackId: {
+      description: 'Unique ID for routing to onModalSubmit/onModalClose handlers.',
+      type: 'string',
+    },
+    title: {
+      description: 'Modal title displayed in the header.',
+      type: 'string',
+    },
+    submitLabel: {
+      description: 'Label for the submit button.',
+      type: 'string',
+      default: '"Submit"',
+    },
+    closeLabel: {
+      description: 'Label for the close/cancel button.',
+      type: 'string',
+      default: '"Cancel"',
+    },
+    notifyOnClose: {
+      description: 'Whether to fire onModalClose when the user dismisses the modal.',
+      type: 'boolean',
+      default: 'false',
+    },
+    privateMetadata: {
+      description: 'Arbitrary string passed through the modal lifecycle (e.g., JSON context).',
+      type: 'string',
+    },
+    children: {
+      description: 'Form input elements.',
+      type: 'ModalChild[]',
+    },
+  }}
+/>
+
+## TextInput
+
+A text input field.
+
+```typescript
+TextInput({
+  id: "name",
+  label: "Your name",
+  placeholder: "Enter your name",
+})
+
+TextInput({
+  id: "description",
+  label: "Description",
+  multiline: true,
+  maxLength: 500,
+  optional: true,
+})
+```
+
+<TypeTable
+  type={{
+    id: {
+      description: 'Input ID — used as the key in event.values.',
+      type: 'string',
+    },
+    label: {
+      description: 'Label displayed above the input.',
+      type: 'string',
+    },
+    placeholder: {
+      description: 'Placeholder text.',
+      type: 'string',
+    },
+    initialValue: {
+      description: 'Pre-filled value.',
+      type: 'string',
+    },
+    multiline: {
+      description: 'Render as a textarea.',
+      type: 'boolean',
+      default: 'false',
+    },
+    optional: {
+      description: 'Whether the field can be left empty.',
+      type: 'boolean',
+      default: 'false',
+    },
+    maxLength: {
+      description: 'Maximum character length.',
+      type: 'number',
+    },
+  }}
+/>
+
+## Select
+
+Dropdown menu.
+
+```typescript
+Select({
+  id: "priority",
+  label: "Priority",
+  placeholder: "Select priority",
+  options: [
+    SelectOption({ label: "High", value: "high", description: "Urgent tasks" }),
+    SelectOption({ label: "Medium", value: "medium" }),
+    SelectOption({ label: "Low", value: "low" }),
+  ],
+})
+```
+
+<TypeTable
+  type={{
+    id: {
+      description: 'Input ID — used as the key in event.values.',
+      type: 'string',
+    },
+    label: {
+      description: 'Label displayed above the select.',
+      type: 'string',
+    },
+    placeholder: {
+      description: 'Placeholder text.',
+      type: 'string',
+    },
+    initialOption: {
+      description: 'Pre-selected option value.',
+      type: 'string',
+    },
+    optional: {
+      description: 'Whether the field can be left empty.',
+      type: 'boolean',
+      default: 'false',
+    },
+    options: {
+      description: 'Select options.',
+      type: 'SelectOptionElement[]',
+    },
+  }}
+/>
+
+## RadioSelect
+
+Radio button group for mutually exclusive choices.
+
+```typescript
+RadioSelect({
+  id: "status",
+  label: "Status",
+  options: [
+    SelectOption({ label: "Open", value: "open" }),
+    SelectOption({ label: "Closed", value: "closed" }),
+  ],
+})
+```
+
+Same props as `Select` (except `placeholder`).
+
+## SelectOption
+
+An option used inside `Select` and `RadioSelect`.
+
+```typescript
+SelectOption({ label: "High", value: "high", description: "Urgent tasks" })
+```
+
+<TypeTable
+  type={{
+    label: {
+      description: 'Display text.',
+      type: 'string',
+    },
+    value: {
+      description: 'Value sent in event.values when selected.',
+      type: 'string',
+    },
+    description: {
+      description: 'Optional description shown below the label.',
+      type: 'string',
+    },
+  }}
+/>
+
+## ModalChild types
+
+The `children` array in `Modal` accepts these element types:
+
+| Type | Created by |
+|------|-----------|
+| `TextInputElement` | `TextInput()` |
+| `SelectElement` | `Select()` |
+| `RadioSelectElement` | `RadioSelect()` |
+| `TextElement` | `Text()` — static text content |
+| `FieldsElement` | `Fields()` — key-value display |

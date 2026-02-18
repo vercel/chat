@@ -149,8 +149,9 @@ describe("cardToFallbackText", () => {
     expect(cardToFallbackText(card, { boldFormat: "**" })).toBe("Key: Value");
   });
 
-  it("formats actions as bracketed buttons", () => {
-    // Actions takes an array directly
+  it("excludes actions from fallback text", () => {
+    // Fallback text powers notifications + screen readers — actions are interactive-only
+    // and have no meaning there. See: https://docs.slack.dev/reference/methods/chat.postMessage
     const card = Card({
       children: [
         Actions([
@@ -159,7 +160,7 @@ describe("cardToFallbackText", () => {
         ]),
       ],
     });
-    expect(cardToFallbackText(card)).toBe("[OK] [Cancel]");
+    expect(cardToFallbackText(card)).toBe("");
   });
 
   it("formats dividers as horizontal rules", () => {
@@ -216,7 +217,9 @@ describe("cardToFallbackText", () => {
     expect(result).toContain("---");
     expect(result).toContain("Status: Processing");
     expect(result).toContain("Total: $99.99");
-    expect(result).toContain("[View Order] [Cancel]");
+    // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+    expect(result).not.toContain("[View Order]");
+    expect(result).not.toContain("[Cancel]");
   });
 
   it("handles empty card", () => {

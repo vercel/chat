@@ -6,11 +6,14 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Author,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   FetchOptions,
   FetchResult,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   RawMessage,
   ThreadInfo,
@@ -1017,6 +1020,142 @@ export class GitHubAdapter
       "github",
       `Invalid GitHub thread ID format: ${threadId}`,
     );
+  }
+
+  /**
+   * Derive channel ID from a GitHub thread ID.
+   * github:{owner}/{repo}:{prNumber}... -> github:{owner}/{repo}
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { owner, repo } = this.decodeThreadId(threadId);
+    return `github:${owner}/${repo}`;
+  }
+
+  /**
+   * List threads (PRs) in a GitHub repository.
+   * Each open PR is treated as a thread.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {},
+  ): Promise<ListThreadsResult<GitHubRawMessage>> {
+    // Channel ID format: "github:{owner}/{repo}"
+    const withoutPrefix = channelId.slice(7); // Remove "github:"
+    const slashIndex = withoutPrefix.indexOf("/");
+    if (slashIndex === -1) {
+      throw new ValidationError(
+        "github",
+        `Invalid GitHub channel ID: ${channelId}`,
+      );
+    }
+    const owner = withoutPrefix.slice(0, slashIndex);
+    const repo = withoutPrefix.slice(slashIndex + 1);
+
+    const octokit = await this.getOctokitForThread(owner, repo);
+    const limit = options.limit || 30;
+
+    this.logger.debug("GitHub API: pulls.list", { owner, repo, limit });
+
+    const { data: pulls } = await octokit.pulls.list({
+      owner,
+      repo,
+      state: "open",
+      sort: "updated",
+      direction: "desc",
+      per_page: limit,
+      page: options.cursor ? parseInt(options.cursor, 10) : 1,
+    });
+
+    const threads: ListThreadsResult<GitHubRawMessage>["threads"] = pulls.map(
+      (pr) => {
+        const threadId = this.encodeThreadId({
+          owner,
+          repo,
+          prNumber: pr.number,
+        });
+
+        const rootMessage = new Message<GitHubRawMessage>({
+          id: pr.number.toString(),
+          threadId,
+          text: pr.title,
+          formatted: this.formatConverter.toAst(pr.title),
+          raw: {
+            type: "issue_comment",
+            comment: {
+              id: pr.number,
+              body: pr.body || pr.title,
+              user: pr.user as GitHubUser,
+              created_at: pr.created_at,
+              updated_at: pr.updated_at,
+              html_url: pr.html_url,
+            } as GitHubIssueComment,
+            repository: {
+              id: 0,
+              name: repo,
+              full_name: `${owner}/${repo}`,
+              owner: { id: 0, login: owner, type: "User" },
+            },
+            prNumber: pr.number,
+          },
+          author: this.parseAuthor(pr.user as GitHubUser),
+          metadata: {
+            dateSent: new Date(pr.created_at),
+            edited: pr.created_at !== pr.updated_at,
+          },
+          attachments: [],
+        });
+
+        return {
+          id: threadId,
+          rootMessage,
+          lastReplyAt: new Date(pr.updated_at),
+        };
+      },
+    );
+
+    // Simple page-based cursor
+    const currentPage = options.cursor ? parseInt(options.cursor, 10) : 1;
+    const nextCursor =
+      pulls.length === limit ? String(currentPage + 1) : undefined;
+
+    return { threads, nextCursor };
+  }
+
+  /**
+   * Fetch GitHub repository info as channel metadata.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    // Channel ID format: "github:{owner}/{repo}"
+    const withoutPrefix = channelId.slice(7);
+    const slashIndex = withoutPrefix.indexOf("/");
+    if (slashIndex === -1) {
+      throw new ValidationError(
+        "github",
+        `Invalid GitHub channel ID: ${channelId}`,
+      );
+    }
+    const owner = withoutPrefix.slice(0, slashIndex);
+    const repo = withoutPrefix.slice(slashIndex + 1);
+
+    const octokit = await this.getOctokitForThread(owner, repo);
+
+    this.logger.debug("GitHub API: repos.get", { owner, repo });
+
+    const { data: repoData } = await octokit.repos.get({ owner, repo });
+
+    return {
+      id: channelId,
+      name: repoData.full_name,
+      isDM: false,
+      metadata: {
+        owner,
+        repo,
+        description: repoData.description,
+        visibility: repoData.visibility,
+        defaultBranch: repoData.default_branch,
+        openIssuesCount: repoData.open_issues_count,
+      },
+    };
   }
 
   /**

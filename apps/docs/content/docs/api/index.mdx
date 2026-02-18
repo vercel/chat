@@ -1,0 +1,29 @@
+---
+title: Overview
+description: API reference for the Chat SDK core package.
+type: overview
+---
+
+Complete API reference for the `chat` package. All exports are available from the top-level import:
+
+```typescript
+import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
+```
+
+## Core
+
+| Export | Description |
+|--------|-------------|
+| [`Chat`](/docs/api/chat) | Main class — registers adapters, event handlers, and webhook routing |
+| [`Thread`](/docs/api/thread) | Conversation thread with methods for posting, subscribing, and state |
+| [`Channel`](/docs/api/channel) | Channel/conversation container that holds threads |
+| [`Message`](/docs/api/message) | Normalized message with text, AST, author, and metadata |
+
+## Message formats
+
+| Export | Description |
+|--------|-------------|
+| [`PostableMessage`](/docs/api/postable-message) | Union type accepted by `thread.post()` |
+| [`Cards`](/docs/api/cards) | Rich card components — `Card`, `Text`, `Button`, `Actions`, etc. |
+| [`Markdown`](/docs/api/markdown) | AST builder functions — `root`, `paragraph`, `text`, `strong`, etc. |
+| [`Modals`](/docs/api/modals) | Modal form components — `Modal`, `TextInput`, `Select`, etc. |

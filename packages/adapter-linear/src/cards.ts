@@ -212,7 +212,9 @@ function childToPlainText(child: CardChild): string | null {
     case "fields":
       return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
     case "actions":
-      return child.children.map((b) => `[${b.label}]`).join(" ");
+      // Actions are interactive-only — exclude from fallback text.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children.map(childToPlainText).filter(Boolean).join("\n");
     default:

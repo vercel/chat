@@ -13,6 +13,7 @@ import {
   Fields,
   LinkButton,
   Modal,
+  RadioSelect,
   Section,
   Select,
   SelectOption,
@@ -93,13 +94,23 @@ bot.onNewMention(async (thread, message) => {
       </Fields>
       <Divider />
       <Actions>
+        <Select id="quick_action" label="Quick Action" placeholder="Choose...">
+          <SelectOption label="Say Hello" value="greet" />
+          <SelectOption label="Show Info" value="info" />
+          <SelectOption label="Get Help" value="help" />
+        </Select>
         <Button id="hello" style="primary">
           Say Hello
         </Button>
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
+        <Button id="choose_plan">Choose Plan</Button>
         <Button id="feedback">Send Feedback</Button>
         <Button id="messages">Fetch Messages</Button>
+        <Button id="channel-post">Channel Post</Button>
+        <Button id="report" value="bug">
+          Report Bug
+        </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
@@ -112,8 +123,97 @@ bot.onNewMention(async (thread, message) => {
 bot.onAction("ephemeral", async (event) => {
   await event.thread.postEphemeral(
     event.user,
-    "This is an ephemeral response!",
+    <Card title={`${emoji.eyes} Ephemeral Message`}>
+      <Text>
+        Only you can see this message. It will disappear when you reload.
+      </Text>
+      <Text>Try opening a modal from this ephemeral:</Text>
+      <Actions>
+        <Button id="ephemeral_modal" style="primary">
+          Open Modal
+        </Button>
+      </Actions>
+    </Card>,
     { fallbackToDM: true },
+  );
+});
+
+bot.onAction("ephemeral_modal", async (event) => {
+  await event.openModal(
+    <Modal
+      callbackId="ephemeral_modal_form"
+      title="Ephemeral Modal"
+      submitLabel="Submit"
+      closeLabel="Cancel"
+    >
+      <TextInput
+        id="response"
+        label="Your Response"
+        placeholder="Type something..."
+      />
+    </Modal>,
+  );
+});
+
+bot.onModalSubmit("ephemeral_modal_form", async (event) => {
+  await event.relatedMessage?.edit(
+    <Card title={`${emoji.check} Submitted!`}>
+      <Text>Your response: **{event.values.response}**</Text>
+      <Text>The original ephemeral message was updated.</Text>
+    </Card>,
+  );
+});
+
+bot.onAction("quick_action", async (event) => {
+  const action = event.value;
+  if (action === "greet") {
+    await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
+  } else if (action === "info") {
+    await event.thread.post(
+      `${emoji.memo} You're on **${event.adapter.name}** in thread \`${event.threadId}\``,
+    );
+  } else if (action === "help") {
+    await event.thread.post(
+      `${emoji.question} Try mentioning me with "AI" to enable AI assistant mode!`,
+    );
+  }
+});
+
+bot.onAction("choose_plan", async (event) => {
+  event.thread.post(
+    <Card title="Choose Plan">
+      <Actions>
+        <RadioSelect id="plan_selected" label="Choose Plan">
+          <SelectOption
+            label="*All text elements*"
+            value="all_text"
+            description="Headers, body text, labels, and placeholders"
+          />
+          <SelectOption
+            label="*Headers and titles only*"
+            value="headers_titles"
+            description="Keep body text in the current system font"
+          />
+          <SelectOption
+            label="*Input fields and placeholders*"
+            value="input_fields"
+            description="Only the composer textarea and its placeholder"
+          />
+          <SelectOption
+            label="*Everything except buttons*"
+            value="except_buttons"
+            description="All text, but leave button labels unchanged"
+          />
+        </RadioSelect>
+      </Actions>
+    </Card>,
+  );
+});
+bot.onAction("plan_selected", async (event) => {
+  event.thread.post(
+    <Card title={`${emoji.check} Plan Chosen!`}>
+      <Text>You chose plan *{event.value}*</Text>
+    </Card>,
   );
 });
 
@@ -146,35 +246,112 @@ bot.onAction("goodbye", async (event) => {
   );
 });
 
+// Feedback modal component
+const FeedbackModal = (
+  <Modal
+    callbackId="feedback_form"
+    title="Send Feedback"
+    submitLabel="Send"
+    closeLabel="Cancel"
+    notifyOnClose
+  >
+    <TextInput
+      id="message"
+      label="Your Feedback"
+      placeholder="Tell us what you think..."
+      multiline
+    />
+    <Select id="category" label="Category" placeholder="Select a category">
+      <SelectOption label="Bug Report" value="bug" />
+      <SelectOption label="Feature Request" value="feature" />
+      <SelectOption label="General Feedback" value="general" />
+      <SelectOption label="Other" value="other" />
+    </Select>
+    <TextInput
+      id="email"
+      label="Email (optional)"
+      placeholder="your@email.com"
+      optional
+    />
+  </Modal>
+);
+
 // Open feedback modal
 bot.onAction("feedback", async (event) => {
+  await event.openModal(FeedbackModal);
+});
+
+// Opens feedback modal via /feedback
+bot.onSlashCommand("/test-feedback", async (event) => {
+  const result = await event.openModal(FeedbackModal);
+  if (!result) {
+    await event.channel.post(
+      `${emoji.warning} Couldn't open the feedback modal. Please try again.`,
+    );
+  }
+});
+
+// Open bug report modal with privateMetadata carrying context from button value
+bot.onAction("report", async (event) => {
   await event.openModal(
     <Modal
-      callbackId="feedback_form"
-      title="Send Feedback"
-      submitLabel="Send"
-      closeLabel="Cancel"
-      notifyOnClose
+      callbackId="report_form"
+      title="Report Bug"
+      submitLabel="Submit"
+      privateMetadata={JSON.stringify({
+        reportType: event.value,
+        threadId: event.threadId,
+        reporter: event.user.userId,
+      })}
     >
       <TextInput
-        id="message"
-        label="Your Feedback"
-        placeholder="Tell us what you think..."
+        id="title"
+        label="Bug Title"
+        placeholder="Brief description of the issue"
+      />
+      <TextInput
+        id="steps"
+        label="Steps to Reproduce"
+        placeholder="1. Go to...\n2. Click on..."
         multiline
       />
-      <Select id="category" label="Category" placeholder="Select a category">
-        <SelectOption label="Bug Report" value="bug" />
-        <SelectOption label="Feature Request" value="feature" />
-        <SelectOption label="General Feedback" value="general" />
-        <SelectOption label="Other" value="other" />
+      <Select id="severity" label="Severity">
+        <SelectOption label="Low" value="low" />
+        <SelectOption label="Medium" value="medium" />
+        <SelectOption label="High" value="high" />
+        <SelectOption label="Critical" value="critical" />
       </Select>
-      <TextInput
-        id="email"
-        label="Email (optional)"
-        placeholder="your@email.com"
-        optional
-      />
     </Modal>,
+  );
+});
+
+// Handle bug report modal — reads context from privateMetadata
+bot.onModalSubmit("report_form", async (event) => {
+  console.log("report_form privateMetadata:", event.privateMetadata);
+  const metadata = event.privateMetadata
+    ? JSON.parse(event.privateMetadata)
+    : {};
+  const { title, steps, severity } = event.values;
+
+  if (!title || title.length < 3) {
+    return {
+      action: "errors" as const,
+      errors: { title: "Title must be at least 3 characters" },
+    };
+  }
+
+  await event.relatedThread?.post(
+    <Card title={`${emoji.memo} Bug Report Filed`}>
+      <Fields>
+        <Field label="Title" value={title} />
+        <Field label="Severity" value={severity} />
+        <Field label="Reporter" value={event.user.fullName} />
+        <Field label="Report Type" value={metadata.reportType || "unknown"} />
+        <Field label="Thread" value={metadata.threadId || "unknown"} />
+      </Fields>
+      <Divider />
+      <Text>{`**Steps to Reproduce:**\n${steps}`}</Text>
+    </Card>,
   );
 });
 
@@ -198,7 +375,9 @@ bot.onModalSubmit("feedback_form", async (event) => {
     user: event.user.userName,
   });
   await event.relatedMessage?.edit(`${emoji.check} **Feedback received!**`);
-  await event.relatedThread?.post(
+  const target = event.relatedChannel || event.relatedThread;
+  await target?.postEphemeral(
+    event.user,
     <Card title={`${emoji.check} Feedback received!`}>
       <Text>Thank you for your feedback!</Text>
       <Fields>
@@ -208,6 +387,7 @@ bot.onModalSubmit("feedback_form", async (event) => {
         <Field label="Email" value={email} />
       </Fields>
     </Card>,
+    { fallbackToDM: false },
   );
 });
 
@@ -305,6 +485,47 @@ bot.onAction("messages", async (event) => {
   } catch (err) {
     await thread.post(
       `${emoji.warning} Error fetching messages: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`,
+    );
+  }
+});
+
+// Demonstrate channel abstraction: read channel messages and post summary
+bot.onAction("channel-post", async (event) => {
+  const { thread } = event;
+  const channel = thread.channel;
+
+  try {
+    // Fetch channel info for the name
+    const info = await channel.fetchMetadata();
+    const channelName = info.name || channel.id;
+
+    // Get the last 3 top-level channel messages using the backward iterator
+    const recent: string[] = [];
+    for await (const msg of channel.messages) {
+      const preview = msg.text?.trim()
+        ? msg.text.slice(0, 50)
+        : "[Card/Attachment]";
+      recent.push(`- ${msg.author.userName}: ${preview}`);
+      if (recent.length >= 3) break;
+    }
+
+    const summary =
+      recent.length > 0 ? recent.join("\n\n") : "(no top-level messages found)";
+
+    await channel.post(
+      <Card title={`${emoji.memo} Channel Summary`}>
+        <Section>
+          <Text>{`Channel: ${channelName}`}</Text>
+          <Text>**Last 3 top-level messages:**</Text>
+          <Text>{summary}</Text>
+        </Section>
+      </Card>,
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error reading channel: ${
         err instanceof Error ? err.message : "Unknown error"
       }`,
     );

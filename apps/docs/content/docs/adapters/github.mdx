@@ -1,0 +1,225 @@
+---
+title: GitHub
+description: Configure the GitHub adapter to respond to @mentions in PR and issue comment threads.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+The GitHub adapter treats issue and pull request comments as messages, and issues/PRs as threads.
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/github
+```
+
+## Usage
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createGitHubAdapter } from "@chat-adapter/github";
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    github: createGitHubAdapter({
+      token: process.env.GITHUB_TOKEN!,
+      webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+      userName: "my-bot",
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from GitHub!");
+});
+```
+
+## Authentication
+
+### Option A: Personal Access Token
+
+Best for personal projects, testing, or single-repo bots.
+
+1. Go to [Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. Create a new token with `repo` scope
+3. Set `GITHUB_TOKEN` environment variable
+
+```typescript title="lib/bot.ts" lineNumbers
+createGitHubAdapter({
+  token: process.env.GITHUB_TOKEN!,
+  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+  userName: "my-bot",
+});
+```
+
+### Option B: GitHub App (recommended)
+
+Better rate limits, security, and supports multiple installations.
+
+**1. Create the app:**
+
+1. Go to [Settings > Developer settings > GitHub Apps > New GitHub App](https://github.com/settings/apps/new)
+2. Set **Webhook URL** to `https://your-domain.com/api/webhooks/github`
+3. Generate and set a **Webhook secret**
+4. Set permissions:
+   - Repository > Issues: Read & write
+   - Repository > Pull requests: Read & write
+   - Repository > Metadata: Read-only
+5. Subscribe to events: Issue comment, Pull request review comment
+6. Click **Create GitHub App**
+7. Note the **App ID** and click **Generate a private key**
+
+**2. Install the app:**
+
+1. Go to your app's settings then **Install App**
+2. Click **Install** and choose repositories
+3. Note the **Installation ID** from the URL:
+   ```
+   https://github.com/settings/installations/12345678
+                                              ^^^^^^^^
+   ```
+
+**Single-tenant:**
+
+```typescript title="lib/bot.ts" lineNumbers
+createGitHubAdapter({
+  appId: process.env.GITHUB_APP_ID!,
+  privateKey: process.env.GITHUB_PRIVATE_KEY!,
+  installationId: parseInt(process.env.GITHUB_INSTALLATION_ID!),
+  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+  userName: "my-bot[bot]",
+});
+```
+
+**Multi-tenant (omit `installationId`):**
+
+```typescript title="lib/bot.ts" lineNumbers
+createGitHubAdapter({
+  appId: process.env.GITHUB_APP_ID!,
+  privateKey: process.env.GITHUB_PRIVATE_KEY!,
+  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+  userName: "my-bot[bot]",
+});
+```
+
+The adapter automatically extracts installation IDs from webhooks and caches API clients per-installation.
+
+## Webhook setup
+
+For repository or organization webhooks:
+
+1. Go to repository/org **Settings** then **Webhooks** then **Add webhook**
+2. Set **Payload URL** to `https://your-domain.com/api/webhooks/github`
+3. Set **Content type** to `application/json` (required — the default `application/x-www-form-urlencoded` does not work)
+4. Set **Secret** to match your `webhookSecret`
+5. Select events: Issue comments, Pull request review comments
+
+<Callout type="warn">
+GitHub App webhooks are configured during app creation. Make sure to select `application/json` as the content type.
+</Callout>
+
+## Thread model
+
+GitHub has two types of comment threads:
+
+| Type | Tab | Thread ID format |
+|------|-----|-----------------|
+| PR-level | Conversation | `github:{owner}/{repo}:{prNumber}` |
+| Review comments | Files Changed | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+
+## Reactions
+
+Supports GitHub's reaction emoji:
+
+| SDK emoji | GitHub reaction |
+|-----------|----------------|
+| `thumbs_up` | 👍 (+1) |
+| `thumbs_down` | 👎 (-1) |
+| `laugh` | 😄 |
+| `confused` | 😕 |
+| `heart` | ❤️ |
+| `hooray` | 🎉 |
+| `rocket` | 🚀 |
+| `eyes` | 👀 |
+
+## Configuration
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `token` | Yes* | Personal Access Token with `repo` scope |
+| `appId` | Yes* | GitHub App ID |
+| `privateKey` | For Apps | GitHub App private key (PEM format) |
+| `installationId` | No | Installation ID (omit for multi-tenant) |
+| `webhookSecret` | Yes | Webhook secret for signature verification |
+| `userName` | Yes | Bot username for @mention detection |
+| `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
+
+*Either `token` or `appId`/`privateKey` is required.
+
+## Environment variables
+
+```bash title=".env.local"
+# Personal Access Token auth
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# OR GitHub App auth
+GITHUB_APP_ID=123456
+GITHUB_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
+GITHUB_INSTALLATION_ID=12345678  # Optional for multi-tenant
+
+# Required
+GITHUB_WEBHOOK_SECRET=your-webhook-secret
+```
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Mentions | Yes |
+| Reactions (add/remove) | Yes |
+| Cards | GFM Markdown |
+| Modals | No |
+| Streaming | No |
+| DMs | No |
+| File uploads | No |
+| Typing indicator | No |
+| Message history | Yes |
+| Multi-tenant | Yes (GitHub App) |
+
+## Limitations
+
+- **No typing indicators** — GitHub doesn't support typing indicators
+- **No streaming** — Messages posted in full (editing supported for updates)
+- **No DMs** — GitHub doesn't have direct messages
+- **No modals** — GitHub doesn't support interactive modals
+- **Action buttons** — Rendered as text; use link buttons for clickable actions
+
+## Troubleshooting
+
+### "Invalid signature" error
+
+- Verify `GITHUB_WEBHOOK_SECRET` matches your webhook configuration
+- Ensure the request body isn't modified before verification
+
+### "Invalid JSON" error
+
+- Change webhook **Content type** to `application/json`
+
+### Bot not responding to mentions
+
+- Verify webhook events are configured (issue_comment, pull_request_review_comment)
+- Check the webhook URL is correct and accessible
+- Ensure the `userName` config matches your bot's GitHub username
+
+### "Installation ID required" error
+
+- This occurs when making API calls outside webhook context in multi-tenant mode
+- Use a persistent state adapter (Redis) to store installation mappings
+- The first interaction must come from a webhook to establish the mapping
+
+### Rate limiting
+
+- PATs have lower rate limits than GitHub Apps
+- Consider switching to a GitHub App for production use

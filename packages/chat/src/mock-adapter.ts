@@ -69,6 +69,28 @@ export function createMockAdapter(name = "slack"): Adapter {
       .fn()
       .mockImplementation((threadId: string) => threadId.includes(":D")),
     openModal: vi.fn().mockResolvedValue({ viewId: "V123" }),
+    channelIdFromThreadId: vi
+      .fn()
+      .mockImplementation((threadId: string) =>
+        threadId.split(":").slice(0, 2).join(":"),
+      ),
+    fetchChannelMessages: vi
+      .fn()
+      .mockResolvedValue({ messages: [], nextCursor: undefined }),
+    listThreads: vi
+      .fn()
+      .mockResolvedValue({ threads: [], nextCursor: undefined }),
+    fetchChannelInfo: vi.fn().mockImplementation((channelId: string) =>
+      Promise.resolve({
+        id: channelId,
+        name: `#${channelId}`,
+        isDM: false,
+        metadata: {},
+      }),
+    ),
+    postChannelMessage: vi
+      .fn()
+      .mockResolvedValue({ id: "msg-1", threadId: undefined, raw: {} }),
   };
 }
 

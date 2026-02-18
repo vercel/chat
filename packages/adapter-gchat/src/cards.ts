@@ -232,8 +232,9 @@ function convertActionsToWidget(
   element: ActionsElement,
   endpointUrl?: string,
 ): GoogleChatWidget {
-  const buttons: (GoogleChatButton | GoogleChatLinkButton)[] =
-    element.children.map((button) => {
+  const buttons: (GoogleChatButton | GoogleChatLinkButton)[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
       if (button.type === "link-button") {
         return convertLinkButtonToGoogleButton(button);
       }

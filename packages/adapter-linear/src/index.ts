@@ -806,6 +806,16 @@ export class LinearAdapter
   }
 
   /**
+   * Derive channel ID from a Linear thread ID.
+   * linear:{issueId}:c:{commentId} -> linear:{issueId}
+   * linear:{issueId} -> linear:{issueId}
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { issueId } = this.decodeThreadId(threadId);
+    return `linear:${issueId}`;
+  }
+
+  /**
    * Parse platform message format to normalized format.
    */
   parseMessage(raw: LinearRawMessage): Message<LinearRawMessage> {

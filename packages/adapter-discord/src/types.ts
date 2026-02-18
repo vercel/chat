@@ -52,6 +52,8 @@ export interface DiscordInteraction {
     id: string;
     type: ChannelType;
     name?: string;
+    /** Parent channel ID (present when channel is a thread) */
+    parent_id?: string;
   };
   member?: {
     user: DiscordUser;

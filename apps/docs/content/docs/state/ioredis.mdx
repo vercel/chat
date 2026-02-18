@@ -1,0 +1,81 @@
+---
+title: ioredis
+description: Alternative Redis state adapter using ioredis with Cluster and Sentinel support.
+type: reference
+prerequisites:
+  - /docs/getting-started
+---
+
+An alternative Redis state adapter using [ioredis](https://www.npmjs.com/package/ioredis). Use this if you already have ioredis in your project or need Redis Cluster/Sentinel support.
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/state-ioredis
+```
+
+## Usage
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createIORedisState } from "@chat-adapter/state-ioredis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createIORedisState({
+    url: process.env.REDIS_URL!,
+  }),
+});
+```
+
+### Using an existing client
+
+```typescript title="lib/bot.ts" lineNumbers
+import Redis from "ioredis";
+
+const client = new Redis("redis://localhost:6379");
+
+const state = createIORedisState({ client });
+```
+
+## Configuration
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `url` | Yes* | Redis connection URL |
+| `client` | No | Existing `ioredis` client instance |
+| `keyPrefix` | No | Prefix for all keys (default: `"chat-sdk"`) |
+
+*Either `url` or `client` is required.
+
+## When to use ioredis vs redis
+
+**Use `@chat-adapter/state-ioredis` when:**
+
+- You already use ioredis in your project
+- You need Redis Cluster support
+- You need Redis Sentinel support
+- You prefer the ioredis API
+
+**Use `@chat-adapter/state-redis` when:**
+
+- You want the official Redis client
+- You're starting a new project
+- You don't need Cluster or Sentinel
+
+## Key structure
+
+```
+{keyPrefix}:subscriptions     - SET of subscribed thread IDs
+{keyPrefix}:lock:{threadId}   - Lock key with TTL
+```
+
+## Features
+
+- Persistent subscriptions across restarts
+- Distributed locking across multiple instances
+- Automatic reconnection
+- Redis Cluster support
+- Redis Sentinel support
+- Key prefix namespacing

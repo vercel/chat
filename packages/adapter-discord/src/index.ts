@@ -16,14 +16,18 @@ import type {
   ActionEvent,
   Adapter,
   AdapterPostableMessage,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   FetchOptions,
   FetchResult,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   RawMessage,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
 } from "chat";
 import {
@@ -306,19 +310,32 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return;
     }
 
-    const channelId = interaction.channel_id;
+    const interactionChannelId = interaction.channel_id;
     const guildId = interaction.guild_id || "@me";
     const messageId = interaction.message?.id;
 
-    if (!channelId || !messageId) {
+    if (!interactionChannelId || !messageId) {
       this.logger.warn("Missing channel_id or message_id in interaction");
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      guildId,
-      channelId,
-    });
+    // Detect if the interaction is inside a thread channel
+    // Discord channel types: 11 = public thread, 12 = private thread
+    const channel = interaction.channel;
+    const isThread = channel?.type === 11 || channel?.type === 12;
+    const parentChannelId =
+      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+
+    const threadId = isThread
+      ? this.encodeThreadId({
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
+      : this.encodeThreadId({
+          guildId,
+          channelId: interactionChannelId,
+        });
 
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
@@ -1658,6 +1675,336 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
 
     this.chat.processReaction(reactionEvent);
+  }
+
+  /**
+   * Derive channel ID from a Discord thread ID.
+   * Discord: discord:{guildId}:{channelId}:{threadId} -> discord:{guildId}:{channelId}
+   * If already a channel ID (3 parts), returns as-is.
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const parts = threadId.split(":");
+    // discord:{guildId}:{channelId} or discord:{guildId}:{channelId}:{threadId}
+    return parts.slice(0, 3).join(":");
+  }
+
+  /**
+   * Fetch channel-level messages (not thread replies).
+   * Uses the parent channel ID to fetch top-level messages.
+   */
+  async fetchChannelMessages(
+    channelId: string,
+    options: FetchOptions = {},
+  ): Promise<FetchResult<unknown>> {
+    const parts = channelId.split(":");
+    const discordChannelId = parts[2];
+    if (!discordChannelId) {
+      throw new ValidationError(
+        "discord",
+        `Invalid Discord channel ID: ${channelId}`,
+      );
+    }
+
+    const limit = options.limit || 50;
+    const direction = options.direction ?? "backward";
+
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+
+    if (options.cursor) {
+      if (direction === "backward") {
+        params.set("before", options.cursor);
+      } else {
+        params.set("after", options.cursor);
+      }
+    }
+
+    this.logger.debug("Discord API: GET channel messages", {
+      channelId: discordChannelId,
+      limit,
+      direction,
+      cursor: options.cursor,
+    });
+
+    const response = await this.discordFetch(
+      `/channels/${discordChannelId}/messages?${params.toString()}`,
+      "GET",
+    );
+
+    const rawMessages = (await response.json()) as APIMessage[];
+
+    this.logger.debug("Discord API: GET channel messages response", {
+      messageCount: rawMessages.length,
+    });
+
+    // Discord returns newest first, reverse for chronological order
+    const sortedMessages = [...rawMessages].reverse();
+
+    const messages = sortedMessages.map((msg) =>
+      this.parseDiscordMessage(msg, channelId),
+    );
+
+    let nextCursor: string | undefined;
+    if (rawMessages.length === limit) {
+      if (direction === "backward") {
+        const oldest = rawMessages[rawMessages.length - 1];
+        nextCursor = oldest?.id;
+      } else {
+        const newest = rawMessages[0];
+        nextCursor = newest?.id;
+      }
+    }
+
+    return { messages, nextCursor };
+  }
+
+  /**
+   * List threads in a Discord channel.
+   * Fetches active threads from the guild and archived threads from the channel.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {},
+  ): Promise<ListThreadsResult<unknown>> {
+    const parts = channelId.split(":");
+    const guildId = parts[1];
+    const discordChannelId = parts[2];
+    if (!guildId || !discordChannelId) {
+      throw new ValidationError(
+        "discord",
+        `Invalid Discord channel ID: ${channelId}`,
+      );
+    }
+
+    this.logger.debug("Discord API: GET threads", {
+      guildId,
+      channelId: discordChannelId,
+    });
+
+    // Fetch active threads from the guild
+    const activeResponse = await this.discordFetch(
+      `/guilds/${guildId}/threads/active`,
+      "GET",
+    );
+    const activeData = (await activeResponse.json()) as {
+      threads: Array<{
+        id: string;
+        name: string;
+        parent_id: string;
+        message_count?: number;
+        total_message_sent?: number;
+        thread_metadata?: { archive_timestamp?: string };
+      }>;
+    };
+
+    // Filter threads that belong to our channel
+    const channelThreads = (activeData.threads || []).filter(
+      (t) => t.parent_id === discordChannelId,
+    );
+
+    // Also fetch archived public threads
+    let archivedThreads: typeof channelThreads = [];
+    try {
+      const archivedResponse = await this.discordFetch(
+        `/channels/${discordChannelId}/threads/archived/public?limit=${options.limit || 50}`,
+        "GET",
+      );
+      const archivedData = (await archivedResponse.json()) as {
+        threads: typeof channelThreads;
+      };
+      archivedThreads = archivedData.threads || [];
+    } catch {
+      // Archived threads may not be available (permissions)
+      this.logger.debug(
+        "Could not fetch archived threads (may lack permissions)",
+      );
+    }
+
+    // Merge and deduplicate
+    const allThreads = [...channelThreads, ...archivedThreads];
+    const seen = new Set<string>();
+    const uniqueThreads = allThreads.filter((t) => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+
+    // Apply limit
+    const limit = options.limit || 50;
+    const limitedThreads = uniqueThreads.slice(0, limit);
+
+    // Convert to ThreadSummary - fetch the first message of each thread
+    const threads: ThreadSummary[] = [];
+    for (const thread of limitedThreads) {
+      const threadId = this.encodeThreadId({
+        guildId,
+        channelId: discordChannelId,
+        threadId: thread.id,
+      });
+
+      // Fetch the first message of the thread (which is the root/starter message)
+      try {
+        const msgsResponse = await this.discordFetch(
+          `/channels/${thread.id}/messages?limit=1&after=0`,
+          "GET",
+        );
+        const msgs = (await msgsResponse.json()) as APIMessage[];
+        const rootMsg = msgs[0];
+
+        if (rootMsg) {
+          threads.push({
+            id: threadId,
+            rootMessage: this.parseDiscordMessage(rootMsg, threadId),
+            replyCount: thread.total_message_sent ?? thread.message_count,
+            lastReplyAt: thread.thread_metadata?.archive_timestamp
+              ? new Date(thread.thread_metadata.archive_timestamp)
+              : undefined,
+          });
+        }
+      } catch {
+        // If we can't fetch the root message, create a placeholder
+        threads.push({
+          id: threadId,
+          rootMessage: new Message({
+            id: thread.id,
+            threadId,
+            text: thread.name,
+            formatted: this.formatConverter.toAst(thread.name),
+            raw: thread,
+            author: {
+              userId: "unknown",
+              userName: "unknown",
+              fullName: "unknown",
+              isBot: false,
+              isMe: false,
+            },
+            metadata: { dateSent: new Date(), edited: false },
+            attachments: [],
+          }),
+          replyCount: thread.total_message_sent ?? thread.message_count,
+        });
+      }
+    }
+
+    this.logger.debug("Discord API: listThreads result", {
+      threadCount: threads.length,
+    });
+
+    return {
+      threads,
+      nextCursor: uniqueThreads.length > limit ? String(limit) : undefined,
+    };
+  }
+
+  /**
+   * Fetch Discord channel info/metadata.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    const parts = channelId.split(":");
+    const discordChannelId = parts[2];
+    if (!discordChannelId) {
+      throw new ValidationError(
+        "discord",
+        `Invalid Discord channel ID: ${channelId}`,
+      );
+    }
+
+    this.logger.debug("Discord API: GET channel info", {
+      channelId: discordChannelId,
+    });
+
+    const response = await this.discordFetch(
+      `/channels/${discordChannelId}`,
+      "GET",
+    );
+    const channel = (await response.json()) as {
+      id: string;
+      name?: string;
+      type: ChannelType;
+      member_count?: number;
+    };
+
+    return {
+      id: channelId,
+      name: channel.name,
+      isDM:
+        channel.type === ChannelType.DM || channel.type === ChannelType.GroupDM,
+      memberCount: channel.member_count,
+      metadata: {
+        channelType: channel.type,
+        raw: channel,
+      },
+    };
+  }
+
+  /**
+   * Post a message to channel top-level (not in a thread).
+   * Posts directly to the parent channel without a thread reference.
+   */
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage,
+  ): Promise<RawMessage<unknown>> {
+    const parts = channelId.split(":");
+    const discordChannelId = parts[2];
+    if (!discordChannelId) {
+      throw new ValidationError(
+        "discord",
+        `Invalid Discord channel ID: ${channelId}`,
+      );
+    }
+
+    // Build message payload
+    const payload: DiscordMessagePayload = {};
+    const embeds: APIEmbed[] = [];
+    const components: DiscordActionRow[] = [];
+
+    const card = extractCard(message);
+    if (card) {
+      const cardPayload = cardToDiscordPayload(card);
+      embeds.push(...cardPayload.embeds);
+      components.push(...cardPayload.components);
+      payload.content = this.truncateContent(cardToFallbackText(card));
+    } else {
+      payload.content = this.truncateContent(
+        convertEmojiPlaceholders(
+          this.formatConverter.renderPostable(message),
+          "discord",
+        ),
+      );
+    }
+
+    if (embeds.length > 0) payload.embeds = embeds;
+    if (components.length > 0) payload.components = components;
+
+    const files = extractFiles(message);
+    if (files.length > 0) {
+      return this.postMessageWithFiles(
+        discordChannelId,
+        channelId,
+        payload,
+        files,
+      );
+    }
+
+    this.logger.debug("Discord API: POST channel message", {
+      channelId: discordChannelId,
+      contentLength: payload.content?.length || 0,
+    });
+
+    const response = await this.discordFetch(
+      `/channels/${discordChannelId}/messages`,
+      "POST",
+      payload,
+    );
+
+    const result = (await response.json()) as APIMessage;
+
+    return {
+      id: result.id,
+      threadId: channelId,
+      raw: result,
+    };
   }
 
   /**

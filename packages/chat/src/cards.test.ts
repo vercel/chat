@@ -12,6 +12,7 @@ import {
   Section,
   Text,
 } from "./cards";
+import { RadioSelect, Select, SelectOption } from "./modals";
 
 describe("Card Builder Functions", () => {
   describe("Card", () => {
@@ -262,9 +263,61 @@ describe("Card Composition", () => {
     const actions = card.children[5];
     if (actions.type === "actions") {
       expect(actions.children).toHaveLength(2);
-      expect(actions.children[0].id).toBe("track");
-      expect(actions.children[1].value).toBe("order-1234");
+      const firstBtn = actions.children[0];
+      const secondBtn = actions.children[1];
+      if (firstBtn.type === "button") {
+        expect(firstBtn.id).toBe("track");
+      }
+      if (secondBtn.type === "button") {
+        expect(secondBtn.value).toBe("order-1234");
+      }
     }
+  });
+});
+
+describe("Select and RadioSelect Builder Validation", () => {
+  describe("Select", () => {
+    it("throws when options array is empty", () => {
+      expect(() =>
+        Select({
+          id: "test",
+          label: "Test",
+          options: [],
+        }),
+      ).toThrow("Select requires at least one option");
+    });
+
+    it("creates select with valid options", () => {
+      const select = Select({
+        id: "test",
+        label: "Test",
+        options: [SelectOption({ label: "A", value: "a" })],
+      });
+      expect(select.type).toBe("select");
+      expect(select.options).toHaveLength(1);
+    });
+  });
+
+  describe("RadioSelect", () => {
+    it("throws when options array is empty", () => {
+      expect(() =>
+        RadioSelect({
+          id: "test",
+          label: "Test",
+          options: [],
+        }),
+      ).toThrow("RadioSelect requires at least one option");
+    });
+
+    it("creates radio select with valid options", () => {
+      const radioSelect = RadioSelect({
+        id: "test",
+        label: "Test",
+        options: [SelectOption({ label: "A", value: "a" })],
+      });
+      expect(radioSelect.type).toBe("radio_select");
+      expect(radioSelect.options).toHaveLength(1);
+    });
   });
 });
 

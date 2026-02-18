@@ -55,7 +55,10 @@ import {
   Modal,
   type ModalChild,
   type ModalElement,
+  RadioSelect,
+  type RadioSelectElement,
   Select,
+  type SelectElement,
   SelectOption,
   type SelectOptionElement,
   TextInput,
@@ -126,6 +129,7 @@ export interface ModalProps {
   submitLabel?: string;
   closeLabel?: string;
   notifyOnClose?: boolean;
+  privateMetadata?: string;
   children?: unknown;
 }
 
@@ -154,6 +158,7 @@ export interface SelectProps {
 export interface SelectOptionProps {
   label: string;
   value: string;
+  description?: string;
 }
 
 /** Union of all valid JSX props */
@@ -186,6 +191,7 @@ type CardComponentFunction =
   | typeof Modal
   | typeof TextInput
   | typeof Select
+  | typeof RadioSelect
   | typeof SelectOption;
 
 /**
@@ -218,7 +224,10 @@ type CardChildOrNested =
   | CardChild
   | ButtonElement
   | LinkButtonElement
-  | FieldElement;
+  | FieldElement
+  | SelectElement
+  | SelectOptionElement
+  | RadioSelectElement;
 
 /**
  * Process children, converting JSX elements to card elements.
@@ -370,7 +379,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     const textProps = isTextProps(props) ? props : { style: undefined };
     const content =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : String(textProps.children ?? "");
     return Text(content, { style: textProps.style });
   }
@@ -381,8 +390,15 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
   }
 
   if (type === Actions) {
-    // Actions takes array of ButtonElements and LinkButtonElements
-    return Actions(processedChildren as (ButtonElement | LinkButtonElement)[]);
+    // Actions takes array of ButtonElements, LinkButtonElements, SelectElements, and RadioSelectElements
+    return Actions(
+      processedChildren as (
+        | ButtonElement
+        | LinkButtonElement
+        | SelectElement
+        | RadioSelectElement
+      )[],
+    );
   }
 
   if (type === Fields) {
@@ -398,7 +414,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return Button({
       id: props.id,
@@ -416,7 +432,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return LinkButton({
       url: props.url,
@@ -460,6 +476,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       submitLabel: props.submitLabel,
       closeLabel: props.closeLabel,
       notifyOnClose: props.notifyOnClose,
+      privateMetadata: props.privateMetadata,
       children: filterModalChildren(processedChildren),
     });
   }
@@ -493,6 +510,19 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     });
   }
 
+  if (type === RadioSelect) {
+    if (!isSelectProps(props)) {
+      throw new Error("RadioSelect requires 'id' and 'label' props");
+    }
+    return RadioSelect({
+      id: props.id,
+      label: props.label,
+      initialOption: props.initialOption,
+      optional: props.optional,
+      options: processedChildren as SelectOptionElement[],
+    });
+  }
+
   if (type === SelectOption) {
     if (!isSelectOptionProps(props)) {
       throw new Error("SelectOption requires 'label' and 'value' props");
@@ -500,6 +530,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     return SelectOption({
       label: props.label,
       value: props.value,
+      description: props.description,
     });
   }
 

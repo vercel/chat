@@ -1,0 +1,115 @@
+{
+  "botName": "Chat SDK Demo",
+  "botUserId": "users/113977916201552346146",
+  "userId": "users/117994873354375860089",
+  "userDisplayName": "Malte Ubl",
+  "spaceName": "spaces/AAQAO1heGsE",
+  "mention": {
+    "commonEventObject": {
+      "userLocale": "en",
+      "hostApp": "CHAT",
+      "platform": "WEB"
+    },
+    "chat": {
+      "user": {
+        "name": "users/117994873354375860089",
+        "displayName": "Malte Ubl",
+        "email": "malte@industrialempathy.com",
+        "type": "HUMAN",
+        "domainId": "12juw1z"
+      },
+      "eventTime": "2026-02-17T00:38:52.441167Z",
+      "messagePayload": {
+        "space": {
+          "name": "spaces/AAQAO1heGsE",
+          "type": "ROOM",
+          "displayName": "Test Chat SDK 4",
+          "spaceThreadingState": "THREADED_MESSAGES",
+          "spaceType": "SPACE",
+          "spaceHistoryState": "HISTORY_ON"
+        },
+        "message": {
+          "name": "spaces/AAQAO1heGsE/messages/qNpOJCyvVvw.qNpOJCyvVvw",
+          "sender": {
+            "name": "users/117994873354375860089",
+            "displayName": "Malte Ubl",
+            "email": "malte@industrialempathy.com",
+            "type": "HUMAN",
+            "domainId": "12juw1z"
+          },
+          "createTime": "2026-02-17T00:38:52.441167Z",
+          "text": "@Chat SDK Demo Hey",
+          "annotations": [
+            {
+              "type": "USER_MENTION",
+              "startIndex": 0.0,
+              "length": 14.0,
+              "userMention": {
+                "user": {
+                  "name": "users/113977916201552346146",
+                  "displayName": "Chat SDK Demo",
+                  "type": "BOT"
+                },
+                "type": "MENTION"
+              }
+            }
+          ],
+          "thread": {
+            "name": "spaces/AAQAO1heGsE/threads/qNpOJCyvVvw"
+          },
+          "space": {
+            "name": "spaces/AAQAO1heGsE",
+            "type": "ROOM",
+            "displayName": "Test Chat SDK 4",
+            "spaceThreadingState": "THREADED_MESSAGES",
+            "spaceType": "SPACE",
+            "spaceHistoryState": "HISTORY_ON"
+          },
+          "argumentText": " Hey"
+        }
+      }
+    }
+  },
+  "channel_post_action": {
+    "commonEventObject": {
+      "userLocale": "en",
+      "hostApp": "CHAT",
+      "platform": "WEB",
+      "parameters": {
+        "actionId": "channel-post"
+      }
+    },
+    "chat": {
+      "user": {
+        "name": "users/117994873354375860089",
+        "displayName": "Malte Ubl",
+        "email": "malte@industrialempathy.com",
+        "type": "HUMAN",
+        "domainId": "12juw1z"
+      },
+      "eventTime": "2026-02-17T00:39:12.545336Z",
+      "buttonClickedPayload": {
+        "space": {
+          "name": "spaces/AAQAO1heGsE",
+          "type": "ROOM",
+          "displayName": "Test Chat SDK 4",
+          "spaceThreadingState": "THREADED_MESSAGES",
+          "spaceType": "SPACE",
+          "spaceHistoryState": "HISTORY_ON"
+        },
+        "message": {
+          "name": "spaces/AAQAO1heGsE/messages/qNpOJCyvVvw.NJEqkfFVLhU",
+          "sender": {
+            "name": "users/113977916201552346146",
+            "displayName": "Chat SDK Demo",
+            "type": "BOT"
+          },
+          "createTime": "2026-02-17T00:38:53.943663Z",
+          "thread": {
+            "name": "spaces/AAQAO1heGsE/threads/qNpOJCyvVvw"
+          }
+        }
+      }
+    }
+  }
+}

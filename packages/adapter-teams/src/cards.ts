@@ -177,12 +177,14 @@ function convertDividerToElement(
 
 function convertActionsToElements(element: ActionsElement): ConvertResult {
   // In Adaptive Cards, actions go at the card level, not inline
-  const actions: AdaptiveCardAction[] = element.children.map((button) => {
-    if (button.type === "link-button") {
-      return convertLinkButtonToAction(button);
-    }
-    return convertButtonToAction(button);
-  });
+  const actions: AdaptiveCardAction[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
+      if (button.type === "link-button") {
+        return convertLinkButtonToAction(button);
+      }
+      return convertButtonToAction(button);
+    });
 
   return { elements: [], actions };
 }

@@ -1,0 +1,207 @@
+---
+title: Linear
+description: Configure the Linear adapter to respond to @mentions in issue comment threads.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+The Linear adapter treats issue comments as messages and issues as threads.
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/linear
+```
+
+## Usage
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createLinearAdapter } from "@chat-adapter/linear";
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    linear: createLinearAdapter({
+      apiKey: process.env.LINEAR_API_KEY!,
+      webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
+      userName: "my-bot",
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Linear!");
+});
+```
+
+## Authentication
+
+### Option A: Personal API key
+
+Best for personal projects, testing, or single-workspace bots. Actions are attributed to you as an individual.
+
+1. Go to [Settings > Security & Access](https://linear.app/settings/account/security)
+2. Under **Personal API keys**, click **Create key**
+3. Select **Only select permissions** and enable Create issues, Create comments
+4. Choose team access
+5. Click **Create** and set `LINEAR_API_KEY`
+
+```typescript title="lib/bot.ts" lineNumbers
+createLinearAdapter({
+  apiKey: process.env.LINEAR_API_KEY!,
+  webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
+  userName: "my-bot",
+});
+```
+
+### Option B: OAuth application (recommended)
+
+The bot gets its own identity in Linear. The adapter handles token management internally.
+
+1. Go to [Settings > API > Applications](https://linear.app/settings/api/applications/new)
+2. Create an OAuth2 application with your bot's name and icon
+3. **Enable client credentials tokens** in the app settings
+4. Note the **Client ID** and **Client Secret**
+
+```typescript title="lib/bot.ts" lineNumbers
+createLinearAdapter({
+  clientId: process.env.LINEAR_CLIENT_ID!,
+  clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+  webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
+  userName: "my-bot",
+});
+```
+
+The adapter uses the client credentials grant to obtain tokens automatically. Tokens are valid for 30 days and auto-refresh when expired.
+
+### Making the bot @-mentionable (optional)
+
+To make the bot appear in Linear's `@` mention dropdown as an Agent:
+
+1. In your OAuth app settings, enable **Agent session events** under webhooks
+2. Have a workspace admin install the app with `actor=app` and the `app:mentionable` scope:
+
+```
+https://linear.app/oauth/authorize?
+  client_id=your_client_id&
+  redirect_uri=https://your-domain.com/callback&
+  response_type=code&
+  scope=read,write,comments:create,app:mentionable&
+  actor=app
+```
+
+See the [Linear Agents docs](https://linear.app/developers/agents) for full details.
+
+## Webhook setup
+
+<Callout type="info">
+Webhook management requires workspace admin access. If you don't see the API settings page, ask a workspace admin to create the webhook for you.
+</Callout>
+
+1. Go to **Settings > API** and click **Create webhook**
+2. Fill in:
+   - **Label**: A descriptive name (e.g., "Chat Bot")
+   - **URL**: `https://your-domain.com/api/webhooks/linear`
+3. Copy the **Signing secret** as `LINEAR_WEBHOOK_SECRET`
+4. Under **Data change events**, select:
+   - **Comments** (required)
+   - **Issues** (recommended)
+   - **Emoji reactions** (optional)
+5. Under **Team selection**, choose **All public teams** or a specific team
+6. Click **Create webhook**
+
+## Thread model
+
+Linear has two levels of comment threading:
+
+| Type | Description | Thread ID format |
+|------|-------------|-----------------|
+| Issue-level | Top-level comments on an issue | `linear:{issueId}` |
+| Comment thread | Replies nested under a specific comment | `linear:{issueId}:c:{commentId}` |
+
+When a user writes a comment, the bot replies within the same comment thread.
+
+## Reactions
+
+| SDK emoji | Linear emoji |
+|-----------|-------------|
+| `thumbs_up` | 👍 |
+| `thumbs_down` | 👎 |
+| `heart` | ❤️ |
+| `fire` | 🔥 |
+| `rocket` | 🚀 |
+| `eyes` | 👀 |
+| `sparkles` | ✨ |
+| `wave` | 👋 |
+
+## Configuration
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `apiKey` | Yes* | Personal API key |
+| `clientId` | Yes* | OAuth app client ID |
+| `clientSecret` | Yes* | OAuth app client secret |
+| `accessToken` | Yes* | Pre-obtained OAuth access token |
+| `webhookSecret` | Yes | Webhook signing secret for verification |
+| `userName` | Yes | Bot display name for @mention detection |
+
+*One of `apiKey`, `clientId`/`clientSecret`, or `accessToken` is required.
+
+## Environment variables
+
+```bash title=".env.local"
+# API Key auth
+LINEAR_API_KEY=lin_api_xxxxxxxxxxxx
+
+# OR OAuth app auth
+LINEAR_CLIENT_ID=your-client-id
+LINEAR_CLIENT_SECRET=your-client-secret
+
+# Required
+LINEAR_WEBHOOK_SECRET=your-webhook-secret
+```
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Mentions | Yes |
+| Reactions (add) | Yes |
+| Cards | Markdown |
+| Modals | No |
+| Streaming | No |
+| DMs | No |
+| File uploads | No |
+| Typing indicator | No |
+| Message history | Yes |
+
+## Limitations
+
+- **No typing indicators** — Linear doesn't support typing indicators
+- **No streaming** — Messages posted in full (editing supported for updates)
+- **No DMs** — Linear doesn't have direct messages
+- **No modals** — Linear doesn't support interactive modals
+- **Action buttons** — Rendered as text; use link buttons for clickable actions
+- **Remove reaction** — Requires reaction ID lookup (not directly supported)
+
+## Troubleshooting
+
+### "Invalid signature" error
+
+- Verify `LINEAR_WEBHOOK_SECRET` matches the secret from your webhook configuration
+- The webhook secret is shown only once at creation — regenerate if lost
+
+### Bot not responding to mentions
+
+- Verify webhook events are configured with **Comments** resource type
+- Check that the webhook URL is correct and accessible
+- Ensure the `userName` config matches how users mention the bot
+- Linear may auto-disable webhooks after repeated failures
+
+### "Webhook expired" error
+
+- Webhook timestamp is too old (> 5 minutes)
+- Usually indicates a delivery delay or clock skew
+- Check that your server time is synchronized
