@@ -21,6 +21,7 @@ import { Chat, type Logger, type Message } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import gchatFixtures from "../fixtures/replay/dm/gchat.json";
 import slackFixtures from "../fixtures/replay/dm/slack.json";
+import slackDirectFixtures from "../fixtures/replay/dm/slack-direct.json";
 import teamsFixtures from "../fixtures/replay/dm/teams.json";
 import {
   createMockGoogleChatApi,
@@ -253,13 +254,13 @@ describe("DM Replay Tests", () => {
       mockSlackClient = createMockSlackClient();
       mockSlackClient.auth.test.mockResolvedValue({
         ok: true,
-        user_id: slackFixtures.botUserId,
-        user: slackFixtures.botName,
+        user_id: slackDirectFixtures.botUserId,
+        user: slackDirectFixtures.botName,
       });
       injectMockSlackClient(slackAdapter, mockSlackClient);
 
       chat = new Chat({
-        userName: slackFixtures.botName,
+        userName: slackDirectFixtures.botName,
         adapters: { slack: slackAdapter },
         state: createMemoryState(),
         logger: "error",
@@ -292,71 +293,60 @@ describe("DM Replay Tests", () => {
     };
 
     it("should treat direct DM as mention (no prior channel interaction)", async () => {
-      // Send a DM directly — no channel mention or openDM flow needed
-      await sendWebhook(slackFixtures.dmMessage);
+      await sendWebhook(slackDirectFixtures.directDM);
 
       // DM messages have isMention=true, so onNewMention fires
       expect(state.mentionMessage).not.toBeNull();
-      expect(state.mentionMessage?.text).toBe("Hey!");
+      expect(state.mentionMessage?.text).toBe("hello hello");
     });
 
     it("should use empty threadTs for top-level DM messages", async () => {
-      await sendWebhook(slackFixtures.dmMessage);
+      await sendWebhook(slackDirectFixtures.directDM);
 
       expect(state.mentionMessage).not.toBeNull();
       // Top-level DM → threadId is "slack:<channel>:" with empty threadTs
       expect(state.mentionMessage?.threadId).toBe(
-        `slack:${slackFixtures.dmChannelId}:`,
+        `slack:${slackDirectFixtures.dmChannelId}:`,
       );
     });
 
     it("should respond to direct DM", async () => {
-      await sendWebhook(slackFixtures.dmMessage);
+      await sendWebhook(slackDirectFixtures.directDM);
 
       expect(mockSlackClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: slackFixtures.dmChannelId,
-          text: expect.stringContaining("Hi! You said: Hey!"),
+          channel: slackDirectFixtures.dmChannelId,
+          text: expect.stringContaining("Hi! You said: hello hello"),
         }),
       );
     });
 
     it("should receive follow-up DM as subscribed message", async () => {
       // First DM triggers onNewMention and subscribes
-      await sendWebhook(slackFixtures.dmMessage);
+      await sendWebhook(slackDirectFixtures.directDM);
       expect(state.mentionMessage).not.toBeNull();
 
-      // Second DM in same thread triggers onSubscribedMessage
-      const followUp = {
-        ...slackFixtures.dmMessage,
-        event: {
-          ...slackFixtures.dmMessage.event,
-          ts: "1767377010.000000",
-          text: "Another message",
-        },
-      };
-      await sendWebhook(followUp);
+      // Second DM (real recorded follow-up) triggers onSubscribedMessage
+      await sendWebhook(slackDirectFixtures.followUp);
 
       expect(state.dmMessage).not.toBeNull();
-      expect(state.dmMessage?.text).toBe("Another message");
+      expect(state.dmMessage?.text).toBe("cool!!");
 
       expect(mockSlackClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: slackFixtures.dmChannelId,
-          text: expect.stringContaining("Follow-up: Another message"),
+          channel: slackDirectFixtures.dmChannelId,
+          text: expect.stringContaining("Follow-up: cool!!"),
         }),
       );
     });
 
     it("should use thread_ts for DM thread replies", async () => {
-      // A DM reply with thread_ts should use that as the threadTs
+      // Construct a DM reply with thread_ts pointing to the first message
       const dmReply = {
-        ...slackFixtures.dmMessage,
+        ...slackDirectFixtures.followUp,
         event: {
-          ...slackFixtures.dmMessage.event,
-          ts: "1767377010.000000",
-          thread_ts: slackFixtures.dmMessage.event.ts,
-          text: "Threaded reply",
+          ...slackDirectFixtures.followUp.event,
+          thread_ts: slackDirectFixtures.directDM.event.ts,
         },
       };
       await sendWebhook(dmReply);
@@ -364,7 +354,7 @@ describe("DM Replay Tests", () => {
       expect(state.mentionMessage).not.toBeNull();
       // DM reply with thread_ts → threadId includes the parent ts
       expect(state.mentionMessage?.threadId).toBe(
-        `slack:${slackFixtures.dmChannelId}:${slackFixtures.dmMessage.event.ts}`,
+        `slack:${slackDirectFixtures.dmChannelId}:${slackDirectFixtures.directDM.event.ts}`,
       );
     });
   });

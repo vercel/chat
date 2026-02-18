@@ -1,0 +1,91 @@
+{
+  "botName": "Chat SDK Bot",
+  "botUserId": "U0ADXR1N57A",
+  "dmChannelId": "D0ACX51K95H",
+  "directDM": {
+    "token": "AtFTDngNDE7k3a6rriShF4bJ",
+    "team_id": "T0ADGE2G4EM",
+    "context_team_id": "T0ADGE2G4EM",
+    "context_enterprise_id": null,
+    "api_app_id": "A0ACN407A3Z",
+    "event": {
+      "type": "message",
+      "user": "U0ADXQT6CRW",
+      "ts": "1771442483.260129",
+      "client_msg_id": "7f846ada-9111-41d4-983b-e5eda731bc0c",
+      "text": "hello hello",
+      "team": "T0ADGE2G4EM",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "yrdrR",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [{ "type": "text", "text": "hello hello" }]
+            }
+          ]
+        }
+      ],
+      "channel": "D0ACX51K95H",
+      "event_ts": "1771442483.260129",
+      "channel_type": "im"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0AFKSS1NKD",
+    "event_time": 1771442483,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T0ADGE2G4EM",
+        "user_id": "U0ADXR1N57A",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  },
+  "followUp": {
+    "token": "AtFTDngNDE7k3a6rriShF4bJ",
+    "team_id": "T0ADGE2G4EM",
+    "context_team_id": "T0ADGE2G4EM",
+    "context_enterprise_id": null,
+    "api_app_id": "A0ACN407A3Z",
+    "event": {
+      "type": "message",
+      "user": "U0ADXQT6CRW",
+      "ts": "1771442498.377609",
+      "client_msg_id": "2630505d-ec8a-4b79-98fc-7d1dac059223",
+      "text": "cool!!",
+      "team": "T0ADGE2G4EM",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "h4YYM",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [{ "type": "text", "text": "cool!!" }]
+            }
+          ]
+        }
+      ],
+      "channel": "D0ACX51K95H",
+      "event_ts": "1771442498.377609",
+      "channel_type": "im"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0AFVSPHSLU",
+    "event_time": 1771442498,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T0ADGE2G4EM",
+        "user_id": "U0ADXR1N57A",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  }
+}
