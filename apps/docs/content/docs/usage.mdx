@@ -1,6 +1,6 @@
 ---
 title: Usage
-description: Event handlers, threads, messages, and the core patterns of Chat SDK.
+description: Event handlers, threads, channels, messages, and the core patterns of Chat SDK.
 type: guide
 prerequisites:
   - /docs/getting-started
@@ -115,7 +115,7 @@ await thread.startTyping();
 ```
 
 <Callout type="info">
-Not all platforms support typing indicators. Teams and Google Chat do not have typing APIs. The call is a no-op on unsupported platforms.
+Not all platforms support typing indicators. The call is a no-op on unsupported platforms. See the [adapter feature matrix](/docs/adapters) for details.
 </Callout>
 
 ### Message history
@@ -126,13 +126,12 @@ Access recent messages or iterate through full history:
 // Cached messages from the webhook payload
 const recent = thread.recentMessages;
 
-// Fetch with pagination
-const result = await thread.adapter.fetchMessages(thread.id, {
-  limit: 50,
-  direction: "backward", // Most recent first
-});
+// Newest first (auto-paginates)
+for await (const msg of thread.messages) {
+  console.log(msg.text);
+}
 
-// Async iterator over all messages (oldest first)
+// Oldest first (auto-paginates)
 for await (const msg of thread.allMessages) {
   console.log(msg.text);
 }
@@ -211,6 +210,53 @@ await sent.delete();
 // Add/remove reactions
 await sent.addReaction(emoji.check);
 await sent.removeReaction(emoji.check);
+```
+
+## Channels
+
+A `Channel` represents the container that holds threads (e.g., a Slack channel, a Teams conversation). Navigate to a channel from a thread or get one directly:
+
+```typescript title="lib/bot.ts" lineNumbers
+// From a thread
+const channel = thread.channel;
+
+// Directly by ID
+const channel = bot.channel("slack:C123ABC");
+```
+
+### List threads
+
+Iterate threads in a channel, most recently active first:
+
+```typescript title="lib/bot.ts" lineNumbers
+for await (const thread of channel.threads()) {
+  console.log(thread.rootMessage.text, thread.replyCount);
+}
+```
+
+### Channel messages
+
+Iterate top-level messages (not thread replies):
+
+```typescript title="lib/bot.ts" lineNumbers
+for await (const msg of channel.messages) {
+  console.log(msg.text);
+}
+```
+
+### Post to a channel
+
+Post a top-level message (not inside a thread):
+
+```typescript title="lib/bot.ts"
+await channel.post("Hello channel!");
+```
+
+### Channel metadata
+
+```typescript title="lib/bot.ts"
+const info = await channel.fetchMetadata();
+console.log(info.name, info.memberCount);
 ```
 
 ## Thread ID format

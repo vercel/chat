@@ -1,0 +1,149 @@
+---
+title: Message
+description: Normalized message format with text, AST, author, and metadata.
+type: reference
+---
+
+Incoming messages are normalized across all platforms into a consistent `Message` object.
+
+```typescript
+import { Message } from "chat";
+```
+
+## Properties
+
+<TypeTable
+  type={{
+    id: {
+      description: 'Platform-specific message ID.',
+      type: 'string',
+    },
+    threadId: {
+      description: 'Thread ID in adapter:channel:thread format.',
+      type: 'string',
+    },
+    text: {
+      description: 'Plain text content with all formatting stripped.',
+      type: 'string',
+    },
+    formatted: {
+      description: 'mdast AST representation — the canonical format for processing.',
+      type: 'Root',
+    },
+    raw: {
+      description: 'Original platform-specific payload (escape hatch).',
+      type: 'unknown',
+    },
+    author: {
+      description: 'Message author info.',
+      type: 'Author',
+    },
+    metadata: {
+      description: 'Timestamps and edit status.',
+      type: 'MessageMetadata',
+    },
+    attachments: {
+      description: 'File attachments.',
+      type: 'Attachment[]',
+    },
+    isMention: {
+      description: 'Whether the bot was @-mentioned in this message.',
+      type: 'boolean | undefined',
+    },
+  }}
+/>
+
+## Author
+
+<TypeTable
+  type={{
+    userId: {
+      description: 'Platform-specific user ID.',
+      type: 'string',
+    },
+    userName: {
+      description: 'Username/handle for @-mentions.',
+      type: 'string',
+    },
+    fullName: {
+      description: 'Display name.',
+      type: 'string',
+    },
+    isBot: {
+      description: 'Whether the author is a bot.',
+      type: 'boolean | "unknown"',
+    },
+    isMe: {
+      description: 'Whether the author is this bot.',
+      type: 'boolean',
+    },
+  }}
+/>
+
+## MessageMetadata
+
+<TypeTable
+  type={{
+    dateSent: {
+      description: 'When the message was sent.',
+      type: 'Date',
+    },
+    edited: {
+      description: 'Whether the message has been edited.',
+      type: 'boolean',
+    },
+    editedAt: {
+      description: 'When the message was last edited.',
+      type: 'Date | undefined',
+    },
+  }}
+/>
+
+## Attachment
+
+<TypeTable
+  type={{
+    type: {
+      description: 'Attachment type.',
+      type: '"image" | "file" | "video" | "audio"',
+    },
+    url: {
+      description: 'URL to the file.',
+      type: 'string | undefined',
+    },
+    data: {
+      description: 'Binary data (if already fetched).',
+      type: 'Buffer | Blob | undefined',
+    },
+    name: {
+      description: 'Filename.',
+      type: 'string | undefined',
+    },
+    mimeType: {
+      description: 'MIME type.',
+      type: 'string | undefined',
+    },
+    size: {
+      description: 'File size in bytes.',
+      type: 'number | undefined',
+    },
+    'fetchData()': {
+      description: 'Fetch the attachment data. Handles platform auth automatically.',
+      type: '() => Promise<Buffer> | undefined',
+    },
+  }}
+/>
+
+## Serialization
+
+Messages can be serialized for workflow engines and external systems.
+
+```typescript
+// Serialize
+const json = message.toJSON();
+
+// Deserialize
+const restored = Message.fromJSON(json);
+```
+
+The serialized format converts `Date` fields to ISO strings and omits non-serializable fields like `data` buffers and `fetchData` functions.

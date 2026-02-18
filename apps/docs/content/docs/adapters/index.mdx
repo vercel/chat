@@ -8,16 +8,67 @@ prerequisites:
 
 Adapters handle webhook verification, message parsing, and API calls for each platform. Install only the adapters you need.
 
-## Platform comparison
+## Feature matrix
 
-| Platform | Package | Mentions | Reactions | Cards | Modals | Streaming | DMs |
-|----------|---------|----------|-----------|-------|--------|-----------|-----|
-| [Slack](/docs/adapters/slack) | `@chat-adapter/slack` | Yes | Yes | Block Kit | Yes | Native | Yes |
-| [Microsoft Teams](/docs/adapters/teams) | `@chat-adapter/teams` | Yes | Read-only | Adaptive Cards | No | Post+Edit | Yes |
-| [Google Chat](/docs/adapters/gchat) | `@chat-adapter/gchat` | Yes | Yes | Google Chat Cards | No | Post+Edit | Yes |
-| [Discord](/docs/adapters/discord) | `@chat-adapter/discord` | Yes | Yes | Embeds | No | Post+Edit | Yes |
-| [GitHub](/docs/adapters/github) | `@chat-adapter/github` | Yes | Yes | GFM Markdown | No | No | No |
-| [Linear](/docs/adapters/linear) | `@chat-adapter/linear` | Yes | Yes | Markdown | No | No | No |
+### Messaging
+
+| Feature | [Slack](/docs/adapters/slack) | [Teams](/docs/adapters/teams) | [Google Chat](/docs/adapters/gchat) | [Discord](/docs/adapters/discord) | [GitHub](/docs/adapters/github) | [Linear](/docs/adapters/linear) |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Post message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Edit message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Delete message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| File uploads | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Streaming | ✅ Native | ⚠️ Post+Edit | ⚠️ Post+Edit | ⚠️ Post+Edit | ❌ | ❌ |
+
+### Rich content
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Card format | Block Kit | Adaptive Cards | Google Chat Cards | Embeds | GFM Markdown | Markdown |
+| Buttons | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Link buttons | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Select menus | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Fields | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Images in cards | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Modals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Conversations
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Mentions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Add reactions | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Remove reactions | ✅ | ❌ | ✅ | ✅ | ⚠️ | ⚠️ |
+| Typing indicator | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| DMs | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Ephemeral messages | ✅ Native | ❌ | ✅ Native | ❌ | ❌ | ❌ |
+
+### Message history
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Fetch messages | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Fetch single message | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Fetch thread info | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Fetch channel messages | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| List threads | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fetch channel info | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Post channel message | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+
+<Callout type="info">
+⚠️ indicates partial support — the feature works with limitations. See individual adapter pages for details.
+</Callout>
+
+## Packages
+
+| Platform | Package |
+|----------|---------|
+| [Slack](/docs/adapters/slack) | `@chat-adapter/slack` |
+| [Microsoft Teams](/docs/adapters/teams) | `@chat-adapter/teams` |
+| [Google Chat](/docs/adapters/gchat) | `@chat-adapter/gchat` |
+| [Discord](/docs/adapters/discord) | `@chat-adapter/discord` |
+| [GitHub](/docs/adapters/github) | `@chat-adapter/github` |
+| [Linear](/docs/adapters/linear) | `@chat-adapter/linear` |
 
 ## How adapters work
 
@@ -25,8 +76,8 @@ Each adapter implements a standard interface that the `Chat` class uses to route
 
 1. The adapter verifies the request signature
 2. Parses the platform-specific payload into a normalized `Message`
-3. Calls `chat.handleIncomingMessage()` to route to your handlers
-4. Converts outgoing messages from markdown/JSX to the platform's native format
+3. Routes to your handlers via the `Chat` class
+4. Converts outgoing messages from markdown/AST/cards to the platform's native format
 
 ## Using multiple adapters
 

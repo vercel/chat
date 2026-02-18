@@ -8,7 +8,7 @@ export const Logo = () => (
 );
 
 export const github = {
-  owner: "vercel",
+  owner: "vercel-labs",
   repo: "chat",
 };
 
@@ -24,10 +24,10 @@ export const nav = [
 ];
 
 export const suggestions = [
-  "What is Chat SDK?",
-  "What can I make with Chat SDK?",
-  "What syntax does Chat SDK support?",
-  "How do I deploy my Chat SDK site?",
+  "What platforms does Chat SDK support?",
+  "How do I set up a Slack bot with Next.js?",
+  "How do I send cards and interactive messages?",
+  "How do I stream AI responses in real-time?",
 ];
 
 export const title = "Chat SDK Documentation";

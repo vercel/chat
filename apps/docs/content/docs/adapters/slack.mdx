@@ -104,70 +104,69 @@ When `encryptionKey` is set, `setInstallation()` encrypts the token before stori
 
 ## Slack app setup
 
-### 1. Create a Slack app
+### 1. Create a Slack app from manifest
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-2. Click **Create New App** then **From scratch**
-3. Enter app name and select workspace
-4. Click **Create App**
+2. Click **Create New App** then **From an app manifest**
+3. Select your workspace and paste the following manifest:
 
-### 2. Configure bot token scopes
+```yaml title="slack-manifest.yml"
+display_information:
+  name: My Bot
+  description: A bot built with chat-sdk
 
-Go to **OAuth & Permissions** and add these **Bot Token Scopes**:
+features:
+  bot_user:
+    display_name: My Bot
+    always_online: true
 
-| Scope | Description |
-|-------|-------------|
-| `app_mentions:read` | Receive @mention events |
-| `channels:history` | Read messages in public channels |
-| `channels:read` | View basic channel info |
-| `chat:write` | Send messages |
-| `groups:history` | Read messages in private channels |
-| `groups:read` | View basic private channel info |
-| `im:history` | Read direct messages |
-| `im:read` | View basic DM info |
-| `reactions:read` | View emoji reactions |
-| `reactions:write` | Add/remove emoji reactions |
-| `users:read` | View user info (for display names) |
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - reactions:read
+      - reactions:write
+      - users:read
 
-### 3. Install app to workspace
+settings:
+  event_subscriptions:
+    request_url: https://your-domain.com/api/webhooks/slack
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+```
 
-**Single workspace:**
+4. Replace `https://your-domain.com/api/webhooks/slack` with your deployed webhook URL
+5. Click **Create**
 
-1. Go to **OAuth & Permissions**
-2. Click **Install to Workspace** and authorize
-3. Copy the **Bot User OAuth Token** (`xoxb-...`) as `SLACK_BOT_TOKEN`
+### 2. Get credentials
 
-**Multi-workspace:**
+After creating the app, go to **Basic Information** → **App Credentials** and copy:
 
-Enable **Manage Distribution** under **Basic Information**, then set up an OAuth redirect URL pointing to your callback route. The adapter handles the token exchange via `handleOAuthCallback()`.
+- **Signing Secret** as `SLACK_SIGNING_SECRET`
+- **Client ID** as `SLACK_CLIENT_ID` (multi-workspace only)
+- **Client Secret** as `SLACK_CLIENT_SECRET` (multi-workspace only)
 
-### 4. Get signing secret
+**Single workspace:** Go to **OAuth & Permissions**, click **Install to Workspace**, and copy the **Bot User OAuth Token** (`xoxb-...`) as `SLACK_BOT_TOKEN`.
 
-1. Go to **Basic Information**
-2. Under **App Credentials**, copy:
-   - **Signing Secret** as `SLACK_SIGNING_SECRET`
-   - **Client ID** as `SLACK_CLIENT_ID` (multi-workspace only)
-   - **Client Secret** as `SLACK_CLIENT_SECRET` (multi-workspace only)
-
-### 5. Configure event subscriptions
-
-1. Go to **Event Subscriptions**
-2. Toggle **Enable Events** to On
-3. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
-4. Under **Subscribe to bot events**, add:
-   - `app_mention` — when someone @mentions your bot
-   - `message.channels` — messages in public channels
-   - `message.groups` — messages in private channels
-   - `message.im` — direct messages
-5. Click **Save Changes**
-
-### 6. Enable interactivity (optional)
-
-For buttons, modals, and other interactive components:
-
-1. Go to **Interactivity & Shortcuts**
-2. Toggle **Interactivity** to On
-3. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
+**Multi-workspace:** Enable **Manage Distribution** under **Basic Information** and set up an OAuth redirect URL pointing to your callback route.
 
 ### 7. Configure slash commands (optional)
 
