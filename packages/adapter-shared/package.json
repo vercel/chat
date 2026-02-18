@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/shared",
-  "version": "4.11.0",
+  "version": "4.12.0",
   "description": "Shared utilities for chat SDK adapters",
   "type": "module",
   "exports": {

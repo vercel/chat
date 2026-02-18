@@ -1,5 +1,17 @@
 # @chat-adapter/slack
 
+## 4.12.0
+
+### Minor Changes
+
+- 8c50252: Adding support for slash commands.
+
+### Patch Changes
+
+- Updated dependencies [8c50252]
+  - chat@4.12.0
+  - @chat-adapter/shared@4.12.0
+
 ## 4.11.0
 
 ### Minor Changes
