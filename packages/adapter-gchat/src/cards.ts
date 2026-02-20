@@ -199,8 +199,14 @@ function convertChildToWidgets(
   }
 }
 
+/** Convert standard Markdown formatting to Google Chat formatting */
+function markdownToGChat(text: string): string {
+  // **bold** → *bold*
+  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+}
+
 function convertTextToWidget(element: TextElement): GoogleChatWidget {
-  let text = convertEmoji(element.content);
+  let text = markdownToGChat(convertEmoji(element.content));
 
   // Apply style using Google Chat formatting
   if (element.style === "bold") {
@@ -321,8 +327,8 @@ function convertFieldsToWidgets(element: FieldsElement): GoogleChatWidget[] {
   // Convert fields to decorated text widgets
   return element.children.map((field) => ({
     decoratedText: {
-      topLabel: convertEmoji(field.label),
-      text: convertEmoji(field.value),
+      topLabel: markdownToGChat(convertEmoji(field.label)),
+      text: markdownToGChat(convertEmoji(field.value)),
     },
   }));
 }
