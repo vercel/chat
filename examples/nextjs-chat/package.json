@@ -22,13 +22,13 @@
     "ai": "^6.0.5",
     "chat": "workspace:*",
     "next": "^16.1.0",
-    "react": "^19.0.0",
+    "react": "^19.2.4",
     "react-dom": "^19.0.0",
     "redis": "^4.7.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "@types/react": "^19.0.1",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^19.0.1",
     "dotenv": "^17.2.3",
     "tsx": "^4.21.0",
