@@ -629,7 +629,9 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
   it("converts **bold** across multiple lines", () => {
     const card = Card({
       children: [
-        CardText("**Domain**: example.com\n**Project**: my-app\n**Status**: deployed"),
+        CardText(
+          "**Domain**: example.com\n**Project**: my-app\n**Status**: deployed",
+        ),
       ],
     });
     const blocks = cardToBlockKit(card);
@@ -671,11 +673,7 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
 
   it("converts **bold** in field values", () => {
     const card = Card({
-      children: [
-        Fields([
-          Field({ label: "Status", value: "**Active**" }),
-        ]),
-      ],
+      children: [Fields([Field({ label: "Status", value: "**Active**" })])],
     });
     const blocks = cardToBlockKit(card);
 
