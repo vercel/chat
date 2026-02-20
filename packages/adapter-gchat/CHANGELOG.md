@@ -1,5 +1,16 @@
 # @chat-adapter/gchat
 
+## 4.13.1
+
+### Patch Changes
+
+- 09cdfa3: fix(slack,gchat): convert **bold** to _bold_ in Card text blocks
+
+  CardText content with standard Markdown bold was rendering literally in Slack and Google Chat. Both platforms use single asterisk for bold. Added markdownToMrkdwn conversion in convertTextToBlock and field converters.
+
+  - chat@4.13.1
+  - @chat-adapter/shared@4.13.1
+
 ## 4.13.0
 
 ### Patch Changes

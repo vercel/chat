@@ -1,5 +1,12 @@
 # @chat-adapter/linear
 
+## 4.13.1
+
+### Patch Changes
+
+- chat@4.13.1
+- @chat-adapter/shared@4.13.1
+
 ## 4.13.0
 
 ### Patch Changes
