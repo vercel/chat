@@ -21,7 +21,7 @@
     "@chat-adapter/teams": "workspace:*",
     "ai": "^6.0.5",
     "chat": "workspace:*",
-    "next": "^16.1.0",
+    "next": "^16.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redis": "^4.7.1"
