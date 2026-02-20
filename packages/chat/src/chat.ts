@@ -1076,13 +1076,15 @@ export class Chat<
         })
       : ({} as Message);
 
-    // Create thread for the action event
-    const thread = await this.createThread(
-      event.adapter,
-      event.threadId,
-      messageForThread,
-      isSubscribed,
-    );
+    // Create thread for the action event (skip for view-based actions with no threadId)
+    const thread = event.threadId
+      ? await this.createThread(
+          event.adapter,
+          event.threadId,
+          messageForThread,
+          isSubscribed,
+        )
+      : (null as unknown as Thread<TState>);
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
