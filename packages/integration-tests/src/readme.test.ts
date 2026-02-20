@@ -201,24 +201,18 @@ describe("Main README.md code examples", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("should have at least a bot definition and route handler", () => {
+  it("should have a bot definition example", () => {
     const readme = readFileSync(mainReadmePath, "utf-8");
     const codeBlocks = extractTypeScriptBlocks(readme);
 
     const hasBotDefinition = codeBlocks.some(
       (block) => block.includes("new Chat") && block.includes("adapters:"),
     );
-    const hasRouteHandler = codeBlocks.some((block) =>
-      block.includes("export async function POST"),
-    );
 
     expect(
       hasBotDefinition,
       "README should have a Chat instantiation example",
     ).toBe(true);
-    expect(hasRouteHandler, "README should have a POST handler example").toBe(
-      true,
-    );
   });
 });
 

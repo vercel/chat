@@ -17,19 +17,23 @@ npm install @chat-adapter/slack @chat-adapter/teams @chat-adapter/gchat @chat-ad
 ## Usage
 
 ```typescript
-import { Chat } from "chat";
+import { Chat, ConsoleLogger } from "chat";
 import { createSlackAdapter } from "@chat-adapter/slack";
 import { createRedisState } from "@chat-adapter/state-redis";
 
+const logger = new ConsoleLogger("info");
+
 const bot = new Chat({
   userName: "mybot",
+  logger,
   adapters: {
     slack: createSlackAdapter({
       botToken: process.env.SLACK_BOT_TOKEN!,
       signingSecret: process.env.SLACK_SIGNING_SECRET!,
+      logger: logger.child("slack"),
     }),
   },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
+  state: createRedisState({ url: process.env.REDIS_URL!, logger }),
 });
 
 bot.onNewMention(async (thread) => {
