@@ -103,9 +103,9 @@ jobs:
 
             To test this PR with real webhook traffic:
 
-            1. Go to [/settings](https://your-deployment.vercel.app/settings) on the production deployment
+            1. Go to \`/settings\` on the production deployment
             2. Enter this PR's Vercel preview URL
-            3. Save - all webhook requests will now be proxied to this preview
+            3. Save — all webhook requests will now be proxied to this preview
 
             **To disable:** Clear the URL on the settings page.`;
 

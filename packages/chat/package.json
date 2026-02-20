@@ -33,7 +33,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@workflow/serde": "4.0.1-beta.1",
+    "@workflow/serde": "4.1.0-beta.2",
     "mdast-util-to-string": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",

@@ -8,10 +8,15 @@ updates:
       interval: "monthly"
     labels: ["dependencies"]
 
-  # Maintain dependencies for npm
+  # Maintain dependencies for npm (all workspace packages)
   - package-ecosystem: "npm"
     directory: "/"
     open-pull-requests-limit: 10
     schedule:
       interval: "monthly"
     labels: ["dependencies"]
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"

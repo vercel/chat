@@ -85,6 +85,9 @@ body:
         - Slack
         - Microsoft Teams
         - Google Chat
+        - Discord
+        - GitHub
+        - Linear
         - Other
 
   - type: dropdown
