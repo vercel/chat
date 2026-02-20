@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "lint": "biome check src"
   },
   "dependencies": {

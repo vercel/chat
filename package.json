@@ -25,6 +25,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.3.10",
     "@changesets/cli": "^2.29.8",
+    "@vitest/coverage-v8": "^2.1.8",
     "knip": "^5.78.0",
     "turbo": "^2.3.0",
     "typescript": "^5.7.2"

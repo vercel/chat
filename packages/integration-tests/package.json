@@ -5,7 +5,7 @@
   "description": "Integration tests for chat",
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src"
