@@ -1,5 +1,37 @@
 # Contributing
 
+## Development
+
+### Testing
+
+Run all unit tests across every package in a single Vitest Workspace run:
+
+```bash
+pnpm test:workspace
+```
+
+This produces one combined report covering all 11 unit-test packages. Integration tests (`@chat-adapter/integration-tests`) are excluded since they require platform credentials.
+
+You can also run tests per-package via Turborepo:
+
+```bash
+# All packages (including integration tests)
+pnpm test
+
+# Single package
+pnpm --filter chat test
+pnpm --filter @chat-adapter/slack test
+```
+
+### Other commands
+
+```bash
+pnpm lint        # Lint all packages
+pnpm typecheck   # Type-check all packages
+pnpm knip        # Check for unused exports/dependencies
+pnpm validate    # Run everything (knip, lint, typecheck, test, build)
+```
+
 ## Preview Branch Testing
 
 The example app includes a middleware that can proxy webhook requests to a preview branch deployment. This allows testing preview branches with real webhook traffic from Slack/Teams/GChat.
