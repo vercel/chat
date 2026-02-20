@@ -151,8 +151,14 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
   }
 }
 
+/** Convert standard Markdown formatting to Slack mrkdwn */
+function markdownToMrkdwn(text: string): string {
+  // **bold** → *bold*
+  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+}
+
 export function convertTextToBlock(element: TextElement): SlackBlock {
-  const text = convertEmoji(element.content);
+  const text = markdownToMrkdwn(convertEmoji(element.content));
   let formattedText = text;
 
   // Apply style
@@ -342,7 +348,7 @@ export function convertFieldsToBlock(element: FieldsElement): SlackBlock {
     // Add label and value as separate field items
     fields.push({
       type: "mrkdwn",
-      text: `*${convertEmoji(field.label)}*\n${convertEmoji(field.value)}`,
+      text: `*${markdownToMrkdwn(convertEmoji(field.label))}*\n${markdownToMrkdwn(convertEmoji(field.value))}`,
     });
   }
 
