@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/vercel-labs/chat#readme
+    about: Check out the documentation for usage examples and API reference
+  - name: GitHub Discussions
+    url: https://github.com/vercel-labs/chat/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Security Vulnerability
+    url: https://github.com/vercel-labs/chat/security/advisories/new
+    about: Please report security vulnerabilities privately
