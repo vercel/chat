@@ -1,6 +1,6 @@
 {
   "botName": "Chat SDK Demo",
-  "botUserId": "users/113977916201552346146",
+  "botUserId": "users/100000000000000000002",
   "mention": {
     "commonEventObject": {
       "userLocale": "en",
@@ -9,8 +9,8 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
         "type": "HUMAN"
       },
       "eventTime": "2026-01-02T23:32:28.751807Z",
@@ -24,8 +24,8 @@
         "message": {
           "name": "spaces/AAQAO1heGsE/messages/A6woZAHrIjs.A6woZAHrIjs",
           "sender": {
-            "name": "users/117994873354375860089",
-            "displayName": "Malte Ubl",
+            "name": "users/100000000000000000001",
+            "displayName": "Test User",
             "type": "HUMAN"
           },
           "createTime": "2026-01-02T23:32:28.751807Z",
@@ -37,7 +37,7 @@
               "length": 14,
               "userMention": {
                 "user": {
-                  "name": "users/113977916201552346146",
+                  "name": "users/100000000000000000002",
                   "displayName": "Chat SDK Demo",
                   "type": "BOT"
                 },
@@ -62,8 +62,8 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
         "type": "HUMAN"
       },
       "eventTime": "2026-01-02T23:32:34.175996Z",
@@ -77,7 +77,7 @@
         "message": {
           "name": "spaces/AAQAO1heGsE/messages/A6woZAHrIjs.9qQCF6JGUNg",
           "sender": {
-            "name": "users/113977916201552346146",
+            "name": "users/100000000000000000002",
             "displayName": "Chat SDK Demo",
             "type": "BOT"
           },
@@ -99,8 +99,8 @@
         "ce-time": "2026-01-02T03:55:03.238924Z",
         "ce-type": "google.workspace.chat.reaction.v1.created"
       },
-      "data": "eyJyZWFjdGlvbiI6eyJuYW1lIjoic3BhY2VzL0FBUUFEbWVuUHBZL21lc3NhZ2VzL2hDQ3lET2hhNy1vLjRsUXZNdUVHTTBnL3JlYWN0aW9ucy8xMTc5OTQ4NzMzNTQzNzU4NjAwODkuVlU1SlEwOUVSUzd3bjVHTiIsInVzZXIiOnsibmFtZSI6InVzZXJzLzExNzk5NDg3MzM1NDM3NTg2MDA4OSIsInR5cGUiOiJIVU1BTiJ9LCJlbW9qaSI6eyJ1bmljb2RlIjoi8J+RjSJ9fX0="
+      "data": "eyJyZWFjdGlvbiI6eyJuYW1lIjoic3BhY2VzL0FBUUFEbWVuUHBZL21lc3NhZ2VzL2hDQ3lET2hhNy1vLjRsUXZNdUVHTTBnL3JlYWN0aW9ucy8xMDAwMDAwMDAwMDAwMDAwMDAwMDEuVlU1SlEwOUVSUzd3bjVHTiIsInVzZXIiOnsibmFtZSI6InVzZXJzLzEwMDAwMDAwMDAwMDAwMDAwMDAwMSIsInR5cGUiOiJIVU1BTiJ9LCJlbW9qaSI6eyJ1bmljb2RlIjoi8J+RjSJ9fX0="
     },
-    "subscription": "projects/chat-sdk-demo-482018/subscriptions/chat-messages-push"
+    "subscription": "projects/example-chat-project-123456/subscriptions/chat-messages-push"
   }
 }

@@ -83,7 +83,7 @@ describe("Discord Replay Tests", () => {
 
       expect(ctx.mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: expect.stringContaining("Hello, Malte"),
+          content: expect.stringContaining("Hello, Test User"),
         }),
       );
     });
@@ -151,7 +151,7 @@ describe("Discord Replay Tests", () => {
 
       expect(ctx.mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: expect.stringContaining("Malte"),
+          content: expect.stringContaining("Test User"),
         }),
       );
     });
@@ -234,7 +234,7 @@ describe("Discord Replay Tests", () => {
       // DM uses `user` field directly instead of `member.user`
       expect(capturedAction?.user.userId).toBe(REAL_USER_ID);
       expect(capturedAction?.user.userName).toBe(REAL_USER_NAME);
-      expect(capturedAction?.user.fullName).toBe("Malte");
+      expect(capturedAction?.user.fullName).toBe("Test User");
     });
   });
 

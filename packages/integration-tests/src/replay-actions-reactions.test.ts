@@ -67,10 +67,10 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "info",
-        userId: "U03STHCA1JM",
-        userName: "malte",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         isDM: false,
       });
 
@@ -89,9 +89,9 @@ describe("Replay Tests - Actions & Reactions", () => {
         emojiName: "thumbs_up",
         rawEmoji: "+1",
         added: true,
-        userId: "U03STHCA1JM",
+        userId: "U00FAKEUSER1",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         messageId: "1767326126.896109",
         isDM: false,
       });
@@ -107,10 +107,10 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "quick_action",
-        userId: "U03STHCA1JM",
-        userName: "malte",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         isDM: false,
       });
 
@@ -126,10 +126,10 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "plan_selected",
-        userId: "U03STHCA1JM",
-        userName: "malte",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         isDM: false,
       });
 
@@ -180,7 +180,7 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "info",
-        userName: "Malte Ubl",
+        userName: "Test User",
         adapterName: "teams",
         isDM: false,
       });
@@ -256,8 +256,8 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "hello",
-        userId: "users/117994873354375860089",
-        userName: "Malte Ubl",
+        userId: "users/100000000000000000001",
+        userName: "Test User",
         adapterName: "gchat",
         isDM: false,
       });
@@ -280,7 +280,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         emojiName: "thumbs_up",
         rawEmoji: "👍",
         added: true,
-        userId: "users/117994873354375860089",
+        userId: "users/100000000000000000001",
         adapterName: "gchat",
       });
 

@@ -1,19 +1,19 @@
 {
   "botName": "Chat SDK Bot",
-  "botUserId": "U0A56JUFP9A",
+  "botUserId": "U00FAKEBOT01",
   "aiMention": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "context_team_id": "T03SH7G01GU",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "context_team_id": "T00FAKE00AA",
     "context_enterprise_id": null,
-    "api_app_id": "A0A5FUXP1ED",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "message",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767406613.568609",
       "client_msg_id": "8c5824aa-018c-4df5-9cc6-aa9b44ec8d8b",
-      "text": "<@U0A56JUFP9A> AI What is love?",
-      "team": "T03SH7G01GU",
+      "text": "<@U00FAKEBOT01> AI What is love?",
+      "team": "T00FAKE00AA",
       "blocks": [
         {
           "type": "rich_text",
@@ -22,14 +22,14 @@
             {
               "type": "rich_text_section",
               "elements": [
-                { "type": "user", "user_id": "U0A56JUFP9A" },
+                { "type": "user", "user_id": "U00FAKEBOT01" },
                 { "type": "text", "text": " AI What is love?" }
               ]
             }
           ]
         }
       ],
-      "channel": "C0A511MBCUW",
+      "channel": "C00FAKECHAN1",
       "event_ts": "1767406613.568609",
       "channel_type": "channel"
     },
@@ -39,8 +39,8 @@
     "authorizations": [
       {
         "enterprise_id": null,
-        "team_id": "T03SH7G01GU",
-        "user_id": "U0A56JUFP9A",
+        "team_id": "T00FAKE00AA",
+        "user_id": "U00FAKEBOT01",
         "is_bot": true,
         "is_enterprise_install": false
       }
@@ -49,20 +49,20 @@
     "event_context": "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDNTSDdHMDFHVSIsImFpZCI6IkEwQTVGVVhQMUVEIiwiY2lkIjoiQzBBNTExTUJDVVcifQ"
   },
   "followUp": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "context_team_id": "T03SH7G01GU",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "context_team_id": "T00FAKE00AA",
     "context_enterprise_id": null,
-    "api_app_id": "A0A5FUXP1ED",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "message",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767406631.679539",
       "client_msg_id": "452f5bd0-7ea2-462d-ab9e-5efcea8ece92",
       "text": "Who are you?",
-      "team": "T03SH7G01GU",
+      "team": "T00FAKE00AA",
       "thread_ts": "1767406613.568609",
-      "parent_user_id": "U03STHCA1JM",
+      "parent_user_id": "U00FAKEUSER1",
       "blocks": [
         {
           "type": "rich_text",
@@ -75,7 +75,7 @@
           ]
         }
       ],
-      "channel": "C0A511MBCUW",
+      "channel": "C00FAKECHAN1",
       "event_ts": "1767406631.679539",
       "channel_type": "channel"
     },
@@ -85,8 +85,8 @@
     "authorizations": [
       {
         "enterprise_id": null,
-        "team_id": "T03SH7G01GU",
-        "user_id": "U0A56JUFP9A",
+        "team_id": "T00FAKE00AA",
+        "user_id": "U00FAKEBOT01",
         "is_bot": true,
         "is_enterprise_install": false
       }
@@ -95,12 +95,12 @@
     "event_context": "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDNTSDdHMDFHVSIsImFpZCI6IkEwQTVGVVhQMUVEIiwiY2lkIjoiQzBBNTExTUJDVVcifQ"
   },
   "aiMentionWithFile": {
-    "token": "wzuDJx4wCNIQxghRKboieGn6",
-    "team_id": "T0A6R9YLSKA",
-    "api_app_id": "A0A60K08CLC",
+    "token": "zCdEfGhIjKlMnOpQrStUvWxY",
+    "team_id": "T00FAKE00BB",
+    "api_app_id": "A00FAKEAPP03",
     "event": {
       "type": "app_mention",
-      "text": "<@U0A56JUFP9A> [AI] I don't really understand this explanation.",
+      "text": "<@U00FAKEBOT01> [AI] I don't really understand this explanation.",
       "files": [
         {
           "id": "F0AD236ATJN",
@@ -111,8 +111,8 @@
           "mimetype": "image/png",
           "filetype": "png",
           "pretty_type": "PNG",
-          "user": "U0A60JBHJBE",
-          "user_team": "T0A6R9YLSKA",
+          "user": "U00FAKEUSER2",
+          "user_team": "T00FAKE00BB",
           "editable": false,
           "size": 214244,
           "mode": "hosted",
@@ -122,35 +122,35 @@
           "public_url_shared": false,
           "display_as_bot": false,
           "username": "",
-          "url_private": "https://files.slack.com/files-pri/T0A6R9YLSKA-F0XY789ZKLM/image.png",
-          "url_private_download": "https://files.slack.com/files-pri/T0A6R9YLSKA-F0XY789ZKLM/download/image.png",
+          "url_private": "https://files.slack.com/files-pri/T00FAKE00BB-F0XY789ZKLM/image.png",
+          "url_private_download": "https://files.slack.com/files-pri/T00FAKE00BB-F0XY789ZKLM/download/image.png",
           "media_display_type": "unknown",
-          "thumb_64": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_64.png",
-          "thumb_80": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_80.png",
-          "thumb_360": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_360.png",
+          "thumb_64": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_64.png",
+          "thumb_80": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_80.png",
+          "thumb_360": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_360.png",
           "thumb_360_w": 196,
           "thumb_360_h": 360,
-          "thumb_480": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_480.png",
+          "thumb_480": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_480.png",
           "thumb_480_w": 261,
           "thumb_480_h": 480,
-          "thumb_160": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_160.png",
-          "thumb_720": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_720.png",
+          "thumb_160": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_160.png",
+          "thumb_720": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_720.png",
           "thumb_720_w": 391,
           "thumb_720_h": 720,
-          "thumb_800": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_800.png",
+          "thumb_800": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_800.png",
           "thumb_800_w": 800,
           "thumb_800_h": 1472,
-          "thumb_960": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_960.png",
+          "thumb_960": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_960.png",
           "thumb_960_w": 522,
           "thumb_960_h": 960,
-          "thumb_1024": "https://files.slack.com/files-tmb/T0A6R9YLSKA-F0XY789ZKLM-b4f7c2d9e1/image_1024.png",
+          "thumb_1024": "https://files.slack.com/files-tmb/T00FAKE00BB-F0XY789ZKLM-b4f7c2d9e1/image_1024.png",
           "thumb_1024_w": 557,
           "thumb_1024_h": 1024,
           "original_w": 800,
           "original_h": 1472,
           "thumb_tiny": "AwAwABu9cLMyjyHVTnnIqDy77vMnT/ParQ3bmyQQD0CkUfMScEcHupoArol2HBaVSueRkdM/7vpVoZxzRRQBE7uqu3y/KeMvj8OnFAdgBgo49S3fGccCnkP2ZR16r+Xf/PtThnvQAxctGMtgnupz/T+lPoByM1GDNjlUJ/3iP6UAOIJPce/FAJ3fdbp14/z/APqowrEsu3djGcZ/CmgJFt/1a544GMn/ADmgBxJAJ2sxHTpk06mYwCxKA+u3/wCv9afQB//Z",
-          "permalink": "https://example.slack.com/files/U0A56JUFP9A/F0XY789ZKLM/image.png",
-          "permalink_public": "https://slack-files.com/T0A6R9YLSKA-F0XY789ZKLM-8c92d4a7f3",
+          "permalink": "https://example.slack.com/files/U00FAKEBOT01/F0XY789ZKLM/image.png",
+          "permalink_public": "https://slack-files.com/T00FAKE00BB-F0XY789ZKLM-8c92d4a7f3",
           "is_starred": false,
           "skipped_shares": true,
           "has_rich_preview": false,
@@ -158,7 +158,7 @@
         }
       ],
       "upload": false,
-      "user": "U0A60JBHJBE",
+      "user": "U00FAKEUSER2",
       "display_as_bot": false,
       "blocks": [
         {
@@ -170,7 +170,7 @@
               "elements": [
                 {
                   "type": "user",
-                  "user_id": "U0A56JUFP9A"
+                  "user_id": "U00FAKEBOT01"
                 },
                 {
                   "type": "text",
@@ -183,7 +183,7 @@
       ],
       "ts": "1770241970.822989",
       "client_msg_id": "ed0f98a2-235e-40e9-ba5a-88d77dc14d85",
-      "channel": "C0ACELCQBAB",
+      "channel": "C00FAKECHAN3",
       "assistant_thread": {
         "action_token": "10442059173734.10229338706656.8fa22794d81cd1c8d11947967bca4cf7"
       },
@@ -195,8 +195,8 @@
     "authorizations": [
       {
         "enterprise_id": null,
-        "team_id": "T0A6R9YLSKA",
-        "user_id": "U0A56JUFP9A",
+        "team_id": "T00FAKE00BB",
+        "user_id": "U00FAKEBOT01",
         "is_bot": true,
         "is_enterprise_install": false
       }

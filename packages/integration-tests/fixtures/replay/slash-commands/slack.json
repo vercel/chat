@@ -1,54 +1,54 @@
 {
-  "botName": "Vercel Support Agent",
-  "botUserId": "U0A60JRP336",
+  "botName": "Test Support Agent",
+  "botUserId": "U00FAKEBOT03",
   "slashCommand": {
-    "token": "wzuDJx4wCNIQxghRKboieGn6",
-    "team_id": "T0A6R9YLSKA",
-    "team_domain": "vishalslackbotdev",
-    "channel_id": "C0ACELCQBAB",
+    "token": "zCdEfGhIjKlMnOpQrStUvWxY",
+    "team_id": "T00FAKE00BB",
+    "team_domain": "acme-test-workspace",
+    "channel_id": "C00FAKECHAN3",
     "channel_name": "support-agent-dev",
-    "user_id": "U0A60JBHJBE",
+    "user_id": "U00FAKEUSER2",
     "user_name": "testuser",
     "command": "/test-feedback",
     "text": "",
-    "api_app_id": "A0A60K08CLC",
+    "api_app_id": "A00FAKEAPP03",
     "is_enterprise_install": "false",
-    "response_url": "https://hooks.slack.com/commands/T0A6R9YLSKA/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
+    "response_url": "https://hooks.slack.com/commands/T00FAKE00BB/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
     "trigger_id": "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405"
   },
   "slashCommandWithArgs": {
-    "token": "wzuDJx4wCNIQxghRKboieGn6",
-    "team_id": "T0A6R9YLSKA",
-    "team_domain": "vishalslackbotdev",
-    "channel_id": "C0ACELCQBAB",
+    "token": "zCdEfGhIjKlMnOpQrStUvWxY",
+    "team_id": "T00FAKE00BB",
+    "team_domain": "acme-test-workspace",
+    "channel_id": "C00FAKECHAN3",
     "channel_name": "support-agent-dev",
-    "user_id": "U0A60JBHJBE",
+    "user_id": "U00FAKEUSER2",
     "user_name": "testuser",
     "command": "/test-feedback",
     "text": "some arguments here",
-    "api_app_id": "A0A60K08CLC",
+    "api_app_id": "A00FAKEAPP03",
     "is_enterprise_install": "false",
-    "response_url": "https://hooks.slack.com/commands/T0A6R9YLSKA/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
+    "response_url": "https://hooks.slack.com/commands/T00FAKE00BB/10521386623270/6U66ryd5RNMenHgPzeTf3u7K",
     "trigger_id": "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405"
   },
   "viewSubmission": {
     "type": "view_submission",
     "team": {
-      "id": "T0A6R9YLSKA",
-      "domain": "vishalslackbotdev"
+      "id": "T00FAKE00BB",
+      "domain": "acme-test-workspace"
     },
     "user": {
-      "id": "U0A60JBHJBE",
+      "id": "U00FAKEUSER2",
       "username": "testuser",
       "name": "testuser",
-      "team_id": "T0A6R9YLSKA"
+      "team_id": "T00FAKE00BB"
     },
-    "api_app_id": "A0A60K08CLC",
-    "token": "wzuDJx4wCNIQxghRKboieGn6",
+    "api_app_id": "A00FAKEAPP03",
+    "token": "zCdEfGhIjKlMnOpQrStUvWxY",
     "trigger_id": "10508000345735.10229338706656.1d14116e4b7b4893f2fad4c24f913293",
     "view": {
       "id": "V0AF71PAUQK",
-      "team_id": "T0A6R9YLSKA",
+      "team_id": "T00FAKE00BB",
       "type": "modal",
       "blocks": [
         {
@@ -158,7 +158,7 @@
           "email": {
             "email": {
               "type": "plain_text_input",
-              "value": "hello@vercel.com"
+              "value": "user@example.com"
             }
           }
         }
@@ -183,10 +183,10 @@
       },
       "previous_view_id": null,
       "root_view_id": "V0AF71PAUQK",
-      "app_id": "A0A60K08CLC",
+      "app_id": "A00FAKEAPP03",
       "external_id": "",
-      "app_installed_team_id": "T0A6R9YLSKA",
-      "bot_id": "B0A69UHH201"
+      "app_installed_team_id": "T00FAKE00BB",
+      "bot_id": "B00FAKEBOT03"
     },
     "response_urls": [],
     "is_enterprise_install": false,
@@ -196,7 +196,7 @@
     "contextId": "40949e29-3f28-4d70-964a-f334eb40c5d7",
     "channel": {
       "_type": "chat:Channel",
-      "id": "slack:C0ACELCQBAB",
+      "id": "slack:C00FAKECHAN3",
       "adapterName": "slack"
     }
   }

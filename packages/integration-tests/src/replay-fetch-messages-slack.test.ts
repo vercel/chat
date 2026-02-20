@@ -80,7 +80,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
           string,
           { name: string; real_name: string; is_bot?: boolean }
         > = {
-          [SLACK_HUMAN_USER_ID]: { name: "malteubl", real_name: "Malte Ubl" },
+          [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
           [SLACK_BOT_USER_ID]: {
             name: "chatsdkbot",
             real_name: "Chat SDK Bot",
@@ -209,8 +209,8 @@ describe("fetchMessages Replay Tests - Slack", () => {
     const humanMessage = result.messages.find(
       (m) => m.author.userId === SLACK_HUMAN_USER_ID,
     );
-    expect(humanMessage?.author.userName).toBe("Malte Ubl");
-    expect(humanMessage?.author.fullName).toBe("Malte Ubl");
+    expect(humanMessage?.author.userName).toBe("Test User");
+    expect(humanMessage?.author.fullName).toBe("Test User");
 
     // Bot messages should have bot name
     const botMessage = result.messages.find(
@@ -291,7 +291,7 @@ describe("allMessages Replay Tests - Slack", () => {
           string,
           { name: string; real_name: string; is_bot?: boolean }
         > = {
-          [SLACK_HUMAN_USER_ID]: { name: "malteubl", real_name: "Malte Ubl" },
+          [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
           [SLACK_BOT_USER_ID]: {
             name: "chatsdkbot",
             real_name: "Chat SDK Bot",

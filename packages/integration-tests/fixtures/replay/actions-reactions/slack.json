@@ -1,49 +1,49 @@
 {
   "botName": "Chat SDK ExampleBot",
-  "botUserId": "U0A56JUFP9A",
+  "botUserId": "U00FAKEBOT01",
   "mention": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "api_app_id": "A0A5FUXP1ED",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "app_mention",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767326125.870439",
-      "text": "<@U0A56JUFP9A> Test",
-      "channel": "C0A511MBCUW",
+      "text": "<@U00FAKEBOT01> Test",
+      "channel": "C00FAKECHAN1",
       "event_ts": "1767326125.870439"
     },
     "type": "event_callback",
-    "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
   },
   "action": {
     "type": "block_actions",
     "user": {
-      "id": "U03STHCA1JM",
-      "username": "malte",
-      "name": "malte",
-      "team_id": "T03SH7G01GU"
+      "id": "U00FAKEUSER1",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T00FAKE00AA"
     },
-    "api_app_id": "A0A5FUXP1ED",
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "api_app_id": "A00FAKEAPP01",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
     "container": {
       "type": "message",
       "message_ts": "1767326126.896109",
-      "channel_id": "C0A511MBCUW",
+      "channel_id": "C00FAKECHAN1",
       "is_ephemeral": false,
       "thread_ts": "1767326125.870439"
     },
     "trigger_id": "10215325802133.3901254001572.2e2548aa918b35fd85829545c2d4ae2b",
     "team": {
-      "id": "T03SH7G01GU",
+      "id": "T00FAKE00AA",
       "domain": "vercelslacktesting"
     },
     "channel": {
-      "id": "C0A511MBCUW",
+      "id": "C00FAKECHAN1",
       "name": "chat-sdk"
     },
     "message": {
-      "user": "U0A56JUFP9A",
+      "user": "U00FAKEBOT01",
       "type": "message",
       "ts": "1767326126.896109",
       "thread_ts": "1767326125.870439"
@@ -61,55 +61,55 @@
         "action_ts": "1767326130.289415"
       }
     ],
-    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10231680918177/hMWwGmzsWEYbB4BjtNump6kO"
+    "response_url": "https://hooks.slack.com/actions/T00FAKE00AA/10231680918177/hMWwGmzsWEYbB4BjtNump6kO"
   },
   "reaction": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "api_app_id": "A0A5FUXP1ED",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "reaction_added",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "reaction": "+1",
       "item": {
         "type": "message",
-        "channel": "C0A511MBCUW",
+        "channel": "C00FAKECHAN1",
         "ts": "1767326126.896109"
       },
-      "item_user": "U0A56JUFP9A",
+      "item_user": "U00FAKEBOT01",
       "event_ts": "1767326140.000700"
     },
     "type": "event_callback",
-    "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
   },
   "staticSelectAction": {
     "type": "block_actions",
     "user": {
-      "id": "U03STHCA1JM",
-      "username": "malte",
-      "name": "malte",
-      "team_id": "T03SH7G01GU"
+      "id": "U00FAKEUSER1",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T00FAKE00AA"
     },
-    "api_app_id": "A0A5FUXP1ED",
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "api_app_id": "A00FAKEAPP01",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
     "container": {
       "type": "message",
       "message_ts": "1767326126.896109",
-      "channel_id": "C0A511MBCUW",
+      "channel_id": "C00FAKECHAN1",
       "is_ephemeral": false,
       "thread_ts": "1767326125.870439"
     },
     "trigger_id": "10215325802133.3901254001572.staticselect123",
     "team": {
-      "id": "T03SH7G01GU",
+      "id": "T00FAKE00AA",
       "domain": "vercelslacktesting"
     },
     "channel": {
-      "id": "C0A511MBCUW",
+      "id": "C00FAKECHAN1",
       "name": "chat-sdk"
     },
     "message": {
-      "user": "U0A56JUFP9A",
+      "user": "U00FAKEBOT01",
       "type": "message",
       "ts": "1767326126.896109",
       "thread_ts": "1767326125.870439"
@@ -135,36 +135,36 @@
         "action_ts": "1767326130.289415"
       }
     ],
-    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10231680918177/staticSelectExample"
+    "response_url": "https://hooks.slack.com/actions/T00FAKE00AA/10231680918177/staticSelectExample"
   },
   "radioButtonsAction": {
     "type": "block_actions",
     "user": {
-      "id": "U03STHCA1JM",
-      "username": "malte",
-      "name": "malte",
-      "team_id": "T03SH7G01GU"
+      "id": "U00FAKEUSER1",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T00FAKE00AA"
     },
-    "api_app_id": "A0A5FUXP1ED",
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
+    "api_app_id": "A00FAKEAPP01",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
     "container": {
       "type": "message",
       "message_ts": "1767326126.896109",
-      "channel_id": "C0A511MBCUW",
+      "channel_id": "C00FAKECHAN1",
       "is_ephemeral": false,
       "thread_ts": "1767326125.870439"
     },
     "trigger_id": "10215325802133.3901254001572.radiobuttons123",
     "team": {
-      "id": "T03SH7G01GU",
+      "id": "T00FAKE00AA",
       "domain": "vercelslacktesting"
     },
     "channel": {
-      "id": "C0A511MBCUW",
+      "id": "C00FAKECHAN1",
       "name": "chat-sdk"
     },
     "message": {
-      "user": "U0A56JUFP9A",
+      "user": "U00FAKEBOT01",
       "type": "message",
       "ts": "1767326126.896109",
       "thread_ts": "1767326125.870439"
@@ -190,6 +190,6 @@
         "action_ts": "1767326135.289415"
       }
     ],
-    "response_url": "https://hooks.slack.com/actions/T03SH7G01GU/10231680918177/radioButtonsExample"
+    "response_url": "https://hooks.slack.com/actions/T00FAKE00AA/10231680918177/radioButtonsExample"
   }
 }

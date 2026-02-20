@@ -1,6 +1,6 @@
 {
   "botName": "Chat SDK Demo",
-  "botUserId": "users/113977916201552346146",
+  "botUserId": "users/100000000000000000002",
   "mention": {
     "commonEventObject": {
       "userLocale": "en",
@@ -9,8 +9,8 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
         "type": "HUMAN"
       },
       "eventTime": "2025-12-31T23:47:51.749519Z",
@@ -19,8 +19,8 @@
         "message": {
           "name": "spaces/AAQAJ9CXYcg/messages/kVOtO797ZPI.kVOtO797ZPI",
           "sender": {
-            "name": "users/117994873354375860089",
-            "displayName": "Malte Ubl",
+            "name": "users/100000000000000000001",
+            "displayName": "Test User",
             "type": "HUMAN"
           },
           "text": "@Chat SDK Demo hello",
@@ -31,7 +31,7 @@
               "length": 14,
               "userMention": {
                 "user": {
-                  "name": "users/113977916201552346146",
+                  "name": "users/100000000000000000002",
                   "type": "BOT"
                 },
                 "type": "MENTION"
@@ -47,8 +47,8 @@
   "followUp": {
     "message": {
       "attributes": { "ce-type": "google.workspace.chat.message.v1.created" },
-      "data": "eyJtZXNzYWdlIjp7Im5hbWUiOiJzcGFjZXMvQUFRQUo5Q1hZY2cvbWVzc2FnZXMva1ZPdE83OTdaUEkud0xLSS05REx1OHciLCJzZW5kZXIiOnsibmFtZSI6InVzZXJzLzExNzk5NDg3MzM1NDM3NTg2MDA4OSIsInR5cGUiOiJIVU1BTiJ9LCJ0ZXh0IjoiSGV5IiwidGhyZWFkIjp7Im5hbWUiOiJzcGFjZXMvQUFRQUo5Q1hZY2cvdGhyZWFkcy9rVk90Tzc5N1pQSSJ9LCJzcGFjZSI6eyJuYW1lIjoic3BhY2VzL0FBUUFKOUNYWWNnIn0sInRocmVhZFJlcGx5Ijp0cnVlfX0="
+      "data": "eyJtZXNzYWdlIjp7Im5hbWUiOiJzcGFjZXMvQUFRQUo5Q1hZY2cvbWVzc2FnZXMva1ZPdE83OTdaUEkud0xLSS05REx1OHciLCJzZW5kZXIiOnsibmFtZSI6InVzZXJzLzEwMDAwMDAwMDAwMDAwMDAwMDAwMSIsInR5cGUiOiJIVU1BTiJ9LCJ0ZXh0IjoiSGV5IiwidGhyZWFkIjp7Im5hbWUiOiJzcGFjZXMvQUFRQUo5Q1hZY2cvdGhyZWFkcy9rVk90Tzc5N1pQSSJ9LCJzcGFjZSI6eyJuYW1lIjoic3BhY2VzL0FBUUFKOUNYWWNnIn0sInRocmVhZFJlcGx5Ijp0cnVlfX0="
     },
-    "subscription": "projects/chat-sdk-demo-482018/subscriptions/chat-messages-push"
+    "subscription": "projects/example-chat-project-123456/subscriptions/chat-messages-push"
   }
 }

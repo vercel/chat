@@ -1,8 +1,8 @@
 {
   "botName": "Chat SDK Demo",
-  "botUserId": "users/113977916201552346146",
-  "userId": "users/117994873354375860089",
-  "userDisplayName": "Malte Ubl",
+  "botUserId": "users/100000000000000000002",
+  "userId": "users/100000000000000000001",
+  "userDisplayName": "Test User",
   "spaceName": "spaces/AAQAO1heGsE",
   "mention": {
     "commonEventObject": {
@@ -12,9 +12,9 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
-        "email": "malte@industrialempathy.com",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
+        "email": "testuser@example.com",
         "type": "HUMAN",
         "domainId": "12juw1z"
       },
@@ -31,9 +31,9 @@
         "message": {
           "name": "spaces/AAQAO1heGsE/messages/qNpOJCyvVvw.qNpOJCyvVvw",
           "sender": {
-            "name": "users/117994873354375860089",
-            "displayName": "Malte Ubl",
-            "email": "malte@industrialempathy.com",
+            "name": "users/100000000000000000001",
+            "displayName": "Test User",
+            "email": "testuser@example.com",
             "type": "HUMAN",
             "domainId": "12juw1z"
           },
@@ -46,7 +46,7 @@
               "length": 14.0,
               "userMention": {
                 "user": {
-                  "name": "users/113977916201552346146",
+                  "name": "users/100000000000000000002",
                   "displayName": "Chat SDK Demo",
                   "type": "BOT"
                 },
@@ -81,9 +81,9 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
-        "email": "malte@industrialempathy.com",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
+        "email": "testuser@example.com",
         "type": "HUMAN",
         "domainId": "12juw1z"
       },
@@ -100,7 +100,7 @@
         "message": {
           "name": "spaces/AAQAO1heGsE/messages/qNpOJCyvVvw.NJEqkfFVLhU",
           "sender": {
-            "name": "users/113977916201552346146",
+            "name": "users/100000000000000000002",
             "displayName": "Chat SDK Demo",
             "type": "BOT"
           },

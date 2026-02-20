@@ -62,7 +62,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()
@@ -224,10 +224,10 @@ describe("fetchMessages Replay Tests - Teams", () => {
       expect(msg.author.userName).not.toBe("unknown");
     }
 
-    // Human messages should have "Malte Ubl" as userName
+    // Human messages should have "Test User" as userName
     const humanMessages = result.messages.filter((m) => !m.author.isBot);
     for (const msg of humanMessages) {
-      expect(msg.author.userName).toBe("Malte Ubl");
+      expect(msg.author.userName).toBe("Test User");
     }
 
     // Bot messages should have "Chat SDK Demo" as userName
@@ -348,7 +348,7 @@ describe("allMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()

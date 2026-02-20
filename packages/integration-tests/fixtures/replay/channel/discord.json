@@ -5,7 +5,7 @@
   "channelId": "1459213904352645277",
   "threadChannelId": "1473118766652199044",
   "userId": "1033044521375764530",
-  "userName": "malte2384",
+  "userName": "testuser2384",
   "mention": {
     "type": "GATEWAY_MESSAGE_CREATE",
     "timestamp": 1771289283264,
@@ -48,11 +48,11 @@
       "channel_type": 0,
       "channel_id": "1459213904352645277",
       "author": {
-        "username": "malte2384",
+        "username": "testuser2384",
         "public_flags": 0,
         "primary_guild": null,
         "id": "1033044521375764530",
-        "global_name": "Malte",
+        "global_name": "Test User",
         "display_name_styles": null,
         "discriminator": "0",
         "collectibles": null,
@@ -100,11 +100,11 @@
         "collectibles": null,
         "discriminator": "0",
         "display_name_styles": null,
-        "global_name": "Malte",
+        "global_name": "Test User",
         "id": "1033044521375764530",
         "primary_guild": null,
         "public_flags": 0,
-        "username": "malte2384"
+        "username": "testuser2384"
       }
     },
     "message": {

@@ -136,8 +136,8 @@ describe("fetchMessages Replay Tests - Discord", () => {
     const humanMessage = result.messages.find(
       (m) => m.author.userId === DISCORD_HUMAN_USER_ID,
     );
-    expect(humanMessage?.author.userName).toBe("malte2384");
-    expect(humanMessage?.author.fullName).toBe("Malte");
+    expect(humanMessage?.author.userName).toBe("testuser2384");
+    expect(humanMessage?.author.fullName).toBe("Test User");
 
     // Bot messages should have bot name
     const botMessage = result.messages.find(

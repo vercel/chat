@@ -89,7 +89,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "U03STHCA1JM",
+        authorUserId: "U00FAKEUSER1",
         adapterName: "slack",
       });
 
@@ -125,7 +125,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "U0A60JBHJBE",
+        authorUserId: "U00FAKEUSER2",
         adapterName: "slack",
       });
 
@@ -267,7 +267,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "users/117994873354375860089",
+        authorUserId: "users/100000000000000000001",
         adapterName: "gchat",
       });
 

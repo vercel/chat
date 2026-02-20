@@ -53,7 +53,7 @@ describe("Replay Tests - Channel", () => {
       ctx.mockClient.conversations.info.mockResolvedValue({
         ok: true,
         channel: {
-          id: "C0A511MBCUW",
+          id: "C00FAKECHAN1",
           name: "chat-sdk",
           is_im: false,
           num_members: 5,
@@ -68,20 +68,20 @@ describe("Replay Tests - Channel", () => {
         messages: [
           {
             type: "message",
-            user: "U03STHCA1JM",
-            text: "<@U0A56JUFP9A> Hey",
+            user: "U00FAKEUSER1",
+            text: "<@U00FAKEBOT01> Hey",
             ts: "1771287144.743569",
             thread_ts: "1771287144.743569",
           },
           {
             type: "message",
-            user: "U03STHCA1JM",
+            user: "U00FAKEUSER1",
             text: "Bar2",
             ts: "1771287114.209979",
           },
           {
             type: "message",
-            user: "U03STHCA1JM",
+            user: "U00FAKEUSER1",
             text: "Foo2",
             ts: "1771287111.962609",
           },
@@ -93,9 +93,9 @@ describe("Replay Tests - Channel", () => {
       ctx.mockClient.users.info.mockResolvedValue({
         ok: true,
         user: {
-          name: "malte",
-          real_name: "Malte Ubl",
-          profile: { display_name: "Malte Ubl", real_name: "Malte Ubl" },
+          name: "testuser",
+          real_name: "Test User",
+          profile: { display_name: "Test User", real_name: "Test User" },
         },
       });
     });
@@ -113,10 +113,10 @@ describe("Replay Tests - Channel", () => {
 
       expectValidAction(capturedAction, {
         actionId: "channel-post",
-        userId: "U03STHCA1JM",
-        userName: "malte",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         isDM: false,
       });
     });
@@ -127,7 +127,7 @@ describe("Replay Tests - Channel", () => {
 
       const channel = capturedAction?.thread.channel;
       expect(channel).toBeDefined();
-      expect(channel?.id).toBe("slack:C0A511MBCUW");
+      expect(channel?.id).toBe("slack:C00FAKECHAN1");
     });
 
     it("should fetch channel metadata", async () => {
@@ -172,7 +172,7 @@ describe("Replay Tests - Channel", () => {
       // Verify fetchChannelMessages was called with backward direction
       expect(ctx.mockClient.conversations.history).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: "C0A511MBCUW",
+          channel: "C00FAKECHAN1",
         }),
       );
     });
@@ -189,7 +189,7 @@ describe("Replay Tests - Channel", () => {
       // postMessage with empty threadTs)
       expect(ctx.mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: "C0A511MBCUW",
+          channel: "C00FAKECHAN1",
           text: "Hello from channel!",
         }),
       );

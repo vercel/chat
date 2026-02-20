@@ -1285,9 +1285,9 @@ export class Chat<
    * Accepts either a user ID string or an Author object (from message.author or event.user).
    *
    * The adapter is automatically inferred from the userId format:
-   * - Slack: `U...` (e.g., "U03STHCA1JM")
+   * - Slack: `U...` (e.g., "U00FAKEUSER1")
    * - Teams: `29:...` (e.g., "29:198PbJuw...")
-   * - Google Chat: `users/...` (e.g., "users/117994873354375860089")
+   * - Google Chat: `users/...` (e.g., "users/100000000000000000001")
    * - Discord: numeric snowflake (e.g., "1033044521375764530")
    *
    * @param user - Platform-specific user ID string, or an Author object
@@ -1386,7 +1386,7 @@ export class Chat<
       if (adapter) return adapter;
     }
 
-    // Slack: U followed by alphanumeric (e.g., U03STHCA1JM)
+    // Slack: U followed by alphanumeric (e.g., U00FAKEUSER1)
     if (/^U[A-Z0-9]+$/i.test(userId)) {
       const adapter = this.adapters.get("slack");
       if (adapter) return adapter;

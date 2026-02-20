@@ -56,10 +56,10 @@ describe("Replay Tests - Slash Commands", () => {
       expectValidSlashCommand(capturedSlashCommand, {
         command: "/test-feedback",
         text: "",
-        userId: "U0A60JBHJBE",
+        userId: "U00FAKEUSER2",
         userName: "Test User",
         adapterName: "slack",
-        channelId: "C0ACELCQBAB",
+        channelId: "C00FAKECHAN3",
       });
     });
 
@@ -69,7 +69,7 @@ describe("Replay Tests - Slash Commands", () => {
       expectValidSlashCommand(capturedSlashCommand, {
         command: "/test-feedback",
         text: "some arguments here",
-        userId: "U0A60JBHJBE",
+        userId: "U00FAKEUSER2",
         userName: "Test User",
         adapterName: "slack",
       });
@@ -87,7 +87,7 @@ describe("Replay Tests - Slash Commands", () => {
       await ctx.sendSlackSlashCommand(slackFixtures.slashCommand);
 
       expect(capturedSlashCommand?.channel).toBeDefined();
-      expect(capturedSlashCommand?.channel.id).toBe("slack:C0ACELCQBAB");
+      expect(capturedSlashCommand?.channel.id).toBe("slack:C00FAKECHAN3");
     });
 
     it("should allow posting to channel from slash command handler", async () => {
@@ -105,7 +105,7 @@ describe("Replay Tests - Slash Commands", () => {
 
       expect(ctx.mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: "C0ACELCQBAB",
+          channel: "C00FAKECHAN3",
           text: expect.stringContaining("Hello from slash command!"),
         }),
       );
@@ -130,8 +130,8 @@ describe("Replay Tests - Slash Commands", () => {
 
       expect(ctx.mockClient.chat.postEphemeral).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: "C0ACELCQBAB",
-          user: "U0A60JBHJBE",
+          channel: "C00FAKECHAN3",
+          user: "U00FAKEUSER2",
           text: expect.stringContaining("This is just for you!"),
         }),
       );
@@ -151,10 +151,10 @@ describe("Replay Tests - Slash Commands", () => {
       expect(capturedModalSubmit?.values).toEqual({
         message: "Hello!",
         category: "feature",
-        email: "hello@vercel.com",
+        email: "user@example.com",
       });
 
-      expect(capturedModalSubmit?.user.userId).toBe("U0A60JBHJBE");
+      expect(capturedModalSubmit?.user.userId).toBe("U00FAKEUSER2");
       expect(capturedModalSubmit?.user.userName).toBe("testuser");
     });
 
@@ -163,7 +163,9 @@ describe("Replay Tests - Slash Commands", () => {
       await ctx.sendSlackViewSubmission(slackFixtures.viewSubmission);
 
       expect(capturedModalSubmit?.relatedChannel).toBeDefined();
-      expect(capturedModalSubmit?.relatedChannel?.id).toBe("slack:C0ACELCQBAB");
+      expect(capturedModalSubmit?.relatedChannel?.id).toBe(
+        "slack:C00FAKECHAN3",
+      );
     });
 
     it("should allow posting to relatedChannel from modal submit handler", async () => {
@@ -187,7 +189,7 @@ describe("Replay Tests - Slash Commands", () => {
 
       expect(ctx.mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: "C0ACELCQBAB",
+          channel: "C00FAKECHAN3",
           text: expect.stringContaining("Feedback received from testuser"),
         }),
       );

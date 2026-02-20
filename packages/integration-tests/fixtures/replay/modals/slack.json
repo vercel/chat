@@ -1,17 +1,17 @@
 {
-  "botName": "Vercel Support Insights",
-  "botUserId": "U0A6PEGC2TH",
+  "botName": "Test Support Insights",
+  "botUserId": "U00FAKEBOT02",
   "mention": {
-    "token": "qY6M8tstciNRVwMruwbMKjef",
-    "team_id": "T0A6R9YLSKA",
-    "api_app_id": "A0A6YH3HM43",
+    "token": "yBcDeFgHiJkLmNoPqRsTuVwX",
+    "team_id": "T00FAKE00BB",
+    "api_app_id": "A00FAKEAPP02",
     "event": {
       "type": "app_mention",
-      "user": "U0A60JBHJBE",
+      "user": "U00FAKEUSER2",
       "ts": "1769220155.940449",
       "client_msg_id": "bd2ed218-66b1-4ead-84db-72cc508204ab",
-      "text": "<@U0A6PEGC2TH> Hello",
-      "team": "T0A6R9YLSKA",
+      "text": "<@U00FAKEBOT02> Hello",
+      "team": "T00FAKE00BB",
       "blocks": [
         {
           "type": "rich_text",
@@ -22,7 +22,7 @@
               "elements": [
                 {
                   "type": "user",
-                  "user_id": "U0A6PEGC2TH"
+                  "user_id": "U00FAKEBOT02"
                 },
                 {
                   "type": "text",
@@ -33,7 +33,7 @@
           ]
         }
       ],
-      "channel": "C0A9GJ2PUTB",
+      "channel": "C00FAKECHAN2",
       "event_ts": "1769220155.940449"
     },
     "type": "event_callback",
@@ -42,8 +42,8 @@
     "authorizations": [
       {
         "enterprise_id": null,
-        "team_id": "T0A6R9YLSKA",
-        "user_id": "U0A6PEGC2TH",
+        "team_id": "T00FAKE00BB",
+        "user_id": "U00FAKEBOT02",
         "is_bot": true,
         "is_enterprise_install": false
       }
@@ -53,41 +53,41 @@
   "action": {
     "type": "block_actions",
     "user": {
-      "id": "U0A60JBHJBE",
-      "username": "vishal.yathish",
-      "name": "vishal.yathish",
-      "team_id": "T0A6R9YLSKA"
+      "id": "U00FAKEUSER2",
+      "username": "jane.smith",
+      "name": "jane.smith",
+      "team_id": "T00FAKE00BB"
     },
-    "api_app_id": "A0A6YH3HM43",
-    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "api_app_id": "A00FAKEAPP02",
+    "token": "yBcDeFgHiJkLmNoPqRsTuVwX",
     "container": {
       "type": "message",
       "message_ts": "1769220161.503009",
-      "channel_id": "C0A9GJ2PUTB",
+      "channel_id": "C00FAKECHAN2",
       "is_ephemeral": false,
       "thread_ts": "1769220155.940449"
     },
     "trigger_id": "10367455086084.10229338706656.e675a0c0dacc24a1f7b84a7a426d1197",
     "team": {
-      "id": "T0A6R9YLSKA",
-      "domain": "vishalslackbotdev"
+      "id": "T00FAKE00BB",
+      "domain": "acme-test-workspace"
     },
     "enterprise": null,
     "is_enterprise_install": false,
     "channel": {
-      "id": "C0A9GJ2PUTB",
+      "id": "C00FAKECHAN2",
       "name": "spam-report-formatting"
     },
     "message": {
-      "user": "U0A6PEGC2TH",
+      "user": "U00FAKEBOT02",
       "type": "message",
       "ts": "1769220161.503009",
-      "bot_id": "B0A7HR8P8D7",
-      "app_id": "A0A6YH3HM43",
+      "bot_id": "B00FAKEBOT02",
+      "app_id": "A00FAKEAPP02",
       "text": "*:wave: Welcome!* Connected via slack I'm now listening to this thread.",
-      "team": "T0A6R9YLSKA",
+      "team": "T00FAKE00BB",
       "thread_ts": "1769220155.940449",
-      "parent_user_id": "U0A60JBHJBE",
+      "parent_user_id": "U00FAKEUSER2",
       "blocks": [
         {
           "type": "header",
@@ -118,7 +118,7 @@
     "state": {
       "values": {}
     },
-    "response_url": "https://hooks.slack.com/actions/T0A6R9YLSKA/10348409316023/sPe1cI1jl72ZPyKpdJYaBV9s",
+    "response_url": "https://hooks.slack.com/actions/T00FAKE00BB/10348409316023/sPe1cI1jl72ZPyKpdJYaBV9s",
     "actions": [
       {
         "action_id": "feedback",
@@ -136,21 +136,21 @@
   "viewSubmission": {
     "type": "view_submission",
     "team": {
-      "id": "T0A6R9YLSKA",
-      "domain": "vishalslackbotdev"
+      "id": "T00FAKE00BB",
+      "domain": "acme-test-workspace"
     },
     "user": {
-      "id": "U0A60JBHJBE",
-      "username": "vishal.yathish",
-      "name": "vishal.yathish",
-      "team_id": "T0A6R9YLSKA"
+      "id": "U00FAKEUSER2",
+      "username": "jane.smith",
+      "name": "jane.smith",
+      "team_id": "T00FAKE00BB"
     },
-    "api_app_id": "A0A6YH3HM43",
-    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "api_app_id": "A00FAKEAPP02",
+    "token": "yBcDeFgHiJkLmNoPqRsTuVwX",
     "trigger_id": "10348409668983.10229338706656.91080fe083940dcea332270e757368a5",
     "view": {
       "id": "V0AB2P1M2HX",
-      "team_id": "T0A6R9YLSKA",
+      "team_id": "T00FAKE00BB",
       "type": "modal",
       "blocks": [
         {
@@ -260,7 +260,7 @@
           "email": {
             "email": {
               "type": "plain_text_input",
-              "value": "hello@vercel.com"
+              "value": "user@example.com"
             }
           }
         }
@@ -285,10 +285,10 @@
       },
       "previous_view_id": null,
       "root_view_id": "V0AB2P1M2HX",
-      "app_id": "A0A6YH3HM43",
+      "app_id": "A00FAKEAPP02",
       "external_id": "",
-      "app_installed_team_id": "T0A6R9YLSKA",
-      "bot_id": "B0A7HR8P8D7"
+      "app_installed_team_id": "T00FAKE00BB",
+      "bot_id": "B00FAKEBOT02"
     },
     "response_urls": [],
     "is_enterprise_install": false,
@@ -298,15 +298,15 @@
     "contextId": "d57850a7-5bab-414d-b11e-ca355b55d629",
     "thread": {
       "_type": "chat:Thread",
-      "id": "slack:C0A9GJ2PUTB:1769220155.940449",
-      "channelId": "C0A9GJ2PUTB",
+      "id": "slack:C00FAKECHAN2:1769220155.940449",
+      "channelId": "C00FAKECHAN2",
       "isDM": false,
       "adapterName": "slack"
     },
     "message": {
       "_type": "chat:Message",
       "id": "1769220161.503009",
-      "threadId": "slack:C0A9GJ2PUTB:1769220155.940449",
+      "threadId": "slack:C00FAKECHAN2:1769220155.940449",
       "text": ":wave: Welcome! Connected via slack I'm now listening to this thread. Try these actions: :sparkles: Mention me with \"AI\" to enable AI assistant mode --- DM Support: No Platform: slack --- [Say Hello] [Ephemeral response] [Show Info] [Send Feedback] [Fetch Messages] [Open Link] [Goodbye]",
       "formatted": {
         "type": "root",
@@ -323,18 +323,18 @@
         ]
       },
       "raw": {
-        "user": "U0A6PEGC2TH",
+        "user": "U00FAKEBOT02",
         "type": "message",
         "ts": "1769220161.503009",
-        "bot_id": "B0A7HR8P8D7",
-        "app_id": "A0A6YH3HM43",
-        "team": "T0A6R9YLSKA",
+        "bot_id": "B00FAKEBOT02",
+        "app_id": "A00FAKEAPP02",
+        "team": "T00FAKE00BB",
         "thread_ts": "1769220155.940449"
       },
       "author": {
-        "userId": "U0A6PEGC2TH",
-        "userName": "Vercel Support Insights",
-        "fullName": "Vercel Support Insights",
+        "userId": "U00FAKEBOT02",
+        "userName": "Test Support Insights",
+        "fullName": "Test Support Insights",
         "isBot": true,
         "isMe": true
       },
@@ -348,35 +348,35 @@
   "ephemeralAction": {
     "type": "block_actions",
     "user": {
-      "id": "U0A60JBHJBE",
-      "username": "vishal.yathish",
-      "name": "vishal.yathish",
-      "team_id": "T0A6R9YLSKA"
+      "id": "U00FAKEUSER2",
+      "username": "jane.smith",
+      "name": "jane.smith",
+      "team_id": "T00FAKE00BB"
     },
-    "api_app_id": "A0A6YH3HM43",
-    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "api_app_id": "A00FAKEAPP02",
+    "token": "yBcDeFgHiJkLmNoPqRsTuVwX",
     "container": {
       "type": "message",
       "message_ts": "1771126609.000200",
-      "channel_id": "C0ACELCQBAB",
+      "channel_id": "C00FAKECHAN3",
       "is_ephemeral": true,
       "thread_ts": "1771126602.612659"
     },
     "trigger_id": "10541689532400.10229338706656.500e194be18c7e17dd828032cc9a769f",
     "team": {
-      "id": "T0A6R9YLSKA",
-      "domain": "vishalslackbotdev"
+      "id": "T00FAKE00BB",
+      "domain": "acme-test-workspace"
     },
     "enterprise": null,
     "is_enterprise_install": false,
     "channel": {
-      "id": "C0ACELCQBAB",
+      "id": "C00FAKECHAN3",
       "name": "support-agent-dev"
     },
     "state": {
       "values": {}
     },
-    "response_url": "https://hooks.slack.com/actions/T0A6R9YLSKA/10497963005175/6JXlnuaOBOquTvi51uTnoFgi",
+    "response_url": "https://hooks.slack.com/actions/T00FAKE00BB/10497963005175/6JXlnuaOBOquTvi51uTnoFgi",
     "actions": [
       {
         "action_id": "ephemeral_modal",
@@ -395,21 +395,21 @@
   "ephemeralViewSubmission": {
     "type": "view_submission",
     "team": {
-      "id": "T0A6R9YLSKA",
-      "domain": "vishalslackbotdev"
+      "id": "T00FAKE00BB",
+      "domain": "acme-test-workspace"
     },
     "user": {
-      "id": "U0A60JBHJBE",
-      "username": "vishal.yathish",
-      "name": "vishal.yathish",
-      "team_id": "T0A6R9YLSKA"
+      "id": "U00FAKEUSER2",
+      "username": "jane.smith",
+      "name": "jane.smith",
+      "team_id": "T00FAKE00BB"
     },
-    "api_app_id": "A0A6YH3HM43",
-    "token": "qY6M8tstciNRVwMruwbMKjef",
+    "api_app_id": "A00FAKEAPP02",
+    "token": "yBcDeFgHiJkLmNoPqRsTuVwX",
     "trigger_id": "10513412613426.10229338706656.56d90cbf0a2ef4d7fc85f753d0425473",
     "view": {
       "id": "V0AFG9NQY65",
-      "team_id": "T0A6R9YLSKA",
+      "team_id": "T00FAKE00BB",
       "type": "modal",
       "blocks": [
         {
@@ -469,10 +469,10 @@
       },
       "previous_view_id": null,
       "root_view_id": "V0AFG9NQY65",
-      "app_id": "A0A6YH3HM43",
+      "app_id": "A00FAKEAPP02",
       "external_id": "",
-      "app_installed_team_id": "T0A6R9YLSKA",
-      "bot_id": "B0A7HR8P8D7"
+      "app_installed_team_id": "T00FAKE00BB",
+      "bot_id": "B00FAKEBOT02"
     },
     "response_urls": [],
     "is_enterprise_install": false,
@@ -482,15 +482,15 @@
     "contextId": "7c626a37-a151-4aa0-a9e7-5fd2a76ce639",
     "thread": {
       "_type": "chat:Thread",
-      "id": "slack:C0ACELCQBAB:1771126602.612659",
-      "channelId": "C0ACELCQBAB",
+      "id": "slack:C00FAKECHAN3:1771126602.612659",
+      "channelId": "C00FAKECHAN3",
       "isDM": false,
       "adapterName": "slack"
     },
     "message": {
       "_type": "chat:Message",
-      "id": "ephemeral:1771126609.000200:eyJyZXNwb25zZVVybCI6Imh0dHBzOi8vaG9va3Muc2xhY2suY29tL2FjdGlvbnMvVDBBNlI5WUxTS0EvMTA0OTc5NjMwMDUxNzUvNkpYbG51YU9CT3F1VHZpNTF1VG5vRmdpIiwidXNlcklkIjoiVTBBNjBKQkhKQkUifQ==",
-      "threadId": "slack:C0ACELCQBAB:1771126602.612659",
+      "id": "ephemeral:1771126609.000200:eyJyZXNwb25zZVVybCI6Imh0dHBzOi8vaG9va3Muc2xhY2suY29tL2FjdGlvbnMvVDAwRkFLRTAwQkIvMTA0OTc5NjMwMDUxNzUvNkpYbG51YU9CT3F1VHZpNTF1VG5vRmdpIiwidXNlcklkIjoiVTAwRkFLRVVTRVIyIn0=",
+      "threadId": "slack:C00FAKECHAN3:1771126602.612659",
       "text": "This is an ephemeral message with a button to open a modal.",
       "formatted": {
         "type": "root",
@@ -507,18 +507,18 @@
         ]
       },
       "raw": {
-        "user": "U0A6PEGC2TH",
+        "user": "U00FAKEBOT02",
         "type": "message",
         "ts": "1771126609.000200",
-        "bot_id": "B0A7HR8P8D7",
-        "app_id": "A0A6YH3HM43",
-        "team": "T0A6R9YLSKA",
+        "bot_id": "B00FAKEBOT02",
+        "app_id": "A00FAKEAPP02",
+        "team": "T00FAKE00BB",
         "thread_ts": "1771126602.612659"
       },
       "author": {
-        "userId": "U0A6PEGC2TH",
-        "userName": "Vercel Support Insights",
-        "fullName": "Vercel Support Insights",
+        "userId": "U00FAKEBOT02",
+        "userName": "Test Support Insights",
+        "fullName": "Test Support Insights",
         "isBot": true,
         "isMe": true
       },

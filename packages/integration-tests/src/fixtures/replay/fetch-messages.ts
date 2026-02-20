@@ -8,8 +8,8 @@ export const GCHAT_THREAD_ID =
   "gchat:spaces/AAQAO1heGsE:c3BhY2VzL0FBUUFPMWhlR3NFL3RocmVhZHMvN2tJaS14N1NEQVk";
 export const GCHAT_SPACE = "spaces/AAQAO1heGsE";
 export const GCHAT_THREAD = "spaces/AAQAO1heGsE/threads/7kIi-x7SDAY";
-export const GCHAT_BOT_USER_ID = "users/113977916201552346146";
-export const GCHAT_HUMAN_USER_ID = "users/117994873354375860089";
+export const GCHAT_BOT_USER_ID = "users/100000000000000000002";
+export const GCHAT_HUMAN_USER_ID = "users/100000000000000000001";
 
 // Raw GChat messages as returned by the API (messages.list)
 export const GCHAT_RAW_MESSAGES = [
@@ -173,11 +173,11 @@ export const GCHAT_RAW_MESSAGES = [
 ];
 
 // Slack fixture data
-export const SLACK_CHANNEL = "C0A511MBCUW";
+export const SLACK_CHANNEL = "C00FAKECHAN1";
 export const SLACK_THREAD_TS = "1767463909.801009";
 export const SLACK_THREAD_ID = `slack:${SLACK_CHANNEL}:${SLACK_THREAD_TS}`;
-export const SLACK_BOT_USER_ID = "U0A56JUFP9A";
-export const SLACK_HUMAN_USER_ID = "U03STHCA1JM";
+export const SLACK_BOT_USER_ID = "U00FAKEBOT01";
+export const SLACK_HUMAN_USER_ID = "U00FAKEUSER1";
 
 // Raw Slack messages as returned by the API (conversations.replies)
 export const SLACK_RAW_MESSAGES = [
@@ -185,14 +185,14 @@ export const SLACK_RAW_MESSAGES = [
     user: SLACK_HUMAN_USER_ID,
     type: "message",
     ts: "1767463909.801009",
-    text: "<@U0A56JUFP9A> Hey",
+    text: "<@U00FAKEBOT01> Hey",
     thread_ts: SLACK_THREAD_TS,
   },
   {
     user: SLACK_BOT_USER_ID,
     type: "message",
     ts: "1767463912.389869",
-    bot_id: "B0A5XAH4F6U",
+    bot_id: "B00FAKEBOT01",
     text: "*:wave: Welcome!* Connected via slack",
     thread_ts: SLACK_THREAD_TS,
   },
@@ -200,7 +200,7 @@ export const SLACK_RAW_MESSAGES = [
     user: SLACK_BOT_USER_ID,
     type: "message",
     ts: "1767463915.639159",
-    bot_id: "B0A5XAH4F6U",
+    bot_id: "B00FAKEBOT01",
     text: "*:memo: Message Fetch Results*",
     thread_ts: SLACK_THREAD_TS,
   },
@@ -243,7 +243,7 @@ export const SLACK_RAW_MESSAGES = [
     user: SLACK_BOT_USER_ID,
     type: "message",
     ts: "1767463921.893159",
-    bot_id: "B0A5XAH4F6U",
+    bot_id: "B00FAKEBOT01",
     text: ":white_check_mark: Thanks for your message!",
     thread_ts: SLACK_THREAD_TS,
   },
@@ -300,7 +300,7 @@ export const SLACK_RAW_MESSAGES = [
     user: SLACK_BOT_USER_ID,
     type: "message",
     ts: "1767463927.615339",
-    bot_id: "B0A5XAH4F6U",
+    bot_id: "B00FAKEBOT01",
     text: ":white_check_mark: Thanks for your message!",
     thread_ts: SLACK_THREAD_TS,
   },
@@ -339,14 +339,14 @@ export const EXPECTED_NUMBERED_TEXTS = [
 ];
 
 // Teams fixture data
-export const TEAMS_TEAM_ID = "0809b319-cd4d-4602-8b99-12a2f25a5b82";
+export const TEAMS_TEAM_ID = "22222222-3333-4444-5555-666666666666";
 export const TEAMS_CHANNEL_ID =
   "19:8d9438b787af4481afd71a4b3d5da629@thread.tacv2";
 export const TEAMS_PARENT_MESSAGE_ID = "1767470594930";
 export const TEAMS_SERVICE_URL =
-  "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/";
-export const TEAMS_BOT_APP_ID = "57627569-c120-42a1-9e6f-7cb4b96cc8ef";
-export const TEAMS_HUMAN_USER_ID = "7a9b12a6-4f02-43f1-b6f9-fd10e047f903";
+  "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/";
+export const TEAMS_BOT_APP_ID = "11111111-2222-3333-4444-555555555555";
+export const TEAMS_HUMAN_USER_ID = "00000000-1111-2222-3333-444444444444";
 
 // Parent message that started the thread (fetched separately from /teams/.../messages/{id})
 // This is the message the bot was @mentioned in, starting the conversation
@@ -359,9 +359,9 @@ export const TEAMS_PARENT_MESSAGE = {
     user: {
       "@odata.type": "#microsoft.graph.teamworkUserIdentity",
       id: TEAMS_HUMAN_USER_ID,
-      displayName: "Malte Ubl",
+      displayName: "Test User",
       userIdentityType: "aadUser",
-      tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     },
   },
   body: {
@@ -451,9 +451,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>1</p>" },
@@ -468,9 +468,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>2</p>" },
@@ -504,9 +504,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>3</p>" },
@@ -521,9 +521,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>4</p>" },
@@ -538,9 +538,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>5</p>" },
@@ -555,9 +555,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>6</p>" },
@@ -591,9 +591,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>7</p>" },
@@ -608,9 +608,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>8</p>" },
@@ -625,9 +625,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>9</p>" },
@@ -642,9 +642,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>10</p>" },
@@ -659,9 +659,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>11</p>" },
@@ -695,9 +695,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>12</p>" },
@@ -712,9 +712,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>13</p>" },
@@ -729,9 +729,9 @@ export const TEAMS_RAW_MESSAGES = [
       user: {
         "@odata.type": "#microsoft.graph.teamworkUserIdentity",
         id: TEAMS_HUMAN_USER_ID,
-        displayName: "Malte Ubl",
+        displayName: "Test User",
         userIdentityType: "aadUser",
-        tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+        tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       },
     },
     body: { contentType: "html", content: "<p>Proper text</p>" },
@@ -775,9 +775,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:14:55.984Z",
@@ -829,9 +829,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:04.317Z",
@@ -847,9 +847,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:10.000Z",
@@ -865,9 +865,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:11.000Z",
@@ -883,9 +883,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:12.000Z",
@@ -919,9 +919,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:13.000Z",
@@ -937,9 +937,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:14.000Z",
@@ -955,9 +955,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:15.000Z",
@@ -973,9 +973,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:16.000Z",
@@ -991,9 +991,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:17.000Z",
@@ -1009,9 +1009,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:18.000Z",
@@ -1027,9 +1027,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:19.000Z",
@@ -1045,9 +1045,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:20.000Z",
@@ -1063,9 +1063,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:21.000Z",
@@ -1099,9 +1099,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:22.000Z",
@@ -1117,9 +1117,9 @@ export const DISCORD_RAW_MESSAGES = [
     channel_id: DISCORD_THREAD_ID_RAW,
     author: {
       id: DISCORD_HUMAN_USER_ID,
-      username: "malte2384",
+      username: "testuser2384",
       discriminator: "0",
-      global_name: "Malte",
+      global_name: "Test User",
       bot: false,
     },
     timestamp: "2026-01-04T23:15:23.000Z",

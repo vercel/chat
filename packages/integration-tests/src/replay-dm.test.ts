@@ -456,8 +456,8 @@ describe("DM Replay Tests", () => {
 
     it("should correctly identify sender in DM space", async () => {
       const sender = gchatFixtures.dmMessage.chat.messagePayload.message.sender;
-      expect(sender.name).toBe("users/117994873354375860089");
-      expect(sender.displayName).toBe("Malte Ubl");
+      expect(sender.name).toBe("users/100000000000000000001");
+      expect(sender.displayName).toBe("Test User");
       expect(sender.type).toBe("HUMAN");
     });
 

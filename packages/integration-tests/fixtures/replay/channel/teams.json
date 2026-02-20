@@ -1,11 +1,11 @@
 {
   "botName": "Chat SDK Demo",
-  "appId": "57627569-c120-42a1-9e6f-7cb4b96cc8ef",
-  "userId": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-  "userName": "Malte Ubl",
+  "appId": "11111111-2222-3333-4444-555555555555",
+  "userId": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+  "userName": "Test User",
   "conversationId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407",
   "baseConversationId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2",
-  "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+  "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
   "mention": {
     "text": "<at>Chat SDK Demo</at> Hey",
     "textFormat": "plain",
@@ -20,26 +20,26 @@
     "localTimestamp": "2026-02-16T17:01:47.4513813-08:00",
     "id": "1771290107407",
     "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
     "from": {
-      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-      "name": "Malte Ubl",
-      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+      "name": "Test User",
+      "aadObjectId": "00000000-1111-2222-3333-444444444444"
     },
     "conversation": {
       "isGroup": true,
       "conversationType": "channel",
-      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407"
     },
     "recipient": {
-      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "id": "28:11111111-2222-3333-4444-555555555555",
       "name": "Chat SDK Demo"
     },
     "entities": [
       {
         "mentioned": {
-          "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+          "id": "28:11111111-2222-3333-4444-555555555555",
           "name": "Chat SDK Demo"
         },
         "text": "<at>Chat SDK Demo</at>",
@@ -63,7 +63,7 @@
         "id": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2"
       },
       "tenant": {
-        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
     },
     "locale": "en-US",
@@ -75,21 +75,21 @@
     "localTimestamp": "2026-02-16T17:02:17.37-08:00",
     "id": "f:56006e85-7a67-25c7-704d-7f0a1e45eeec",
     "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
     "from": {
-      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-      "name": "Malte Ubl",
-      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+      "name": "Test User",
+      "aadObjectId": "00000000-1111-2222-3333-444444444444"
     },
     "conversation": {
       "isGroup": true,
       "conversationType": "channel",
-      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1771290107407",
       "name": "Chat SDK"
     },
     "recipient": {
-      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "id": "28:11111111-2222-3333-4444-555555555555",
       "name": "Chat SDK Demo"
     },
     "entities": [
@@ -109,7 +109,7 @@
         "id": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2"
       },
       "tenant": {
-        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       },
       "source": {
         "name": "message"
