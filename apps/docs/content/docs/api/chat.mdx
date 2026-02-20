@@ -320,6 +320,92 @@ Fires when a user closes a modal (requires `notifyOnClose: true` on the modal).
 bot.onModalClose("feedback", async (event) => { /* ... */ });
 ```
 
+### onAssistantThreadStarted
+
+Fires when a user opens a new assistant thread (Slack Assistants API). Use this to set suggested prompts, show a status indicator, or send an initial greeting.
+
+```typescript
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Get started", message: "What can you help me with?" },
+  ]);
+});
+```
+
+<TypeTable
+  type={{
+    'event.threadId': {
+      description: 'Encoded thread ID.',
+      type: 'string',
+    },
+    'event.userId': {
+      description: 'The user who opened the thread.',
+      type: 'string',
+    },
+    'event.channelId': {
+      description: 'The DM channel ID.',
+      type: 'string',
+    },
+    'event.threadTs': {
+      description: 'Thread timestamp.',
+      type: 'string',
+    },
+    'event.context': {
+      description: 'Context about where the thread was opened (channel, team, enterprise, entry point).',
+      type: 'AssistantThreadContext',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+  }}
+/>
+
+### onAssistantContextChanged
+
+Fires when a user navigates to a different channel while the assistant panel is open (Slack Assistants API). Use this to update suggested prompts or context based on the new channel.
+
+```typescript
+bot.onAssistantContextChanged(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setAssistantStatus(event.channelId, event.threadTs, "Updating context...");
+});
+```
+
+The event shape is identical to `onAssistantThreadStarted`.
+
+### onAppHomeOpened
+
+Fires when a user opens the bot's Home tab in Slack. Use this to publish a dynamic Home tab view.
+
+```typescript
+bot.onAppHomeOpened(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.publishHomeView(event.userId, {
+    type: "home",
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: "Welcome!" } }],
+  });
+});
+```
+
+<TypeTable
+  type={{
+    'event.userId': {
+      description: 'The user who opened the Home tab.',
+      type: 'string',
+    },
+    'event.channelId': {
+      description: 'The channel ID associated with the Home tab.',
+      type: 'string',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+  }}
+/>
+
 ## Utility methods
 
 ### webhooks

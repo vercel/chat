@@ -146,6 +146,8 @@ settings:
       - message.groups
       - message.im
       - message.mpim
+      - assistant_thread_started
+      - assistant_thread_context_changed
   interactivity:
     is_enabled: true
     request_url: https://your-domain.com/api/webhooks/slack
@@ -212,6 +214,70 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 | File uploads | Yes |
 | Typing indicator | Yes |
 | Message history | Yes |
+| Assistants API | Yes |
+| App Home tab | Yes |
+
+## Slack Assistants API
+
+The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai) for building AI-powered assistant experiences. This enables suggested prompts, status indicators, and thread titles in assistant DM threads.
+
+### Event handlers
+
+Register handlers on the `Chat` instance:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Summarize", message: "Summarize this channel" },
+    { title: "Draft", message: "Help me draft a message" },
+  ]);
+});
+
+bot.onAssistantContextChanged(async (event) => {
+  // User navigated to a different channel with the assistant panel open
+});
+```
+
+### Adapter methods
+
+The `SlackAdapter` exposes these methods for the Assistants API:
+
+| Method | Description |
+|--------|-------------|
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
+| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
+| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
+| `publishHomeView(userId, view)` | Publish a Home tab view for a user |
+
+### Required scopes and events
+
+Add these to your Slack app manifest for Assistants API support:
+
+```yaml title="slack-manifest.yml"
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - assistant_thread_started
+      - assistant_thread_context_changed
+```
+
+### Stream with stop blocks
+
+When streaming in an assistant thread, you can attach Block Kit elements to the final message:
+
+```typescript title="lib/bot.ts"
+await thread.stream(textStream, {
+  stopBlocks: [
+    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
+  ],
+});
+```
 
 ## Troubleshooting
 

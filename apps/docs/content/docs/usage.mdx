@@ -87,6 +87,33 @@ The `event` object includes:
 | `thread` | `Thread` | Thread for posting replies |
 | `adapter` | `Adapter` | The platform adapter |
 
+### Assistant thread handler
+
+`onAssistantThreadStarted` fires when a user opens a new assistant thread in Slack. Use it with the Slack Assistants API to set suggested prompts and status indicators. See [Slack Assistants API](/docs/adapters/slack#slack-assistants-api) for details.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Get started", message: "What can you help me with?" },
+  ]);
+});
+```
+
+### App Home handler
+
+`onAppHomeOpened` fires when a user opens your bot's Home tab in Slack. Use it to publish a dynamic view.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAppHomeOpened(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.publishHomeView(event.userId, {
+    type: "home",
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: "Welcome!" } }],
+  });
+});
+```
+
 ## Threads
 
 A `Thread` represents a conversation thread on any platform. It provides methods for posting messages, managing subscriptions, and accessing message history.

@@ -58,6 +58,25 @@ const bot = new Chat({
 });
 ```
 
+## Stop blocks (Slack only)
+
+When streaming in Slack, you can attach Block Kit elements to the final message using `stopBlocks`. This is useful for adding action buttons after a streamed response completes:
+
+```typescript title="lib/bot.ts" lineNumbers
+await thread.stream(textStream, {
+  stopBlocks: [
+    {
+      type: "actions",
+      elements: [{
+        type: "button",
+        text: { type: "plain_text", text: "Retry" },
+        action_id: "retry",
+      }],
+    },
+  ],
+});
+```
+
 ## Streaming with conversation history
 
 Combine message history with streaming for multi-turn AI conversations:

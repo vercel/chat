@@ -190,6 +190,8 @@ SLACK_ENCRYPTION_KEY=...           # optional, for multi-workspace token encrypt
    - `message.channels` - Messages in public channels
    - `message.groups` - Messages in private channels
    - `message.im` - Direct messages
+   - `assistant_thread_started` - Assistants API thread opened (optional)
+   - `assistant_thread_context_changed` - Assistants API context changed (optional)
 5. Click **Save Changes**
 
 ### 6. (Optional) Enable Interactivity
@@ -210,6 +212,9 @@ If you want to use buttons, modals, or other interactive components:
 - Rich cards (Block Kit)
 - Action callbacks (interactive components)
 - Direct messages
+- Assistants API (suggested prompts, status, thread titles)
+- App Home tab publishing
+- Stream stop blocks (Block Kit elements on stream completion)
 
 ## Troubleshooting
 
