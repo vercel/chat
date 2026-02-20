@@ -26,7 +26,7 @@
     "feed": "^5.1.0",
     "fumadocs-core": "16.2.2",
     "fumadocs-mdx": "14.0.4",
-    "fumadocs-ui": "16.2.2",
+    "fumadocs-ui": "16.6.4",
     "jotai": "^2.15.2",
     "lucide-react": "^0.555.0",
     "mermaid": "^11.12.2",
