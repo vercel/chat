@@ -394,9 +394,7 @@ describe("markdown bold to Google Chat conversion", () => {
 
   it("converts multiple **bold** segments", () => {
     const card = Card({
-      children: [
-        CardText("**Project**: my-app, **Status**: active"),
-      ],
+      children: [CardText("**Project**: my-app, **Status**: active")],
     });
     const gchatCard = cardToGoogleCard(card);
 
@@ -413,16 +411,14 @@ describe("markdown bold to Google Chat conversion", () => {
     const gchatCard = cardToGoogleCard(card);
 
     const widgets = gchatCard.card.sections[0].widgets;
-    expect(widgets[0].textParagraph.text).toBe("Already *bold* in GChat format");
+    expect(widgets[0].textParagraph.text).toBe(
+      "Already *bold* in GChat format",
+    );
   });
 
   it("converts **bold** in field values", () => {
     const card = Card({
-      children: [
-        Fields([
-          Field({ label: "Status", value: "**Active**" }),
-        ]),
-      ],
+      children: [Fields([Field({ label: "Status", value: "**Active**" })])],
     });
     const gchatCard = cardToGoogleCard(card);
 
@@ -434,11 +430,7 @@ describe("markdown bold to Google Chat conversion", () => {
 
   it("converts **bold** in field labels", () => {
     const card = Card({
-      children: [
-        Fields([
-          Field({ label: "**Important**", value: "value" }),
-        ]),
-      ],
+      children: [Fields([Field({ label: "**Important**", value: "value" })])],
     });
     const gchatCard = cardToGoogleCard(card);
 
