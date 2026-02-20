@@ -1,5 +1,8 @@
 # @chat-adapter/teams
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
+
 Microsoft Teams adapter for [Chat SDK](https://chat-sdk.dev/docs). Uses Azure Bot Service for webhook handling and message delivery.
 
 ## Installation

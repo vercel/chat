@@ -1,5 +1,8 @@
 # @chat-adapter/slack
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
+
 Slack adapter for [Chat SDK](https://chat-sdk.dev/docs). Supports single-workspace and multi-workspace OAuth deployments.
 
 ## Installation

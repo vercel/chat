@@ -1,5 +1,8 @@
 # chat
 
+[![npm version](https://img.shields.io/npm/v/chat)](https://www.npmjs.com/package/chat)
+[![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
+
 Core SDK for building multi-platform chat bots. Provides the `Chat` class, event handlers, JSX card runtime, emoji helpers, and type-safe message formatting.
 
 ## Installation

@@ -1,5 +1,8 @@
 # @chat-adapter/state-ioredis
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-ioredis)](https://www.npmjs.com/package/@chat-adapter/state-ioredis)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-ioredis)](https://www.npmjs.com/package/@chat-adapter/state-ioredis)
+
 Redis state adapter for [Chat SDK](https://chat-sdk.dev/docs) using [ioredis](https://www.npmjs.com/package/ioredis). Use this if you need Redis Cluster or Sentinel support.
 
 ## Installation

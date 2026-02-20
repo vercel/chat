@@ -1,5 +1,8 @@
 # @chat-adapter/linear
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
+
 Linear adapter for [Chat SDK](https://chat-sdk.dev/docs). Enables bots to respond to @mentions in Linear issue comment threads.
 
 ## Installation

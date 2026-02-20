@@ -1,5 +1,8 @@
 # @chat-adapter/github
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/github)](https://www.npmjs.com/package/@chat-adapter/github)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/github)](https://www.npmjs.com/package/@chat-adapter/github)
+
 GitHub adapter for [Chat SDK](https://chat-sdk.dev/docs). Enables bots to respond to @mentions in GitHub PR and issue comment threads.
 
 ## Installation

@@ -1,5 +1,8 @@
 # @chat-adapter/discord
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
+
 Discord adapter for [Chat SDK](https://chat-sdk.dev/docs). Supports HTTP Interactions and Gateway WebSocket for receiving messages.
 
 ## Installation

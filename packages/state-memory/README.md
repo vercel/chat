@@ -1,5 +1,8 @@
 # @chat-adapter/state-memory
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
+
 In-memory state adapter for [Chat SDK](https://chat-sdk.dev/docs). For development and testing only — state is lost on restart.
 
 ## Installation

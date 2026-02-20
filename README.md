@@ -1,5 +1,9 @@
 # Chat SDK
 
+[![npm version](https://img.shields.io/npm/v/chat)](https://www.npmjs.com/package/chat)
+[![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
 A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear. Write your bot logic once, deploy everywhere.
 
 ## Installation

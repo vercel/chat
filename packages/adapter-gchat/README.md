@@ -1,5 +1,8 @@
 # @chat-adapter/gchat
 
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
+
 Google Chat adapter for [Chat SDK](https://chat-sdk.dev/docs). Supports service account authentication with optional Pub/Sub for receiving all messages.
 
 ## Installation
