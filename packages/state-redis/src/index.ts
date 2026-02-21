@@ -80,33 +80,6 @@ export class RedisStateAdapter implements StateAdapter {
     return this.client.sIsMember(this.subscriptionsSetKey(), threadId);
   }
 
-  async *listSubscriptions(adapterName?: string): AsyncIterable<string> {
-    this.ensureConnected();
-
-    // Use SSCAN for large sets to avoid blocking
-    let cursor = 0;
-    do {
-      const result = await this.client.sScan(
-        this.subscriptionsSetKey(),
-        cursor,
-        {
-          COUNT: 100,
-        }
-      );
-      cursor = result.cursor;
-
-      for (const threadId of result.members) {
-        if (adapterName) {
-          if (threadId.startsWith(`${adapterName}:`)) {
-            yield threadId;
-          }
-        } else {
-          yield threadId;
-        }
-      }
-    } while (cursor !== 0);
-  }
-
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
     this.ensureConnected();
 

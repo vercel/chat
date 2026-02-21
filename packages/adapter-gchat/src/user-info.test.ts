@@ -19,7 +19,6 @@ function createMockState() {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     isSubscribed: vi.fn(),
-    listSubscriptions: vi.fn(),
     acquireLock: vi.fn(),
     releaseLock: vi.fn(),
     extendLock: vi.fn(),

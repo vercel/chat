@@ -903,7 +903,6 @@ function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
     subscribe: vi.fn().mockResolvedValue(undefined),
     unsubscribe: vi.fn().mockResolvedValue(undefined),
     isSubscribed: vi.fn().mockResolvedValue(false),
-    listSubscriptions: vi.fn().mockImplementation(async function* () {}),
     acquireLock: vi.fn().mockResolvedValue(null),
     releaseLock: vi.fn().mockResolvedValue(undefined),
     extendLock: vi.fn().mockResolvedValue(true),

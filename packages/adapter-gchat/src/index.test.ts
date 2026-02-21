@@ -34,11 +34,6 @@ function createMockStateAdapter(): StateAdapter & {
     subscribe: vi.fn().mockResolvedValue(undefined),
     unsubscribe: vi.fn().mockResolvedValue(undefined),
     isSubscribed: vi.fn().mockResolvedValue(false),
-    listSubscriptions: vi.fn().mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        /* empty */
-      },
-    }),
     acquireLock: vi
       .fn()
       .mockResolvedValue({ threadId: "", token: "", expiresAt: 0 } as Lock),

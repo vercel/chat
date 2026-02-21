@@ -20,24 +20,6 @@ describe("MemoryStateAdapter", () => {
       await adapter.unsubscribe("slack:C123:1234.5678");
       expect(await adapter.isSubscribed("slack:C123:1234.5678")).toBe(false);
     });
-
-    it("should list subscriptions", async () => {
-      await adapter.subscribe("slack:C123:1234.5678");
-      await adapter.subscribe("slack:C456:9876.5432");
-      await adapter.subscribe("teams:T789:abcd");
-
-      const all: string[] = [];
-      for await (const id of adapter.listSubscriptions()) {
-        all.push(id);
-      }
-      expect(all).toHaveLength(3);
-
-      const slackOnly: string[] = [];
-      for await (const id of adapter.listSubscriptions("slack")) {
-        slackOnly.push(id);
-      }
-      expect(slackOnly).toHaveLength(2);
-    });
   });
 
   describe("locking", () => {

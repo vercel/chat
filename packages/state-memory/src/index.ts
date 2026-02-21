@@ -67,21 +67,6 @@ export class MemoryStateAdapter implements StateAdapter {
     return this.subscriptions.has(threadId);
   }
 
-  async *listSubscriptions(adapterName?: string): AsyncIterable<string> {
-    this.ensureConnected();
-
-    for (const threadId of this.subscriptions) {
-      if (adapterName) {
-        // Thread ID format: "adapter:channel:thread"
-        if (threadId.startsWith(`${adapterName}:`)) {
-          yield threadId;
-        }
-      } else {
-        yield threadId;
-      }
-    }
-  }
-
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
     this.ensureConnected();
     this.cleanExpiredLocks();

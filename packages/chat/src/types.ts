@@ -466,9 +466,6 @@ export interface StateAdapter {
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
 
-  /** List all subscriptions, optionally filtered by adapter */
-  listSubscriptions(adapterName?: string): AsyncIterable<string>;
-
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;
 

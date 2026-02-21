@@ -124,11 +124,6 @@ export function createMockState(): MockStateAdapter {
     isSubscribed: vi.fn().mockImplementation(async (id: string) => {
       return subscriptions.has(id);
     }),
-    listSubscriptions: vi.fn().mockImplementation(async function* () {
-      for (const id of subscriptions) {
-        yield id;
-      }
-    }),
     acquireLock: vi
       .fn()
       .mockImplementation(async (threadId: string, ttlMs: number) => {
