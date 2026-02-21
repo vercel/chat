@@ -4,5 +4,8 @@
     "ultracite/biome/core",
     "ultracite/biome/react",
     "ultracite/biome/next"
-  ]
+  ],
+  "files": {
+    "includes": ["**/*", "!apps/docs"]
+  }
 }
