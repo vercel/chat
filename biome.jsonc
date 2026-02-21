@@ -5,6 +5,13 @@
     "ultracite/biome/react",
     "ultracite/biome/next"
   ],
+  "linter": {
+    "rules": {
+      "style": {
+        "useNumericSeparators": "off"
+      }
+    }
+  },
   "files": {
     "includes": ["**/*", "!apps/docs"]
   }
