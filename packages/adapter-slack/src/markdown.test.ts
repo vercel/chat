@@ -19,13 +19,13 @@ describe("SlackMarkdownConverter", () => {
 
     it("should convert links", () => {
       expect(converter.fromMarkdown("Check [this](https://example.com)")).toBe(
-        "Check <https://example.com|this>",
+        "Check <https://example.com|this>"
       );
     });
 
     it("should preserve inline code", () => {
       expect(converter.fromMarkdown("Use `const x = 1`")).toBe(
-        "Use `const x = 1`",
+        "Use `const x = 1`"
       );
     });
 
@@ -79,25 +79,25 @@ describe("SlackMarkdownConverter", () => {
     it("should not double-wrap mentions already in <@user> format", () => {
       // renderPostable with string containing existing Slack mention
       expect(converter.renderPostable("Hey <@U12345>. Please select")).toBe(
-        "Hey <@U12345>. Please select",
+        "Hey <@U12345>. Please select"
       );
     });
 
     it("should not double-wrap mentions in markdown input", () => {
       expect(
-        converter.renderPostable({ markdown: "Hey <@U12345>. Please select" }),
+        converter.renderPostable({ markdown: "Hey <@U12345>. Please select" })
       ).toBe("Hey <@U12345>. Please select");
     });
 
     it("should still convert bare @mentions to Slack format", () => {
       expect(converter.renderPostable("Hey @george. Please select")).toBe(
-        "Hey <@george>. Please select",
+        "Hey <@george>. Please select"
       );
     });
 
     it("should convert bare @mentions in markdown", () => {
       expect(
-        converter.renderPostable({ markdown: "Hey @george. Please select" }),
+        converter.renderPostable({ markdown: "Hey @george. Please select" })
       ).toBe("Hey <@george>. Please select");
     });
 
@@ -117,7 +117,7 @@ describe("SlackMarkdownConverter", () => {
 
     it("should extract link text", () => {
       expect(converter.toPlainText("Check <https://example.com|this>")).toBe(
-        "Check this",
+        "Check this"
       );
     });
 

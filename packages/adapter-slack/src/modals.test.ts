@@ -486,7 +486,7 @@ describe("modalToSlackView with radio select", () => {
 
   it("limits radio select options to 10", () => {
     const options = Array.from({ length: 15 }, (_, i) =>
-      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` }),
+      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` })
     );
     const modal = Modal({
       callbackId: "test",

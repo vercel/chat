@@ -42,7 +42,7 @@ export const BUTTON_STYLE_MAPPINGS: Record<
  * ```
  */
 export function createEmojiConverter(
-  platform: PlatformName,
+  platform: PlatformName
 ): (text: string) => string {
   return (text: string) => convertEmojiPlaceholders(text, platform);
 }
@@ -59,9 +59,11 @@ export function createEmojiConverter(
  */
 export function mapButtonStyle(
   style: ButtonElement["style"],
-  platform: PlatformName,
+  platform: PlatformName
 ): string | undefined {
-  if (!style) return undefined;
+  if (!style) {
+    return undefined;
+  }
   return BUTTON_STYLE_MAPPINGS[platform][style];
 }
 
@@ -94,7 +96,7 @@ export interface FallbackTextOptions {
  */
 export function cardToFallbackText(
   card: CardElement,
-  options: FallbackTextOptions = {},
+  options: FallbackTextOptions = {}
 ): string {
   const { boldFormat = "*", lineBreak = "\n", platform } = options;
 
@@ -128,7 +130,7 @@ export function cardToFallbackText(
  */
 function childToFallbackText(
   child: CardChild,
-  convertText: (t: string) => string,
+  convertText: (t: string) => string
 ): string | null {
   switch (child.type) {
     case "text":

@@ -148,7 +148,7 @@ function renderText(text: TextElement): string[] {
 function renderFields(fields: FieldsElement): string[] {
   return fields.children.map(
     (field) =>
-      `**${escapeMarkdown(field.label)}:** ${escapeMarkdown(field.value)}`,
+      `**${escapeMarkdown(field.label)}:** ${escapeMarkdown(field.value)}`
   );
 }
 

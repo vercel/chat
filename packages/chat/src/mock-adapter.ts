@@ -52,7 +52,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     fetchMessage: vi.fn().mockResolvedValue(null),
     encodeThreadId: vi.fn(
       (data: { channel: string; thread: string }) =>
-        `${name}:${data.channel}:${data.thread}`,
+        `${name}:${data.channel}:${data.thread}`
     ),
     decodeThreadId: vi.fn((id: string) => {
       const [, channel, thread] = id.split(":");
@@ -63,7 +63,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     openDM: vi
       .fn()
       .mockImplementation((userId: string) =>
-        Promise.resolve(`${name}:D${userId}:`),
+        Promise.resolve(`${name}:D${userId}:`)
       ),
     isDM: vi
       .fn()
@@ -72,7 +72,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     channelIdFromThreadId: vi
       .fn()
       .mockImplementation((threadId: string) =>
-        threadId.split(":").slice(0, 2).join(":"),
+        threadId.split(":").slice(0, 2).join(":")
       ),
     fetchChannelMessages: vi
       .fn()
@@ -86,7 +86,7 @@ export function createMockAdapter(name = "slack"): Adapter {
         name: `#${channelId}`,
         isDM: false,
         metadata: {},
-      }),
+      })
     ),
     postChannelMessage: vi
       .fn()
@@ -125,12 +125,16 @@ export function createMockState(): MockStateAdapter {
       return subscriptions.has(id);
     }),
     listSubscriptions: vi.fn().mockImplementation(async function* () {
-      for (const id of subscriptions) yield id;
+      for (const id of subscriptions) {
+        yield id;
+      }
     }),
     acquireLock: vi
       .fn()
       .mockImplementation(async (threadId: string, ttlMs: number) => {
-        if (locks.has(threadId)) return null;
+        if (locks.has(threadId)) {
+          return null;
+        }
         const lock: Lock = {
           threadId,
           token: "test-token",
@@ -164,7 +168,7 @@ export function createMockState(): MockStateAdapter {
 export function createTestMessage(
   id: string,
   text: string,
-  overrides?: Partial<MessageData>,
+  overrides?: Partial<MessageData>
 ): Message {
   return new Message({
     id,

@@ -33,9 +33,9 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
     it("creates Card with subtitle and imageUrl", () => {
       const element = (
         <Card
-          title="Order"
-          subtitle="Processing"
           imageUrl="https://example.com/img.png"
+          subtitle="Processing"
+          title="Order"
         />
       );
       const result = toCardElement(element);
@@ -140,7 +140,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       const element = (
         <Card>
           <Actions>
-            <LinkButton url="https://example.com" style="primary">
+            <LinkButton style="primary" url="https://example.com">
               Visit Site
             </LinkButton>
           </Actions>
@@ -210,7 +210,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
         <Card>
           <Section>
             <Text>Inside section</Text>
-            <Image url="https://example.com/img.png" alt="Description" />
+            <Image alt="Description" url="https://example.com/img.png" />
           </Section>
         </Card>
       );
@@ -229,7 +229,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
     it("creates Image with url and alt", () => {
       const element = (
         <Card>
-          <Image url="https://example.com/photo.jpg" alt="A photo" />
+          <Image alt="A photo" url="https://example.com/photo.jpg" />
         </Card>
       );
       const result = toCardElement(element);
@@ -244,7 +244,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
   describe("complex structures", () => {
     it("creates full card with all element types", () => {
       const element = (
-        <Card title="Order #123" subtitle="Ready for pickup">
+        <Card subtitle="Ready for pickup" title="Order #123">
           <Text>Your order is ready!</Text>
           <Divider />
           <Fields>

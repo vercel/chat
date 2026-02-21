@@ -108,7 +108,7 @@ describe("Slack Integration", () => {
 
       expect(handlerMock).toHaveBeenCalledWith(
         TEST_THREAD_ID,
-        `@${SLACK_BOT_USER_ID} hello bot!`,
+        `@${SLACK_BOT_USER_ID} hello bot!`
       );
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
@@ -116,7 +116,7 @@ describe("Slack Integration", () => {
           channel: TEST_CHANNEL,
           thread_ts: TEST_THREAD_TS,
           text: "Hello back!",
-        }),
+        })
       );
     });
 
@@ -148,7 +148,7 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "I'm now listening!" }),
+        expect.objectContaining({ text: "I'm now listening!" })
       );
 
       vi.clearAllMocks();
@@ -170,13 +170,13 @@ describe("Slack Integration", () => {
 
       expect(subscribedHandler).toHaveBeenCalledWith(
         TEST_THREAD_ID,
-        "This is a follow-up message",
+        "This is a follow-up message"
       );
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "You said: This is a follow-up message",
-        }),
+        })
       );
     });
 
@@ -203,7 +203,7 @@ describe("Slack Integration", () => {
 
       expect(patternHandler).toHaveBeenCalledWith("I need help with something");
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Here is some help!" }),
+        expect.objectContaining({ text: "Here is some help!" })
       );
     });
 
@@ -254,7 +254,7 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(mockClient.chat.update).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Edited message" }),
+        expect.objectContaining({ text: "Edited message" })
       );
     });
 
@@ -279,7 +279,7 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(mockClient.reactions.add).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "thumbsup" }),
+        expect.objectContaining({ name: "thumbsup" })
       );
     });
   });
@@ -362,7 +362,7 @@ describe("Slack Integration", () => {
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: expect.stringContaining("*Bold*"),
-        }),
+        })
       );
     });
 
@@ -389,7 +389,7 @@ describe("Slack Integration", () => {
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Hey <@john>, check this out!",
-        }),
+        })
       );
     });
   });
@@ -445,7 +445,7 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "Done typing!" }),
+        expect.objectContaining({ text: "Done typing!" })
       );
     });
   });
@@ -459,7 +459,7 @@ describe("Slack Integration", () => {
         conversationLog.push(`mention: ${message.text}`);
         await thread.subscribe();
         await thread.post(
-          "Hi! I'm now listening to this thread. How can I help?",
+          "Hi! I'm now listening to this thread. How can I help?"
         );
       });
 
@@ -469,12 +469,12 @@ describe("Slack Integration", () => {
 
         if (message.text.includes("weather")) {
           const response = await thread.post(
-            "Let me check the weather for you...",
+            "Let me check the weather for you..."
           );
           await response.edit("The weather today is sunny, 72°F!");
         } else if (message.text.includes("thanks")) {
           const response = await thread.post(
-            "You're welcome! Let me know if you need anything else.",
+            "You're welcome! Let me know if you need anything else."
           );
           await response.addReaction("thumbsup");
         } else {
@@ -498,12 +498,12 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(conversationLog).toContain(
-        `mention: @${SLACK_BOT_USER_ID} hey bot!`,
+        `mention: @${SLACK_BOT_USER_ID} hey bot!`
       );
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Hi! I'm now listening to this thread. How can I help?",
-        }),
+        })
       );
 
       vi.clearAllMocks();
@@ -527,10 +527,10 @@ describe("Slack Integration", () => {
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Let me check the weather for you...",
-        }),
+        })
       );
       expect(mockClient.chat.update).toHaveBeenCalledWith(
-        expect.objectContaining({ text: "The weather today is sunny, 72°F!" }),
+        expect.objectContaining({ text: "The weather today is sunny, 72°F!" })
       );
 
       vi.clearAllMocks();
@@ -571,7 +571,7 @@ describe("Slack Integration", () => {
 
       expect(conversationLog).toContain("subscribed: thanks for your help!");
       expect(mockClient.reactions.add).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "thumbsup" }),
+        expect.objectContaining({ name: "thumbsup" })
       );
 
       expect(messageCount).toBe(3);
@@ -587,7 +587,7 @@ describe("Slack Integration", () => {
         }
         threadResponses[threadId].push(message.text);
         await thread.subscribe();
-        await thread.post(`Subscribed to thread`);
+        await thread.post("Subscribed to thread");
       });
 
       chat.onSubscribedMessage(async (thread, message) => {
@@ -712,12 +712,12 @@ describe("Slack Integration", () => {
         expect.objectContaining({
           channel_id: TEST_CHANNEL,
           filename: "test.txt",
-        }),
+        })
       );
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: expect.stringContaining("Here's your file:"),
-        }),
+        })
       );
     });
 
@@ -801,12 +801,12 @@ describe("Slack Integration", () => {
       expect(handlerMock).toHaveBeenCalledWith(
         "approve",
         "order-123",
-        "U_USER_123",
+        "U_USER_123"
       );
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Action received!",
-        }),
+        })
       );
     });
 

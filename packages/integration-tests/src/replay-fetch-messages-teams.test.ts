@@ -45,7 +45,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
 
     ctx = createTeamsTestContext(
       { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
-      {},
+      {}
     );
 
     mockGraphClient = createMockGraphClient();
@@ -68,7 +68,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       .getState()
       .set(
         `teams:channelContext:${TEAMS_CHANNEL_ID}`,
-        JSON.stringify(channelContext),
+        JSON.stringify(channelContext)
       );
 
     // Mock Graph API to return actual recorded messages
@@ -97,7 +97,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
     expect(mockGraphClient.apiCalls[0].url).toContain("/teams/");
     expect(mockGraphClient.apiCalls[0].url).toContain("/channels/");
     expect(mockGraphClient.apiCalls[0].url).toContain(
-      `/messages/${TEAMS_PARENT_MESSAGE_ID}`,
+      `/messages/${TEAMS_PARENT_MESSAGE_ID}`
     );
     // Should NOT end with /replies (that's the second call)
     expect(mockGraphClient.apiCalls[0].url).not.toMatch(/\/replies$/);
@@ -139,7 +139,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && expectedNumbers.includes(m.text || ""),
+      (m) => !m.author.isBot && expectedNumbers.includes(m.text || "")
     );
 
     // Should have exactly 13 numbered messages (1-13)
@@ -180,7 +180,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && expectedNumbers.includes(m.text || ""),
+      (m) => !m.author.isBot && expectedNumbers.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(expectedNumbers);
@@ -261,7 +261,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
         attachments?: Array<{ contentType?: string }>;
       };
       return raw.attachments?.some(
-        (a) => a.contentType === "application/vnd.microsoft.card.adaptive",
+        (a) => a.contentType === "application/vnd.microsoft.card.adaptive"
       );
     });
 
@@ -288,7 +288,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       return raw.attachments?.some(
         (a) =>
           a.contentType === "application/vnd.microsoft.card.adaptive" &&
-          a.content?.includes("Welcome"),
+          a.content?.includes("Welcome")
       );
     });
 
@@ -331,7 +331,7 @@ describe("allMessages Replay Tests - Teams", () => {
 
     ctx = createTeamsTestContext(
       { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
-      {},
+      {}
     );
 
     mockGraphClient = createMockGraphClient();
@@ -354,7 +354,7 @@ describe("allMessages Replay Tests - Teams", () => {
       .getState()
       .set(
         `teams:channelContext:${TEAMS_CHANNEL_ID}`,
-        JSON.stringify(channelContext),
+        JSON.stringify(channelContext)
       );
 
     // Mock Graph API to return actual recorded messages
@@ -409,7 +409,7 @@ describe("allMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = messages.filter((m) =>
-      expectedNumbers.includes(m.text || ""),
+      expectedNumbers.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(13);
 

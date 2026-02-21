@@ -49,7 +49,7 @@ describe("Replay Tests - Actions & Reactions", () => {
             capturedReaction = event;
             await event.thread.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 
@@ -162,7 +162,7 @@ describe("Replay Tests - Actions & Reactions", () => {
             capturedReaction = event;
             await event.thread.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 
@@ -238,7 +238,7 @@ describe("Replay Tests - Actions & Reactions", () => {
             capturedReaction = event;
             await event.thread.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 

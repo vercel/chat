@@ -45,7 +45,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
           onModalSubmit: async (event) => {
             capturedModalSubmit = event;
           },
-        },
+        }
       );
     });
 
@@ -78,7 +78,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
 
       await storeModalContext(ctx);
       const response = await ctx.sendSlackViewSubmission(
-        slackFixtures.viewSubmission,
+        slackFixtures.viewSubmission
       );
 
       expect(response.status).toBe(200);
@@ -89,7 +89,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
       // Verify privateMetadata was decoded and exposed on the event
       expect(capturedModalSubmit?.privateMetadata).toBeDefined();
       const metadata = JSON.parse(
-        capturedModalSubmit?.privateMetadata as string,
+        capturedModalSubmit?.privateMetadata as string
       );
       expect(metadata.reportType).toBe("bug");
       expect(metadata.threadId).toBe("slack:C0A9D9RTBMF:1771116676.529969");
@@ -121,7 +121,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
       expect(capturedModalSubmit?.privateMetadata).toBeDefined();
       expect(capturedModalSubmit?.relatedThread).toBeDefined();
       expect(capturedModalSubmit?.relatedThread?.id).toBe(
-        "slack:C0A9D9RTBMF:1771116676.529969",
+        "slack:C0A9D9RTBMF:1771116676.529969"
       );
       expect(capturedModalSubmit?.relatedThread?.channelId).toBe("C0A9D9RTBMF");
     });
@@ -137,7 +137,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
       expect(capturedModalSubmit?.relatedMessage).toBeDefined();
       expect(capturedModalSubmit?.relatedMessage?.id).toBe("1771116682.586579");
       expect(capturedModalSubmit?.relatedMessage?.threadId).toBe(
-        "slack:C0A9D9RTBMF:1771116676.529969",
+        "slack:C0A9D9RTBMF:1771116676.529969"
       );
     });
 
@@ -156,11 +156,11 @@ describe("Replay Tests - Modal privateMetadata", () => {
             if (event.privateMetadata && event.relatedThread) {
               const metadata = JSON.parse(event.privateMetadata);
               await event.relatedThread.post(
-                `Bug report (${metadata.reportType}): ${event.values.title}`,
+                `Bug report (${metadata.reportType}): ${event.values.title}`
               );
             }
           },
-        },
+        }
       );
 
       await ctx.sendWebhook(slackFixtures.mention);
@@ -175,7 +175,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
           channel: "C0A9D9RTBMF",
           thread_ts: "1771116676.529969",
           text: expect.stringContaining("Bug report (bug): tes"),
-        }),
+        })
       );
     });
   });

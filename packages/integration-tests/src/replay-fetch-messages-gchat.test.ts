@@ -30,7 +30,7 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
 
     ctx = createGchatTestContext(
       { botName: "Chat SDK Demo", botUserId: GCHAT_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
@@ -58,7 +58,7 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
               messages.length > limit ? "next-page-token" : undefined,
           },
         };
-      },
+      }
     );
   });
 
@@ -109,7 +109,7 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
 
     // Extract just the numbered messages (filter out bot messages)
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      (m) => !m.author.isBot && EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
 
     // Should have exactly 14 numbered messages
@@ -131,7 +131,7 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
 
     // Extract numbered messages and verify order
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      (m) => !m.author.isBot && EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(EXPECTED_NUMBERED_TEXTS);
@@ -171,8 +171,7 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
     // Find messages that have cardsV2 but no text
     const cardOnlyMessages = result.messages.filter(
       (m) =>
-        (m.raw as { cardsV2?: unknown[] }).cardsV2 &&
-        (!m.text || m.text === ""),
+        (m.raw as { cardsV2?: unknown[] }).cardsV2 && (!m.text || m.text === "")
     );
 
     // Should have 2 card-only messages (welcome card + fetch results card)
@@ -208,7 +207,7 @@ describe("allMessages Replay Tests - Google Chat", () => {
 
     ctx = createGchatTestContext(
       { botName: "Chat SDK Demo", botUserId: GCHAT_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
@@ -235,7 +234,7 @@ describe("allMessages Replay Tests - Google Chat", () => {
               messages.length > limit ? "next-page-token" : undefined,
           },
         };
-      },
+      }
     );
   });
 
@@ -264,7 +263,7 @@ describe("allMessages Replay Tests - Google Chat", () => {
 
     // Extract numbered messages and verify chronological order
     const numberedMessages = messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(14);
 

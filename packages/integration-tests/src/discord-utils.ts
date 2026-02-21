@@ -32,18 +32,18 @@ function createDiscordSignature(body: string, timestamp: string): string {
  * Options for creating a Discord interaction
  */
 export interface DiscordInteractionOptions {
-  type: InteractionType;
-  id?: string;
-  token?: string;
-  guildId?: string;
   channelId?: string;
+  commandName?: string;
+  customId?: string;
+  globalName?: string;
+  guildId?: string;
+  id?: string;
+  messageContent?: string;
+  messageId?: string;
+  token?: string;
+  type: InteractionType;
   userId?: string;
   userName?: string;
-  globalName?: string;
-  customId?: string;
-  messageId?: string;
-  messageContent?: string;
-  commandName?: string;
 }
 
 /**
@@ -137,7 +137,7 @@ export function createDiscordInteraction(options: DiscordInteractionOptions) {
  * Create a Discord webhook request with valid Ed25519 signature
  */
 export function createDiscordWebhookRequest(
-  payload: Record<string, unknown>,
+  payload: Record<string, unknown>
 ): Request {
   const body = JSON.stringify(payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -194,6 +194,11 @@ export function createDiscordButtonRequest(options: {
  * Mock Discord API responses
  */
 export interface MockDiscordApi {
+  channels: {
+    get: ReturnType<typeof vi.fn>;
+    typing: ReturnType<typeof vi.fn>;
+  };
+  clearMocks: () => void;
   messages: {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -204,14 +209,9 @@ export interface MockDiscordApi {
     add: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
   };
-  channels: {
-    get: ReturnType<typeof vi.fn>;
-    typing: ReturnType<typeof vi.fn>;
-  };
   users: {
     createDM: ReturnType<typeof vi.fn>;
   };
-  clearMocks: () => void;
 }
 
 /**
@@ -386,7 +386,7 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
-    },
+    }
   );
 }
 
@@ -405,7 +405,7 @@ export function restoreDiscordFetchMock(): void {
 export function getDiscordThreadId(
   guildId: string,
   channelId: string,
-  threadId?: string,
+  threadId?: string
 ): string {
   const threadPart = threadId ? `:${threadId}` : "";
   return `discord:${guildId}:${channelId}${threadPart}`;
@@ -417,7 +417,7 @@ export function getDiscordThreadId(
  */
 export function createDiscordGatewayRequest(
   payload: Record<string, unknown>,
-  botToken = DISCORD_BOT_TOKEN,
+  botToken = DISCORD_BOT_TOKEN
 ): Request {
   return new Request("https://example.com/webhook/discord", {
     method: "POST",

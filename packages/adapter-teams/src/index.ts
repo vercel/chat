@@ -18,7 +18,7 @@ class ServerlessCloudAdapter extends CloudAdapter {
   handleActivity(
     authHeader: string,
     activity: Activity,
-    logic: (context: TurnContext) => Promise<void>,
+    logic: (context: TurnContext) => Promise<void>
   ) {
     return this.processActivity(authHeader, activity, logic);
   }
@@ -67,14 +67,18 @@ import { TeamsFormatConverter } from "./markdown";
 
 /** Microsoft Graph API chat message type */
 interface GraphChatMessage {
-  id: string;
-  createdDateTime?: string;
-  lastModifiedDateTime?: string;
-  replyToId?: string; // ID of parent message for channel threads
+  attachments?: Array<{
+    id?: string;
+    contentType?: string;
+    contentUrl?: string;
+    content?: string; // JSON string for adaptive cards
+    name?: string;
+  }>;
   body?: {
     content?: string;
     contentType?: "text" | "html";
   };
+  createdDateTime?: string;
   from?: {
     user?: {
       id?: string;
@@ -85,13 +89,9 @@ interface GraphChatMessage {
       displayName?: string;
     };
   };
-  attachments?: Array<{
-    id?: string;
-    contentType?: string;
-    contentUrl?: string;
-    content?: string; // JSON string for adaptive cards
-    name?: string;
-  }>;
+  id: string;
+  lastModifiedDateTime?: string;
+  replyToId?: string; // ID of parent message for channel threads
 }
 
 export interface TeamsAdapterConfig {
@@ -99,12 +99,12 @@ export interface TeamsAdapterConfig {
   appId: string;
   /** Microsoft App Password */
   appPassword: string;
-  /** Logger instance for error reporting */
-  logger: Logger;
-  /** Microsoft App Type */
-  appType?: "MultiTenant" | "SingleTenant";
   /** Microsoft App Tenant ID */
   appTenantId?: string;
+  /** Microsoft App Type */
+  appType?: "MultiTenant" | "SingleTenant";
+  /** Logger instance for error reporting */
+  logger: Logger;
   /** Override bot username (optional) */
   userName?: string;
 }
@@ -112,14 +112,14 @@ export interface TeamsAdapterConfig {
 /** Teams-specific thread ID data */
 export interface TeamsThreadId {
   conversationId: string;
-  serviceUrl: string;
   replyToId?: string;
+  serviceUrl: string;
 }
 
 /** Teams channel context extracted from activity.channelData */
 interface TeamsChannelContext {
-  teamId: string;
   channelId: string;
+  teamId: string;
   tenantId: string;
 }
 
@@ -143,7 +143,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (config.appType === "SingleTenant" && !config.appTenantId) {
       throw new ValidationError(
         "teams",
-        "appTenantId is required for SingleTenant app type",
+        "appTenantId is required for SingleTenant app type"
       );
     }
 
@@ -163,14 +163,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       const credential = new ClientSecretCredential(
         config.appTenantId,
         config.appId,
-        config.appPassword,
+        config.appPassword
       );
 
       const authProvider = new TokenCredentialAuthenticationProvider(
         credential,
         {
           scopes: ["https://graph.microsoft.com/.default"],
-        } as TokenCredentialAuthenticationProviderOptions,
+        } as TokenCredentialAuthenticationProviderOptions
       );
 
       this.graphClient = Client.initWithMiddleware({ authProvider });
@@ -183,7 +183,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   async handleWebhook(
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
     this.logger.debug("Teams webhook raw body", { body });
@@ -207,7 +207,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         activity,
         async (context) => {
           await this.handleTurn(context, options);
-        },
+        }
       );
 
       return new Response(JSON.stringify({}), {
@@ -225,7 +225,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private async handleTurn(
     context: TurnContext,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring event");
@@ -322,7 +322,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             teamThreadId,
             teamGuid: context.teamId,
             channelId: context.channelId,
-          },
+          }
         );
       } else if (teamThreadId && channelData?.channel?.id && tenantId) {
         // Regular message event - no aadGroupId, but try to look up from previous cache
@@ -337,7 +337,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             .set(
               `teams:channelContext:${baseChannelId}`,
               cachedTeamContext,
-              ttl,
+              ttl
             )
             .catch((err) => {
               this.logger.error("Failed to cache channel context from team", {
@@ -391,14 +391,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
                   teamThreadId,
                   teamGuid: teamDetails.aadGroupId,
                   teamName: teamDetails.name,
-                },
+                }
               );
             }
           } catch (error) {
             // TeamsInfo.getTeamDetails() only works in team scope
             this.logger.debug(
               "Could not fetch team details (may not be a team scope)",
-              { teamThreadId, error },
+              { teamThreadId, error }
             );
           }
         }
@@ -446,7 +446,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this,
       threadId,
       this.parseTeamsMessage(activity, threadId),
-      options,
+      options
     );
   }
 
@@ -457,9 +457,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   private handleMessageAction(
     activity: Activity,
     actionValue: { actionId?: string; value?: string },
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
-    if (!this.chat || !actionValue.actionId) return;
+    if (!(this.chat && actionValue.actionId)) {
+      return;
+    }
 
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
@@ -499,7 +501,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   private async handleInvokeActivity(
     context: TurnContext,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<void> {
     const activity = context.activity;
 
@@ -521,9 +523,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   private async handleAdaptiveCardAction(
     context: TurnContext,
     activity: Activity,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<void> {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     // Activity.value contains our action data
     const actionData = activity.value?.action?.data as
@@ -586,9 +590,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   private handleReactionActivity(
     activity: Activity,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     // Extract the message ID from conversation ID
     // Format: "19:xxx@thread.tacv2;messageid=1767297849909"
@@ -599,7 +605,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // Build thread ID - KEEP the full conversation ID including ;messageid=XXX
     // This is required for Teams to reply in the correct thread
     const threadId = this.encodeThreadId({
-      conversationId: conversationId,
+      conversationId,
       serviceUrl: activity.serviceUrl || "",
     });
 
@@ -664,7 +670,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private parseTeamsMessage(
     activity: Activity,
-    threadId: string,
+    threadId: string
   ): Message<unknown> {
     const text = activity.text || "";
     // Normalize mentions - format converter will convert <at>name</at> to @name
@@ -699,7 +705,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             // Filter out text/html without contentUrl - this is just the formatted
             // version of the message text, not an actual file attachment.
             // Real HTML file attachments would have a contentUrl.
-            !(att.contentType === "text/html" && !att.contentUrl),
+            !(att.contentType === "text/html" && !att.contentUrl)
         )
         .map((att) => this.createAttachment(att)),
     });
@@ -736,7 +742,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             if (!response.ok) {
               throw new NetworkError(
                 "teams",
-                `Failed to fetch file: ${response.status} ${response.statusText}`,
+                `Failed to fetch file: ${response.status} ${response.statusText}`
               );
             }
             const arrayBuffer = await response.arrayBuffer();
@@ -754,7 +760,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
 
@@ -792,7 +798,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       // Regular text message
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "teams",
+        "teams"
       );
 
       activity = {
@@ -826,7 +832,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         async (context) => {
           const response = await context.sendActivity(activity);
           messageId = response?.id || "";
-        },
+        }
       );
     } catch (error) {
       this.logger.error("Teams API: sendActivity failed", {
@@ -850,7 +856,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Uses inline data URIs for small files.
    */
   private async filesToAttachments(
-    files: FileUpload[],
+    files: FileUpload[]
   ): Promise<Array<{ contentType: string; contentUrl: string; name: string }>> {
     const attachments: Array<{
       contentType: string;
@@ -885,7 +891,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
 
@@ -917,7 +923,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       // Regular text message
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "teams",
+        "teams"
       );
 
       activity = {
@@ -946,7 +952,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         conversationReference as Partial<ConversationReference>,
         async (context) => {
           await context.updateActivity(activity);
-        },
+        }
       );
     } catch (error) {
       this.logger.error("Teams API: updateActivity failed", {
@@ -986,7 +992,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         conversationReference as Partial<ConversationReference>,
         async (context) => {
           await context.deleteActivity(messageId);
-        },
+        }
       );
     } catch (error) {
       this.logger.error("Teams API: deleteActivity failed", {
@@ -1003,22 +1009,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   async addReaction(
     _threadId: string,
     _messageId: string,
-    _emoji: EmojiValue | string,
+    _emoji: EmojiValue | string
   ): Promise<void> {
     throw new NotImplementedError(
       "Teams Bot Framework does not expose reaction APIs",
-      "addReaction",
+      "addReaction"
     );
   }
 
   async removeReaction(
     _threadId: string,
     _messageId: string,
-    _emoji: EmojiValue | string,
+    _emoji: EmojiValue | string
   ): Promise<void> {
     throw new NotImplementedError(
       "Teams Bot Framework does not expose reaction APIs",
-      "removeReaction",
+      "removeReaction"
     );
   }
 
@@ -1039,7 +1045,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         conversationReference as Partial<ConversationReference>,
         async (context) => {
           await context.sendActivity({ type: ActivityTypes.Typing });
-        },
+        }
       );
     } catch (error) {
       this.logger.error("Teams API: sendActivity (typing) failed", {
@@ -1086,7 +1092,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (!tenantId) {
       throw new ValidationError(
         "teams",
-        "Cannot open DM: tenant ID not found. User must interact with the bot first (via @mention) to cache their tenant ID.",
+        "Cannot open DM: tenant ID not found. User must interact with the bot first (via @mention) to cache their tenant ID."
       );
     }
 
@@ -1116,13 +1122,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           conversationId,
           activityId: turnContext?.activity?.id,
         });
-      },
+      }
     );
 
     if (!conversationId) {
       throw new NetworkError(
         "teams",
-        "Failed to create 1:1 conversation - no ID returned",
+        "Failed to create 1:1 conversation - no ID returned"
       );
     }
 
@@ -1136,12 +1142,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   async fetchMessages(
     threadId: string,
-    options: FetchOptions = {},
+    options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
     if (!this.graphClient) {
       throw new NotImplementedError(
         "Teams fetchMessages requires appTenantId to be configured for Microsoft Graph API access.",
-        "fetchMessages",
+        "fetchMessages"
       );
     }
 
@@ -1192,7 +1198,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           channelContext,
           threadMessageId,
           threadId,
-          options,
+          options
         );
       }
 
@@ -1237,9 +1243,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         let startIndex = 0;
         if (cursor) {
           startIndex = allMessages.findIndex(
-            (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+            (msg) => msg.createdDateTime && msg.createdDateTime > cursor
           );
-          if (startIndex === -1) startIndex = allMessages.length;
+          if (startIndex === -1) {
+            startIndex = allMessages.length;
+          }
         }
 
         // Check if there are more messages beyond our slice
@@ -1298,7 +1306,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           threadId,
           text: this.extractTextFromGraphMessage(msg),
           formatted: this.formatConverter.toAst(
-            this.extractTextFromGraphMessage(msg),
+            this.extractTextFromGraphMessage(msg)
           ),
           raw: msg,
           author: {
@@ -1351,7 +1359,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       if (error instanceof Error && error.message?.includes("403")) {
         throw new NotImplementedError(
           "Teams fetchMessages requires one of these Azure AD app permissions: ChatMessage.Read.Chat, Chat.Read.All, or Chat.Read.WhereInstalled",
-          "fetchMessages",
+          "fetchMessages"
         );
       }
 
@@ -1369,7 +1377,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     context: TeamsChannelContext,
     threadMessageId: string,
     threadId: string,
-    options: FetchOptions,
+    options: FetchOptions
   ): Promise<FetchResult<unknown>> {
     const limit = options.limit || 50;
     const cursor = options.cursor;
@@ -1440,9 +1448,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       let startIndex = 0;
       if (cursor) {
         startIndex = allMessages.findIndex(
-          (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+          (msg) => msg.createdDateTime && msg.createdDateTime > cursor
         );
-        if (startIndex === -1) startIndex = allMessages.length;
+        if (startIndex === -1) {
+          startIndex = allMessages.length;
+        }
       }
 
       hasMoreMessages = startIndex + limit < allMessages.length;
@@ -1476,7 +1486,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         // Find position of cursor (cursor is timestamp of the oldest message in previous batch)
         // We want messages OLDER than cursor (earlier in chronological order)
         const cursorIndex = allMessages.findIndex(
-          (msg) => msg.createdDateTime && msg.createdDateTime >= cursor,
+          (msg) => msg.createdDateTime && msg.createdDateTime >= cursor
         );
         if (cursorIndex > 0) {
           // Take messages before the cursor position
@@ -1511,7 +1521,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         threadId,
         text: this.extractTextFromGraphMessage(msg),
         formatted: this.formatConverter.toAst(
-          this.extractTextFromGraphMessage(msg),
+          this.extractTextFromGraphMessage(msg)
         ),
         raw: msg,
         author: {
@@ -1597,7 +1607,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Extract a title/summary from an Adaptive Card structure.
    */
   private extractCardTitle(card: unknown): string | null {
-    if (!card || typeof card !== "object") return null;
+    if (!card || typeof card !== "object") {
+      return null;
+    }
 
     const cardObj = card as Record<string, unknown>;
 
@@ -1645,7 +1657,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Extract attachments from a Graph API message.
    */
   private extractAttachmentsFromGraphMessage(
-    msg: GraphChatMessage,
+    msg: GraphChatMessage
   ): Attachment[] {
     if (!msg.attachments?.length) {
       return [];
@@ -1690,12 +1702,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   async fetchChannelMessages(
     channelId: string,
-    options: FetchOptions = {},
+    options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
     if (!this.graphClient) {
       throw new NotImplementedError(
         "Teams fetchChannelMessages requires appTenantId for Microsoft Graph API access.",
-        "fetchChannelMessages",
+        "fetchChannelMessages"
       );
     }
 
@@ -1751,9 +1763,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           if (options.cursor) {
             const cursor = options.cursor;
             startIndex = allMessages.findIndex(
-              (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+              (msg) => msg.createdDateTime && msg.createdDateTime > cursor
             );
-            if (startIndex === -1) startIndex = allMessages.length;
+            if (startIndex === -1) {
+              startIndex = allMessages.length;
+            }
           }
           hasMoreMessages = startIndex + limit < allMessages.length;
           graphMessages = allMessages.slice(startIndex, startIndex + limit);
@@ -1788,9 +1802,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           if (options.cursor) {
             const cursor = options.cursor;
             startIndex = allMessages.findIndex(
-              (msg) => msg.createdDateTime && msg.createdDateTime > cursor,
+              (msg) => msg.createdDateTime && msg.createdDateTime > cursor
             );
-            if (startIndex === -1) startIndex = allMessages.length;
+            if (startIndex === -1) {
+              startIndex = allMessages.length;
+            }
           }
           hasMoreMessages = startIndex + limit < allMessages.length;
           graphMessages = allMessages.slice(startIndex, startIndex + limit);
@@ -1818,7 +1834,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           threadId: channelId,
           text: this.extractTextFromGraphMessage(msg),
           formatted: this.formatConverter.toAst(
-            this.extractTextFromGraphMessage(msg),
+            this.extractTextFromGraphMessage(msg)
           ),
           raw: msg,
           author: {
@@ -1849,11 +1865,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       if (hasMoreMessages && graphMessages.length > 0) {
         if (direction === "forward") {
           const lastMsg = graphMessages[graphMessages.length - 1];
-          if (lastMsg?.createdDateTime) nextCursor = lastMsg.createdDateTime;
+          if (lastMsg?.createdDateTime) {
+            nextCursor = lastMsg.createdDateTime;
+          }
         } else {
           const oldestMsg = graphMessages[0];
-          if (oldestMsg?.createdDateTime)
+          if (oldestMsg?.createdDateTime) {
             nextCursor = oldestMsg.createdDateTime;
+          }
         }
       }
 
@@ -1873,12 +1892,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   async listThreads(
     channelId: string,
-    options: ListThreadsOptions = {},
+    options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
     if (!this.graphClient) {
       throw new NotImplementedError(
         "Teams listThreads requires appTenantId for Microsoft Graph API access.",
-        "listThreads",
+        "listThreads"
       );
     }
 
@@ -1919,7 +1938,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         })[];
 
         for (const msg of messages) {
-          if (!msg.id) continue;
+          if (!msg.id) {
+            continue;
+          }
           const threadId = this.encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
             serviceUrl,
@@ -1936,7 +1957,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
               threadId,
               text: this.extractTextFromGraphMessage(msg),
               formatted: this.formatConverter.toAst(
-                this.extractTextFromGraphMessage(msg),
+                this.extractTextFromGraphMessage(msg)
               ),
               raw: msg,
               author: {
@@ -1978,7 +1999,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         const messages = (response.value || []) as GraphChatMessage[];
 
         for (const msg of messages) {
-          if (!msg.id) continue;
+          if (!msg.id) {
+            continue;
+          }
           const threadId = this.encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
             serviceUrl,
@@ -1995,7 +2018,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
               threadId,
               text: this.extractTextFromGraphMessage(msg),
               formatted: this.formatConverter.toAst(
-                this.extractTextFromGraphMessage(msg),
+                this.extractTextFromGraphMessage(msg)
               ),
               raw: msg,
               author: {
@@ -2066,7 +2089,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
         const response = await this.graphClient
           .api(
-            `/teams/${encodeURIComponent(channelContext.teamId)}/channels/${encodeURIComponent(channelContext.channelId)}`,
+            `/teams/${encodeURIComponent(channelContext.teamId)}/channels/${encodeURIComponent(channelContext.channelId)}`
           )
           .get();
 
@@ -2102,7 +2125,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   async postChannelMessage(
     channelId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const { conversationId, serviceUrl } = this.decodeThreadId(channelId);
     // Ensure we use the base conversation ID (no messageid)
@@ -2130,7 +2153,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } else {
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "teams",
+        "teams"
       );
       activity = {
         type: ActivityTypes.Message,
@@ -2155,7 +2178,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         async (context) => {
           const response = await context.sendActivity(activity);
           messageId = response?.id || "";
-        },
+        }
       );
     } catch (error) {
       this.logger.error("Teams API: postChannelMessage failed", {
@@ -2177,10 +2200,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   encodeThreadId(platformData: TeamsThreadId): string {
     // Base64 encode both since conversationId and serviceUrl can contain special characters
     const encodedConversationId = Buffer.from(
-      platformData.conversationId,
+      platformData.conversationId
     ).toString("base64url");
     const encodedServiceUrl = Buffer.from(platformData.serviceUrl).toString(
-      "base64url",
+      "base64url"
     );
     return `teams:${encodedConversationId}:${encodedServiceUrl}`;
   }
@@ -2200,15 +2223,15 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (parts.length !== 3 || parts[0] !== "teams") {
       throw new ValidationError(
         "teams",
-        `Invalid Teams thread ID: ${threadId}`,
+        `Invalid Teams thread ID: ${threadId}`
       );
     }
     const conversationId = Buffer.from(
       parts[1] as string,
-      "base64url",
+      "base64url"
     ).toString("utf-8");
     const serviceUrl = Buffer.from(parts[2] as string, "base64url").toString(
-      "utf-8",
+      "utf-8"
     );
     return { conversationId, serviceUrl };
   }
@@ -2234,7 +2257,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   private isMessageFromSelf(activity: Activity): boolean {
     const fromId = activity.from?.id;
-    if (!fromId || !this.config.appId) {
+    if (!(fromId && this.config.appId)) {
       return false;
     }
 
@@ -2273,7 +2296,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       if (statusCode === 401 || statusCode === 403) {
         throw new AuthenticationError(
           "teams",
-          `Authentication failed for ${operation}: ${err.message || "unauthorized"}`,
+          `Authentication failed for ${operation}: ${err.message || "unauthorized"}`
         );
       }
 
@@ -2281,7 +2304,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         throw new NetworkError(
           "teams",
           `Resource not found during ${operation}: conversation or message may no longer exist`,
-          error instanceof Error ? error : undefined,
+          error instanceof Error ? error : undefined
         );
       }
 
@@ -2306,7 +2329,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         throw new NetworkError(
           "teams",
           `Teams API error during ${operation}: ${err.message}`,
-          error instanceof Error ? error : undefined,
+          error instanceof Error ? error : undefined
         );
       }
     }
@@ -2315,7 +2338,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     throw new NetworkError(
       "teams",
       `Teams API error during ${operation}: ${String(error)}`,
-      error instanceof Error ? error : undefined,
+      error instanceof Error ? error : undefined
     );
   }
 }

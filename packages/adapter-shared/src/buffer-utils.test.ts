@@ -34,16 +34,16 @@ describe("toBuffer", () => {
 
   it("throws ValidationError for unsupported type by default", async () => {
     await expect(toBuffer("string", { platform: "slack" })).rejects.toThrow(
-      ValidationError,
+      ValidationError
     );
     await expect(toBuffer(123, { platform: "slack" })).rejects.toThrow(
-      ValidationError,
+      ValidationError
     );
     await expect(toBuffer({}, { platform: "slack" })).rejects.toThrow(
-      ValidationError,
+      ValidationError
     );
     await expect(toBuffer(null, { platform: "slack" })).rejects.toThrow(
-      ValidationError,
+      ValidationError
     );
   });
 
@@ -87,7 +87,7 @@ describe("toBufferSync", () => {
   it("throws ValidationError for Blob by default", () => {
     const input = new Blob(["hello"]);
     expect(() => toBufferSync(input, { platform: "slack" })).toThrow(
-      ValidationError,
+      ValidationError
     );
   });
 
@@ -102,7 +102,7 @@ describe("toBufferSync", () => {
 
   it("throws ValidationError for unsupported type by default", () => {
     expect(() => toBufferSync("string", { platform: "slack" })).toThrow(
-      ValidationError,
+      ValidationError
     );
   });
 

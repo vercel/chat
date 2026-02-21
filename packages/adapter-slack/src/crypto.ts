@@ -5,14 +5,14 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 export interface EncryptedTokenData {
-  iv: string;
   data: string;
+  iv: string;
   tag: string;
 }
 
 export function encryptToken(
   plaintext: string,
-  key: Buffer,
+  key: Buffer
 ): EncryptedTokenData {
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv, {
@@ -33,7 +33,7 @@ export function encryptToken(
 
 export function decryptToken(
   encrypted: EncryptedTokenData,
-  key: Buffer,
+  key: Buffer
 ): string {
   const iv = Buffer.from(encrypted.iv, "base64");
   const ciphertext = Buffer.from(encrypted.data, "base64");
@@ -51,9 +51,11 @@ export function decryptToken(
 }
 
 export function isEncryptedTokenData(
-  value: unknown,
+  value: unknown
 ): value is EncryptedTokenData {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.iv === "string" &&
@@ -69,7 +71,7 @@ export function decodeKey(rawKey: string): Buffer {
   const key = Buffer.from(trimmed, isHex ? "hex" : "base64");
   if (key.length !== 32) {
     throw new Error(
-      `Encryption key must decode to exactly 32 bytes (received ${key.length}). Use a 64-char hex string or 44-char base64 string.`,
+      `Encryption key must decode to exactly 32 bytes (received ${key.length}). Use a 64-char hex string or 44-char base64 string.`
     );
   }
   return key;

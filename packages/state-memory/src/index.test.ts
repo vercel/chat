@@ -102,7 +102,7 @@ describe("MemoryStateAdapter", () => {
       // Extend the lock
       const extended = await adapter.extendLock(
         lock as NonNullable<typeof lock>,
-        5000,
+        5000
       );
       expect(extended).toBe(true);
 
@@ -120,7 +120,7 @@ describe("MemoryStateAdapter", () => {
 
       const extended = await adapter.extendLock(
         lock as NonNullable<typeof lock>,
-        5000,
+        5000
       );
       expect(extended).toBe(false);
     });
@@ -130,7 +130,7 @@ describe("MemoryStateAdapter", () => {
     it("should throw when not connected", async () => {
       const newAdapter = createMemoryState();
       await expect(newAdapter.subscribe("test")).rejects.toThrow(
-        "not connected",
+        "not connected"
       );
     });
 

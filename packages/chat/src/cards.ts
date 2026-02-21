@@ -58,44 +58,44 @@ export type TextStyle = "plain" | "bold" | "muted";
 
 /** Button element for interactive actions */
 export interface ButtonElement {
-  type: "button";
   /** Unique action ID for callback routing */
   id: string;
   /** Button label text */
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  type: "button";
   /** Optional payload value sent with action callback */
   value?: string;
 }
 
 /** Link button element that opens a URL */
 export interface LinkButtonElement {
-  type: "link-button";
-  /** URL to open when clicked */
-  url: string;
   /** Button label text */
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  type: "link-button";
+  /** URL to open when clicked */
+  url: string;
 }
 
 /** Text content element */
 export interface TextElement {
-  type: "text";
   /** Text content (supports markdown in some platforms) */
   content: string;
   /** Text style */
   style?: TextStyle;
+  type: "text";
 }
 
 /** Image element */
 export interface ImageElement {
+  /** Alt text for accessibility */
+  alt?: string;
   type: "image";
   /** Image URL */
   url: string;
-  /** Alt text for accessibility */
-  alt?: string;
 }
 
 /** Visual divider/separator */
@@ -105,7 +105,6 @@ export interface DividerElement {
 
 /** Container for action buttons and selects */
 export interface ActionsElement {
-  type: "actions";
   /** Button, link button, select, and radio select elements */
   children: (
     | ButtonElement
@@ -113,29 +112,30 @@ export interface ActionsElement {
     | SelectElement
     | RadioSelectElement
   )[];
+  type: "actions";
 }
 
 /** Section container for grouping elements */
 export interface SectionElement {
-  type: "section";
   /** Section children */
   children: CardChild[];
+  type: "section";
 }
 
 /** Field for key-value display */
 export interface FieldElement {
-  type: "field";
   /** Field label */
   label: string;
+  type: "field";
   /** Field value */
   value: string;
 }
 
 /** Fields container for multi-column layout */
 export interface FieldsElement {
-  type: "fields";
   /** Field elements */
   children: FieldElement[];
+  type: "fields";
 }
 
 /** Union of all card child element types */
@@ -159,15 +159,15 @@ type AnyCardElement =
 
 /** Root card element */
 export interface CardElement {
-  type: "card";
-  /** Card title */
-  title?: string;
-  /** Card subtitle */
-  subtitle?: string;
-  /** Header image URL */
-  imageUrl?: string;
   /** Card content */
   children: CardChild[];
+  /** Header image URL */
+  imageUrl?: string;
+  /** Card subtitle */
+  subtitle?: string;
+  /** Card title */
+  title?: string;
+  type: "card";
 }
 
 /** Type guard for CardElement */
@@ -186,10 +186,10 @@ export function isCardElement(value: unknown): value is CardElement {
 
 /** Options for Card */
 export interface CardOptions {
-  title?: string;
-  subtitle?: string;
-  imageUrl?: string;
   children?: CardChild[];
+  imageUrl?: string;
+  subtitle?: string;
+  title?: string;
 }
 
 /**
@@ -224,7 +224,7 @@ export function Card(options: CardOptions = {}): CardElement {
  */
 export function Text(
   content: string,
-  options: { style?: TextStyle } = {},
+  options: { style?: TextStyle } = {}
 ): TextElement {
   return {
     type: "text",
@@ -311,7 +311,7 @@ export function Actions(
     | LinkButtonElement
     | SelectElement
     | RadioSelectElement
-  )[],
+  )[]
 ): ActionsElement {
   return {
     type: "actions",
@@ -352,12 +352,12 @@ export function Button(options: ButtonOptions): ButtonElement {
 
 /** Options for LinkButton */
 export interface LinkButtonOptions {
-  /** URL to open when clicked */
-  url: string;
   /** Button label text */
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  /** URL to open when clicked */
+  url: string;
 }
 
 /**
@@ -419,8 +419,8 @@ export function Fields(children: FieldElement[]): FieldsElement {
 /** React element shape (minimal typing to avoid React dependency) */
 interface ReactElement {
   $$typeof: symbol;
-  type: unknown;
   props: Record<string, unknown>;
+  type: unknown;
 }
 
 /**
@@ -496,7 +496,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
     if (typeof type === "string") {
       throw new Error(
         `HTML element <${type}> is not supported in card elements. ` +
-          `Use Card, Text, Section, Actions, Button, Fields, Field, Image, or Divider components instead.`,
+          "Use Card, Text, Section, Actions, Button, Fields, Field, Image, or Divider components instead."
       );
     }
 
@@ -553,7 +553,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
       return Actions(
         convertedChildren.filter(
           (
-            c,
+            c
           ): c is
             | ButtonElement
             | LinkButtonElement
@@ -562,8 +562,8 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
             c.type === "button" ||
             c.type === "link-button" ||
             c.type === "select" ||
-            c.type === "radio_select",
-        ),
+            c.type === "radio_select"
+        )
       );
 
     case "Button": {
@@ -595,7 +595,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
 
     case "Fields":
       return Fields(
-        convertedChildren.filter((c): c is FieldElement => c.type === "field"),
+        convertedChildren.filter((c): c is FieldElement => c.type === "field")
       );
 
     default:

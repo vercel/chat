@@ -16,24 +16,24 @@ import type {
  * Use this interface when constructing Message objects.
  */
 export interface MessageData<TRawMessage = unknown> {
-  /** Unique message ID */
-  id: string;
-  /** Thread this message belongs to */
-  threadId: string;
-  /** Plain text content (all formatting stripped) */
-  text: string;
-  /** Structured formatting as an AST (mdast Root) */
-  formatted: FormattedContent;
-  /** Platform-specific raw payload (escape hatch) */
-  raw: TRawMessage;
-  /** Message author */
-  author: Author;
-  /** Message metadata */
-  metadata: MessageMetadata;
   /** Attachments */
   attachments: Attachment[];
+  /** Message author */
+  author: Author;
+  /** Structured formatting as an AST (mdast Root) */
+  formatted: FormattedContent;
+  /** Unique message ID */
+  id: string;
   /** Whether the bot is @-mentioned in this message */
   isMention?: boolean;
+  /** Message metadata */
+  metadata: MessageMetadata;
+  /** Platform-specific raw payload (escape hatch) */
+  raw: TRawMessage;
+  /** Plain text content (all formatting stripped) */
+  text: string;
+  /** Thread this message belongs to */
+  threadId: string;
 }
 
 /**
@@ -42,23 +42,6 @@ export interface MessageData<TRawMessage = unknown> {
  */
 export interface SerializedMessage {
   _type: "chat:Message";
-  id: string;
-  threadId: string;
-  text: string;
-  formatted: Root;
-  raw: unknown;
-  author: {
-    userId: string;
-    userName: string;
-    fullName: string;
-    isBot: boolean | "unknown";
-    isMe: boolean;
-  };
-  metadata: {
-    dateSent: string; // ISO string
-    edited: boolean;
-    editedAt?: string; // ISO string
-  };
   attachments: Array<{
     type: "image" | "file" | "video" | "audio";
     url?: string;
@@ -68,7 +51,24 @@ export interface SerializedMessage {
     width?: number;
     height?: number;
   }>;
+  author: {
+    userId: string;
+    userName: string;
+    fullName: string;
+    isBot: boolean | "unknown";
+    isMe: boolean;
+  };
+  formatted: Root;
+  id: string;
   isMention?: boolean;
+  metadata: {
+    dateSent: string; // ISO string
+    edited: boolean;
+    editedAt?: string; // ISO string
+  };
+  raw: unknown;
+  text: string;
+  threadId: string;
 }
 
 /**
@@ -191,7 +191,7 @@ export class Message<TRawMessage = unknown> {
    * Converts ISO date strings back to Date objects.
    */
   static fromJSON<TRawMessage = unknown>(
-    json: SerializedMessage,
+    json: SerializedMessage
   ): Message<TRawMessage> {
     return new Message<TRawMessage>({
       id: json.id,

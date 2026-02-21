@@ -6,7 +6,7 @@ export class ChatError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly cause?: unknown,
+    public readonly cause?: unknown
   ) {
     super(message);
     this.name = "ChatError";
@@ -17,7 +17,7 @@ export class RateLimitError extends ChatError {
   constructor(
     message: string,
     public readonly retryAfterMs?: number,
-    cause?: unknown,
+    cause?: unknown
   ) {
     super(message, "RATE_LIMITED", cause);
     this.name = "RateLimitError";
@@ -35,7 +35,7 @@ export class NotImplementedError extends ChatError {
   constructor(
     message: string,
     public readonly feature?: string,
-    cause?: unknown,
+    cause?: unknown
   ) {
     super(message, "NOT_IMPLEMENTED", cause);
     this.name = "NotImplementedError";

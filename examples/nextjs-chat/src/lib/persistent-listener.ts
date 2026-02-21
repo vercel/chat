@@ -4,14 +4,14 @@ import { createClient } from "redis";
  * Configuration for a persistent listener.
  */
 export interface PersistentListenerConfig {
-  /** Unique name for this listener type (used for Redis channel) */
-  name: string;
-  /** Redis URL for cross-instance coordination (optional) */
-  redisUrl?: string;
   /** Default duration in milliseconds */
   defaultDurationMs: number;
   /** Maximum duration in milliseconds */
   maxDurationMs: number;
+  /** Unique name for this listener type (used for Redis channel) */
+  name: string;
+  /** Redis URL for cross-instance coordination (optional) */
+  redisUrl?: string;
 }
 
 /**
@@ -20,10 +20,10 @@ export interface PersistentListenerConfig {
 export interface ListenerOptions {
   /** Signal that fires when the listener should stop */
   abortSignal: AbortSignal;
-  /** Unique ID for this listener instance */
-  listenerId: string;
   /** Duration this listener should run */
   durationMs: number;
+  /** Unique ID for this listener instance */
+  listenerId: string;
 }
 
 /**
@@ -70,7 +70,7 @@ export function createPersistentListener(config: PersistentListenerConfig) {
         run: (opts: ListenerOptions) => Promise<Response>;
         /** Optional: get duration from request (default: query param `duration`) */
         getDuration?: (request: Request) => number | undefined;
-      },
+      }
     ): Promise<Response> {
       const { afterTask, run, getDuration } = options;
 
@@ -85,11 +85,11 @@ export function createPersistentListener(config: PersistentListenerConfig) {
         : (() => {
             const url = new URL(request.url);
             const param = url.searchParams.get("duration");
-            return param ? parseInt(param, 10) : undefined;
+            return param ? Number.parseInt(param, 10) : undefined;
           })();
       const durationMs = Math.min(
         requestedDuration ?? defaultDurationMs,
-        maxDurationMs,
+        maxDurationMs
       );
 
       // Set up abort controller for cross-instance coordination
@@ -103,8 +103,8 @@ export function createPersistentListener(config: PersistentListenerConfig) {
             redisChannel,
             listenerId,
             durationMs,
-            abortController,
-          ),
+            abortController
+          )
         );
       }
 
@@ -127,7 +127,7 @@ export function createPersistentListener(config: PersistentListenerConfig) {
           {
             status: 500,
             headers: { "Content-Type": "application/json" },
-          },
+          }
         );
       }
     },
@@ -141,7 +141,7 @@ export function createPersistentListener(config: PersistentListenerConfig) {
       channel: string,
       listenerId: string,
       durationMs: number,
-      abortController: AbortController,
+      abortController: AbortController
     ): Promise<void> {
       const pubClient = createClient({ url: redisUrl });
       const subClient = pubClient.duplicate();
@@ -152,10 +152,12 @@ export function createPersistentListener(config: PersistentListenerConfig) {
         // Subscribe to shutdown signals from other instances
         await subClient.subscribe(channel, (message) => {
           // Ignore our own startup message
-          if (message === listenerId) return;
+          if (message === listenerId) {
+            return;
+          }
 
           console.log(
-            `[${name}] ${listenerId} received shutdown signal from ${message}`,
+            `[${name}] ${listenerId} received shutdown signal from ${message}`
           );
           abortController.abort();
         });
@@ -173,7 +175,7 @@ export function createPersistentListener(config: PersistentListenerConfig) {
               clearTimeout(timeout);
               resolve();
             },
-            { once: true },
+            { once: true }
           );
         });
       } catch (error) {

@@ -18,7 +18,7 @@ describe("Chat Singleton", () => {
 
   it("should throw when getting unregistered singleton", () => {
     expect(() => getChatSingleton()).toThrow(
-      "No Chat singleton registered. Call chat.registerSingleton() first.",
+      "No Chat singleton registered. Call chat.registerSingleton() first."
     );
   });
 

@@ -27,7 +27,7 @@ import {
 // Helper to create mock React elements
 function createReactElement(
   type: unknown,
-  props: Record<string, unknown> = {},
+  props: Record<string, unknown> = {}
 ) {
   return {
     $$typeof: Symbol.for("react.element"),
@@ -41,7 +41,7 @@ describe("fromReactElement - React JSX mode", () => {
     it("throws error for HTML elements like div", () => {
       const divElement = createReactElement("div", { children: "Hello" });
       expect(() => fromReactElement(divElement)).toThrow(
-        "HTML element <div> is not supported in card elements.",
+        "HTML element <div> is not supported in card elements."
       );
     });
 
@@ -51,14 +51,14 @@ describe("fromReactElement - React JSX mode", () => {
         children: "Link",
       });
       expect(() => fromReactElement(anchorElement)).toThrow(
-        "HTML element <a> is not supported in card elements.",
+        "HTML element <a> is not supported in card elements."
       );
     });
 
     it("throws error for span elements", () => {
       const spanElement = createReactElement("span", { children: "Text" });
       expect(() => fromReactElement(spanElement)).toThrow(
-        "HTML element <span> is not supported in card elements.",
+        "HTML element <span> is not supported in card elements."
       );
     });
 

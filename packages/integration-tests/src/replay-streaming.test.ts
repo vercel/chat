@@ -76,7 +76,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -171,7 +171,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -212,7 +212,7 @@ describe("Streaming Replay Tests", () => {
       // Verify streaming response
       expectUpdatedMessage(
         ctx.mockBotAdapter,
-        "I am an AI assistant here to help.",
+        "I am an AI assistant here to help."
       );
     });
   });
@@ -254,7 +254,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -296,7 +296,7 @@ describe("Streaming Replay Tests", () => {
       // Verify streaming response
       expectUpdatedMessage(
         ctx.mockChatApi,
-        "I am an AI assistant here to help.",
+        "I am an AI assistant here to help."
       );
     });
   });

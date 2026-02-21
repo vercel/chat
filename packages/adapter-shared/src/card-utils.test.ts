@@ -117,7 +117,7 @@ describe("cardToFallbackText", () => {
       subtitle: "Subtitle",
     });
     expect(cardToFallbackText(card, { lineBreak: "\n\n" })).toBe(
-      "*Title*\n\nSubtitle",
+      "*Title*\n\nSubtitle"
     );
   });
 

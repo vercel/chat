@@ -86,7 +86,7 @@ describe("Builder Functions", () => {
 
     it("should throw with empty options", () => {
       expect(() => Select({ id: "s1", label: "Pick", options: [] })).toThrow(
-        "Select requires at least one option",
+        "Select requires at least one option"
       );
     });
 
@@ -135,7 +135,7 @@ describe("Builder Functions", () => {
 
     it("should throw with empty options", () => {
       expect(() =>
-        RadioSelect({ id: "r1", label: "Choose", options: [] }),
+        RadioSelect({ id: "r1", label: "Choose", options: [] })
       ).toThrow("RadioSelect requires at least one option");
     });
   });
@@ -179,7 +179,7 @@ describe("Type Guards", () => {
       const result = filterModalChildren(children);
       expect(result).toHaveLength(1);
       expect(warnSpy).toHaveBeenCalledWith(
-        "[chat] Modal contains unsupported child elements that were ignored",
+        "[chat] Modal contains unsupported child elements that were ignored"
       );
       warnSpy.mockRestore();
     });

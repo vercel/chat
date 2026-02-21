@@ -29,7 +29,7 @@ export function setChatSingleton(chat: ChatSingleton): void {
 export function getChatSingleton(): ChatSingleton {
   if (!_singleton) {
     throw new Error(
-      "No Chat singleton registered. Call chat.registerSingleton() first.",
+      "No Chat singleton registered. Call chat.registerSingleton() first."
     );
   }
   return _singleton;

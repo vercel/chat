@@ -292,13 +292,13 @@ describe("cardToGoogleCard", () => {
     // Should have 3 sections: before, section contents, after
     expect(gchatCard.card.sections).toHaveLength(3);
     expect(gchatCard.card.sections[0].widgets[0].textParagraph?.text).toBe(
-      "Before section",
+      "Before section"
     );
     expect(gchatCard.card.sections[1].widgets[0].textParagraph?.text).toBe(
-      "Inside section",
+      "Inside section"
     );
     expect(gchatCard.card.sections[2].widgets[0].textParagraph?.text).toBe(
-      "After section",
+      "After section"
     );
   });
 
@@ -400,7 +400,7 @@ describe("markdown bold to Google Chat conversion", () => {
 
     const widgets = gchatCard.card.sections[0].widgets;
     expect(widgets[0].textParagraph.text).toBe(
-      "*Project*: my-app, *Status*: active",
+      "*Project*: my-app, *Status*: active"
     );
   });
 
@@ -412,7 +412,7 @@ describe("markdown bold to Google Chat conversion", () => {
 
     const widgets = gchatCard.card.sections[0].widgets;
     expect(widgets[0].textParagraph.text).toBe(
-      "Already *bold* in GChat format",
+      "Already *bold* in GChat format"
     );
   });
 

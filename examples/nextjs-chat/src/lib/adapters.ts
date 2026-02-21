@@ -113,7 +113,7 @@ export function buildAdapters(): Adapters {
         logger: logger.child("discord"),
       }),
       "discord",
-      DISCORD_METHODS,
+      DISCORD_METHODS
     );
   }
 
@@ -132,7 +132,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("slack"),
         }),
         "slack",
-        SLACK_METHODS,
+        SLACK_METHODS
       );
     } else if (process.env.SLACK_BOT_TOKEN) {
       adapters.slack = withRecording(
@@ -143,7 +143,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("slack"),
         }),
         "slack",
-        SLACK_METHODS,
+        SLACK_METHODS
       );
     }
   }
@@ -160,7 +160,7 @@ export function buildAdapters(): Adapters {
         logger: logger.child("teams"),
       }),
       "teams",
-      TEAMS_METHODS,
+      TEAMS_METHODS
     );
   }
 
@@ -179,11 +179,11 @@ export function buildAdapters(): Adapters {
           logger: logger.child("gchat"),
         }),
         "gchat",
-        GCHAT_METHODS,
+        GCHAT_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Invalid GOOGLE_CHAT_CREDENTIALS JSON, skipping gchat adapter",
+        "[chat] Invalid GOOGLE_CHAT_CREDENTIALS JSON, skipping gchat adapter"
       );
     }
   }
@@ -201,7 +201,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("github"),
         }),
         "github",
-        GITHUB_METHODS,
+        GITHUB_METHODS
       );
     } else if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) {
       // GitHub App authentication (multi-tenant if no GITHUB_INSTALLATION_ID)
@@ -210,14 +210,14 @@ export function buildAdapters(): Adapters {
           appId: process.env.GITHUB_APP_ID,
           privateKey: process.env.GITHUB_PRIVATE_KEY,
           installationId: process.env.GITHUB_INSTALLATION_ID
-            ? parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
+            ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
             : undefined,
           webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
           userName: process.env.GITHUB_BOT_USERNAME || "chat-sdk-bot[bot]",
           logger: logger.child("github"),
         }),
         "github",
-        GITHUB_METHODS,
+        GITHUB_METHODS
       );
     }
   }
@@ -235,7 +235,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("linear"),
         }),
         "linear",
-        LINEAR_METHODS,
+        LINEAR_METHODS
       );
     } else if (
       process.env.LINEAR_CLIENT_ID &&
@@ -251,7 +251,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("linear"),
         }),
         "linear",
-        LINEAR_METHODS,
+        LINEAR_METHODS
       );
     } else if (process.env.LINEAR_ACCESS_TOKEN) {
       // Pre-obtained OAuth access token
@@ -263,7 +263,7 @@ export function buildAdapters(): Adapters {
           logger: logger.child("linear"),
         }),
         "linear",
-        LINEAR_METHODS,
+        LINEAR_METHODS
       );
     }
   }

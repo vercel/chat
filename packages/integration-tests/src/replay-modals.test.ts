@@ -23,7 +23,7 @@ async function storeModalContext(ctx: SlackTestContext): Promise<void> {
 }
 
 async function storeEphemeralModalContext(
-  ctx: SlackTestContext,
+  ctx: SlackTestContext
 ): Promise<void> {
   await ctx.state.connect();
   const { contextId, thread, message } = slackFixtures.ephemeralModalContext;
@@ -59,7 +59,7 @@ describe("Replay Tests - Modals", () => {
           onModalSubmit: async (event) => {
             capturedModalSubmit = event;
           },
-        },
+        }
       );
     });
 
@@ -85,7 +85,7 @@ describe("Replay Tests - Modals", () => {
       expect(openModalCalled).toBe(true);
 
       expect(capturedAction?.triggerId).toBe(
-        "10367455086084.10229338706656.e675a0c0dacc24a1f7b84a7a426d1197",
+        "10367455086084.10229338706656.e675a0c0dacc24a1f7b84a7a426d1197"
       );
     });
 
@@ -95,7 +95,7 @@ describe("Replay Tests - Modals", () => {
       vi.clearAllMocks();
 
       const response = await ctx.sendSlackViewSubmission(
-        slackFixtures.viewSubmission,
+        slackFixtures.viewSubmission
       );
 
       expect(response.status).toBe(200);
@@ -125,10 +125,10 @@ describe("Replay Tests - Modals", () => {
 
       expect(capturedModalSubmit?.relatedThread).toBeDefined();
       expect(capturedModalSubmit?.relatedThread?.id).toBe(
-        "slack:C00FAKECHAN2:1769220155.940449",
+        "slack:C00FAKECHAN2:1769220155.940449"
       );
       expect(capturedModalSubmit?.relatedThread?.channelId).toBe(
-        "C00FAKECHAN2",
+        "C00FAKECHAN2"
       );
       expect(capturedModalSubmit?.relatedThread?.isDM).toBe(false);
       expect(capturedModalSubmit?.relatedThread?.adapter.name).toBe("slack");
@@ -144,13 +144,13 @@ describe("Replay Tests - Modals", () => {
       expect(capturedModalSubmit?.relatedMessage).toBeDefined();
       expect(capturedModalSubmit?.relatedMessage?.id).toBe("1769220161.503009");
       expect(capturedModalSubmit?.relatedMessage?.threadId).toBe(
-        "slack:C00FAKECHAN2:1769220155.940449",
+        "slack:C00FAKECHAN2:1769220155.940449"
       );
 
       expect(capturedModalSubmit?.relatedMessage?.author.isBot).toBe(true);
       expect(capturedModalSubmit?.relatedMessage?.author.isMe).toBe(true);
       expect(capturedModalSubmit?.relatedMessage?.author.userId).toBe(
-        "U00FAKEBOT02",
+        "U00FAKEBOT02"
       );
     });
 
@@ -168,11 +168,11 @@ describe("Replay Tests - Modals", () => {
             capturedModalSubmit = event;
             if (event.relatedThread) {
               await event.relatedThread.post(
-                `Feedback received from ${event.user.userName}!`,
+                `Feedback received from ${event.user.userName}!`
               );
             }
           },
-        },
+        }
       );
 
       await ctx.sendWebhook(slackFixtures.mention);
@@ -186,7 +186,7 @@ describe("Replay Tests - Modals", () => {
           channel: "C00FAKECHAN2",
           thread_ts: "1769220155.940449",
           text: expect.stringContaining("Feedback received from jane.smith"),
-        }),
+        })
       );
     });
 
@@ -206,7 +206,7 @@ describe("Replay Tests - Modals", () => {
               await event.relatedMessage.edit("Feedback received! Thank you.");
             }
           },
-        },
+        }
       );
 
       await ctx.sendWebhook(slackFixtures.mention);
@@ -220,7 +220,7 @@ describe("Replay Tests - Modals", () => {
           channel: "C00FAKECHAN2",
           ts: "1769220161.503009",
           text: expect.stringContaining("Feedback received! Thank you."),
-        }),
+        })
       );
     });
 
@@ -234,7 +234,7 @@ describe("Replay Tests - Modals", () => {
               openModalCalled = true;
             }
           },
-        },
+        }
       );
 
       await ctx.sendSlackAction(slackFixtures.ephemeralAction);
@@ -242,7 +242,7 @@ describe("Replay Tests - Modals", () => {
       expect(capturedAction).not.toBeNull();
       expect(capturedAction?.actionId).toBe("ephemeral_modal");
       expect(capturedAction?.triggerId).toBe(
-        "10541689532400.10229338706656.500e194be18c7e17dd828032cc9a769f",
+        "10541689532400.10229338706656.500e194be18c7e17dd828032cc9a769f"
       );
       expect(openModalCalled).toBe(true);
 
@@ -250,7 +250,7 @@ describe("Replay Tests - Modals", () => {
       expect(capturedAction?.messageId).toContain("1771126609.000200");
 
       expect(capturedAction?.threadId).toBe(
-        "slack:C00FAKECHAN3:1771126602.612659",
+        "slack:C00FAKECHAN3:1771126602.612659"
       );
       expect(capturedAction?.thread.channelId).toBe("C00FAKECHAN3");
     });
@@ -259,7 +259,7 @@ describe("Replay Tests - Modals", () => {
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
         .mockResolvedValue(
-          new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          new Response(JSON.stringify({ ok: true }), { status: 200 })
         );
 
       ctx = createSlackTestContext(
@@ -271,7 +271,7 @@ describe("Replay Tests - Modals", () => {
               await event.relatedMessage.edit("Updated ephemeral content!");
             }
           },
-        },
+        }
       );
 
       await storeEphemeralModalContext(ctx);
@@ -287,7 +287,7 @@ describe("Replay Tests - Modals", () => {
             text: "Updated ephemeral content!",
             thread_ts: "1771126602.612659",
           }),
-        }),
+        })
       );
 
       fetchSpy.mockRestore();
@@ -303,7 +303,7 @@ describe("Replay Tests - Modals", () => {
               await event.relatedThread.post("Response posted to thread!");
             }
           },
-        },
+        }
       );
 
       await storeEphemeralModalContext(ctx);
@@ -315,7 +315,7 @@ describe("Replay Tests - Modals", () => {
           channel: "C00FAKECHAN3",
           thread_ts: "1771126602.612659",
           text: expect.stringContaining("Response posted to thread!"),
-        }),
+        })
       );
     });
   });

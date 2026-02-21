@@ -466,7 +466,7 @@ describe("cardToBlockKit with radio select elements", () => {
 
   it("limits radio select options to 10", () => {
     const options = Array.from({ length: 15 }, (_, i) =>
-      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` }),
+      SelectOption({ label: `Option ${i + 1}`, value: `opt${i + 1}` })
     );
     const card = Card({
       children: [
@@ -622,7 +622,7 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
     const blocks = cardToBlockKit(card);
 
     expect(blocks[0].text.text).toBe(
-      "*Project*: my-app, *Status*: active, *Branch*: main",
+      "*Project*: my-app, *Status*: active, *Branch*: main"
     );
   });
 
@@ -630,14 +630,14 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
     const card = Card({
       children: [
         CardText(
-          "**Domain**: example.com\n**Project**: my-app\n**Status**: deployed",
+          "**Domain**: example.com\n**Project**: my-app\n**Status**: deployed"
         ),
       ],
     });
     const blocks = cardToBlockKit(card);
 
     expect(blocks[0].text.text).toBe(
-      "*Domain*: example.com\n*Project*: my-app\n*Status*: deployed",
+      "*Domain*: example.com\n*Project*: my-app\n*Status*: deployed"
     );
   });
 

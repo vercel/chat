@@ -84,7 +84,7 @@ export { createWaitUntilTracker } from "./test-scenarios";
  */
 export function createSignedSlackRequest(
   body: string,
-  contentType = "application/json",
+  contentType = "application/json"
 ): Request {
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const sigBasestring = `v0:${timestamp}:${body}`;
@@ -133,10 +133,10 @@ export function createTeamsRequest(body: unknown): Request {
  * Captured data from message handlers during tests.
  */
 export interface CapturedMessages {
-  mentionMessage: Message | null;
-  mentionThread: Thread | null;
   followUpMessage: Message | null;
   followUpThread: Thread | null;
+  mentionMessage: Message | null;
+  mentionThread: Thread | null;
 }
 
 // ============================================================================
@@ -144,16 +144,16 @@ export interface CapturedMessages {
 // ============================================================================
 
 export interface SlackTestContext {
-  chat: Chat<{ slack: SlackAdapter }>;
   adapter: SlackAdapter;
-  mockClient: MockSlackClient;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
-  state: StateAdapter;
-  sendWebhook: (fixture: unknown) => Promise<void>;
+  chat: Chat<{ slack: SlackAdapter }>;
+  mockClient: MockSlackClient;
   sendSlackAction: (fixture: unknown) => Promise<void>;
-  sendSlackViewSubmission: (fixture: unknown) => Promise<Response>;
   sendSlackSlashCommand: (fixture: Record<string, string>) => Promise<Response>;
+  sendSlackViewSubmission: (fixture: unknown) => Promise<Response>;
+  sendWebhook: (fixture: unknown) => Promise<void>;
+  state: StateAdapter;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -169,13 +169,13 @@ export function createSlackTestContext(
     onModalSubmit?: (event: ModalSubmitEvent) => Promise<void>;
     onSlashCommand?: (event: SlashCommandEvent) => Promise<void>;
     onAssistantThreadStarted?: (
-      event: AssistantThreadStartedEvent,
+      event: AssistantThreadStartedEvent
     ) => Promise<void>;
     onAssistantContextChanged?: (
-      event: AssistantContextChangedEvent,
+      event: AssistantContextChangedEvent
     ) => Promise<void>;
     onAppHomeOpened?: (event: AppHomeOpenedEvent) => Promise<void>;
-  },
+  }
 ): SlackTestContext {
   const adapter = createSlackAdapter({
     botToken: SLACK_BOT_TOKEN,
@@ -269,7 +269,7 @@ export function createSlackTestContext(
     sendWebhook: async (fixture: unknown) => {
       await chat.webhooks.slack(
         createSignedSlackRequest(JSON.stringify(fixture)),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     },
@@ -277,7 +277,7 @@ export function createSlackTestContext(
       const body = `payload=${encodeURIComponent(JSON.stringify(fixture))}`;
       await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     },
@@ -285,7 +285,7 @@ export function createSlackTestContext(
       const body = `payload=${encodeURIComponent(JSON.stringify(fixture))}`;
       const response = await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;
@@ -294,7 +294,7 @@ export function createSlackTestContext(
       const body = new URLSearchParams(fixture).toString();
       const response = await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;
@@ -307,12 +307,12 @@ export function createSlackTestContext(
 // ============================================================================
 
 export interface TeamsTestContext {
-  chat: Chat<{ teams: TeamsAdapter }>;
   adapter: TeamsAdapter;
-  mockBotAdapter: MockBotAdapter;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
+  chat: Chat<{ teams: TeamsAdapter }>;
+  mockBotAdapter: MockBotAdapter;
   sendWebhook: (fixture: unknown) => Promise<void>;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -325,7 +325,7 @@ export function createTeamsTestContext(
     onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
     onAction?: (event: ActionEvent) => Promise<void>;
     onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+  }
 ): TeamsTestContext {
   const appId = fixtures.appId || "test-app-id";
   const adapter = createTeamsAdapter({
@@ -400,12 +400,12 @@ export function createTeamsTestContext(
 // ============================================================================
 
 export interface GchatTestContext {
-  chat: Chat<{ gchat: GoogleChatAdapter }>;
   adapter: GoogleChatAdapter;
-  mockChatApi: MockGoogleChatApi;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
+  chat: Chat<{ gchat: GoogleChatAdapter }>;
+  mockChatApi: MockGoogleChatApi;
   sendWebhook: (fixture: unknown) => Promise<void>;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -418,7 +418,7 @@ export function createGchatTestContext(
     onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
     onAction?: (event: ActionEvent) => Promise<void>;
     onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+  }
 ): GchatTestContext {
   const adapter = createGoogleChatAdapter({
     credentials: GCHAT_TEST_CREDENTIALS,
@@ -504,7 +504,7 @@ export function expectValidMention(
     authorIsBot?: boolean;
     adapterName: string;
     threadIdContains?: string;
-  },
+  }
 ): void {
   expect(captured.mentionMessage).not.toBeNull();
   expect(captured.mentionThread).not.toBeNull();
@@ -518,7 +518,7 @@ export function expectValidMention(
   }
 
   expect(captured.mentionMessage?.author.isBot).toBe(
-    options.authorIsBot ?? false,
+    options.authorIsBot ?? false
   );
   expect(captured.mentionMessage?.author.isMe).toBe(false);
 
@@ -532,7 +532,7 @@ export function expectValidMention(
   // Verify recent messages includes the mention
   expect(captured.mentionThread?.recentMessages).toHaveLength(1);
   expect(captured.mentionThread?.recentMessages[0]).toBe(
-    captured.mentionMessage,
+    captured.mentionMessage
   );
 }
 
@@ -546,7 +546,7 @@ export function expectValidFollowUp(
     textContains?: string;
     authorIsBot?: boolean;
     adapterName: string;
-  },
+  }
 ): void {
   expect(captured.followUpMessage).not.toBeNull();
   expect(captured.followUpThread).not.toBeNull();
@@ -560,7 +560,7 @@ export function expectValidFollowUp(
   }
 
   expect(captured.followUpMessage?.author.isBot).toBe(
-    options.authorIsBot ?? false,
+    options.authorIsBot ?? false
   );
   expect(captured.followUpMessage?.author.isMe).toBe(false);
 
@@ -579,7 +579,7 @@ export function expectValidAction(
     adapterName: string;
     channelId?: string;
     isDM?: boolean;
-  },
+  }
 ): void {
   expect(action).not.toBeNull();
   expect(action?.actionId).toBe(options.actionId);
@@ -626,7 +626,7 @@ export function expectValidReaction(
     channelId?: string;
     messageId?: string;
     isDM?: boolean;
-  },
+  }
 ): void {
   expect(reaction).not.toBeNull();
 
@@ -677,7 +677,7 @@ export function expectValidSlashCommand(
     userName?: string;
     adapterName: string;
     channelId?: string;
-  },
+  }
 ): void {
   expect(event).not.toBeNull();
   expect(event?.command).toBe(options.command);
@@ -715,28 +715,28 @@ export function expectSentMessage(
     | MockBotAdapter
     | MockGoogleChatApi
     | Mock<(...args: unknown[]) => unknown>,
-  textContains: string,
+  textContains: string
 ): void {
   if ("chat" in mock && "postMessage" in mock.chat) {
     // Slack mock client
     expect(mock.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("sentActivities" in mock) {
     // Teams mock adapter
     expect(mock.sentActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("sentMessages" in mock) {
     // GChat mock API
     expect(mock.sentMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   }
 }
@@ -746,28 +746,28 @@ export function expectSentMessage(
  */
 export function expectUpdatedMessage(
   mock: MockSlackClient | MockBotAdapter | MockGoogleChatApi,
-  textContains: string,
+  textContains: string
 ): void {
   if ("chat" in mock && "update" in mock.chat) {
     // Slack mock client
     expect(mock.chat.update).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("updatedActivities" in mock) {
     // Teams mock adapter
     expect(mock.updatedActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("updatedMessages" in mock) {
     // GChat mock API
     expect(mock.updatedMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   }
 }
@@ -777,15 +777,15 @@ export function expectUpdatedMessage(
 // ============================================================================
 
 export interface DiscordTestContext {
-  chat: Chat<{ discord: DiscordAdapter }>;
   adapter: DiscordAdapter;
-  mockApi: MockDiscordApi;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
-  state: StateAdapter;
-  sendWebhook: (fixture: unknown) => Promise<Response>;
-  sendGatewayEvent: (fixture: unknown) => Promise<Response>;
+  chat: Chat<{ discord: DiscordAdapter }>;
   cleanup: () => void;
+  mockApi: MockDiscordApi;
+  sendGatewayEvent: (fixture: unknown) => Promise<Response>;
+  sendWebhook: (fixture: unknown) => Promise<Response>;
+  state: StateAdapter;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -802,7 +802,7 @@ export async function createDiscordTestContext(
     onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
     onAction?: (event: ActionEvent) => Promise<void>;
     onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+  }
 ): Promise<DiscordTestContext> {
   const applicationId = fixtures.applicationId || DISCORD_APPLICATION_ID;
   const botName = fixtures.botName || DISCORD_BOT_USERNAME;
@@ -875,7 +875,7 @@ export async function createDiscordTestContext(
       const { createDiscordWebhookRequest } = await import("./discord-utils");
       const response = await chat.webhooks.discord(
         createDiscordWebhookRequest(fixture as Record<string, unknown>),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;
@@ -884,7 +884,7 @@ export async function createDiscordTestContext(
       const { createDiscordGatewayRequest } = await import("./discord-utils");
       const response = await chat.webhooks.discord(
         createDiscordGatewayRequest(fixture as Record<string, unknown>),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;

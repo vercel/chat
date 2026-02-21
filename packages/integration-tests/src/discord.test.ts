@@ -244,7 +244,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Hello Discord!",
-        }),
+        })
       );
     });
 
@@ -269,7 +269,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.update).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Edited message",
-        }),
+        })
       );
     });
 
@@ -316,7 +316,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: expect.stringContaining("**Bold**"),
-        }),
+        })
       );
     });
 
@@ -340,7 +340,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Hey <@john>, check this out!",
-        }),
+        })
       );
     });
   });
@@ -365,7 +365,7 @@ describe("Discord Integration", () => {
 
       expect(mockApi.channels.typing).toHaveBeenCalled();
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Done typing!" }),
+        expect.objectContaining({ content: "Done typing!" })
       );
     });
 
@@ -462,7 +462,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step1");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Step 1 complete" }),
+        expect.objectContaining({ content: "Step 1 complete" })
       );
 
       mockApi.clearMocks();
@@ -481,7 +481,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step2");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Step 2 complete" }),
+        expect.objectContaining({ content: "Step 2 complete" })
       );
 
       mockApi.clearMocks();
@@ -500,7 +500,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step3");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "All steps complete!" }),
+        expect.objectContaining({ content: "All steps complete!" })
       );
       expect(mockApi.reactions.add).toHaveBeenCalled();
     });

@@ -53,13 +53,13 @@ describe("Thread ID Encoding/Decoding", () => {
 
     it("should throw on invalid format", () => {
       expect(() => decodeThreadId("invalid")).toThrow(
-        "Invalid Google Chat thread ID",
+        "Invalid Google Chat thread ID"
       );
     });
 
     it("should throw on wrong prefix", () => {
       expect(() => decodeThreadId("slack:C123:1234")).toThrow(
-        "Invalid Google Chat thread ID",
+        "Invalid Google Chat thread ID"
       );
     });
   });

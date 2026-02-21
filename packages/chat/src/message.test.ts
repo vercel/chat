@@ -170,7 +170,7 @@ describe("Message", () => {
       expect(restored.text).toBe(original.text);
       expect(restored.isMention).toBe(original.isMention);
       expect(restored.metadata.dateSent.getTime()).toBe(
-        original.metadata.dateSent.getTime(),
+        original.metadata.dateSent.getTime()
       );
     });
   });

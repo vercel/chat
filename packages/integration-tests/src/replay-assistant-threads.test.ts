@@ -73,7 +73,7 @@ describe("Slack Assistant Thread Started", () => {
           onAssistantThreadStarted: async (event) => {
             capturedEvent = event;
           },
-        },
+        }
       );
     });
 
@@ -87,7 +87,7 @@ describe("Slack Assistant Thread Started", () => {
       await ctx.sendWebhook(createAssistantThreadStartedPayload());
 
       expect(capturedEvent?.threadId).toBe(
-        getSlackThreadId(DM_CHANNEL, THREAD_TS),
+        getSlackThreadId(DM_CHANNEL, THREAD_TS)
       );
       expect(capturedEvent?.userId).toBe(USER_ID);
       expect(capturedEvent?.channelId).toBe(DM_CHANNEL);
@@ -109,7 +109,7 @@ describe("Slack Assistant Thread Started", () => {
             team_id: TEAM_ID,
             thread_entry_point: "channel",
           },
-        }),
+        })
       );
 
       expect(capturedEvent?.context.channelId).toBe(CONTEXT_CHANNEL);
@@ -119,7 +119,7 @@ describe("Slack Assistant Thread Started", () => {
 
     it("should handle missing context fields gracefully", async () => {
       await ctx.sendWebhook(
-        createAssistantThreadStartedPayload({ context: {} }),
+        createAssistantThreadStartedPayload({ context: {} })
       );
 
       expect(capturedEvent).not.toBeNull();
@@ -145,10 +145,10 @@ describe("Slack Assistant Thread Started", () => {
                 { title: "Fix a bug", message: "Fix the bug in..." },
                 { title: "Add feature", message: "Add a feature..." },
               ],
-              "What can I help with?",
+              "What can I help with?"
             );
           },
-        },
+        }
       );
     });
 
@@ -156,7 +156,7 @@ describe("Slack Assistant Thread Started", () => {
       await ctx.sendWebhook(createAssistantThreadStartedPayload());
 
       expect(
-        ctx.mockClient.assistant.threads.setSuggestedPrompts,
+        ctx.mockClient.assistant.threads.setSuggestedPrompts
       ).toHaveBeenCalledWith(
         expect.objectContaining({
           channel_id: DM_CHANNEL,
@@ -166,7 +166,7 @@ describe("Slack Assistant Thread Started", () => {
             { title: "Add feature", message: "Add a feature..." },
           ],
           title: "What can I help with?",
-        }),
+        })
       );
     });
   });
@@ -179,7 +179,7 @@ describe("Slack Assistant Thread Started", () => {
           onAssistantThreadStarted: async () => {
             throw new Error("Handler exploded");
           },
-        },
+        }
       );
 
       // Should not throw
@@ -197,14 +197,14 @@ describe("Slack Assistant Thread Started", () => {
             await adapter.setSuggestedPrompts(
               event.channelId,
               event.threadTs,
-              [],
+              []
             );
           },
-        },
+        }
       );
 
       ctx.mockClient.assistant.threads.setSuggestedPrompts.mockRejectedValue(
-        new Error("Slack API error"),
+        new Error("Slack API error")
       );
 
       // Handler will throw from the rejected promise, but processAssistantThreadStarted catches it
@@ -218,7 +218,7 @@ describe("Slack Assistant Thread Started", () => {
           onMention: async (thread) => {
             await thread.post("Hello!");
           },
-        },
+        }
       );
 
       // assistant_thread_started should be silently handled (no error)
@@ -252,7 +252,7 @@ describe("Slack Assistant Thread Started", () => {
 
       ctx = createSlackTestContext(
         { botName: BOT_NAME, botUserId: BOT_USER_ID },
-        {},
+        {}
       );
 
       ctx.chat.onAssistantThreadStarted(async () => {
@@ -319,14 +319,14 @@ describe("Slack Assistant Context Changed", () => {
         onAssistantContextChanged: async (event) => {
           capturedEvent = event;
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createContextChangedPayload());
 
     expect(capturedEvent).not.toBeNull();
     expect(capturedEvent?.threadId).toBe(
-      getSlackThreadId(DM_CHANNEL, THREAD_TS),
+      getSlackThreadId(DM_CHANNEL, THREAD_TS)
     );
     expect(capturedEvent?.context.channelId).toBe(CONTEXT_CHANNEL);
     expect(capturedEvent?.context.threadEntryPoint).toBe("channel");
@@ -335,7 +335,7 @@ describe("Slack Assistant Context Changed", () => {
   it("should not crash when no handler registered", async () => {
     ctx = createSlackTestContext(
       { botName: BOT_NAME, botUserId: BOT_USER_ID },
-      {},
+      {}
     );
 
     await ctx.sendWebhook(createContextChangedPayload());
@@ -368,10 +368,10 @@ describe("Slack Assistant Status and Title", () => {
           await adapter.setAssistantStatus(
             event.channelId,
             event.threadTs,
-            "is thinking...",
+            "is thinking..."
           );
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createAssistantThreadStartedPayload());
@@ -381,7 +381,7 @@ describe("Slack Assistant Status and Title", () => {
         channel_id: DM_CHANNEL,
         thread_ts: THREAD_TS,
         status: "is thinking...",
-      }),
+      })
     );
   });
 
@@ -396,10 +396,10 @@ describe("Slack Assistant Status and Title", () => {
           await adapter.setAssistantTitle(
             event.channelId,
             event.threadTs,
-            "Fix bug in dashboard",
+            "Fix bug in dashboard"
           );
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createAssistantThreadStartedPayload());
@@ -409,7 +409,7 @@ describe("Slack Assistant Status and Title", () => {
         channel_id: DM_CHANNEL,
         thread_ts: THREAD_TS,
         title: "Fix bug in dashboard",
-      }),
+      })
     );
   });
 
@@ -423,7 +423,7 @@ describe("Slack Assistant Status and Title", () => {
           >;
           await adapter.setAssistantStatus(event.channelId, event.threadTs, "");
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createAssistantThreadStartedPayload());
@@ -431,7 +431,7 @@ describe("Slack Assistant Status and Title", () => {
     expect(ctx.mockClient.assistant.threads.setStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "",
-      }),
+      })
     );
   });
 
@@ -447,10 +447,10 @@ describe("Slack Assistant Status and Title", () => {
             event.channelId,
             event.threadTs,
             "is working...",
-            ["Thinking...", "Almost there..."],
+            ["Thinking...", "Almost there..."]
           );
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createAssistantThreadStartedPayload());
@@ -459,7 +459,7 @@ describe("Slack Assistant Status and Title", () => {
       expect.objectContaining({
         status: "is working...",
         loading_messages: ["Thinking...", "Almost there..."],
-      }),
+      })
     );
   });
 
@@ -475,19 +475,19 @@ describe("Slack Assistant Status and Title", () => {
             { title: "Help", message: "Help me" },
           ]);
         },
-      },
+      }
     );
 
     await ctx.sendWebhook(createAssistantThreadStartedPayload());
 
     expect(
-      ctx.mockClient.assistant.threads.setSuggestedPrompts,
+      ctx.mockClient.assistant.threads.setSuggestedPrompts
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         channel_id: DM_CHANNEL,
         thread_ts: THREAD_TS,
         prompts: [{ title: "Help", message: "Help me" }],
-      }),
+      })
     );
   });
 });

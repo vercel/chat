@@ -86,7 +86,7 @@ describe("ChannelImpl", () => {
       expect(mockState.set).toHaveBeenCalledWith(
         "channel-state:slack:C123",
         { topic: "general" },
-        expect.any(Number),
+        expect.any(Number)
       );
     });
   });
@@ -134,7 +134,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.fetchChannelMessages).toHaveBeenCalledWith(
         "slack:C123",
-        expect.objectContaining({ direction: "backward" }),
+        expect.objectContaining({ direction: "backward" })
       );
     });
 
@@ -150,7 +150,7 @@ describe("ChannelImpl", () => {
         {
           messages,
           nextCursor: undefined,
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -164,7 +164,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.fetchMessages).toHaveBeenCalledWith(
         "slack:C123",
-        expect.objectContaining({ direction: "backward" }),
+        expect.objectContaining({ direction: "backward" })
       );
     });
 
@@ -221,7 +221,9 @@ describe("ChannelImpl", () => {
       const collected: Message[] = [];
       for await (const msg of channel.messages) {
         collected.push(msg);
-        if (collected.length >= 2) break;
+        if (collected.length >= 2) {
+          break;
+        }
       }
 
       expect(collected).toHaveLength(2);
@@ -329,7 +331,7 @@ describe("ChannelImpl", () => {
             ],
             nextCursor: undefined,
           };
-        },
+        }
       );
 
       const collected = [];
@@ -396,7 +398,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
         "slack:C123",
-        "Hello channel!",
+        "Hello channel!"
       );
       expect(result.text).toBe("Hello channel!");
     });
@@ -416,7 +418,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123",
-        "Hello!",
+        "Hello!"
       );
     });
 
@@ -440,7 +442,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
         "slack:C123",
-        "Hello World",
+        "Hello World"
       );
       expect(result.text).toBe("Hello World");
     });
@@ -492,7 +494,7 @@ describe("deriveChannelId", () => {
     const channelId = deriveChannelId(mockAdapter, "slack:C123:1234.5678");
     expect(channelId).toBe("slack:C123");
     expect(mockAdapter.channelIdFromThreadId).toHaveBeenCalledWith(
-      "slack:C123:1234.5678",
+      "slack:C123:1234.5678"
     );
   });
 
@@ -510,7 +512,7 @@ describe("deriveChannelId", () => {
 
     const channelId = deriveChannelId(
       mockAdapter,
-      "gchat:spaces/ABC123:dGhyZWFk",
+      "gchat:spaces/ABC123:dGhyZWFk"
     );
     expect(channelId).toBe("gchat:spaces/ABC123");
   });
@@ -617,7 +619,7 @@ describe("thread.messages (newest first)", () => {
 
     expect(mockAdapter.fetchMessages).toHaveBeenCalledWith(
       "slack:C123:1234.5678",
-      expect.objectContaining({ direction: "backward" }),
+      expect.objectContaining({ direction: "backward" })
     );
   });
 
@@ -639,7 +641,7 @@ describe("thread.messages (newest first)", () => {
           messages: [createTestMessage("msg-1", "Page 2 Old")],
           nextCursor: undefined,
         };
-      },
+      }
     );
 
     const collected: Message[] = [];
@@ -673,7 +675,9 @@ describe("thread.messages (newest first)", () => {
     const recent: Message[] = [];
     for await (const msg of thread.messages) {
       recent.push(msg);
-      if (recent.length >= 3) break;
+      if (recent.length >= 3) {
+        break;
+      }
     }
 
     expect(recent).toHaveLength(3);

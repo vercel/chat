@@ -164,7 +164,7 @@ describe("GoogleChatAdapter", () => {
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
         { displayName: "John Doe", email: "john@example.com" },
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -193,7 +193,7 @@ describe("GoogleChatAdapter", () => {
       expect(mockState.set).not.toHaveBeenCalledWith(
         "gchat:user:users/123456789",
         expect.anything(),
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -223,7 +223,7 @@ describe("GoogleChatAdapter", () => {
       // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       expect(parsedMessage.author.fullName).toBe("Jane Smith");
@@ -248,7 +248,7 @@ describe("GoogleChatAdapter", () => {
       // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       // Should fall back to "User {numeric_id}"
@@ -275,7 +275,7 @@ describe("GoogleChatAdapter", () => {
       // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       expect(parsedMessage.author.fullName).toBe("Bob Wilson");

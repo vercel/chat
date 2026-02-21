@@ -63,7 +63,7 @@ describe("decodeKey", () => {
   it("throws for non-32-byte key", () => {
     const shortKey = crypto.randomBytes(16).toString("base64");
     expect(() => decodeKey(shortKey)).toThrow(
-      "Encryption key must decode to exactly 32 bytes",
+      "Encryption key must decode to exactly 32 bytes"
     );
   });
 

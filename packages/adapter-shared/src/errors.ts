@@ -19,7 +19,7 @@ export class AdapterError extends Error {
   constructor(
     message: string,
     public readonly adapter: string,
-    public readonly code?: string,
+    public readonly code?: string
   ) {
     super(message);
     this.name = "AdapterError";
@@ -38,12 +38,12 @@ export class AdapterError extends Error {
 export class AdapterRateLimitError extends AdapterError {
   constructor(
     adapter: string,
-    public readonly retryAfter?: number,
+    public readonly retryAfter?: number
   ) {
     super(
       `Rate limited by ${adapter}${retryAfter ? `, retry after ${retryAfter}s` : ""}`,
       adapter,
-      "RATE_LIMITED",
+      "RATE_LIMITED"
     );
     this.name = "AdapterRateLimitError";
   }
@@ -62,7 +62,7 @@ export class AuthenticationError extends AdapterError {
     super(
       message || `Authentication failed for ${adapter}`,
       adapter,
-      "AUTH_FAILED",
+      "AUTH_FAILED"
     );
     this.name = "AuthenticationError";
   }
@@ -81,13 +81,13 @@ export class ResourceNotFoundError extends AdapterError {
   constructor(
     adapter: string,
     public readonly resourceType: string,
-    public readonly resourceId?: string,
+    public readonly resourceId?: string
   ) {
     const idPart = resourceId ? ` '${resourceId}'` : "";
     super(
       `${resourceType}${idPart} not found in ${adapter}`,
       adapter,
-      "NOT_FOUND",
+      "NOT_FOUND"
     );
     this.name = "ResourceNotFoundError";
   }
@@ -105,13 +105,13 @@ export class PermissionError extends AdapterError {
   constructor(
     adapter: string,
     public readonly action: string,
-    public readonly requiredScope?: string,
+    public readonly requiredScope?: string
   ) {
     const scopePart = requiredScope ? ` (requires: ${requiredScope})` : "";
     super(
       `Permission denied: cannot ${action} in ${adapter}${scopePart}`,
       adapter,
-      "PERMISSION_DENIED",
+      "PERMISSION_DENIED"
     );
     this.name = "PermissionError";
   }
@@ -144,12 +144,12 @@ export class NetworkError extends AdapterError {
   constructor(
     adapter: string,
     message?: string,
-    public readonly originalError?: Error,
+    public readonly originalError?: Error
   ) {
     super(
       message || `Network error communicating with ${adapter}`,
       adapter,
-      "NETWORK_ERROR",
+      "NETWORK_ERROR"
     );
     this.name = "NetworkError";
   }

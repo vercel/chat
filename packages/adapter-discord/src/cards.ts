@@ -92,7 +92,7 @@ function processChild(
   child: CardChild,
   textParts: string[],
   fields: APIEmbedField[],
-  components: DiscordActionRow[],
+  components: DiscordActionRow[]
 ): void {
   switch (child.type) {
     case "text":
@@ -207,7 +207,7 @@ function processSectionElement(
   element: SectionElement,
   textParts: string[],
   fields: APIEmbedField[],
-  components: DiscordActionRow[],
+  components: DiscordActionRow[]
 ): void {
   for (const child of element.children) {
     processChild(child, textParts, fields, components);
@@ -219,7 +219,7 @@ function processSectionElement(
  */
 function convertFieldsElement(
   element: FieldsElement,
-  fields: APIEmbedField[],
+  fields: APIEmbedField[]
 ): void {
   for (const field of element.children) {
     fields.push({

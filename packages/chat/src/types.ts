@@ -33,22 +33,22 @@ export { ConsoleLogger } from "./logger";
 export interface ChatConfig<
   TAdapters extends Record<string, Adapter> = Record<string, Adapter>,
 > {
-  /** Default bot username across all adapters */
-  userName: string;
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
-  /** State adapter for subscriptions and locking */
-  state: StateAdapter;
   /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
   logger: Logger | LogLevel;
+  /** State adapter for subscriptions and locking */
+  state: StateAdapter;
   /**
    * Update interval for fallback streaming (post + edit) in milliseconds.
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
+  /** Default bot username across all adapters */
+  userName: string;
 }
 
 /**
@@ -82,51 +82,64 @@ export interface WebhookOptions {
  * @template TRawMessage - Platform-specific raw message type
  */
 export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
-  /** Unique name for this adapter (e.g., "slack", "teams") */
-  readonly name: string;
-  /** Bot username (can override global userName) */
-  readonly userName: string;
+  /** Add a reaction to a message */
+  addReaction(
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
+  ): Promise<void>;
   /** Bot user ID for platforms that use IDs in mentions (e.g., Slack's <@U123>) */
   readonly botUserId?: string;
 
-  /** Called when Chat instance is created (internal use) */
-  initialize(chat: ChatInstance): Promise<void>;
+  /**
+   * Derive channel ID from a thread ID.
+   * Default fallback: first two colon-separated parts (e.g., "slack:C123").
+   * Adapters with different structures should override this.
+   */
+  channelIdFromThreadId?(threadId: string): string;
 
-  /** Handle incoming webhook request */
-  handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
+  /** Decode thread ID string back to platform-specific data */
+  decodeThreadId(threadId: string): TThreadId;
 
-  /** Post a message to a thread */
-  postMessage(
-    threadId: string,
-    message: AdapterPostableMessage,
-  ): Promise<RawMessage<TRawMessage>>;
+  /** Delete a message */
+  deleteMessage(threadId: string, messageId: string): Promise<void>;
 
   /** Edit an existing message */
   editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<TRawMessage>>;
 
-  /** Delete a message */
-  deleteMessage(threadId: string, messageId: string): Promise<void>;
+  /** Encode platform-specific data into a thread ID string */
+  encodeThreadId(platformData: TThreadId): string;
 
-  /** Add a reaction to a message */
-  addReaction(
+  /**
+   * Fetch channel info/metadata.
+   */
+  fetchChannelInfo?(channelId: string): Promise<ChannelInfo>;
+
+  /**
+   * Fetch channel-level messages (top-level, not thread replies).
+   * For example, Slack's conversations.history vs conversations.replies.
+   */
+  fetchChannelMessages?(
+    channelId: string,
+    options?: FetchOptions
+  ): Promise<FetchResult<TRawMessage>>;
+
+  /**
+   * Fetch a single message by ID.
+   * Optional - adapters that don't implement this will return null.
+   *
+   * @param threadId - The thread ID containing the message
+   * @param messageId - The platform-specific message ID
+   * @returns The message, or null if not found/not supported
+   */
+  fetchMessage?(
     threadId: string,
-    messageId: string,
-    emoji: EmojiValue | string,
-  ): Promise<void>;
-
-  /** Remove a reaction from a message */
-  removeReaction(
-    threadId: string,
-    messageId: string,
-    emoji: EmojiValue | string,
-  ): Promise<void>;
-
-  /** Show typing indicator */
-  startTyping(threadId: string): Promise<void>;
+    messageId: string
+  ): Promise<Message<TRawMessage> | null>;
 
   /**
    * Fetch messages from a thread.
@@ -162,36 +175,35 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    */
   fetchMessages(
     threadId: string,
-    options?: FetchOptions,
+    options?: FetchOptions
   ): Promise<FetchResult<TRawMessage>>;
 
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
 
+  /** Handle incoming webhook request */
+  handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
+
+  /** Called when Chat instance is created (internal use) */
+  initialize(chat: ChatInstance): Promise<void>;
+
   /**
-   * Fetch a single message by ID.
-   * Optional - adapters that don't implement this will return null.
+   * Check if a thread is a direct message conversation.
    *
-   * @param threadId - The thread ID containing the message
-   * @param messageId - The platform-specific message ID
-   * @returns The message, or null if not found/not supported
+   * @param threadId - The thread ID to check
+   * @returns True if the thread is a DM, false otherwise
    */
-  fetchMessage?(
-    threadId: string,
-    messageId: string,
-  ): Promise<Message<TRawMessage> | null>;
+  isDM?(threadId: string): boolean;
 
-  /** Encode platform-specific data into a thread ID string */
-  encodeThreadId(platformData: TThreadId): string;
-
-  /** Decode thread ID string back to platform-specific data */
-  decodeThreadId(threadId: string): TThreadId;
-
-  /** Parse platform message format to normalized format */
-  parseMessage(raw: TRawMessage): Message<TRawMessage>;
-
-  /** Render formatted content to platform-specific string */
-  renderFormatted(content: FormattedContent): string;
+  /**
+   * List threads in a channel.
+   */
+  listThreads?(
+    channelId: string,
+    options?: ListThreadsOptions
+  ): Promise<ListThreadsResult<TRawMessage>>;
+  /** Unique name for this adapter (e.g., "slack", "teams") */
+  readonly name: string;
 
   /**
    * Optional hook called when a thread is subscribed to.
@@ -215,6 +227,31 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   openDM?(userId: string): Promise<string>;
 
   /**
+   * Open a modal/dialog form.
+   *
+   * @param triggerId - Platform-specific trigger ID from the action event
+   * @param modal - The modal element to display
+   * @param contextId - Optional context ID for server-side stored thread/message context
+   * @returns The view/dialog ID
+   */
+  openModal?(
+    triggerId: string,
+    modal: ModalElement,
+    contextId?: string
+  ): Promise<{ viewId: string }>;
+
+  /** Parse platform message format to normalized format */
+  parseMessage(raw: TRawMessage): Message<TRawMessage>;
+
+  /**
+   * Post a message to channel top-level (not in a thread).
+   */
+  postChannelMessage?(
+    channelId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
    * Post an ephemeral message visible only to a specific user.
    *
    * This is optional - if not implemented, Thread.postEphemeral will
@@ -228,30 +265,27 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   postEphemeral?(
     threadId: string,
     userId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<EphemeralMessage>;
 
-  /**
-   * Check if a thread is a direct message conversation.
-   *
-   * @param threadId - The thread ID to check
-   * @returns True if the thread is a DM, false otherwise
-   */
-  isDM?(threadId: string): boolean;
+  /** Post a message to a thread */
+  postMessage(
+    threadId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
 
-  /**
-   * Open a modal/dialog form.
-   *
-   * @param triggerId - Platform-specific trigger ID from the action event
-   * @param modal - The modal element to display
-   * @param contextId - Optional context ID for server-side stored thread/message context
-   * @returns The view/dialog ID
-   */
-  openModal?(
-    triggerId: string,
-    modal: ModalElement,
-    contextId?: string,
-  ): Promise<{ viewId: string }>;
+  /** Remove a reaction from a message */
+  removeReaction(
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
+  ): Promise<void>;
+
+  /** Render formatted content to platform-specific string */
+  renderFormatted(content: FormattedContent): string;
+
+  /** Show typing indicator */
+  startTyping(threadId: string): Promise<void>;
 
   /**
    * Stream a message using platform-native streaming APIs.
@@ -267,45 +301,10 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   stream?(
     threadId: string,
     textStream: AsyncIterable<string>,
-    options?: StreamOptions,
+    options?: StreamOptions
   ): Promise<RawMessage<TRawMessage>>;
-
-  /**
-   * Derive channel ID from a thread ID.
-   * Default fallback: first two colon-separated parts (e.g., "slack:C123").
-   * Adapters with different structures should override this.
-   */
-  channelIdFromThreadId?(threadId: string): string;
-
-  /**
-   * Fetch channel-level messages (top-level, not thread replies).
-   * For example, Slack's conversations.history vs conversations.replies.
-   */
-  fetchChannelMessages?(
-    channelId: string,
-    options?: FetchOptions,
-  ): Promise<FetchResult<TRawMessage>>;
-
-  /**
-   * List threads in a channel.
-   */
-  listThreads?(
-    channelId: string,
-    options?: ListThreadsOptions,
-  ): Promise<ListThreadsResult<TRawMessage>>;
-
-  /**
-   * Fetch channel info/metadata.
-   */
-  fetchChannelInfo?(channelId: string): Promise<ChannelInfo>;
-
-  /**
-   * Post a message to channel top-level (not in a thread).
-   */
-  postChannelMessage?(
-    channelId: string,
-    message: AdapterPostableMessage,
-  ): Promise<RawMessage<TRawMessage>>;
+  /** Bot username (can override global userName) */
+  readonly userName: string;
 }
 
 /**
@@ -313,18 +312,59 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
  * Platform-specific options are passed through to the adapter.
  */
 export interface StreamOptions {
-  /** Slack: The user ID to stream to (for AI assistant context) */
-  recipientUserId?: string;
   /** Slack: The team/workspace ID */
   recipientTeamId?: string;
-  /** Minimum interval between updates in ms (default: 1000). Used for fallback mode (GChat/Teams). */
-  updateIntervalMs?: number;
+  /** Slack: The user ID to stream to (for AI assistant context) */
+  recipientUserId?: string;
   /** Block Kit elements to attach when stopping the stream (Slack only, via chat.stopStream) */
   stopBlocks?: unknown[];
+  /** Minimum interval between updates in ms (default: 1000). Used for fallback mode (GChat/Teams). */
+  updateIntervalMs?: number;
 }
 
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
+  /** Get the configured logger, optionally with a child prefix */
+  getLogger(prefix?: string): Logger;
+
+  getState(): StateAdapter;
+  getUserName(): string;
+
+  /**
+   * @deprecated Use processMessage instead. This method is for internal use.
+   */
+  handleIncomingMessage(
+    adapter: Adapter,
+    threadId: string,
+    message: Message
+  ): Promise<void>;
+
+  /**
+   * Process an incoming action event (button click) from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   *
+   * @param event - The action event (without thread field, will be added)
+   * @param options - Webhook options including waitUntil
+   */
+  processAction(
+    event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
+    options?: WebhookOptions
+  ): void;
+
+  processAppHomeOpened(
+    event: AppHomeOpenedEvent,
+    options?: WebhookOptions
+  ): void;
+
+  processAssistantContextChanged(
+    event: AssistantContextChangedEvent,
+    options?: WebhookOptions
+  ): void;
+
+  processAssistantThreadStarted(
+    event: AssistantThreadStartedEvent,
+    options?: WebhookOptions
+  ): void;
   /**
    * Process an incoming message from an adapter.
    * Handles waitUntil registration and error catching internally.
@@ -338,40 +378,23 @@ export interface ChatInstance {
     adapter: Adapter,
     threadId: string,
     message: Message | (() => Promise<Message>),
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void;
 
   /**
-   * @deprecated Use processMessage instead. This method is for internal use.
-   */
-  handleIncomingMessage(
-    adapter: Adapter,
-    threadId: string,
-    message: Message,
-  ): Promise<void>;
-
-  /**
-   * Process an incoming reaction event from an adapter.
-   * Handles waitUntil registration and error catching internally.
+   * Process a modal close event from an adapter.
    *
-   * @param event - The reaction event (without adapter field, will be added)
-   * @param options - Webhook options including waitUntil
+   * @param event - The modal close event (without relatedThread/relatedMessage/relatedChannel)
+   * @param contextId - Context ID for retrieving stored thread/message/channel context
+   * @param options - Webhook options
    */
-  processReaction(
-    event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
-    options?: WebhookOptions,
-  ): void;
-
-  /**
-   * Process an incoming action event (button click) from an adapter.
-   * Handles waitUntil registration and error catching internally.
-   *
-   * @param event - The action event (without thread field, will be added)
-   * @param options - Webhook options including waitUntil
-   */
-  processAction(
-    event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
-    options?: WebhookOptions,
+  processModalClose(
+    event: Omit<
+      ModalCloseEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
+    contextId?: string,
+    options?: WebhookOptions
   ): void;
 
   /**
@@ -387,23 +410,19 @@ export interface ChatInstance {
       "relatedThread" | "relatedMessage" | "relatedChannel"
     >,
     contextId?: string,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<ModalResponse | undefined>;
 
   /**
-   * Process a modal close event from an adapter.
+   * Process an incoming reaction event from an adapter.
+   * Handles waitUntil registration and error catching internally.
    *
-   * @param event - The modal close event (without relatedThread/relatedMessage/relatedChannel)
-   * @param contextId - Context ID for retrieving stored thread/message/channel context
-   * @param options - Webhook options
+   * @param event - The reaction event (without adapter field, will be added)
+   * @param options - Webhook options including waitUntil
    */
-  processModalClose(
-    event: Omit<
-      ModalCloseEvent,
-      "relatedThread" | "relatedMessage" | "relatedChannel"
-    >,
-    contextId?: string,
-    options?: WebhookOptions,
+  processReaction(
+    event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
+    options?: WebhookOptions
   ): void;
 
   /**
@@ -418,28 +437,8 @@ export interface ChatInstance {
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void;
-
-  processAssistantThreadStarted(
-    event: AssistantThreadStartedEvent,
-    options?: WebhookOptions,
-  ): void;
-
-  processAssistantContextChanged(
-    event: AssistantContextChangedEvent,
-    options?: WebhookOptions,
-  ): void;
-
-  processAppHomeOpened(
-    event: AppHomeOpenedEvent,
-    options?: WebhookOptions,
-  ): void;
-
-  getState(): StateAdapter;
-  getUserName(): string;
-  /** Get the configured logger, optionally with a child prefix */
-  getLogger(prefix?: string): Logger;
 }
 
 // =============================================================================
@@ -447,29 +446,16 @@ export interface ChatInstance {
 // =============================================================================
 
 export interface StateAdapter {
+  /** Acquire a lock on a thread (returns null if already locked) */
+  acquireLock(threadId: string, ttlMs: number): Promise<Lock | null>;
   /** Connect to the state backend */
   connect(): Promise<void>;
 
+  /** Delete a cached value */
+  delete(key: string): Promise<void>;
+
   /** Disconnect from the state backend */
   disconnect(): Promise<void>;
-
-  /** Subscribe to a thread (persists across restarts) */
-  subscribe(threadId: string): Promise<void>;
-
-  /** Unsubscribe from a thread */
-  unsubscribe(threadId: string): Promise<void>;
-
-  /** Check if subscribed to a thread */
-  isSubscribed(threadId: string): Promise<boolean>;
-
-  /** List all subscriptions, optionally filtered by adapter */
-  listSubscriptions(adapterName?: string): AsyncIterable<string>;
-
-  /** Acquire a lock on a thread (returns null if already locked) */
-  acquireLock(threadId: string, ttlMs: number): Promise<Lock | null>;
-
-  /** Release a lock */
-  releaseLock(lock: Lock): Promise<void>;
 
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
@@ -477,17 +463,29 @@ export interface StateAdapter {
   /** Get a cached value by key */
   get<T = unknown>(key: string): Promise<T | null>;
 
+  /** Check if subscribed to a thread */
+  isSubscribed(threadId: string): Promise<boolean>;
+
+  /** List all subscriptions, optionally filtered by adapter */
+  listSubscriptions(adapterName?: string): AsyncIterable<string>;
+
+  /** Release a lock */
+  releaseLock(lock: Lock): Promise<void>;
+
   /** Set a cached value with optional TTL in milliseconds */
   set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void>;
 
-  /** Delete a cached value */
-  delete(key: string): Promise<void>;
+  /** Subscribe to a thread (persists across restarts) */
+  subscribe(threadId: string): Promise<void>;
+
+  /** Unsubscribe from a thread */
+  unsubscribe(threadId: string): Promise<void>;
 }
 
 export interface Lock {
+  expiresAt: number;
   threadId: string;
   token: string;
-  expiresAt: number;
 }
 
 // =============================================================================
@@ -505,26 +503,17 @@ export interface Postable<
   TState = Record<string, unknown>,
   TRawMessage = unknown,
 > {
-  /** Unique ID */
-  readonly id: string;
   /** The adapter this entity belongs to */
   readonly adapter: Adapter;
+  /** Unique ID */
+  readonly id: string;
   /** Whether this is a direct message conversation */
   readonly isDM: boolean;
 
   /**
-   * Get the current state.
-   * Returns null if no state has been set.
+   * Get a platform-specific mention string for a user.
    */
-  readonly state: Promise<TState | null>;
-
-  /**
-   * Set the state. Merges with existing state by default.
-   */
-  setState(
-    state: Partial<TState>,
-    options?: { replace?: boolean },
-  ): Promise<void>;
+  mentionUser(userId: string): string;
 
   /**
    * Iterate messages newest first (backward from most recent).
@@ -536,7 +525,7 @@ export interface Postable<
    * Post a message.
    */
   post(
-    message: string | PostableMessage | CardJSXElement,
+    message: string | PostableMessage | CardJSXElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -545,16 +534,25 @@ export interface Postable<
   postEphemeral(
     user: string | Author,
     message: AdapterPostableMessage | CardJSXElement,
-    options: PostEphemeralOptions,
+    options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
+
+  /**
+   * Set the state. Merges with existing state by default.
+   */
+  setState(
+    state: Partial<TState>,
+    options?: { replace?: boolean }
+  ): Promise<void>;
 
   /** Show typing indicator */
   startTyping(): Promise<void>;
 
   /**
-   * Get a platform-specific mention string for a user.
+   * Get the current state.
+   * Returns null if no state has been set.
    */
-  mentionUser(userId: string): string;
+  readonly state: Promise<TState | null>;
 }
 
 // =============================================================================
@@ -572,6 +570,8 @@ export interface Channel<
   TState = Record<string, unknown>,
   TRawMessage = unknown,
 > extends Postable<TState, TRawMessage> {
+  /** Fetch channel metadata from the platform */
+  fetchMetadata(): Promise<ChannelInfo>;
   /** Channel name (e.g., "#general"). Null until fetchInfo() is called. */
   readonly name: string | null;
 
@@ -581,9 +581,6 @@ export interface Channel<
    * Empty iterable on threadless platforms.
    */
   threads(): AsyncIterable<ThreadSummary<TRawMessage>>;
-
-  /** Fetch channel metadata from the platform */
-  fetchMetadata(): Promise<ChannelInfo>;
 }
 
 /**
@@ -592,12 +589,12 @@ export interface Channel<
 export interface ThreadSummary<TRawMessage = unknown> {
   /** Full thread ID */
   id: string;
-  /** Root/first message of the thread */
-  rootMessage: Message<TRawMessage>;
-  /** Reply count (if available) */
-  replyCount?: number;
   /** Timestamp of most recent reply */
   lastReplyAt?: Date;
+  /** Reply count (if available) */
+  replyCount?: number;
+  /** Root/first message of the thread */
+  rootMessage: Message<TRawMessage>;
 }
 
 /**
@@ -605,26 +602,26 @@ export interface ThreadSummary<TRawMessage = unknown> {
  */
 export interface ChannelInfo {
   id: string;
-  name?: string;
   isDM?: boolean;
   memberCount?: number;
   metadata: Record<string, unknown>;
+  name?: string;
 }
 
 /**
  * Options for listing threads in a channel.
  */
 export interface ListThreadsOptions {
-  limit?: number;
   cursor?: string;
+  limit?: number;
 }
 
 /**
  * Result of listing threads in a channel.
  */
 export interface ListThreadsResult<TRawMessage = unknown> {
-  threads: ThreadSummary<TRawMessage>[];
   nextCursor?: string;
+  threads: ThreadSummary<TRawMessage>[];
 }
 
 // =============================================================================
@@ -643,24 +640,28 @@ export const THREAD_STATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  */
 export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   extends Postable<TState, TRawMessage> {
-  // Inherited from Postable: id, adapter, isDM, state, setState,
-  //   messages (newest first), post, postEphemeral, startTyping, mentionUser
-
-  /** Channel/conversation ID */
-  readonly channelId: string;
-
-  /** Get the Channel containing this thread */
-  readonly channel: Channel<TState, TRawMessage>;
-
-  /** Recently fetched messages (cached) */
-  recentMessages: Message<TRawMessage>[];
-
   /**
    * Async iterator for all messages in the thread.
    * Messages are yielded in chronological order (oldest first).
    * Automatically handles pagination.
    */
   allMessages: AsyncIterable<Message<TRawMessage>>;
+
+  /** Get the Channel containing this thread */
+  readonly channel: Channel<TState, TRawMessage>;
+  // Inherited from Postable: id, adapter, isDM, state, setState,
+  //   messages (newest first), post, postEphemeral, startTyping, mentionUser
+
+  /** Channel/conversation ID */
+  readonly channelId: string;
+
+  /**
+   * Wrap a Message object as a SentMessage with edit/delete capabilities.
+   * Used internally for reconstructing messages from serialized data.
+   */
+  createSentMessageFromMessage(
+    message: Message<TRawMessage>
+  ): SentMessage<TRawMessage>;
 
   /**
    * Check if this thread is currently subscribed.
@@ -673,27 +674,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   isSubscribed(): Promise<boolean>;
 
   /**
-   * Subscribe to future messages in this thread.
-   *
-   * Once subscribed, all messages in this thread will trigger `onSubscribedMessage` handlers.
-   * The initial message that triggered subscription will NOT fire the handler.
-   *
+   * Get a platform-specific mention string for a user.
+   * Use this to @-mention a user in a message.
    * @example
-   * ```typescript
-   * chat.onNewMention(async (thread, message) => {
-   *   await thread.subscribe();  // Subscribe to follow-up messages
-   *   await thread.post("I'm now watching this thread!");
-   * });
-   * ```
+   * await thread.post(`Hey ${thread.mentionUser(userId)}, check this out!`);
    */
-  subscribe(): Promise<void>;
-
-  /**
-   * Unsubscribe from this thread.
-   *
-   * Future messages will no longer trigger `onSubscribedMessage` handlers.
-   */
-  unsubscribe(): Promise<void>;
+  mentionUser(userId: string): string;
 
   /**
    * Post a message to this thread.
@@ -729,7 +715,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   post(
-    message: string | PostableMessage | CardJSXElement,
+    message: string | PostableMessage | CardJSXElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -763,15 +749,11 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   postEphemeral(
     user: string | Author,
     message: AdapterPostableMessage | CardJSXElement,
-    options: PostEphemeralOptions,
+    options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
 
-  /**
-   * Show typing indicator in the thread.
-   *
-   * Some platforms support persistent typing indicators, others just send once.
-   */
-  startTyping(): Promise<void>;
+  /** Recently fetched messages (cached) */
+  recentMessages: Message<TRawMessage>[];
 
   /**
    * Refresh `recentMessages` from the API.
@@ -781,26 +763,40 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   refresh(): Promise<void>;
 
   /**
-   * Wrap a Message object as a SentMessage with edit/delete capabilities.
-   * Used internally for reconstructing messages from serialized data.
+   * Show typing indicator in the thread.
+   *
+   * Some platforms support persistent typing indicators, others just send once.
    */
-  createSentMessageFromMessage(
-    message: Message<TRawMessage>,
-  ): SentMessage<TRawMessage>;
+  startTyping(): Promise<void>;
 
   /**
-   * Get a platform-specific mention string for a user.
-   * Use this to @-mention a user in a message.
+   * Subscribe to future messages in this thread.
+   *
+   * Once subscribed, all messages in this thread will trigger `onSubscribedMessage` handlers.
+   * The initial message that triggered subscription will NOT fire the handler.
+   *
    * @example
-   * await thread.post(`Hey ${thread.mentionUser(userId)}, check this out!`);
+   * ```typescript
+   * chat.onNewMention(async (thread, message) => {
+   *   await thread.subscribe();  // Subscribe to follow-up messages
+   *   await thread.post("I'm now watching this thread!");
+   * });
+   * ```
    */
-  mentionUser(userId: string): string;
+  subscribe(): Promise<void>;
+
+  /**
+   * Unsubscribe from this thread.
+   *
+   * Future messages will no longer trigger `onSubscribedMessage` handlers.
+   */
+  unsubscribe(): Promise<void>;
 }
 
 export interface ThreadInfo {
-  id: string;
   channelId: string;
   channelName?: string;
+  id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
   /** Platform-specific metadata */
@@ -841,8 +837,6 @@ export type FetchDirection = "forward" | "backward";
  * Options for fetching messages from a thread.
  */
 export interface FetchOptions {
-  /** Maximum number of messages to fetch. Default varies by adapter (50-100). */
-  limit?: number;
   /**
    * Pagination cursor for fetching the next page of messages.
    * Pass the `nextCursor` from a previous `FetchResult`.
@@ -857,6 +851,8 @@ export interface FetchOptions {
    * Messages within each page are always returned in chronological order (oldest first).
    */
   direction?: FetchDirection;
+  /** Maximum number of messages to fetch. Default varies by adapter (50-100). */
+  limit?: number;
 }
 
 /**
@@ -895,21 +891,21 @@ export type FormattedContent = Root;
 /** Raw message returned from adapter (before wrapping as SentMessage) */
 export interface RawMessage<TRawMessage = unknown> {
   id: string;
-  threadId: string;
   raw: TRawMessage;
+  threadId: string;
 }
 
 export interface Author {
-  /** Unique user ID */
-  userId: string;
-  /** Username/handle for @-mentions */
-  userName: string;
   /** Display name */
   fullName: string;
   /** Whether the author is a bot */
   isBot: boolean | "unknown";
   /** Whether the author is this bot */
   isMe: boolean;
+  /** Unique user ID */
+  userId: string;
+  /** Username/handle for @-mentions */
+  userName: string;
 }
 
 export interface MessageMetadata {
@@ -927,14 +923,14 @@ export interface MessageMetadata {
 
 export interface SentMessage<TRawMessage = unknown>
   extends Message<TRawMessage> {
-  /** Edit this message with text, a PostableMessage, or a JSX Card element */
-  edit(
-    newContent: string | PostableMessage | CardJSXElement,
-  ): Promise<SentMessage<TRawMessage>>;
-  /** Delete this message */
-  delete(): Promise<void>;
   /** Add a reaction to this message */
   addReaction(emoji: EmojiValue | string): Promise<void>;
+  /** Delete this message */
+  delete(): Promise<void>;
+  /** Edit this message with text, a PostableMessage, or a JSX Card element */
+  edit(
+    newContent: string | PostableMessage | CardJSXElement
+  ): Promise<SentMessage<TRawMessage>>;
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
 }
@@ -952,12 +948,12 @@ export interface SentMessage<TRawMessage = unknown>
 export interface EphemeralMessage {
   /** Message ID (may be empty for some platforms) */
   id: string;
+  /** Platform-specific raw response */
+  raw: unknown;
   /** Thread ID where message was sent (or DM thread if fallback was used) */
   threadId: string;
   /** Whether this used native ephemeral or fell back to DM */
   usedFallback: boolean;
-  /** Platform-specific raw response */
-  raw: unknown;
 }
 
 /**
@@ -1003,21 +999,21 @@ export type AdapterPostableMessage =
 export type PostableMessage = AdapterPostableMessage | AsyncIterable<string>;
 
 export interface PostableRaw {
-  /** Raw text passed through as-is to the platform */
-  raw: string;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
   files?: FileUpload[];
+  /** Raw text passed through as-is to the platform */
+  raw: string;
 }
 
 export interface PostableMarkdown {
-  /** Markdown text, converted to platform format */
-  markdown: string;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
   files?: FileUpload[];
+  /** Markdown text, converted to platform format */
+  markdown: string;
 }
 
 export interface PostableAst {
@@ -1039,28 +1035,28 @@ export interface PostableCard {
 }
 
 export interface Attachment {
-  /** Type of attachment */
-  type: "image" | "file" | "video" | "audio";
-  /** URL to the file (for linking/downloading) */
-  url?: string;
   /** Binary data (for uploading or if already fetched) */
   data?: Buffer | Blob;
-  /** Filename */
-  name?: string;
-  /** MIME type */
-  mimeType?: string;
-  /** File size in bytes */
-  size?: number;
-  /** Image/video width (if applicable) */
-  width?: number;
-  /** Image/video height (if applicable) */
-  height?: number;
   /**
    * Fetch the attachment data.
    * For platforms that require authentication (like Slack private URLs),
    * this method handles the auth automatically.
    */
   fetchData?: () => Promise<Buffer>;
+  /** Image/video height (if applicable) */
+  height?: number;
+  /** MIME type */
+  mimeType?: string;
+  /** Filename */
+  name?: string;
+  /** File size in bytes */
+  size?: number;
+  /** Type of attachment */
+  type: "image" | "file" | "video" | "audio";
+  /** URL to the file (for linking/downloading) */
+  url?: string;
+  /** Image/video width (if applicable) */
+  width?: number;
 }
 
 /**
@@ -1107,7 +1103,7 @@ export interface FileUpload {
  */
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message,
+  message: Message
 ) => Promise<void>;
 
 /**
@@ -1118,7 +1114,7 @@ export type MentionHandler<TState = Record<string, unknown>> = (
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message,
+  message: Message
 ) => Promise<void>;
 
 /**
@@ -1146,7 +1142,7 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  */
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message,
+  message: Message
 ) => Promise<void>;
 
 // =============================================================================
@@ -1272,10 +1268,10 @@ export type WellKnownEmoji =
  * Platform-specific emoji formats for a single emoji.
  */
 export interface EmojiFormats {
-  /** Slack emoji name (without colons), e.g., "+1", "heart" */
-  slack: string | string[];
   /** Google Chat unicode emoji, e.g., "👍", "❤️" */
   gchat: string | string[];
+  /** Slack emoji name (without colons), e.g., "+1", "heart" */
+  slack: string | string[];
 }
 
 /**
@@ -1328,30 +1324,30 @@ export type EmojiMapConfig = Partial<Record<Emoji, EmojiFormats>>;
 export interface EmojiValue {
   /** The normalized emoji name (e.g., "thumbs_up") */
   readonly name: string;
-  /** Returns the placeholder string for message formatting */
-  toString(): string;
   /** Returns the placeholder string (for JSON.stringify) */
   toJSON(): string;
+  /** Returns the placeholder string for message formatting */
+  toString(): string;
 }
 
 /**
  * Reaction event fired when a user adds or removes a reaction.
  */
 export interface ReactionEvent<TRawMessage = unknown> {
-  /** The normalized emoji as an EmojiValue singleton (enables `===` comparison) */
-  emoji: EmojiValue;
-  /** The raw platform-specific emoji (e.g., "+1" for Slack, "👍" for GChat) */
-  rawEmoji: string;
+  /** The adapter that received the event */
+  adapter: Adapter;
   /** Whether the reaction was added (true) or removed (false) */
   added: boolean;
-  /** The user who added/removed the reaction */
-  user: Author;
+  /** The normalized emoji as an EmojiValue singleton (enables `===` comparison) */
+  emoji: EmojiValue;
   /** The message that was reacted to (if available) */
   message?: Message<TRawMessage>;
   /** The message ID that was reacted to */
   messageId: string;
-  /** The thread ID */
-  threadId: string;
+  /** Platform-specific raw event data */
+  raw: unknown;
+  /** The raw platform-specific emoji (e.g., "+1" for Slack, "👍" for GChat) */
+  rawEmoji: string;
   /**
    * The thread where the reaction occurred.
    * Use this to post replies or check subscription status.
@@ -1364,10 +1360,10 @@ export interface ReactionEvent<TRawMessage = unknown> {
    * ```
    */
   thread: Thread<TRawMessage>;
-  /** The adapter that received the event */
-  adapter: Adapter;
-  /** Platform-specific raw event data */
-  raw: unknown;
+  /** The thread ID */
+  threadId: string;
+  /** The user who added/removed the reaction */
+  user: Author;
 }
 
 /**
@@ -1405,22 +1401,10 @@ export type ReactionHandler = (event: ReactionEvent) => Promise<void>;
 export interface ActionEvent<TRawMessage = unknown> {
   /** The action ID from the button (matches Button's `id` prop) */
   actionId: string;
-  /** Optional value/payload from the button */
-  value?: string;
-  /** User who clicked the button */
-  user: Author;
-  /** The thread where the action occurred */
-  thread: Thread<TRawMessage>;
-  /** The message ID containing the card */
-  messageId: string;
-  /** The thread ID */
-  threadId: string;
   /** The adapter that received the event */
   adapter: Adapter;
-  /** Platform-specific raw event data */
-  raw: unknown;
-  /** Trigger ID for opening modals (required by some platforms, may expire quickly) */
-  triggerId?: string;
+  /** The message ID containing the card */
+  messageId: string;
   /**
    * Open a modal/dialog form in response to this action.
    *
@@ -1428,8 +1412,20 @@ export interface ActionEvent<TRawMessage = unknown> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement,
+    modal: ModalElement | CardJSXElement
   ): Promise<{ viewId: string } | undefined>;
+  /** Platform-specific raw event data */
+  raw: unknown;
+  /** The thread where the action occurred */
+  thread: Thread<TRawMessage>;
+  /** The thread ID */
+  threadId: string;
+  /** Trigger ID for opening modals (required by some platforms, may expire quickly) */
+  triggerId?: string;
+  /** User who clicked the button */
+  user: Author;
+  /** Optional value/payload from the button */
+  value?: string;
 }
 
 /**
@@ -1465,28 +1461,22 @@ export type ActionHandler = (event: ActionEvent) => Promise<void>;
  * Event emitted when a user submits a modal form.
  */
 export interface ModalSubmitEvent<TRawMessage = unknown> {
-  /** The callback ID specified when creating the modal */
-  callbackId: string;
-  /** Platform-specific view/dialog ID */
-  viewId: string;
-  /** Form field values keyed by input ID */
-  values: Record<string, string>;
-  /** The user who submitted the modal */
-  user: Author;
   /** The adapter that received this event */
   adapter: Adapter;
-  /** Raw platform-specific payload */
-  raw: unknown;
+  /** The callback ID specified when creating the modal */
+  callbackId: string;
   /**
    * The private metadata string set when the modal was created.
    * Use this to pass arbitrary context (e.g., JSON) through the modal lifecycle.
    */
   privateMetadata?: string;
+  /** Raw platform-specific payload */
+  raw: unknown;
   /**
-   * The thread where the modal was originally triggered from.
-   * Available when the modal was opened via ActionEvent.openModal().
+   * The channel where the modal was originally triggered from.
+   * Available when the modal was opened via SlashCommandEvent.openModal().
    */
-  relatedThread?: Thread<Record<string, unknown>, TRawMessage>;
+  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
   /**
    * The message that contained the action which opened the modal.
    * Available when the modal was opened from a message action via ActionEvent.openModal().
@@ -1494,36 +1484,38 @@ export interface ModalSubmitEvent<TRawMessage = unknown> {
    */
   relatedMessage?: SentMessage<TRawMessage>;
   /**
-   * The channel where the modal was originally triggered from.
-   * Available when the modal was opened via SlashCommandEvent.openModal().
+   * The thread where the modal was originally triggered from.
+   * Available when the modal was opened via ActionEvent.openModal().
    */
-  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
+  relatedThread?: Thread<Record<string, unknown>, TRawMessage>;
+  /** The user who submitted the modal */
+  user: Author;
+  /** Form field values keyed by input ID */
+  values: Record<string, string>;
+  /** Platform-specific view/dialog ID */
+  viewId: string;
 }
 
 /**
  * Event emitted when a user closes/cancels a modal (requires notifyOnClose).
  */
 export interface ModalCloseEvent<TRawMessage = unknown> {
-  /** The callback ID specified when creating the modal */
-  callbackId: string;
-  /** Platform-specific view/dialog ID */
-  viewId: string;
-  /** The user who closed the modal */
-  user: Author;
   /** The adapter that received this event */
   adapter: Adapter;
-  /** Raw platform-specific payload */
-  raw: unknown;
+  /** The callback ID specified when creating the modal */
+  callbackId: string;
   /**
    * The private metadata string set when the modal was created.
    * Use this to pass arbitrary context (e.g., JSON) through the modal lifecycle.
    */
   privateMetadata?: string;
+  /** Raw platform-specific payload */
+  raw: unknown;
   /**
-   * The thread where the modal was originally triggered from.
-   * Available when the modal was opened via ActionEvent.openModal().
+   * The channel where the modal was originally triggered from.
+   * Available when the modal was opened via SlashCommandEvent.openModal().
    */
-  relatedThread?: Thread<Record<string, unknown>, TRawMessage>;
+  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
   /**
    * The message that contained the action which opened the modal.
    * Available when the modal was opened from a message action via ActionEvent.openModal().
@@ -1531,10 +1523,14 @@ export interface ModalCloseEvent<TRawMessage = unknown> {
    */
   relatedMessage?: SentMessage<TRawMessage>;
   /**
-   * The channel where the modal was originally triggered from.
-   * Available when the modal was opened via SlashCommandEvent.openModal().
+   * The thread where the modal was originally triggered from.
+   * Available when the modal was opened via ActionEvent.openModal().
    */
-  relatedChannel?: Channel<Record<string, unknown>, TRawMessage>;
+  relatedThread?: Thread<Record<string, unknown>, TRawMessage>;
+  /** The user who closed the modal */
+  user: Author;
+  /** Platform-specific view/dialog ID */
+  viewId: string;
 }
 
 export type ModalErrorsResponse = {
@@ -1563,7 +1559,7 @@ export type ModalResponse =
   | ModalPushResponse;
 
 export type ModalSubmitHandler = (
-  event: ModalSubmitEvent,
+  event: ModalSubmitEvent
 ) => Promise<ModalResponse | undefined>;
 
 export type ModalCloseHandler = (event: ModalCloseEvent) => Promise<void>;
@@ -1607,26 +1603,13 @@ export type ModalCloseHandler = (event: ModalCloseEvent) => Promise<void>;
  * ```
  */
 export interface SlashCommandEvent<TState = Record<string, unknown>> {
-  /** The slash command name (e.g., "/help") */
-  command: string;
-
-  /** Arguments text after the command (e.g., "topic search" from "/help topic search") */
-  text: string;
-
-  /** The user who invoked the command */
-  user: Author;
-
-  /** The channel where the command was invoked */
-  channel: Channel<TState>;
-
   /** The adapter that received this event */
   adapter: Adapter;
 
-  /** Platform-specific raw payload */
-  raw: unknown;
-
-  /** Trigger ID for opening modals (time-limited, typically ~3 seconds) */
-  triggerId?: string;
+  /** The channel where the command was invoked */
+  channel: Channel<TState>;
+  /** The slash command name (e.g., "/help") */
+  command: string;
 
   /**
    * Open a modal/dialog form in response to this slash command.
@@ -1635,8 +1618,20 @@ export interface SlashCommandEvent<TState = Record<string, unknown>> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement,
+    modal: ModalElement | CardJSXElement
   ): Promise<{ viewId: string } | undefined>;
+
+  /** Platform-specific raw payload */
+  raw: unknown;
+
+  /** Arguments text after the command (e.g., "topic search" from "/help topic search") */
+  text: string;
+
+  /** Trigger ID for opening modals (time-limited, typically ~3 seconds) */
+  triggerId?: string;
+
+  /** The user who invoked the command */
+  user: Author;
 }
 
 /**
@@ -1661,7 +1656,7 @@ export interface SlashCommandEvent<TState = Record<string, unknown>> {
  * ```
  */
 export type SlashCommandHandler<TState = Record<string, unknown>> = (
-  event: SlashCommandEvent<TState>,
+  event: SlashCommandEvent<TState>
 ) => Promise<void>;
 
 // =============================================================================
@@ -1669,10 +1664,8 @@ export type SlashCommandHandler<TState = Record<string, unknown>> = (
 // =============================================================================
 
 export interface AssistantThreadStartedEvent {
-  threadId: string;
-  userId: string;
+  adapter: Adapter;
   channelId: string;
-  threadTs: string;
   context: {
     channelId?: string;
     teamId?: string;
@@ -1680,18 +1673,18 @@ export interface AssistantThreadStartedEvent {
     threadEntryPoint?: string;
     forceSearch?: boolean;
   };
-  adapter: Adapter;
+  threadId: string;
+  threadTs: string;
+  userId: string;
 }
 
 export type AssistantThreadStartedHandler = (
-  event: AssistantThreadStartedEvent,
+  event: AssistantThreadStartedEvent
 ) => Promise<void>;
 
 export interface AssistantContextChangedEvent {
-  threadId: string;
-  userId: string;
+  adapter: Adapter;
   channelId: string;
-  threadTs: string;
   context: {
     channelId?: string;
     teamId?: string;
@@ -1699,17 +1692,19 @@ export interface AssistantContextChangedEvent {
     threadEntryPoint?: string;
     forceSearch?: boolean;
   };
-  adapter: Adapter;
+  threadId: string;
+  threadTs: string;
+  userId: string;
 }
 
 export type AssistantContextChangedHandler = (
-  event: AssistantContextChangedEvent,
+  event: AssistantContextChangedEvent
 ) => Promise<void>;
 
 export interface AppHomeOpenedEvent {
-  userId: string;
-  channelId: string;
   adapter: Adapter;
+  channelId: string;
+  userId: string;
 }
 
 export type AppHomeOpenedHandler = (event: AppHomeOpenedEvent) => Promise<void>;

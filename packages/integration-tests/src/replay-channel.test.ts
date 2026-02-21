@@ -46,7 +46,7 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
 
       // Mock conversations.info for fetchMetadata
@@ -173,7 +173,7 @@ describe("Replay Tests - Channel", () => {
       expect(ctx.mockClient.conversations.history).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: "C00FAKECHAN1",
-        }),
+        })
       );
     });
 
@@ -191,7 +191,7 @@ describe("Replay Tests - Channel", () => {
         expect.objectContaining({
           channel: "C00FAKECHAN1",
           text: "Hello from channel!",
-        }),
+        })
       );
     });
 
@@ -205,7 +205,9 @@ describe("Replay Tests - Channel", () => {
       const messages: Message[] = [];
       for await (const msg of channel.messages) {
         messages.push(msg);
-        if (messages.length >= 2) break;
+        if (messages.length >= 2) {
+          break;
+        }
       }
 
       expect(messages).toHaveLength(2);
@@ -243,7 +245,7 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
     });
 
@@ -344,10 +346,10 @@ describe("Replay Tests - Channel", () => {
             const channel = thread.channel;
             expect(channel).toBeDefined();
             expect(channel.id).toBe(
-              `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`,
+              `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`
             );
           },
-        },
+        }
       );
 
       await ctx.sendGatewayEvent(discordFixtures.mention);
@@ -360,12 +362,12 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
 
       // Button click happens inside a thread (channel type 11 with parent_id)
       const response = await ctx.sendWebhook(
-        discordFixtures.channel_post_action as Record<string, unknown>,
+        discordFixtures.channel_post_action as Record<string, unknown>
       );
 
       expect(response.status).toBe(200);
@@ -388,23 +390,23 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
 
       await ctx.sendWebhook(
-        discordFixtures.channel_post_action as Record<string, unknown>,
+        discordFixtures.channel_post_action as Record<string, unknown>
       );
 
       // The action's thread should have the 4-part ID (guild:channel:thread)
       expect(capturedAction?.thread.id).toBe(
-        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}:${discordFixtures.threadChannelId}`,
+        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}:${discordFixtures.threadChannelId}`
       );
 
       // Channel should point to the parent channel, not the thread
       const channel = capturedAction?.thread.channel;
       expect(channel).toBeDefined();
       expect(channel?.id).toBe(
-        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`,
+        `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`
       );
     });
 
@@ -416,7 +418,7 @@ describe("Replay Tests - Channel", () => {
             const channel = thread.channel;
             expect(channel.isDM).toBe(false);
           },
-        },
+        }
       );
 
       await ctx.sendGatewayEvent(discordFixtures.mention);
@@ -429,11 +431,11 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
 
       await ctx.sendWebhook(
-        discordFixtures.channel_post_action as Record<string, unknown>,
+        discordFixtures.channel_post_action as Record<string, unknown>
       );
 
       const channel = capturedAction?.thread.channel as Channel;
@@ -443,7 +445,7 @@ describe("Replay Tests - Channel", () => {
       expect(ctx.mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Hello from channel!",
-        }),
+        })
       );
     });
   });
@@ -468,7 +470,7 @@ describe("Replay Tests - Channel", () => {
           onAction: async (event) => {
             capturedAction = event;
           },
-        },
+        }
       );
     });
 
@@ -508,7 +510,7 @@ describe("Replay Tests - Channel", () => {
       const parts = channelId?.split(":");
       if (parts?.[1]) {
         const decodedConvId = Buffer.from(parts[1], "base64url").toString(
-          "utf-8",
+          "utf-8"
         );
         expect(decodedConvId).toBe(teamsFixtures.baseConversationId);
         expect(decodedConvId).not.toContain("messageid");

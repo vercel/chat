@@ -1,14 +1,14 @@
 import type { Lock, StateAdapter } from "chat";
 
 interface MemoryLock extends Lock {
+  expiresAt: number;
   threadId: string;
   token: string;
-  expiresAt: number;
 }
 
 interface CachedValue<T = unknown> {
-  value: T;
   expiresAt: number | null; // null = no expiry
+  value: T;
 }
 
 /**
@@ -35,7 +35,7 @@ export class MemoryStateAdapter implements StateAdapter {
         if (process.env.NODE_ENV === "production") {
           console.warn(
             "[chat] MemoryStateAdapter is not recommended for production. " +
-              "Consider using @chat-adapter/state-redis instead.",
+              "Consider using @chat-adapter/state-redis instead."
           );
         }
         this.connected = true;
@@ -165,7 +165,7 @@ export class MemoryStateAdapter implements StateAdapter {
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
-        "MemoryStateAdapter is not connected. Call connect() first.",
+        "MemoryStateAdapter is not connected. Call connect() first."
       );
     }
   }

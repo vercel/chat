@@ -2,12 +2,12 @@ import type { Lock, Logger, StateAdapter } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
 export interface RedisStateAdapterOptions {
-  /** Redis connection URL (e.g., redis://localhost:6379) */
-  url: string;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger: Logger;
+  /** Redis connection URL (e.g., redis://localhost:6379) */
+  url: string;
 }
 
 /**
@@ -91,7 +91,7 @@ export class RedisStateAdapter implements StateAdapter {
         cursor,
         {
           COUNT: 100,
-        },
+        }
       );
       cursor = result.cursor;
 
@@ -213,7 +213,7 @@ export class RedisStateAdapter implements StateAdapter {
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
-        "RedisStateAdapter is not connected. Call connect() first.",
+        "RedisStateAdapter is not connected. Call connect() first."
       );
     }
   }
@@ -231,7 +231,7 @@ function generateToken(): string {
 }
 
 export function createRedisState(
-  options: RedisStateAdapterOptions,
+  options: RedisStateAdapterOptions
 ): RedisStateAdapter {
   return new RedisStateAdapter(options);
 }

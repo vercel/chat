@@ -93,14 +93,14 @@ describe("Slack Multi-Workspace Replay Tests", () => {
   it("should resolve token from installation and handle mention", async () => {
     await chat.webhooks.slack(
       createSignedSlackRequest(JSON.stringify(team1.mention)),
-      { waitUntil: tracker.waitUntil },
+      { waitUntil: tracker.waitUntil }
     );
     await tracker.waitForAll();
 
     expect(capturedMention).not.toBeNull();
     expect(capturedMention?.message.text).toContain("testing");
     expect(capturedMention?.message.author.userId).toBe(
-      team1.mention.event.user,
+      team1.mention.event.user
     );
     expect(capturedMention?.thread.adapter.name).toBe("slack");
 
@@ -108,7 +108,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "xoxb-multi-workspace-token",
-      }),
+      })
     );
   });
 
@@ -118,7 +118,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
 
     await chat.webhooks.slack(
       createSignedSlackRequest(JSON.stringify(team1.mention)),
-      { waitUntil: tracker.waitUntil },
+      { waitUntil: tracker.waitUntil }
     );
     await tracker.waitForAll();
 
@@ -151,7 +151,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     // Send webhook from team 1
     await chat.webhooks.slack(
       createSignedSlackRequest(JSON.stringify(team1.mention)),
-      { waitUntil: tracker.waitUntil },
+      { waitUntil: tracker.waitUntil }
     );
     await tracker.waitForAll();
 
@@ -159,7 +159,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "xoxb-multi-workspace-token",
-      }),
+      })
     );
 
     // Send webhook from team 2
@@ -168,7 +168,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
 
     await chat.webhooks.slack(
       createSignedSlackRequest(JSON.stringify(team2.mention)),
-      { waitUntil: tracker.waitUntil },
+      { waitUntil: tracker.waitUntil }
     );
     await tracker.waitForAll();
 
@@ -176,7 +176,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "xoxb-team2-token",
-      }),
+      })
     );
 
     // Both mentions were captured (2 from this handler + 1 from beforeEach handler)

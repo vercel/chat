@@ -17,20 +17,20 @@ import type { GoogleChatMessage } from "./index";
 
 /** Options for creating a space subscription */
 export interface CreateSpaceSubscriptionOptions {
-  /** The space name (e.g., "spaces/AAAA...") */
-  spaceName: string;
   /** The Pub/Sub topic to receive events (e.g., "projects/my-project/topics/my-topic") */
   pubsubTopic: string;
+  /** The space name (e.g., "spaces/AAAA...") */
+  spaceName: string;
   /** Optional TTL for the subscription in seconds (default: 1 day, max: 1 day for Chat) */
   ttlSeconds?: number;
 }
 
 /** Result of creating a space subscription */
 export interface SpaceSubscriptionResult {
-  /** The subscription resource name */
-  name: string;
   /** When the subscription expires (ISO 8601) */
   expireTime: string;
+  /** The subscription resource name */
+  name: string;
 }
 
 /** Pub/Sub push message wrapper (what Google sends to your endpoint) */
@@ -47,6 +47,10 @@ export interface PubSubPushMessage {
 
 /** Google Chat reaction data */
 export interface GoogleChatReaction {
+  /** The emoji */
+  emoji?: {
+    unicode?: string;
+  };
   /** Reaction resource name */
   name: string;
   /** The user who added/removed the reaction */
@@ -55,31 +59,27 @@ export interface GoogleChatReaction {
     displayName?: string;
     type?: string;
   };
-  /** The emoji */
-  emoji?: {
-    unicode?: string;
-  };
 }
 
 /** Decoded Workspace Events notification payload */
 export interface WorkspaceEventNotification {
-  /** The subscription that triggered this event */
-  subscription: string;
-  /** The resource being watched (e.g., "//chat.googleapis.com/spaces/AAAA") */
-  targetResource: string;
-  /** Event type (e.g., "google.workspace.chat.message.v1.created") */
-  eventType: string;
   /** When the event occurred */
   eventTime: string;
+  /** Event type (e.g., "google.workspace.chat.message.v1.created") */
+  eventType: string;
+  /** Present for message.created events */
+  message?: GoogleChatMessage;
+  /** Present for reaction.created/deleted events */
+  reaction?: GoogleChatReaction;
   /** Space info */
   space?: {
     name: string;
     type: string;
   };
-  /** Present for message.created events */
-  message?: GoogleChatMessage;
-  /** Present for reaction.created/deleted events */
-  reaction?: GoogleChatReaction;
+  /** The subscription that triggered this event */
+  subscription: string;
+  /** The resource being watched (e.g., "//chat.googleapis.com/spaces/AAAA") */
+  targetResource: string;
 }
 
 /** Service account credentials for authentication */
@@ -118,7 +118,7 @@ export type WorkspaceEventsAuthOptions =
  */
 export async function createSpaceSubscription(
   options: CreateSpaceSubscriptionOptions,
-  auth: WorkspaceEventsAuthOptions,
+  auth: WorkspaceEventsAuthOptions
 ): Promise<SpaceSubscriptionResult> {
   const { spaceName, pubsubTopic, ttlSeconds = 86400 } = options; // Default 1 day
 
@@ -202,7 +202,7 @@ export async function createSpaceSubscription(
  */
 export async function listSpaceSubscriptions(
   spaceName: string,
-  auth: WorkspaceEventsAuthOptions,
+  auth: WorkspaceEventsAuthOptions
 ): Promise<Array<{ name: string; expireTime: string; eventTypes: string[] }>> {
   let authClient: Parameters<typeof google.workspaceevents>[0]["auth"];
 
@@ -243,7 +243,7 @@ export async function listSpaceSubscriptions(
  */
 export async function deleteSpaceSubscription(
   subscriptionName: string,
-  auth: WorkspaceEventsAuthOptions,
+  auth: WorkspaceEventsAuthOptions
 ): Promise<void> {
   let authClient: Parameters<typeof google.workspaceevents>[0]["auth"];
 
@@ -292,11 +292,11 @@ export async function deleteSpaceSubscription(
  * ```
  */
 export function decodePubSubMessage(
-  pushMessage: PubSubPushMessage,
+  pushMessage: PubSubPushMessage
 ): WorkspaceEventNotification {
   // Decode the base64 payload
   const data = Buffer.from(pushMessage.message.data, "base64").toString(
-    "utf-8",
+    "utf-8"
   );
   const payload = JSON.parse(data) as {
     message?: GoogleChatMessage;
@@ -324,7 +324,7 @@ export function decodePubSubMessage(
  */
 export function verifyPubSubRequest(
   request: Request,
-  _expectedAudience?: string,
+  _expectedAudience?: string
 ): boolean {
   // Basic check - Pub/Sub always sends POST with specific content type
   if (request.method !== "POST") {

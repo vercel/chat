@@ -4,7 +4,7 @@ import { decodePubSubMessage, verifyPubSubRequest } from "./workspace-events";
 
 function makePubSubMessage(
   payload: Record<string, unknown>,
-  attributes?: Record<string, string>,
+  attributes?: Record<string, string>
 ): PubSubPushMessage {
   return {
     message: {
@@ -26,7 +26,7 @@ describe("decodePubSubMessage", () => {
     const result = decodePubSubMessage(push);
     expect(result.message?.text).toBe("Hello world");
     expect(result.subscription).toBe(
-      "projects/my-project/subscriptions/my-sub",
+      "projects/my-project/subscriptions/my-sub"
     );
   });
 
@@ -37,7 +37,7 @@ describe("decodePubSubMessage", () => {
         "ce-type": "google.workspace.chat.message.v1.created",
         "ce-subject": "//chat.googleapis.com/spaces/ABC",
         "ce-time": "2024-01-15T10:00:00Z",
-      },
+      }
     );
 
     const result = decodePubSubMessage(push);
@@ -65,7 +65,7 @@ describe("decodePubSubMessage", () => {
       },
       {
         "ce-type": "google.workspace.chat.reaction.v1.created",
-      },
+      }
     );
 
     const result = decodePubSubMessage(push);

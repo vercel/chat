@@ -139,7 +139,7 @@ describe("TeamsFormatConverter", () => {
 
     it("should decode HTML entities", () => {
       const text = converter.extractPlainText(
-        "&lt;b&gt;not bold&lt;/b&gt; &amp; &quot;quoted&quot;",
+        "&lt;b&gt;not bold&lt;/b&gt; &amp; &quot;quoted&quot;"
       );
       expect(text).toContain("<b>");
       expect(text).toContain("&");
@@ -180,7 +180,7 @@ describe("TeamsFormatConverter", () => {
   describe("extractPlainText", () => {
     it("should remove bold markers", () => {
       expect(converter.extractPlainText("Hello **world**!")).toBe(
-        "Hello world!",
+        "Hello world!"
       );
     });
 

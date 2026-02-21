@@ -201,7 +201,7 @@ describe("Card Builder Functions", () => {
     it("returns false for non-card objects", () => {
       expect(isCardElement({ type: "text", content: "hello" })).toBe(false);
       expect(isCardElement({ type: "button", id: "x", label: "X" })).toBe(
-        false,
+        false
       );
       expect(isCardElement("string")).toBe(false);
       expect(isCardElement(null)).toBe(false);
@@ -283,7 +283,7 @@ describe("Select and RadioSelect Builder Validation", () => {
           id: "test",
           label: "Test",
           options: [],
-        }),
+        })
       ).toThrow("Select requires at least one option");
     });
 
@@ -305,7 +305,7 @@ describe("Select and RadioSelect Builder Validation", () => {
           id: "test",
           label: "Test",
           options: [],
-        }),
+        })
       ).toThrow("RadioSelect requires at least one option");
     });
 

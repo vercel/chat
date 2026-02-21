@@ -17,19 +17,19 @@ import {
 } from "./cards";
 
 export interface SlackView {
-  type: "modal";
+  blocks: SlackBlock[];
   callback_id: string;
-  title: { type: "plain_text"; text: string };
-  submit?: { type: "plain_text"; text: string };
   close?: { type: "plain_text"; text: string };
   notify_on_close?: boolean;
   private_metadata?: string;
-  blocks: SlackBlock[];
+  submit?: { type: "plain_text"; text: string };
+  title: { type: "plain_text"; text: string };
+  type: "modal";
 }
 
 export interface SlackModalResponse {
-  response_action?: "errors" | "update" | "push" | "clear";
   errors?: Record<string, string>;
+  response_action?: "errors" | "update" | "push" | "clear";
   view?: SlackView;
 }
 
@@ -47,7 +47,9 @@ export interface ModalMetadata {
  * for Slack's private_metadata field.
  */
 export function encodeModalMetadata(meta: ModalMetadata): string | undefined {
-  if (!meta.contextId && !meta.privateMetadata) return undefined;
+  if (!(meta.contextId || meta.privateMetadata)) {
+    return undefined;
+  }
   return JSON.stringify({ c: meta.contextId, m: meta.privateMetadata });
 }
 
@@ -56,7 +58,9 @@ export function encodeModalMetadata(meta: ModalMetadata): string | undefined {
  * Falls back to treating the raw string as a plain contextId for backward compat.
  */
 export function decodeModalMetadata(raw?: string): ModalMetadata {
-  if (!raw) return {};
+  if (!raw) {
+    return {};
+  }
   try {
     const parsed = JSON.parse(raw);
     if (
@@ -81,7 +85,7 @@ export function decodeModalMetadata(raw?: string): ModalMetadata {
 
 export function modalToSlackView(
   modal: ModalElement,
-  contextId?: string,
+  contextId?: string
 ): SlackView {
   return {
     type: "modal",
@@ -164,7 +168,7 @@ function selectToBlock(select: SelectElement): SlackBlock {
 
   if (select.initialOption) {
     const initialOpt = options.find(
-      (o) => (o as { value: string }).value === select.initialOption,
+      (o) => (o as { value: string }).value === select.initialOption
     );
     if (initialOpt) {
       element.initial_option = initialOpt;
@@ -200,7 +204,7 @@ function radioSelectToBlock(radioSelect: RadioSelectElement): SlackBlock {
   };
   if (radioSelect.initialOption) {
     const initialOpt = options.find(
-      (o) => (o as { value: string }).value === radioSelect.initialOption,
+      (o) => (o as { value: string }).value === radioSelect.initialOption
     );
     if (initialOpt) {
       element.initial_option = initialOpt;

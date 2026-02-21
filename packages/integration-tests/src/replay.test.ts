@@ -44,7 +44,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 
@@ -116,7 +116,7 @@ describe("Replay Tests", () => {
                 space: { name: "spaces/AAQAJ9CXYcg" },
                 threadReply: true,
               },
-            }),
+            })
           ).toString("base64"),
         },
         subscription:
@@ -149,7 +149,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 
@@ -236,7 +236,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 

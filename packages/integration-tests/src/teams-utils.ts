@@ -15,19 +15,19 @@ export const TEAMS_BOT_NAME = "TestBot";
  * Options for creating a Teams activity
  */
 export interface TeamsActivityOptions {
-  type?: string;
-  text: string;
-  messageId: string;
   conversationId: string;
-  serviceUrl?: string;
   fromId: string;
   fromName: string;
   isFromBot?: boolean;
+  mentions?: Array<{ id: string; name: string; text: string }>;
+  messageId: string;
   recipientId?: string;
   recipientName?: string;
-  mentions?: Array<{ id: string; name: string; text: string }>;
-  timestamp?: string;
   replyToId?: string;
+  serviceUrl?: string;
+  text: string;
+  timestamp?: string;
+  type?: string;
 }
 
 /**
@@ -97,7 +97,7 @@ export function createTeamsActivity(options: TeamsActivityOptions) {
  * Create a Teams webhook request with Bot Framework format
  */
 export function createTeamsWebhookRequest(
-  activity: ReturnType<typeof createTeamsActivity>,
+  activity: ReturnType<typeof createTeamsActivity>
 ): Request {
   const body = JSON.stringify(activity);
 
@@ -184,22 +184,22 @@ export function createMockBotAdapter() {
       async (
         _authHeader: string,
         activity: unknown,
-        handler: (context: unknown) => Promise<void>,
+        handler: (context: unknown) => Promise<void>
       ) => {
         const mockContext = createMockContext(activity);
         await handler(mockContext);
-      },
+      }
     ),
     // Mock continueConversationAsync - called for posting messages
     continueConversationAsync: vi.fn(
       async (
         _appId: string,
         _ref: unknown,
-        handler: (context: unknown) => Promise<void>,
+        handler: (context: unknown) => Promise<void>
       ) => {
         const mockContext = createMockContext({});
         await handler(mockContext);
-      },
+      }
     ),
     // Direct access to createConversationAsync mock for assertions
     createConversationAsync: mockCreateConversationAsync,
@@ -220,7 +220,7 @@ export type MockBotAdapter = ReturnType<typeof createMockBotAdapter>;
  */
 export function injectMockBotAdapter(
   adapter: TeamsAdapter,
-  mockAdapter: MockBotAdapter,
+  mockAdapter: MockBotAdapter
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
   (adapter as any).botAdapter = mockAdapter;
@@ -231,7 +231,7 @@ export function injectMockBotAdapter(
  */
 export function getTeamsThreadId(
   conversationId: string,
-  serviceUrl: string,
+  serviceUrl: string
 ): string {
   const encodedConversationId =
     Buffer.from(conversationId).toString("base64url");
@@ -318,7 +318,7 @@ export type MockGraphClient = ReturnType<typeof createMockGraphClient>;
  */
 export function injectMockGraphClient(
   adapter: TeamsAdapter,
-  mockClient: MockGraphClient,
+  mockClient: MockGraphClient
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
   (adapter as any).graphClient = mockClient.client;

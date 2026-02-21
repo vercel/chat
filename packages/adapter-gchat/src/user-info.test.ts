@@ -156,7 +156,7 @@ describe("UserInfoCache", () => {
         "users/123",
         "John Doe",
         "users/bot",
-        "chatbot",
+        "chatbot"
       );
       expect(name).toBe("John Doe");
     });
@@ -172,7 +172,7 @@ describe("UserInfoCache", () => {
         "users/123",
         "unknown",
         "users/bot",
-        "chatbot",
+        "chatbot"
       );
       expect(name).toBe("Cached Name");
     });
@@ -185,7 +185,7 @@ describe("UserInfoCache", () => {
         "users/bot",
         undefined,
         "users/bot",
-        "chatbot",
+        "chatbot"
       );
       expect(name).toBe("chatbot");
     });
@@ -200,7 +200,7 @@ describe("UserInfoCache", () => {
         "users/456",
         undefined,
         "users/bot",
-        "chatbot",
+        "chatbot"
       );
       expect(name).toBe("Cached User");
     });
@@ -213,7 +213,7 @@ describe("UserInfoCache", () => {
         "users/999",
         undefined,
         "users/bot",
-        "chatbot",
+        "chatbot"
       );
       expect(name).toBe("User 999");
     });

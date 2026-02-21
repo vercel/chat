@@ -73,39 +73,39 @@ const JSX_ELEMENT = Symbol.for("chat.jsx.element");
 
 /** Props for Card component in JSX */
 export interface CardProps {
-  title?: string;
-  subtitle?: string;
-  imageUrl?: string;
   children?: unknown;
+  imageUrl?: string;
+  subtitle?: string;
+  title?: string;
 }
 
 /** Props for Text component in JSX */
 export interface TextProps {
-  style?: TextStyle;
   children?: string | number;
+  style?: TextStyle;
 }
 
 /** Props for Button component in JSX */
 export interface ButtonProps {
+  children?: string | number;
   id: string;
   label?: string;
   style?: ButtonStyle;
   value?: string;
-  children?: string | number;
 }
 
 /** Props for LinkButton component in JSX */
 export interface LinkButtonProps {
-  url: string;
+  children?: string | number;
   label?: string;
   style?: ButtonStyle;
-  children?: string | number;
+  url: string;
 }
 
 /** Props for Image component in JSX */
 export interface ImageProps {
-  url: string;
   alt?: string;
+  url: string;
 }
 
 /** Props for Field component in JSX */
@@ -125,40 +125,40 @@ export type DividerProps = Record<string, never>;
 /** Props for Modal component in JSX */
 export interface ModalProps {
   callbackId: string;
-  title: string;
-  submitLabel?: string;
+  children?: unknown;
   closeLabel?: string;
   notifyOnClose?: boolean;
   privateMetadata?: string;
-  children?: unknown;
+  submitLabel?: string;
+  title: string;
 }
 
 /** Props for TextInput component in JSX */
 export interface TextInputProps {
   id: string;
-  label: string;
-  placeholder?: string;
   initialValue?: string;
+  label: string;
+  maxLength?: number;
   multiline?: boolean;
   optional?: boolean;
-  maxLength?: number;
+  placeholder?: string;
 }
 
 /** Props for Select component in JSX */
 export interface SelectProps {
-  id: string;
-  label: string;
-  placeholder?: string;
-  initialOption?: string;
-  optional?: boolean;
   children?: unknown;
+  id: string;
+  initialOption?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
 }
 
 /** Props for SelectOption component in JSX */
 export interface SelectOptionProps {
+  description?: string;
   label: string;
   value: string;
-  description?: string;
 }
 
 /** Union of all valid JSX props */
@@ -200,9 +200,9 @@ type CardComponentFunction =
  */
 export interface CardJSXElement<P extends CardJSXProps = CardJSXProps> {
   $$typeof: typeof JSX_ELEMENT;
-  type: CardComponentFunction;
-  props: P;
   children: unknown[];
+  props: P;
+  type: CardComponentFunction;
 }
 
 // Internal alias for backwards compatibility
@@ -280,7 +280,7 @@ type AnyCardElement =
  * Type guard to check if props match TextProps
  */
 function isTextProps(props: CardJSXProps): props is TextProps {
-  return !("id" in props) && !("url" in props) && !("label" in props);
+  return !("id" in props || "url" in props || "label" in props);
 }
 
 /**
@@ -321,9 +321,7 @@ function isFieldProps(props: CardJSXProps): props is FieldProps {
  */
 function isCardProps(props: CardJSXProps): props is CardProps {
   return (
-    !("id" in props) &&
-    !("url" in props) &&
-    !("callbackId" in props) &&
+    !("id" in props || "url" in props || "callbackId" in props) &&
     ("title" in props || "subtitle" in props || "imageUrl" in props)
   );
 }
@@ -397,7 +395,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
         | LinkButtonElement
         | SelectElement
         | RadioSelectElement
-      )[],
+      )[]
     );
   }
 
@@ -551,7 +549,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
 export function jsx<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
   return {
@@ -568,7 +566,7 @@ export function jsx<P extends CardJSXProps>(
 export function jsxs<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
   return {

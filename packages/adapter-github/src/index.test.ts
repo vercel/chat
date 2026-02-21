@@ -74,13 +74,13 @@ describe("GitHubAdapter", () => {
 
     it("should throw for invalid thread ID prefix", () => {
       expect(() => adapter.decodeThreadId("slack:C123:ts")).toThrow(
-        "Invalid GitHub thread ID",
+        "Invalid GitHub thread ID"
       );
     });
 
     it("should throw for malformed thread ID", () => {
       expect(() => adapter.decodeThreadId("github:invalid")).toThrow(
-        "Invalid GitHub thread ID format",
+        "Invalid GitHub thread ID format"
       );
     });
 

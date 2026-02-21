@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const REPO_ROOT = join(__dirname, "../../..");
+const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 
 /**
@@ -59,33 +59,33 @@ function createTempProject(codeBlocks: string[]): string {
       // Use typeRoots to find @types/node from the repo
       typeRoots: [join(REPO_ROOT, "node_modules/@types")],
       paths: {
-        chat: [join(__dirname, "../../chat/src/index.ts")],
+        chat: [join(import.meta.dirname, "../../chat/src/index.ts")],
         "@chat-adapter/slack": [
-          join(__dirname, "../../adapter-slack/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-slack/src/index.ts"),
         ],
         "@chat-adapter/teams": [
-          join(__dirname, "../../adapter-teams/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-teams/src/index.ts"),
         ],
         "@chat-adapter/gchat": [
-          join(__dirname, "../../adapter-gchat/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-gchat/src/index.ts"),
         ],
         "@chat-adapter/discord": [
-          join(__dirname, "../../adapter-discord/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-discord/src/index.ts"),
         ],
         "@chat-adapter/github": [
-          join(__dirname, "../../adapter-github/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-github/src/index.ts"),
         ],
         "@chat-adapter/linear": [
-          join(__dirname, "../../adapter-linear/src/index.ts"),
+          join(import.meta.dirname, "../../adapter-linear/src/index.ts"),
         ],
         "@chat-adapter/state-redis": [
-          join(__dirname, "../../state-redis/src/index.ts"),
+          join(import.meta.dirname, "../../state-redis/src/index.ts"),
         ],
         "@chat-adapter/state-ioredis": [
-          join(__dirname, "../../state-ioredis/src/index.ts"),
+          join(import.meta.dirname, "../../state-ioredis/src/index.ts"),
         ],
         "@chat-adapter/state-memory": [
-          join(__dirname, "../../state-memory/src/index.ts"),
+          join(import.meta.dirname, "../../state-memory/src/index.ts"),
         ],
         "@/lib/bot": [join(tempDir, "bot.ts")],
         "next/server": [join(tempDir, "next-server.d.ts")],
@@ -96,7 +96,7 @@ function createTempProject(codeBlocks: string[]): string {
 
   writeFileSync(
     join(tempDir, "tsconfig.json"),
-    JSON.stringify(tsconfig, null, 2),
+    JSON.stringify(tsconfig, null, 2)
   );
 
   // Create stub for next/server since it's not installed
@@ -104,7 +104,7 @@ function createTempProject(codeBlocks: string[]): string {
     join(tempDir, "next-server.d.ts"),
     `
 export function after(fn: () => unknown): void;
-  `,
+  `
   );
 
   // Ephemeral declarations to inject into code blocks that need them
@@ -194,7 +194,7 @@ describe("Main README.md code examples", () => {
         `README.md TypeScript code blocks failed type-checking:\n\n${output}\n\n` +
           `Code blocks tested:\n${codeBlocks
             .map((b, i) => `--- Block ${i} ---\n${b}`)
-            .join("\n\n")}`,
+            .join("\n\n")}`
       );
     }
 
@@ -206,12 +206,12 @@ describe("Main README.md code examples", () => {
     const codeBlocks = extractTypeScriptBlocks(readme);
 
     const hasBotDefinition = codeBlocks.some(
-      (block) => block.includes("new Chat") && block.includes("adapters:"),
+      (block) => block.includes("new Chat") && block.includes("adapters:")
     );
 
     expect(
       hasBotDefinition,
-      "README should have a Chat instantiation example",
+      "README should have a Chat instantiation example"
     ).toBe(true);
   });
 });
@@ -242,11 +242,11 @@ describe("Package README code examples", () => {
 
         expect(
           openBraces,
-          `${readmeName}: Mismatched braces in code block`,
+          `${readmeName}: Mismatched braces in code block`
         ).toBe(closeBraces);
         expect(
           openParens,
-          `${readmeName}: Mismatched parentheses in code block`,
+          `${readmeName}: Mismatched parentheses in code block`
         ).toBe(closeParens);
 
         // Check that imports reference valid packages
@@ -274,7 +274,7 @@ describe("Package README code examples", () => {
               validPackages.includes(pkg) || pkg.startsWith("node:");
             expect(
               isValid,
-              `${readmeName}: Unknown import "${pkg}" in code block`,
+              `${readmeName}: Unknown import "${pkg}" in code block`
             ).toBe(true);
           }
         }

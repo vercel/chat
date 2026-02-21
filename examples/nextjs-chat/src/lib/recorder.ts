@@ -17,45 +17,45 @@
 import { createClient, type RedisClientType } from "redis";
 
 export interface WebhookRecord {
-  type: "webhook";
-  timestamp: number;
-  platform: string;
-  method: string;
-  url: string;
-  headers: Record<string, string>;
   body: string;
+  headers: Record<string, string>;
+  method: string;
+  platform: string;
+  timestamp: number;
+  type: "webhook";
+  url: string;
 }
 
 export interface ApiCallRecord {
-  type: "api-call";
-  timestamp: number;
-  platform: string;
-  method: string;
   args: unknown;
-  response?: unknown;
   error?: string;
+  method: string;
+  platform: string;
+  response?: unknown;
+  timestamp: number;
+  type: "api-call";
 }
 
 export interface FetchRecord {
-  type: "fetch";
-  timestamp: number;
-  method: string;
-  url: string;
-  requestHeaders?: Record<string, string>;
-  requestBody?: string;
-  status?: number;
-  responseHeaders?: Record<string, string>;
-  responseBody?: string;
-  error?: string;
   durationMs: number;
+  error?: string;
+  method: string;
+  requestBody?: string;
+  requestHeaders?: Record<string, string>;
+  responseBody?: string;
+  responseHeaders?: Record<string, string>;
+  status?: number;
+  timestamp: number;
+  type: "fetch";
+  url: string;
 }
 
 export interface GatewayRecord {
-  type: "gateway";
-  timestamp: number;
-  platform: string;
-  eventType: string;
   body: string;
+  eventType: string;
+  platform: string;
+  timestamp: number;
+  type: "gateway";
 }
 
 export type RecordEntry =
@@ -108,14 +108,16 @@ class Recorder {
     if (this.enabled && process.env.REDIS_URL) {
       this.redis = createClient({ url: process.env.REDIS_URL });
       this.redis.on("error", (err) =>
-        console.error("[recorder] Redis error:", err),
+        console.error("[recorder] Redis error:", err)
       );
       console.log(`[recorder] Recording enabled, session: ${this.sessionId}`);
     }
   }
 
   private ensureConnected(): Promise<void> {
-    if (!this.redis) return Promise.resolve();
+    if (!this.redis) {
+      return Promise.resolve();
+    }
 
     if (!this.connectPromise) {
       this.connectPromise = this.redis.connect().then(() => {});
@@ -139,7 +141,9 @@ class Recorder {
    * Record an incoming webhook request.
    */
   async recordWebhook(platform: string, request: Request): Promise<void> {
-    if (!this.isEnabled || !this.redis) return;
+    if (!(this.isEnabled && this.redis)) {
+      return;
+    }
 
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => {
@@ -169,9 +173,11 @@ class Recorder {
     method: string,
     args: unknown,
     response?: unknown,
-    error?: Error,
+    error?: Error
   ): Promise<void> {
-    if (!this.isEnabled || !this.redis) return;
+    if (!(this.isEnabled && this.redis)) {
+      return;
+    }
 
     if (response && response instanceof Response) {
       response = await response.clone().text();
@@ -196,9 +202,11 @@ class Recorder {
   async recordGatewayEvent(
     platform: string,
     eventType: string,
-    data: unknown,
+    data: unknown
   ): Promise<void> {
-    if (!this.isEnabled || !this.redis) return;
+    if (!(this.isEnabled && this.redis)) {
+      return;
+    }
 
     const record: GatewayRecord = {
       type: "gateway",
@@ -212,7 +220,9 @@ class Recorder {
   }
 
   private async appendRecord(record: RecordEntry): Promise<void> {
-    if (!this.redis) return;
+    if (!this.redis) {
+      return;
+    }
 
     try {
       await this.ensureConnected();
@@ -227,7 +237,9 @@ class Recorder {
    * Get all records for the current session.
    */
   async getRecords(sessionId?: string): Promise<RecordEntry[]> {
-    if (!this.redis) return [];
+    if (!this.redis) {
+      return [];
+    }
 
     await this.ensureConnected();
     const key = sessionId ? `recording:${sessionId}` : this.redisKey;
@@ -239,7 +251,9 @@ class Recorder {
    * List all recording sessions.
    */
   async listSessions(): Promise<string[]> {
-    if (!this.redis) return [];
+    if (!this.redis) {
+      return [];
+    }
 
     await this.ensureConnected();
     const keys = await this.redis.keys("recording:*");
@@ -250,7 +264,9 @@ class Recorder {
    * Delete a recording session.
    */
   async deleteSession(sessionId?: string): Promise<void> {
-    if (!this.redis) return;
+    if (!this.redis) {
+      return;
+    }
 
     await this.ensureConnected();
     const key = sessionId ? `recording:${sessionId}` : this.redisKey;
@@ -276,9 +292,11 @@ class Recorder {
       /graph\.microsoft\.com/,
       /\.slack\.com/,
       /chat\.googleapis\.com/,
-    ],
+    ]
   ): void {
-    if (!this.isEnabled || this.originalFetch) return;
+    if (!this.isEnabled || this.originalFetch) {
+      return;
+    }
 
     this.fetchUrlPatterns = urlPatterns;
     this.originalFetch = globalThis.fetch;
@@ -286,7 +304,7 @@ class Recorder {
     const self = this;
     globalThis.fetch = async function recordingFetch(
       input: RequestInfo | URL,
-      init?: RequestInit,
+      init?: RequestInit
     ): Promise<Response> {
       const url =
         typeof input === "string"
@@ -299,7 +317,7 @@ class Recorder {
 
       // Check if URL matches any pattern
       const shouldRecord = self.fetchUrlPatterns.some((pattern) =>
-        pattern.test(url),
+        pattern.test(url)
       );
 
       // Get original fetch (we know it's set because we checked in startFetchRecording)
@@ -379,7 +397,7 @@ class Recorder {
     };
 
     console.log(
-      `[recorder] Fetch recording started for patterns: ${urlPatterns.map((p) => p.source).join(", ")}`,
+      `[recorder] Fetch recording started for patterns: ${urlPatterns.map((p) => p.source).join(", ")}`
     );
   }
 
@@ -405,9 +423,11 @@ export const recorder = new Recorder();
 export function withRecording<T extends object>(
   adapter: T,
   platform: string,
-  methodsToRecord: string[],
+  methodsToRecord: string[]
 ): T {
-  if (!recorder.isEnabled) return adapter;
+  if (!recorder.isEnabled) {
+    return adapter;
+  }
 
   return new Proxy(adapter, {
     get(target, prop) {
@@ -433,7 +453,7 @@ export function withRecording<T extends object>(
               prop as string,
               args,
               response,
-              error,
+              error
             );
           }
         };

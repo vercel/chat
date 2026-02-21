@@ -29,7 +29,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     ctx = await createDiscordTestContext(
       { botName: "Chat SDK Demo", applicationId: DISCORD_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
@@ -74,7 +74,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Extract just the numbered messages
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
 
     // Should have exactly 14 numbered messages
@@ -95,7 +95,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Extract numbered messages and verify order
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(EXPECTED_NUMBERED_TEXTS);
@@ -134,14 +134,14 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Human messages should have display names from global_name
     const humanMessage = result.messages.find(
-      (m) => m.author.userId === DISCORD_HUMAN_USER_ID,
+      (m) => m.author.userId === DISCORD_HUMAN_USER_ID
     );
     expect(humanMessage?.author.userName).toBe("testuser2384");
     expect(humanMessage?.author.fullName).toBe("Test User");
 
     // Bot messages should have bot name
     const botMessage = result.messages.find(
-      (m) => m.author.userId === DISCORD_BOT_USER_ID,
+      (m) => m.author.userId === DISCORD_BOT_USER_ID
     );
     expect(botMessage?.author.userName).toBe("Chat SDK Demo");
   });
@@ -224,7 +224,7 @@ describe("allMessages Replay Tests - Discord", () => {
 
     ctx = await createDiscordTestContext(
       { botName: "Chat SDK Demo", applicationId: DISCORD_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
@@ -258,7 +258,7 @@ describe("allMessages Replay Tests - Discord", () => {
 
     // Extract numbered messages and verify chronological order
     const numberedMessages = messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(14);
 

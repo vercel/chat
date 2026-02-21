@@ -5,12 +5,12 @@
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
 export interface Logger {
-  debug(message: string, ...args: unknown[]): void;
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, ...args: unknown[]): void;
   /** Create a sub-logger with a prefix */
   child(prefix: string): Logger;
+  debug(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
 }
 
 /**
@@ -21,7 +21,7 @@ export class ConsoleLogger implements Logger {
 
   constructor(
     private level: LogLevel = "info",
-    prefix = "chat-sdk",
+    prefix = "chat-sdk"
   ) {
     this.prefix = prefix;
   }
@@ -37,25 +37,29 @@ export class ConsoleLogger implements Logger {
 
   // eslint-disable-next-line no-console
   debug(message: string, ...args: unknown[]): void {
-    if (this.shouldLog("debug"))
+    if (this.shouldLog("debug")) {
       console.debug(`[${this.prefix}] ${message}`, ...args);
+    }
   }
 
   // eslint-disable-next-line no-console
   info(message: string, ...args: unknown[]): void {
-    if (this.shouldLog("info"))
+    if (this.shouldLog("info")) {
       console.info(`[${this.prefix}] ${message}`, ...args);
+    }
   }
 
   // eslint-disable-next-line no-console
   warn(message: string, ...args: unknown[]): void {
-    if (this.shouldLog("warn"))
+    if (this.shouldLog("warn")) {
       console.warn(`[${this.prefix}] ${message}`, ...args);
+    }
   }
 
   // eslint-disable-next-line no-console
   error(message: string, ...args: unknown[]): void {
-    if (this.shouldLog("error"))
+    if (this.shouldLog("error")) {
       console.error(`[${this.prefix}] ${message}`, ...args);
+    }
   }
 }

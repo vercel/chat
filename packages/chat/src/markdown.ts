@@ -191,13 +191,15 @@ export function markdownToPlainText(markdown: string): string {
  */
 export function walkAst<T extends Content | Root>(
   node: T,
-  visitor: (node: Content) => Content | null,
+  visitor: (node: Content) => Content | null
 ): T {
   if ("children" in node && Array.isArray(node.children)) {
     node.children = node.children
       .map((child) => {
         const result = visitor(child as Content);
-        if (result === null) return null;
+        if (result === null) {
+          return null;
+        }
         return walkAst(result, visitor);
       })
       .filter((n): n is Content => n !== null);
@@ -288,6 +290,11 @@ export function root(children: Content[]): Root {
  */
 export interface FormatConverter {
   /**
+   * Extract plain text from platform format.
+   * Convenience method - default implementation uses toAst + toPlainText.
+   */
+  extractPlainText(platformText: string): string;
+  /**
    * Render an AST to the platform's native format.
    * This is the primary method used when sending messages.
    */
@@ -298,12 +305,6 @@ export interface FormatConverter {
    * This is the primary method used when receiving messages.
    */
   toAst(platformText: string): Root;
-
-  /**
-   * Extract plain text from platform format.
-   * Convenience method - default implementation uses toAst + toPlainText.
-   */
-  extractPlainText(platformText: string): string;
 }
 
 /**
@@ -334,7 +335,7 @@ export abstract class BaseFormatConverter implements FormatConverter {
    */
   protected fromAstWithNodeConverter(
     ast: Root,
-    nodeConverter: (node: Content) => string,
+    nodeConverter: (node: Content) => string
   ): string {
     const parts: string[] = [];
     for (const node of ast.children) {

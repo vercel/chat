@@ -8,8 +8,11 @@ export default defineConfig({
   resolve: {
     alias: {
       // Map JSX runtime imports to our custom runtime
-      "react/jsx-runtime": resolve(__dirname, "src/jsx-runtime.ts"),
-      "react/jsx-dev-runtime": resolve(__dirname, "src/jsx-runtime.ts"),
+      "react/jsx-runtime": resolve(import.meta.dirname, "src/jsx-runtime.ts"),
+      "react/jsx-dev-runtime": resolve(
+        import.meta.dirname,
+        "src/jsx-runtime.ts"
+      ),
     },
   },
   test: {

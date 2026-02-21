@@ -85,7 +85,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private formatConverter = new DiscordFormatConverter();
 
   constructor(
-    config: DiscordAdapterConfig & { logger: Logger; userName?: string },
+    config: DiscordAdapterConfig & { logger: Logger; userName?: string }
   ) {
     this.botToken = config.botToken;
     this.publicKey = config.publicKey.trim().toLowerCase();
@@ -118,7 +118,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async handleWebhook(
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     // Get raw body bytes for signature verification
     const bodyBuffer = await request.arrayBuffer();
@@ -155,7 +155,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const signatureValid = await this.verifySignature(
       bodyBytes,
       signature,
-      timestamp,
+      timestamp
     );
     if (!signatureValid) {
       this.logger.warn("Discord signature verification failed, returning 401");
@@ -219,15 +219,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async verifySignature(
     bodyBytes: Uint8Array,
     signature: string | null,
-    timestamp: string | null,
+    timestamp: string | null
   ): Promise<boolean> {
-    if (!signature || !timestamp) {
+    if (!(signature && timestamp)) {
       this.logger.warn(
         "Discord signature verification failed: missing headers",
         {
           hasSignature: !!signature,
           hasTimestamp: !!timestamp,
-        },
+        }
       );
       return false;
     }
@@ -249,7 +249,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         bodyBytes,
         signature,
         timestamp,
-        this.publicKey,
+        this.publicKey
       );
 
       if (!isValid) {
@@ -264,7 +264,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
             timestamp,
             bodyLength: bodyBytes.length,
             bodyPrefix: bodyString.slice(0, 50),
-          },
+          }
         );
       }
 
@@ -291,7 +291,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private handleComponentInteraction(
     interaction: DiscordInteraction,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring interaction");
@@ -314,7 +314,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = interaction.guild_id || "@me";
     const messageId = interaction.message?.id;
 
-    if (!interactionChannelId || !messageId) {
+    if (!(interactionChannelId && messageId)) {
       this.logger.warn("Missing channel_id or message_id in interaction");
       return;
     }
@@ -369,7 +369,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private async handleForwardedGatewayEvent(
     event: DiscordForwardedEvent,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     this.logger.info("Processing forwarded Gateway event", {
       type: event.type,
@@ -380,21 +380,21 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       case "GATEWAY_MESSAGE_CREATE":
         await this.handleForwardedMessage(
           event.data as DiscordGatewayMessageData,
-          options,
+          options
         );
         break;
       case "GATEWAY_MESSAGE_REACTION_ADD":
         await this.handleForwardedReaction(
           event.data as DiscordGatewayReactionData,
           true,
-          options,
+          options
         );
         break;
       case "GATEWAY_MESSAGE_REACTION_REMOVE":
         await this.handleForwardedReaction(
           event.data as DiscordGatewayReactionData,
           false,
-          options,
+          options
         );
         break;
       default:
@@ -415,9 +415,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private async handleForwardedMessage(
     data: DiscordGatewayMessageData,
-    _options?: WebhookOptions,
+    _options?: WebhookOptions
   ): Promise<void> {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     const guildId = data.guild_id || "@me";
     const channelId = data.channel_id;
@@ -435,7 +437,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       try {
         const response = await this.discordFetch(
           `/channels/${channelId}`,
-          "GET",
+          "GET"
         );
         const channel = (await response.json()) as { parent_id?: string };
         if (channel.parent_id) {
@@ -460,7 +462,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const isRoleMentioned =
       this.mentionRoleIds.length > 0 &&
       data.mention_roles?.some((roleId) =>
-        this.mentionRoleIds.includes(roleId),
+        this.mentionRoleIds.includes(roleId)
       );
     const isMentioned = isUserMentioned || isRoleMentioned;
 
@@ -532,9 +534,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async handleForwardedReaction(
     data: DiscordGatewayReactionData,
     added: boolean,
-    _options?: WebhookOptions,
+    _options?: WebhookOptions
   ): Promise<void> {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     const guildId = data.guild_id || "@me";
     const channelId = data.channel_id;
@@ -580,7 +584,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     let { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
@@ -609,8 +613,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(
           this.formatConverter.renderPostable(message),
-          "discord",
-        ),
+          "discord"
+        )
       );
     }
 
@@ -628,7 +632,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         channelId,
         actualThreadId,
         payload,
-        files,
+        files
       );
     }
 
@@ -642,7 +646,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const response = await this.discordFetch(
       `/channels/${channelId}/messages`,
       "POST",
-      payload,
+      payload
     );
 
     const result = (await response.json()) as APIMessage;
@@ -663,7 +667,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private async createDiscordThread(
     channelId: string,
-    messageId: string,
+    messageId: string
   ): Promise<{ id: string; name: string }> {
     const threadName = `Thread ${new Date().toLocaleString()}`;
 
@@ -679,7 +683,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       {
         name: threadName,
         auto_archive_duration: 1440, // 24 hours
-      },
+      }
     );
 
     const result = (await response.json()) as { id: string; name: string };
@@ -714,7 +718,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       filename: string;
       data: Buffer | Blob | ArrayBuffer;
       mimeType?: string;
-    }>,
+    }>
   ): Promise<RawMessage<unknown>> {
     const formData = new FormData();
 
@@ -724,11 +728,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // Add files
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (!file) continue;
+      if (!file) {
+        continue;
+      }
       const buffer = await toBuffer(file.data, {
         platform: "discord" as "slack",
       });
-      if (!buffer) continue;
+      if (!buffer) {
+        continue;
+      }
       const blob = new Blob([new Uint8Array(buffer)], {
         type: file.mimeType || "application/octet-stream",
       });
@@ -743,14 +751,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           Authorization: `Bot ${this.botToken}`,
         },
         body: formData,
-      },
+      }
     );
 
     if (!response.ok) {
       const error = await response.text();
       throw new NetworkError(
         "discord",
-        `Failed to post message: ${response.status} ${error}`,
+        `Failed to post message: ${response.status} ${error}`
       );
     }
 
@@ -769,7 +777,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
@@ -794,8 +802,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(
           this.formatConverter.renderPostable(message),
-          "discord",
-        ),
+          "discord"
+        )
       );
     }
 
@@ -815,7 +823,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const response = await this.discordFetch(
       `/channels/${targetChannelId}/messages/${messageId}`,
       "PATCH",
-      payload,
+      payload
     );
 
     const result = (await response.json()) as APIMessage;
@@ -844,7 +852,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     await this.discordFetch(
       `/channels/${channelId}/messages/${messageId}`,
-      "DELETE",
+      "DELETE"
     );
 
     this.logger.debug("Discord API: DELETE message response", { ok: true });
@@ -856,7 +864,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async addReaction(
     threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     const { channelId } = this.decodeThreadId(threadId);
     const emojiEncoded = this.encodeEmoji(emoji);
@@ -869,7 +877,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     await this.discordFetch(
       `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
-      "PUT",
+      "PUT"
     );
 
     this.logger.debug("Discord API: PUT reaction response", { ok: true });
@@ -881,7 +889,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async removeReaction(
     threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     const { channelId } = this.decodeThreadId(threadId);
     const emojiEncoded = this.encodeEmoji(emoji);
@@ -894,7 +902,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     await this.discordFetch(
       `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
-      "DELETE",
+      "DELETE"
     );
 
     this.logger.debug("Discord API: DELETE reaction response", { ok: true });
@@ -933,7 +941,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async fetchMessages(
     threadId: string,
-    options: FetchOptions = {},
+    options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
@@ -964,7 +972,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const response = await this.discordFetch(
       `/channels/${targetChannelId}/messages?${params.toString()}`,
-      "GET",
+      "GET"
     );
 
     const rawMessages = (await response.json()) as APIMessage[];
@@ -978,7 +986,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const sortedMessages = [...rawMessages].reverse();
 
     const messages = sortedMessages.map((msg) =>
-      this.parseDiscordMessage(msg, threadId),
+      this.parseDiscordMessage(msg, threadId)
     );
 
     // Determine next cursor
@@ -1036,7 +1044,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async openDM(userId: string): Promise<string> {
     this.logger.debug("Discord API: POST DM channel", { userId });
 
-    const response = await this.discordFetch(`/users/@me/channels`, "POST", {
+    const response = await this.discordFetch("/users/@me/channels", "POST", {
       recipient_id: userId,
     });
 
@@ -1079,7 +1087,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (parts.length < 3 || parts[0] !== "discord") {
       throw new ValidationError(
         "discord",
-        `Invalid Discord thread ID: ${threadId}`,
+        `Invalid Discord thread ID: ${threadId}`
       );
     }
 
@@ -1108,7 +1116,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private parseDiscordMessage(
     msg: APIMessage,
-    threadId: string,
+    threadId: string
   ): Message<unknown> {
     const author = msg.author;
     const isBot = author.bot ?? false;
@@ -1150,12 +1158,20 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Determine attachment type from MIME type.
    */
   private getAttachmentType(
-    mimeType?: string | null,
+    mimeType?: string | null
   ): "image" | "video" | "audio" | "file" {
-    if (!mimeType) return "file";
-    if (mimeType.startsWith("image/")) return "image";
-    if (mimeType.startsWith("video/")) return "video";
-    if (mimeType.startsWith("audio/")) return "audio";
+    if (!mimeType) {
+      return "file";
+    }
+    if (mimeType.startsWith("image/")) {
+      return "image";
+    }
+    if (mimeType.startsWith("video/")) {
+      return "video";
+    }
+    if (mimeType.startsWith("audio/")) {
+      return "audio";
+    }
     return "file";
   }
 
@@ -1172,7 +1188,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async discordFetch(
     path: string,
     method: string,
-    body?: unknown,
+    body?: unknown
   ): Promise<Response> {
     const url = `${DISCORD_API_BASE}${path}`;
     const headers: Record<string, string> = {
@@ -1199,7 +1215,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       });
       throw new NetworkError(
         "discord",
-        `Discord API error: ${response.status} ${errorText}`,
+        `Discord API error: ${response.status} ${errorText}`
       );
     }
 
@@ -1223,7 +1239,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     options: WebhookOptions,
     durationMs = 180000,
     abortSignal?: AbortSignal,
-    webhookUrl?: string,
+    webhookUrl?: string
   ): Promise<Response> {
     if (!this.chat) {
       return new Response("Chat instance not initialized", { status: 500 });
@@ -1242,7 +1258,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const listenerPromise = this.runGatewayListener(
       durationMs,
       abortSignal,
-      webhookUrl,
+      webhookUrl
     );
 
     // Use waitUntil to keep the function alive
@@ -1257,7 +1273,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      },
+      }
     );
   }
 
@@ -1267,7 +1283,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async runGatewayListener(
     durationMs: number,
     abortSignal?: AbortSignal,
-    webhookUrl?: string,
+    webhookUrl?: string
   ): Promise<void> {
     const client = new Client({
       intents: [
@@ -1286,8 +1302,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // This keeps the Gateway simple - all processing happens in the webhook
     if (webhookUrl) {
       client.on("raw", async (packet: { t: string | null; d: unknown }) => {
-        if (isShuttingDown) return;
-        if (!packet.t) return; // Skip heartbeats and other non-dispatch events
+        if (isShuttingDown) {
+          return;
+        }
+        if (!packet.t) {
+          return; // Skip heartbeats and other non-dispatch events
+        }
 
         this.logger.info("Discord Gateway forwarding event", {
           type: packet.t,
@@ -1335,18 +1355,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
             "abort",
             () => {
               this.logger.info(
-                "Discord Gateway listener received abort signal (new listener started)",
+                "Discord Gateway listener received abort signal (new listener started)"
               );
               clearTimeout(timeout);
               resolve();
             },
-            { once: true },
+            { once: true }
           );
         }
       });
 
       this.logger.info(
-        "Discord Gateway listener duration elapsed, disconnecting",
+        "Discord Gateway listener duration elapsed, disconnecting"
       );
     } catch (error) {
       this.logger.error("Discord Gateway listener error", {
@@ -1364,7 +1384,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private setupLegacyGatewayHandlers(
     client: Client,
-    isShuttingDown: () => boolean,
+    isShuttingDown: () => boolean
   ): void {
     // Message handler
     client.on(Events.MessageCreate, async (message: DiscordJsMessage) => {
@@ -1388,7 +1408,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const isRoleMentioned =
         this.mentionRoleIds.length > 0 &&
         message.mentions.roles.some((role) =>
-          this.mentionRoleIds.includes(role.id),
+          this.mentionRoleIds.includes(role.id)
         );
       const isMentioned = isUserMentioned || isRoleMentioned;
 
@@ -1434,7 +1454,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         await this.handleGatewayReaction(
           reaction,
           user as { id: string; username: string; bot: boolean },
-          true,
+          true
         );
       }
     });
@@ -1443,7 +1463,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     client.on(Events.MessageReactionRemove, async (reaction, user) => {
       if (isShuttingDown()) {
         this.logger.debug(
-          "Ignoring reaction removal - Gateway is shutting down",
+          "Ignoring reaction removal - Gateway is shutting down"
         );
         return;
       }
@@ -1469,7 +1489,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         await this.handleGatewayReaction(
           reaction,
           user as { id: string; username: string; bot: boolean },
-          false,
+          false
         );
       }
     });
@@ -1480,7 +1500,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private async forwardGatewayEvent(
     webhookUrl: string,
-    event: DiscordForwardedEvent,
+    event: DiscordForwardedEvent
   ): Promise<void> {
     try {
       this.logger.debug("Forwarding Gateway event to webhook", {
@@ -1497,16 +1517,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         body: JSON.stringify(event),
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        this.logger.debug("Gateway event forwarded successfully", {
+          type: event.type,
+        });
+      } else {
         const errorText = await response.text();
         this.logger.error("Failed to forward Gateway event", {
           type: event.type,
           status: response.status,
           error: errorText,
-        });
-      } else {
-        this.logger.debug("Gateway event forwarded successfully", {
-          type: event.type,
         });
       }
     } catch (error) {
@@ -1522,9 +1542,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   private async handleGatewayMessage(
     message: DiscordJsMessage,
-    isMentioned: boolean,
+    isMentioned: boolean
   ): Promise<void> {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     const guildId = message.guildId || "@me";
     const channelId = message.channelId;
@@ -1629,9 +1651,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       message: { id: string; channelId: string; guildId: string | null };
     },
     user: { id: string; username: string; bot: boolean },
-    added: boolean,
+    added: boolean
   ): Promise<void> {
-    if (!this.chat) return;
+    if (!this.chat) {
+      return;
+    }
 
     const guildId = reaction.message.guildId || "@me";
     const channelId = reaction.message.channelId;
@@ -1694,14 +1718,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async fetchChannelMessages(
     channelId: string,
-    options: FetchOptions = {},
+    options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
     const parts = channelId.split(":");
     const discordChannelId = parts[2];
     if (!discordChannelId) {
       throw new ValidationError(
         "discord",
-        `Invalid Discord channel ID: ${channelId}`,
+        `Invalid Discord channel ID: ${channelId}`
       );
     }
 
@@ -1728,7 +1752,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const response = await this.discordFetch(
       `/channels/${discordChannelId}/messages?${params.toString()}`,
-      "GET",
+      "GET"
     );
 
     const rawMessages = (await response.json()) as APIMessage[];
@@ -1741,7 +1765,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const sortedMessages = [...rawMessages].reverse();
 
     const messages = sortedMessages.map((msg) =>
-      this.parseDiscordMessage(msg, channelId),
+      this.parseDiscordMessage(msg, channelId)
     );
 
     let nextCursor: string | undefined;
@@ -1764,15 +1788,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async listThreads(
     channelId: string,
-    options: ListThreadsOptions = {},
+    options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
     const parts = channelId.split(":");
     const guildId = parts[1];
     const discordChannelId = parts[2];
-    if (!guildId || !discordChannelId) {
+    if (!(guildId && discordChannelId)) {
       throw new ValidationError(
         "discord",
-        `Invalid Discord channel ID: ${channelId}`,
+        `Invalid Discord channel ID: ${channelId}`
       );
     }
 
@@ -1784,7 +1808,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // Fetch active threads from the guild
     const activeResponse = await this.discordFetch(
       `/guilds/${guildId}/threads/active`,
-      "GET",
+      "GET"
     );
     const activeData = (await activeResponse.json()) as {
       threads: Array<{
@@ -1799,7 +1823,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Filter threads that belong to our channel
     const channelThreads = (activeData.threads || []).filter(
-      (t) => t.parent_id === discordChannelId,
+      (t) => t.parent_id === discordChannelId
     );
 
     // Also fetch archived public threads
@@ -1807,7 +1831,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     try {
       const archivedResponse = await this.discordFetch(
         `/channels/${discordChannelId}/threads/archived/public?limit=${options.limit || 50}`,
-        "GET",
+        "GET"
       );
       const archivedData = (await archivedResponse.json()) as {
         threads: typeof channelThreads;
@@ -1816,7 +1840,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     } catch {
       // Archived threads may not be available (permissions)
       this.logger.debug(
-        "Could not fetch archived threads (may lack permissions)",
+        "Could not fetch archived threads (may lack permissions)"
       );
     }
 
@@ -1824,7 +1848,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const allThreads = [...channelThreads, ...archivedThreads];
     const seen = new Set<string>();
     const uniqueThreads = allThreads.filter((t) => {
-      if (seen.has(t.id)) return false;
+      if (seen.has(t.id)) {
+        return false;
+      }
       seen.add(t.id);
       return true;
     });
@@ -1846,7 +1872,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       try {
         const msgsResponse = await this.discordFetch(
           `/channels/${thread.id}/messages?limit=1&after=0`,
-          "GET",
+          "GET"
         );
         const msgs = (await msgsResponse.json()) as APIMessage[];
         const rootMsg = msgs[0];
@@ -1905,7 +1931,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (!discordChannelId) {
       throw new ValidationError(
         "discord",
-        `Invalid Discord channel ID: ${channelId}`,
+        `Invalid Discord channel ID: ${channelId}`
       );
     }
 
@@ -1915,7 +1941,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const response = await this.discordFetch(
       `/channels/${discordChannelId}`,
-      "GET",
+      "GET"
     );
     const channel = (await response.json()) as {
       id: string;
@@ -1943,14 +1969,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   async postChannelMessage(
     channelId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const parts = channelId.split(":");
     const discordChannelId = parts[2];
     if (!discordChannelId) {
       throw new ValidationError(
         "discord",
-        `Invalid Discord channel ID: ${channelId}`,
+        `Invalid Discord channel ID: ${channelId}`
       );
     }
 
@@ -1969,13 +1995,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(
           this.formatConverter.renderPostable(message),
-          "discord",
-        ),
+          "discord"
+        )
       );
     }
 
-    if (embeds.length > 0) payload.embeds = embeds;
-    if (components.length > 0) payload.components = components;
+    if (embeds.length > 0) {
+      payload.embeds = embeds;
+    }
+    if (components.length > 0) {
+      payload.components = components;
+    }
 
     const files = extractFiles(message);
     if (files.length > 0) {
@@ -1983,7 +2013,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         discordChannelId,
         channelId,
         payload,
-        files,
+        files
       );
     }
 
@@ -1995,7 +2025,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const response = await this.discordFetch(
       `/channels/${discordChannelId}/messages`,
       "POST",
-      payload,
+      payload
     );
 
     const result = (await response.json()) as APIMessage;
@@ -2043,7 +2073,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
  * Create a Discord adapter instance.
  */
 export function createDiscordAdapter(
-  config: DiscordAdapterConfig & { logger: Logger; userName?: string },
+  config: DiscordAdapterConfig & { logger: Logger; userName?: string }
 ): DiscordAdapter {
   return new DiscordAdapter(config);
 }

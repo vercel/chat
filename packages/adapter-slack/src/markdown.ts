@@ -64,7 +64,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    */
   fromAst(ast: Root): string {
     return this.fromAstWithNodeConverter(ast, (node) =>
-      this.nodeToMrkdwn(node),
+      this.nodeToMrkdwn(node)
     );
   }
 

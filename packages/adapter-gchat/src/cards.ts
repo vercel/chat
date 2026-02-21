@@ -29,58 +29,58 @@ const convertEmoji = createEmojiConverter("gchat");
 
 // Google Chat Card v2 types (simplified)
 export interface GoogleChatCard {
-  cardId?: string;
   card: {
     header?: GoogleChatCardHeader;
     sections: GoogleChatCardSection[];
   };
+  cardId?: string;
 }
 
 export interface GoogleChatCardHeader {
-  title: string;
-  subtitle?: string;
-  imageUrl?: string;
   imageType?: "CIRCLE" | "SQUARE";
+  imageUrl?: string;
+  subtitle?: string;
+  title: string;
 }
 
 export interface GoogleChatCardSection {
+  collapsible?: boolean;
   header?: string;
   widgets: GoogleChatWidget[];
-  collapsible?: boolean;
 }
 
 export interface GoogleChatWidget {
-  textParagraph?: { text: string };
-  image?: { imageUrl: string; altText?: string };
+  buttonList?: { buttons: (GoogleChatButton | GoogleChatLinkButton)[] };
   decoratedText?: {
     topLabel?: string;
     text: string;
     bottomLabel?: string;
     startIcon?: { knownIcon?: string };
   };
-  buttonList?: { buttons: (GoogleChatButton | GoogleChatLinkButton)[] };
   divider?: Record<string, never>;
+  image?: { imageUrl: string; altText?: string };
+  textParagraph?: { text: string };
 }
 
 export interface GoogleChatButton {
-  text: string;
+  color?: { red: number; green: number; blue: number };
   onClick: {
     action: {
       function: string;
       parameters: Array<{ key: string; value: string }>;
     };
   };
-  color?: { red: number; green: number; blue: number };
+  text: string;
 }
 
 export interface GoogleChatLinkButton {
-  text: string;
+  color?: { red: number; green: number; blue: number };
   onClick: {
     openLink: {
       url: string;
     };
   };
-  color?: { red: number; green: number; blue: number };
+  text: string;
 }
 
 /**
@@ -101,7 +101,7 @@ export interface CardConversionOptions {
  */
 export function cardToGoogleCard(
   card: CardElement,
-  options?: CardConversionOptions | string,
+  options?: CardConversionOptions | string
 ): GoogleChatCard {
   // Support legacy signature where second arg is cardId string
   const opts: CardConversionOptions =
@@ -179,7 +179,7 @@ export function cardToGoogleCard(
  */
 function convertChildToWidgets(
   child: CardChild,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget[] {
   switch (child.type) {
     case "text":
@@ -236,7 +236,7 @@ function convertDividerToWidget(_element: DividerElement): GoogleChatWidget {
 
 function convertActionsToWidget(
   element: ActionsElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget {
   const buttons: (GoogleChatButton | GoogleChatLinkButton)[] = element.children
     .filter((child) => child.type === "button" || child.type === "link-button")
@@ -254,7 +254,7 @@ function convertActionsToWidget(
 
 function convertButtonToGoogleButton(
   button: ButtonElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatButton {
   // For HTTP endpoint apps, the function field must be the endpoint URL,
   // and the action ID is passed via parameters.
@@ -291,7 +291,7 @@ function convertButtonToGoogleButton(
 }
 
 function convertLinkButtonToGoogleButton(
-  button: LinkButtonElement,
+  button: LinkButtonElement
 ): GoogleChatLinkButton {
   const googleButton: GoogleChatLinkButton = {
     text: convertEmoji(button.label),
@@ -314,7 +314,7 @@ function convertLinkButtonToGoogleButton(
 
 function convertSectionToWidgets(
   element: SectionElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget[] {
   const widgets: GoogleChatWidget[] = [];
   for (const child of element.children) {

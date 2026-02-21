@@ -138,7 +138,7 @@ describe("Serialization", () => {
       const thread = ThreadImpl.fromJSON(json);
       // Error is thrown on adapter access, not during fromJSON
       expect(() => thread.adapter).toThrow(
-        'Adapter "discord" not found in Chat singleton',
+        'Adapter "discord" not found in Chat singleton'
       );
     });
 
@@ -329,11 +329,11 @@ describe("Serialization", () => {
 
       expect(message.metadata.dateSent).toBeInstanceOf(Date);
       expect(message.metadata.dateSent.toISOString()).toBe(
-        "2024-01-15T10:30:00.000Z",
+        "2024-01-15T10:30:00.000Z"
       );
       expect(message.metadata.editedAt).toBeInstanceOf(Date);
       expect(message.metadata.editedAt?.toISOString()).toBe(
-        "2024-01-15T11:00:00.000Z",
+        "2024-01-15T11:00:00.000Z"
       );
     });
 
@@ -388,10 +388,10 @@ describe("Serialization", () => {
       expect(restored.text).toBe(original.text);
       expect(restored.isMention).toBe(original.isMention);
       expect(restored.metadata.dateSent.getTime()).toBe(
-        original.metadata.dateSent.getTime(),
+        original.metadata.dateSent.getTime()
       );
       expect(restored.metadata.editedAt?.getTime()).toBe(
-        original.metadata.editedAt?.getTime(),
+        original.metadata.editedAt?.getTime()
       );
       expect(restored.attachments).toEqual([
         {
@@ -700,7 +700,7 @@ describe("Serialization", () => {
         expect(restored.text).toBe(original.text);
         expect(restored.isMention).toBe(original.isMention);
         expect(restored.metadata.dateSent.getTime()).toBe(
-          original.metadata.dateSent.getTime(),
+          original.metadata.dateSent.getTime()
         );
       });
     });

@@ -15,18 +15,18 @@ export const SLACK_BOT_USERNAME = "testbot";
  * Options for creating a Slack event
  */
 export interface SlackEventOptions {
-  type?: "app_mention" | "message";
-  text: string;
-  userId: string;
-  userName?: string;
-  messageTs: string;
-  threadTs: string;
-  channel: string;
-  botId?: string;
-  teamId?: string;
   apiAppId?: string;
+  botId?: string;
+  channel: string;
   eventId?: string;
   eventTime?: number;
+  messageTs: string;
+  teamId?: string;
+  text: string;
+  threadTs: string;
+  type?: "app_mention" | "message";
+  userId: string;
+  userName?: string;
 }
 
 /**
@@ -76,7 +76,7 @@ export function createSlackEvent(options: SlackEventOptions) {
  */
 export function createSlackWebhookRequest(
   payload: Record<string, unknown>,
-  signingSecret = SLACK_SIGNING_SECRET,
+  signingSecret = SLACK_SIGNING_SECRET
 ): Request {
   const body = JSON.stringify(payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -215,7 +215,7 @@ export type MockSlackClient = ReturnType<typeof createMockSlackClient>;
  */
 export function injectMockSlackClient(
   adapter: SlackAdapter,
-  mockClient: MockSlackClient,
+  mockClient: MockSlackClient
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
   (adapter as any).client = mockClient;
@@ -234,12 +234,12 @@ export function getSlackThreadId(channel: string, threadTs: string): string {
 export interface SlackBlockActionsOptions {
   actionId: string;
   actionValue?: string;
-  userId: string;
-  userName?: string;
+  channel: string;
   messageTs: string;
   threadTs?: string;
-  channel: string;
   triggerId?: string;
+  userId: string;
+  userName?: string;
 }
 
 /**
@@ -292,7 +292,7 @@ function createSlackBlockActionsPayload(options: SlackBlockActionsOptions) {
  */
 export function createSlackBlockActionsRequest(
   options: SlackBlockActionsOptions,
-  signingSecret = SLACK_SIGNING_SECRET,
+  signingSecret = SLACK_SIGNING_SECRET
 ): Request {
   const payload = createSlackBlockActionsPayload(options);
   const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;

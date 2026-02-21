@@ -424,7 +424,7 @@ describe("type guard errors", () => {
     });
 
     expect(() => toCardElement(card)).toThrow(
-      "Field requires 'label' and 'value' props",
+      "Field requires 'label' and 'value' props"
     );
   });
 });
@@ -667,7 +667,7 @@ describe("toModalElement", () => {
       children: [select],
     });
     expect(() => toModalElement(modal)).toThrow(
-      "Select requires at least one option",
+      "Select requires at least one option"
     );
   });
 
@@ -683,7 +683,7 @@ describe("toModalElement", () => {
       children: [radioSelect],
     });
     expect(() => toModalElement(modal)).toThrow(
-      "RadioSelect requires at least one option",
+      "RadioSelect requires at least one option"
     );
   });
 });
@@ -810,7 +810,7 @@ describe("toCardElement with Select elements", () => {
     const actions = jsxs(Actions, { children: [select] });
     const card = jsxs(Card, { children: [actions] });
     expect(() => toCardElement(card)).toThrow(
-      "Select requires at least one option",
+      "Select requires at least one option"
     );
   });
 
@@ -823,7 +823,7 @@ describe("toCardElement with Select elements", () => {
     const actions = jsxs(Actions, { children: [radioSelect] });
     const card = jsxs(Card, { children: [actions] });
     expect(() => toCardElement(card)).toThrow(
-      "RadioSelect requires at least one option",
+      "RadioSelect requires at least one option"
     );
   });
 });

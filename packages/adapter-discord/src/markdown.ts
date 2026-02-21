@@ -67,7 +67,7 @@ export class DiscordFormatConverter extends BaseFormatConverter {
    */
   fromAst(ast: Root): string {
     return this.fromAstWithNodeConverter(ast, (node) =>
-      this.nodeToDiscordMarkdown(node),
+      this.nodeToDiscordMarkdown(node)
     );
   }
 

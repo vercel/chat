@@ -101,7 +101,7 @@ describe("PermissionError", () => {
   it("creates error with action and scope", () => {
     const error = new PermissionError("slack", "send messages", "chat:write");
     expect(error.message).toBe(
-      "Permission denied: cannot send messages in slack (requires: chat:write)",
+      "Permission denied: cannot send messages in slack (requires: chat:write)"
     );
     expect(error.adapter).toBe("slack");
     expect(error.code).toBe("PERMISSION_DENIED");
@@ -113,7 +113,7 @@ describe("PermissionError", () => {
   it("creates error without scope", () => {
     const error = new PermissionError("teams", "delete messages");
     expect(error.message).toBe(
-      "Permission denied: cannot delete messages in teams",
+      "Permission denied: cannot delete messages in teams"
     );
     expect(error.requiredScope).toBeUndefined();
   });
@@ -128,7 +128,7 @@ describe("ValidationError", () => {
   it("creates error with message", () => {
     const error = new ValidationError(
       "slack",
-      "Message text exceeds 40000 characters",
+      "Message text exceeds 40000 characters"
     );
     expect(error.message).toBe("Message text exceeds 40000 characters");
     expect(error.adapter).toBe("slack");

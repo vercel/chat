@@ -14,7 +14,7 @@ import {
 } from "./replay-test-utils";
 
 async function storeSlashCommandModalContext(
-  ctx: SlackTestContext,
+  ctx: SlackTestContext
 ): Promise<void> {
   await ctx.state.connect();
   const { contextId, channel } = slackFixtures.slashCommandModalContext;
@@ -42,7 +42,7 @@ describe("Replay Tests - Slash Commands", () => {
           onModalSubmit: async (event) => {
             capturedModalSubmit = event;
           },
-        },
+        }
       );
     });
 
@@ -79,7 +79,7 @@ describe("Replay Tests - Slash Commands", () => {
       await ctx.sendSlackSlashCommand(slackFixtures.slashCommand);
 
       expect(capturedSlashCommand?.triggerId).toBe(
-        "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405",
+        "10520020890661.10229338706656.2e2188a074adf3bf9f8456b30180f405"
       );
     });
 
@@ -98,7 +98,7 @@ describe("Replay Tests - Slash Commands", () => {
             capturedSlashCommand = event;
             await event.channel.post("Hello from slash command!");
           },
-        },
+        }
       );
 
       await ctx.sendSlackSlashCommand(slackFixtures.slashCommand);
@@ -107,7 +107,7 @@ describe("Replay Tests - Slash Commands", () => {
         expect.objectContaining({
           channel: "C00FAKECHAN3",
           text: expect.stringContaining("Hello from slash command!"),
-        }),
+        })
       );
     });
 
@@ -120,10 +120,10 @@ describe("Replay Tests - Slash Commands", () => {
             await event.channel.postEphemeral(
               event.user,
               "This is just for you!",
-              { fallbackToDM: false },
+              { fallbackToDM: false }
             );
           },
-        },
+        }
       );
 
       await ctx.sendSlackSlashCommand(slackFixtures.slashCommand);
@@ -133,13 +133,13 @@ describe("Replay Tests - Slash Commands", () => {
           channel: "C00FAKECHAN3",
           user: "U00FAKEUSER2",
           text: expect.stringContaining("This is just for you!"),
-        }),
+        })
       );
     });
 
     it("should handle modal submission (view_submission)", async () => {
       const response = await ctx.sendSlackViewSubmission(
-        slackFixtures.viewSubmission,
+        slackFixtures.viewSubmission
       );
 
       expect(response.status).toBe(200);
@@ -164,7 +164,7 @@ describe("Replay Tests - Slash Commands", () => {
 
       expect(capturedModalSubmit?.relatedChannel).toBeDefined();
       expect(capturedModalSubmit?.relatedChannel?.id).toBe(
-        "slack:C00FAKECHAN3",
+        "slack:C00FAKECHAN3"
       );
     });
 
@@ -176,11 +176,11 @@ describe("Replay Tests - Slash Commands", () => {
             capturedModalSubmit = event;
             if (event.relatedChannel) {
               await event.relatedChannel.post(
-                `Feedback received from ${event.user.userName}!`,
+                `Feedback received from ${event.user.userName}!`
               );
             }
           },
-        },
+        }
       );
 
       await storeSlashCommandModalContext(ctx);
@@ -191,7 +191,7 @@ describe("Replay Tests - Slash Commands", () => {
         expect.objectContaining({
           channel: "C00FAKECHAN3",
           text: expect.stringContaining("Feedback received from testuser"),
-        }),
+        })
       );
     });
 
@@ -206,7 +206,7 @@ describe("Replay Tests - Slash Commands", () => {
 
     it("should return 200 response for slash command webhook", async () => {
       const response = await ctx.sendSlackSlashCommand(
-        slackFixtures.slashCommand,
+        slackFixtures.slashCommand
       );
       expect(response.status).toBe(200);
     });

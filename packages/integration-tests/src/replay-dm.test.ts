@@ -61,11 +61,11 @@ const mockLogger: Logger = {
  * DM flow state tracker for tests.
  */
 interface DMFlowState {
-  mentionMessage: Message | null;
-  dmRequestMessage: Message | null;
   dmMessage: Message | null;
-  openDMCalled: boolean;
+  dmRequestMessage: Message | null;
   dmThreadId: string | null;
+  mentionMessage: Message | null;
+  openDMCalled: boolean;
 }
 
 function createDMFlowState(): DMFlowState {
@@ -148,7 +148,7 @@ describe("DM Replay Tests", () => {
     const sendWebhook = async (fixture: unknown) => {
       await chat.webhooks.slack(
         createSignedSlackRequest(JSON.stringify(fixture)),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     };
@@ -173,7 +173,7 @@ describe("DM Replay Tests", () => {
       expect(mockSlackClient.conversations.open).toHaveBeenCalledWith(
         expect.objectContaining({
           users: state.dmRequestMessage?.author.userId,
-        }),
+        })
       );
 
       // Verify DM message was sent
@@ -181,7 +181,7 @@ describe("DM Replay Tests", () => {
         expect.objectContaining({
           channel: slackFixtures.dmChannelId,
           text: expect.stringContaining("Hello via DM!"),
-        }),
+        })
       );
     });
 
@@ -231,7 +231,7 @@ describe("DM Replay Tests", () => {
         expect.objectContaining({
           channel: slackFixtures.dmChannelId,
           text: expect.stringContaining("Got your DM: Hey!"),
-        }),
+        })
       );
     });
   });
@@ -287,7 +287,7 @@ describe("DM Replay Tests", () => {
     const sendWebhook = async (fixture: unknown) => {
       await chat.webhooks.slack(
         createSignedSlackRequest(JSON.stringify(fixture)),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     };
@@ -306,7 +306,7 @@ describe("DM Replay Tests", () => {
       expect(state.mentionMessage).not.toBeNull();
       // Top-level DM → threadId is "slack:<channel>:" with empty threadTs
       expect(state.mentionMessage?.threadId).toBe(
-        `slack:${slackDirectFixtures.dmChannelId}:`,
+        `slack:${slackDirectFixtures.dmChannelId}:`
       );
     });
 
@@ -317,7 +317,7 @@ describe("DM Replay Tests", () => {
         expect.objectContaining({
           channel: slackDirectFixtures.dmChannelId,
           text: expect.stringContaining("Hi! You said: hello hello"),
-        }),
+        })
       );
     });
 
@@ -336,7 +336,7 @@ describe("DM Replay Tests", () => {
         expect.objectContaining({
           channel: slackDirectFixtures.dmChannelId,
           text: expect.stringContaining("Follow-up: cool!!"),
-        }),
+        })
       );
     });
 
@@ -354,7 +354,7 @@ describe("DM Replay Tests", () => {
       expect(state.mentionMessage).not.toBeNull();
       // DM reply with thread_ts → threadId includes the parent ts
       expect(state.mentionMessage?.threadId).toBe(
-        `slack:${slackDirectFixtures.dmChannelId}:${slackDirectFixtures.directDM.event.ts}`,
+        `slack:${slackDirectFixtures.dmChannelId}:${slackDirectFixtures.directDM.event.ts}`
       );
     });
   });
@@ -480,7 +480,7 @@ describe("DM Replay Tests", () => {
       // Verify the DM space is identified as DM
       expect(gchatFixtures.dmMessage.chat.messagePayload.space.type).toBe("DM");
       expect(gchatFixtures.dmMessage.chat.messagePayload.space.spaceType).toBe(
-        "DIRECT_MESSAGE",
+        "DIRECT_MESSAGE"
       );
 
       // Verify bot responded to the DM
@@ -489,7 +489,7 @@ describe("DM Replay Tests", () => {
           requestBody: expect.objectContaining({
             text: expect.stringContaining("Got your DM: Thanks!"),
           }),
-        }),
+        })
       );
     });
   });
@@ -538,7 +538,7 @@ describe("DM Replay Tests", () => {
             await thread.post("I've sent you a DM!");
           } catch (e) {
             await thread.post(
-              `Sorry, couldn't send DM: ${(e as Error).message}`,
+              `Sorry, couldn't send DM: ${(e as Error).message}`
             );
           }
         } else if (thread.isDM) {
@@ -586,21 +586,21 @@ describe("DM Replay Tests", () => {
       // Verify createConversationAsync was called to create the DM
       expect(mockBotAdapter.createdConversations).toHaveLength(1);
       expect(mockBotAdapter.createdConversations[0]?.userId).toBe(
-        state.dmRequestMessage?.author.userId,
+        state.dmRequestMessage?.author.userId
       );
 
       // Verify DM message was sent
       expect(mockBotAdapter.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("Hello via DM!"),
-        }),
+        })
       );
 
       // Verify confirmation in original thread
       expect(mockBotAdapter.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("I've sent you a DM!"),
-        }),
+        })
       );
     });
 
@@ -626,7 +626,7 @@ describe("DM Replay Tests", () => {
           if (typeof callback === "function") {
             await callback(mockTurnContext);
           }
-        },
+        }
       );
 
       // Step 1: Initial mention to subscribe (also caches serviceUrl and tenantId)
@@ -647,14 +647,14 @@ describe("DM Replay Tests", () => {
 
       // Verify the DM message payload identifies as personal conversation
       expect(teamsFixtures.dmMessage.conversation.conversationType).toBe(
-        "personal",
+        "personal"
       );
 
       // Verify bot responded to the DM
       expect(mockBotAdapter.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("Got your DM: Hey"),
-        }),
+        })
       );
     });
   });

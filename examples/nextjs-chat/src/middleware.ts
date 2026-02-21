@@ -15,7 +15,9 @@ let redisClient: ReturnType<typeof createClient> | null = null;
 let redisConnectPromise: Promise<void> | null = null;
 
 async function getRedisClient() {
-  if (!REDIS_URL) return null;
+  if (!REDIS_URL) {
+    return null;
+  }
 
   if (!redisClient) {
     redisClient = createClient({ url: REDIS_URL });
@@ -40,7 +42,9 @@ async function getRedisClient() {
 async function getPreviewBranchUrl(): Promise<string | null> {
   try {
     const client = await getRedisClient();
-    if (!client) return null;
+    if (!client) {
+      return null;
+    }
 
     const value = await client.get(PREVIEW_BRANCH_KEY);
     return value || null;
@@ -72,7 +76,7 @@ export async function middleware(request: NextRequest) {
   // Rewrite the request to the preview branch URL
   const targetUrl = new URL(
     pathname + request.nextUrl.search,
-    previewBranchUrl,
+    previewBranchUrl
   );
 
   console.warn(`[middleware] Proxying ${pathname} to ${targetUrl.hostname}`);
