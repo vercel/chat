@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
+const HEX_KEY_PATTERN = /^[0-9a-fA-F]{64}$/;
 
 export interface EncryptedTokenData {
   data: string;
@@ -67,7 +68,7 @@ export function isEncryptedTokenData(
 export function decodeKey(rawKey: string): Buffer {
   const trimmed = rawKey.trim();
   // Detect hex encoding: 64 hex chars = 32 bytes
-  const isHex = /^[0-9a-fA-F]{64}$/.test(trimmed);
+  const isHex = HEX_KEY_PATTERN.test(trimmed);
   const key = Buffer.from(trimmed, isHex ? "hex" : "base64");
   if (key.length !== 32) {
     throw new Error(

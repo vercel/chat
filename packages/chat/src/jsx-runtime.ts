@@ -569,15 +569,19 @@ export function jsxs<P extends CardJSXProps>(
   _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
+  let resolvedChildren: unknown[];
+  if (Array.isArray(children)) {
+    resolvedChildren = children;
+  } else if (children != null) {
+    resolvedChildren = [children];
+  } else {
+    resolvedChildren = [];
+  }
   return {
     $$typeof: JSX_ELEMENT,
     type,
     props: restProps as P,
-    children: Array.isArray(children)
-      ? children
-      : children != null
-        ? [children]
-        : [],
+    children: resolvedChildren,
   };
 }
 
@@ -664,7 +668,7 @@ export function isJSX(value: unknown): boolean {
   return false;
 }
 
-// Re-export for JSX namespace
+// biome-ignore lint/style/noNamespace: JSX namespace required by TypeScript JSX transform
 export namespace JSX {
   export interface Element extends JSXElement {}
   // biome-ignore lint/complexity/noBannedTypes: Required for JSX namespace

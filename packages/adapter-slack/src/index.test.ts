@@ -907,14 +907,16 @@ function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
     acquireLock: vi.fn().mockResolvedValue(null),
     releaseLock: vi.fn().mockResolvedValue(undefined),
     extendLock: vi.fn().mockResolvedValue(true),
-    get: vi.fn().mockImplementation(async (key: string) => {
-      return cache.get(key) ?? null;
+    get: vi.fn().mockImplementation((key: string) => {
+      return Promise.resolve(cache.get(key) ?? null);
     }),
-    set: vi.fn().mockImplementation(async (key: string, value: unknown) => {
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
       cache.set(key, value);
+      return Promise.resolve();
     }),
-    delete: vi.fn().mockImplementation(async (key: string) => {
+    delete: vi.fn().mockImplementation((key: string) => {
       cache.delete(key);
+      return Promise.resolve();
     }),
   };
 }
@@ -1253,7 +1255,7 @@ describe("withBotToken", () => {
     await adapter.initialize(createMockChatInstance(state));
 
     let callbackRan = false;
-    await adapter.withBotToken("xoxb-context-token", async () => {
+    await adapter.withBotToken("xoxb-context-token", () => {
       callbackRan = true;
     });
     expect(callbackRan).toBe(true);
@@ -1274,7 +1276,7 @@ describe("withBotToken", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         tokens.push("A");
       }),
-      adapter.withBotToken("xoxb-token-B", async () => {
+      adapter.withBotToken("xoxb-token-B", () => {
         tokens.push("B");
       }),
     ]);

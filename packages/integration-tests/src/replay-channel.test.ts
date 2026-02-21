@@ -43,7 +43,7 @@ describe("Replay Tests - Channel", () => {
             await thread.subscribe();
             await thread.post("Welcome!");
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -242,7 +242,7 @@ describe("Replay Tests - Channel", () => {
             await thread.subscribe();
             await thread.post("Welcome!");
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -342,7 +342,7 @@ describe("Replay Tests - Channel", () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
-          onMention: async (thread) => {
+          onMention: (thread) => {
             const channel = thread.channel;
             expect(channel).toBeDefined();
             expect(channel.id).toBe(
@@ -359,7 +359,7 @@ describe("Replay Tests - Channel", () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -387,7 +387,7 @@ describe("Replay Tests - Channel", () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -414,7 +414,7 @@ describe("Replay Tests - Channel", () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
-          onMention: async (thread) => {
+          onMention: (thread) => {
             const channel = thread.channel;
             expect(channel.isDM).toBe(false);
           },
@@ -428,7 +428,7 @@ describe("Replay Tests - Channel", () => {
       ctx = await createDiscordTestContext(
         { applicationId: discordFixtures.applicationId },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -467,7 +467,7 @@ describe("Replay Tests - Channel", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }

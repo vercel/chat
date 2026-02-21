@@ -18,9 +18,9 @@ interface CachedValue<T = unknown> {
  * Use RedisStateAdapter for production.
  */
 export class MemoryStateAdapter implements StateAdapter {
-  private subscriptions = new Set<string>();
-  private locks = new Map<string, MemoryLock>();
-  private cache = new Map<string, CachedValue>();
+  private readonly subscriptions = new Set<string>();
+  private readonly locks = new Map<string, MemoryLock>();
+  private readonly cache = new Map<string, CachedValue>();
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 

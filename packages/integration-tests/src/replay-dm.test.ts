@@ -185,7 +185,7 @@ describe("DM Replay Tests", () => {
       );
     });
 
-    it("should detect DM channel type from webhook", async () => {
+    it("should detect DM channel type from webhook", () => {
       const dmEvent = slackFixtures.dmMessage;
       expect(dmEvent.event.channel_type).toBe("im");
     });
@@ -448,13 +448,13 @@ describe("DM Replay Tests", () => {
       });
     });
 
-    it("should detect DM space type from webhook", async () => {
+    it("should detect DM space type from webhook", () => {
       const dmPayload = gchatFixtures.dmMessage.chat.messagePayload;
       expect(dmPayload.space.type).toBe("DM");
       expect(dmPayload.space.spaceType).toBe("DIRECT_MESSAGE");
     });
 
-    it("should correctly identify sender in DM space", async () => {
+    it("should correctly identify sender in DM space", () => {
       const sender = gchatFixtures.dmMessage.chat.messagePayload.message.sender;
       expect(sender.name).toBe("users/100000000000000000001");
       expect(sender.displayName).toBe("Test User");
@@ -604,7 +604,7 @@ describe("DM Replay Tests", () => {
       );
     });
 
-    it("should detect DM conversation type", async () => {
+    it("should detect DM conversation type", () => {
       const mentionPayload = teamsFixtures.mention;
       expect(mentionPayload.conversation.conversationType).toBe("channel");
       expect(mentionPayload.conversation.id).toContain("19:");
@@ -614,7 +614,7 @@ describe("DM Replay Tests", () => {
       // Configure mock to return the actual DM conversation ID from fixtures
       mockBotAdapter.createConversationAsync.mockImplementation(
         async (...args: unknown[]) => {
-          const callback = args[args.length - 1] as
+          const callback = args.at(-1) as
             | ((context: unknown) => Promise<void>)
             | undefined;
           const mockTurnContext = {

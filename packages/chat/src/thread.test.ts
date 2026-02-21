@@ -146,7 +146,7 @@ describe("ThreadImpl", () => {
 
     it("should fall back to post+edit when adapter has no native streaming", async () => {
       // Ensure no stream method
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream(["Hello", " ", "World"]);
       await thread.post(textStream);
@@ -165,7 +165,7 @@ describe("ThreadImpl", () => {
     });
 
     it("should accumulate text chunks during streaming", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream([
         "This ",
@@ -187,7 +187,7 @@ describe("ThreadImpl", () => {
 
     it("should throttle edits to avoid rate limits", async () => {
       vi.useFakeTimers();
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       // Create a stream that yields chunks over time
       const chunks = ["A", "B", "C", "D", "E"];
@@ -227,7 +227,7 @@ describe("ThreadImpl", () => {
     });
 
     it("should return SentMessage with edit and delete capabilities", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream(["Hello"]);
       const result = await thread.post(textStream);
@@ -240,7 +240,7 @@ describe("ThreadImpl", () => {
     });
 
     it("should handle empty stream", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream([]);
       await thread.post(textStream);
@@ -789,7 +789,7 @@ describe("ThreadImpl", () => {
 
     it("should fallback to DM when adapter has no postEphemeral and fallbackToDM is true", async () => {
       // Ensure no postEphemeral method
-      delete mockAdapter.postEphemeral;
+      mockAdapter.postEphemeral = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: true,
@@ -813,7 +813,7 @@ describe("ThreadImpl", () => {
 
     it("should return null when adapter has no postEphemeral and fallbackToDM is false", async () => {
       // Ensure no postEphemeral method
-      delete mockAdapter.postEphemeral;
+      mockAdapter.postEphemeral = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: false,
@@ -828,8 +828,8 @@ describe("ThreadImpl", () => {
 
     it("should return null when adapter has no postEphemeral or openDM", async () => {
       // Remove both methods
-      delete mockAdapter.postEphemeral;
-      delete mockAdapter.openDM;
+      mockAdapter.postEphemeral = undefined;
+      mockAdapter.openDM = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: true,

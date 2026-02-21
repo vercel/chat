@@ -18,6 +18,9 @@ import {
 } from "./slack-utils";
 import { createWaitUntilTracker } from "./test-scenarios";
 
+const ANY_CHAR_REGEX = /./;
+const HELP_REGEX = /help/i;
+
 const mockLogger: Logger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -182,7 +185,7 @@ describe("Slack Integration", () => {
 
     it("should handle messages matching a pattern", async () => {
       const patternHandler = vi.fn();
-      chat.onNewMessage(/help/i, async (thread, message) => {
+      chat.onNewMessage(HELP_REGEX, async (thread, message) => {
         patternHandler(message.text);
         await thread.post("Here is some help!");
       });
@@ -209,7 +212,7 @@ describe("Slack Integration", () => {
 
     it("should skip messages from the bot itself", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -397,7 +400,7 @@ describe("Slack Integration", () => {
   describe("thread operations", () => {
     it("should include thread info in message objects", async () => {
       let capturedMessage: unknown;
-      chat.onNewMention(async (_thread, message) => {
+      chat.onNewMention((_thread, message) => {
         capturedMessage = message;
       });
 
@@ -416,8 +419,10 @@ describe("Slack Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedMessage).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const msg = capturedMessage as any;
+      const msg = capturedMessage as {
+        threadId: string;
+        author: { userId: string; isBot: boolean; isMe: boolean };
+      };
       expect(msg.threadId).toBe(TEST_THREAD_ID);
       expect(msg.author.userId).toBe("U_USER_123");
       expect(msg.author.isBot).toBe(false);
@@ -812,7 +817,7 @@ describe("Slack Integration", () => {
 
     it("should not call handler for non-matching action IDs", async () => {
       const handlerMock = vi.fn();
-      chat.onAction("approve", async () => {
+      chat.onAction("approve", () => {
         handlerMock();
       });
 
@@ -833,7 +838,7 @@ describe("Slack Integration", () => {
 
     it("should call catch-all action handler", async () => {
       const handlerMock = vi.fn();
-      chat.onAction(async (event) => {
+      chat.onAction((event) => {
         handlerMock(event.actionId);
       });
 

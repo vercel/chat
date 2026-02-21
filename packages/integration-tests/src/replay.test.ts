@@ -95,7 +95,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 
@@ -206,7 +206,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 
@@ -301,7 +301,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 

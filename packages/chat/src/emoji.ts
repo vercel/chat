@@ -175,9 +175,9 @@ export const DEFAULT_EMOJI_MAP: Record<string, EmojiFormats> = {
  * Emoji resolver that handles conversion between platform formats and normalized names.
  */
 export class EmojiResolver {
-  private emojiMap: Record<string, EmojiFormats>;
-  private slackToNormalized: Map<string, string>;
-  private gchatToNormalized: Map<string, string>;
+  private readonly emojiMap: Record<string, EmojiFormats>;
+  private readonly slackToNormalized: Map<string, string>;
+  private readonly gchatToNormalized: Map<string, string>;
 
   constructor(customMap?: EmojiMapConfig) {
     this.emojiMap = { ...DEFAULT_EMOJI_MAP, ...customMap };

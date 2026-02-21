@@ -284,6 +284,14 @@ export function createMockDiscordApi(): MockDiscordApi {
   return api;
 }
 
+// Regex patterns for Discord API route matching
+const CHANNEL_MESSAGES_REGEX = /\/channels\/\w+\/messages$/;
+const CHANNEL_MESSAGE_ID_REGEX = /\/channels\/\w+\/messages\/\w+$/;
+const CHANNEL_MESSAGES_QUERY_REGEX = /\/channels\/\w+\/messages(\?|$)/;
+const REACTIONS_ME_REGEX = /\/reactions\/[^/]+\/@me$/;
+const CHANNEL_ID_REGEX = /\/channels\/\w+$/;
+const CHANNEL_TYPING_REGEX = /\/channels\/\w+\/typing$/;
+
 /**
  * Setup fetch mock for Discord API calls
  */
@@ -307,7 +315,7 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
 
       // Route to appropriate mock
       // POST /channels/{id}/messages
-      if (urlStr.match(/\/channels\/\w+\/messages$/) && method === "POST") {
+      if (CHANNEL_MESSAGES_REGEX.test(urlStr) && method === "POST") {
         const result = await api.messages.create(body);
         return new Response(JSON.stringify(result), {
           status: 200,
@@ -316,10 +324,7 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       }
 
       // PATCH /channels/{id}/messages/{id}
-      if (
-        urlStr.match(/\/channels\/\w+\/messages\/\w+$/) &&
-        method === "PATCH"
-      ) {
+      if (CHANNEL_MESSAGE_ID_REGEX.test(urlStr) && method === "PATCH") {
         const result = await api.messages.update(body);
         return new Response(JSON.stringify(result), {
           status: 200,
@@ -328,16 +333,13 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       }
 
       // DELETE /channels/{id}/messages/{id}
-      if (
-        urlStr.match(/\/channels\/\w+\/messages\/\w+$/) &&
-        method === "DELETE"
-      ) {
+      if (CHANNEL_MESSAGE_ID_REGEX.test(urlStr) && method === "DELETE") {
         await api.messages.delete();
         return new Response(null, { status: 204 });
       }
 
       // GET /channels/{id}/messages
-      if (urlStr.match(/\/channels\/\w+\/messages(\?|$)/) && method === "GET") {
+      if (CHANNEL_MESSAGES_QUERY_REGEX.test(urlStr) && method === "GET") {
         const result = await api.messages.list();
         return new Response(JSON.stringify(result), {
           status: 200,
@@ -346,19 +348,19 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       }
 
       // PUT /channels/{id}/messages/{id}/reactions/{emoji}/@me
-      if (urlStr.match(/\/reactions\/[^/]+\/@me$/) && method === "PUT") {
+      if (REACTIONS_ME_REGEX.test(urlStr) && method === "PUT") {
         await api.reactions.add();
         return new Response(null, { status: 204 });
       }
 
       // DELETE /channels/{id}/messages/{id}/reactions/{emoji}/@me
-      if (urlStr.match(/\/reactions\/[^/]+\/@me$/) && method === "DELETE") {
+      if (REACTIONS_ME_REGEX.test(urlStr) && method === "DELETE") {
         await api.reactions.remove();
         return new Response(null, { status: 204 });
       }
 
       // GET /channels/{id}
-      if (urlStr.match(/\/channels\/\w+$/) && method === "GET") {
+      if (CHANNEL_ID_REGEX.test(urlStr) && method === "GET") {
         const result = await api.channels.get();
         return new Response(JSON.stringify(result), {
           status: 200,
@@ -367,7 +369,7 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       }
 
       // POST /channels/{id}/typing
-      if (urlStr.match(/\/channels\/\w+\/typing$/) && method === "POST") {
+      if (CHANNEL_TYPING_REGEX.test(urlStr) && method === "POST") {
         await api.channels.typing();
         return new Response(null, { status: 204 });
       }

@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EXPECTED_NUMBERED_TEXTS,
@@ -35,7 +35,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     // Mock conversations.replies to return actual recorded messages
     ctx.mockClient.conversations.replies.mockImplementation(
-      async (params: {
+      (params: {
         channel: string;
         ts: string;
         limit?: number;
@@ -74,26 +74,24 @@ describe("fetchMessages Replay Tests - Slack", () => {
     );
 
     // Mock users.info for display name lookup
-    ctx.mockClient.users.info.mockImplementation(
-      async (params: { user: string }) => {
-        const users: Record<
-          string,
-          { name: string; real_name: string; is_bot?: boolean }
-        > = {
-          [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
-          [SLACK_BOT_USER_ID]: {
-            name: "chatsdkbot",
-            real_name: "Chat SDK Bot",
-            is_bot: true,
-          },
-        };
-        const user = users[params.user];
-        return {
-          ok: true,
-          user: user ? { id: params.user, ...user } : undefined,
-        };
-      }
-    );
+    ctx.mockClient.users.info.mockImplementation((params: { user: string }) => {
+      const users: Record<
+        string,
+        { name: string; real_name: string; is_bot?: boolean }
+      > = {
+        [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
+        [SLACK_BOT_USER_ID]: {
+          name: "chatsdkbot",
+          real_name: "Chat SDK Bot",
+          is_bot: true,
+        },
+      };
+      const user = users[params.user];
+      return {
+        ok: true,
+        user: user ? { id: params.user, ...user } : undefined,
+      };
+    });
   });
 
   afterEach(async () => {
@@ -247,7 +245,7 @@ describe("allMessages Replay Tests - Slack", () => {
 
     // Mock conversations.replies to return actual recorded messages
     ctx.mockClient.conversations.replies.mockImplementation(
-      async (params: {
+      (params: {
         channel: string;
         ts: string;
         limit?: number;
@@ -285,26 +283,24 @@ describe("allMessages Replay Tests - Slack", () => {
     );
 
     // Mock users.info
-    ctx.mockClient.users.info.mockImplementation(
-      async (params: { user: string }) => {
-        const users: Record<
-          string,
-          { name: string; real_name: string; is_bot?: boolean }
-        > = {
-          [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
-          [SLACK_BOT_USER_ID]: {
-            name: "chatsdkbot",
-            real_name: "Chat SDK Bot",
-            is_bot: true,
-          },
-        };
-        const user = users[params.user];
-        return {
-          ok: true,
-          user: user ? { id: params.user, ...user } : undefined,
-        };
-      }
-    );
+    ctx.mockClient.users.info.mockImplementation((params: { user: string }) => {
+      const users: Record<
+        string,
+        { name: string; real_name: string; is_bot?: boolean }
+      > = {
+        [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
+        [SLACK_BOT_USER_ID]: {
+          name: "chatsdkbot",
+          real_name: "Chat SDK Bot",
+          is_bot: true,
+        },
+      };
+      const user = users[params.user];
+      return {
+        ok: true,
+        user: user ? { id: params.user, ...user } : undefined,
+      };
+    });
   });
 
   afterEach(async () => {
@@ -321,7 +317,7 @@ describe("allMessages Replay Tests - Slack", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }

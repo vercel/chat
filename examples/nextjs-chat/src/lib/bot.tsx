@@ -22,6 +22,11 @@ import {
 } from "chat";
 import { buildAdapters } from "./adapters";
 
+const AI_MENTION_REGEX = /\bAI\b/i;
+const DISABLE_AI_REGEX = /disable\s*AI/i;
+const ENABLE_AI_REGEX = /enable\s*AI/i;
+const DM_ME_REGEX = /^dm\s*me$/i;
+
 const state = createRedisState({
   url: process.env.REDIS_URL || "",
   keyPrefix: "chat-sdk-webhooks",
@@ -53,7 +58,7 @@ bot.onNewMention(async (thread, message) => {
   await thread.subscribe();
 
   // Check if user wants to enable AI mode (mention contains "AI")
-  if (/\bAI\b/i.test(message.text)) {
+  if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
     await thread.post(
       <Card title={`${emoji.sparkles} AI Mode Enabled`}>
@@ -179,7 +184,7 @@ bot.onAction("quick_action", async (event) => {
   }
 });
 
-bot.onAction("choose_plan", async (event) => {
+bot.onAction("choose_plan", (event) => {
   event.thread.post(
     <Card title="Choose Plan">
       <Actions>
@@ -209,7 +214,7 @@ bot.onAction("choose_plan", async (event) => {
     </Card>
   );
 });
-bot.onAction("plan_selected", async (event) => {
+bot.onAction("plan_selected", (event) => {
   event.thread.post(
     <Card title={`${emoji.check} Plan Chosen!`}>
       <Text>You chose plan *{event.value}*</Text>
@@ -392,7 +397,7 @@ bot.onModalSubmit("feedback_form", async (event) => {
 });
 
 // Handle modal close (cancel)
-bot.onModalClose("feedback_form", async (event) => {
+bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
@@ -564,14 +569,14 @@ bot.onSubscribedMessage(async (thread, message) => {
   const threadState = await thread.state;
 
   // Check if user wants to disable AI mode
-  if (/disable\s*AI/i.test(message.text)) {
+  if (DISABLE_AI_REGEX.test(message.text)) {
     await thread.setState({ aiMode: false });
     await thread.post(`${emoji.check} AI mode disabled for this thread.`);
     return;
   }
 
   // Check if user wants to enable AI mode
-  if (/enable\s*AI/i.test(message.text)) {
+  if (ENABLE_AI_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
     await thread.post(`${emoji.sparkles} AI mode enabled for this thread!`);
     return;
@@ -604,7 +609,7 @@ bot.onSubscribedMessage(async (thread, message) => {
   }
 
   // Check if user wants a DM
-  if (/^dm\s*me$/i.test(message.text.trim())) {
+  if (DM_ME_REGEX.test(message.text.trim())) {
     try {
       const dmThread = await bot.openDM(message.author);
       await dmThread.post(

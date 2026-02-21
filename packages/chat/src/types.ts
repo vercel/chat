@@ -1104,7 +1104,7 @@ export interface FileUpload {
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message
-) => Promise<void>;
+) => void | Promise<void>;
 
 /**
  * Handler for messages matching a regex pattern.
@@ -1115,7 +1115,7 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message
-) => Promise<void>;
+) => void | Promise<void>;
 
 /**
  * Handler for messages in subscribed threads.
@@ -1143,7 +1143,7 @@ export type MessageHandler<TState = Record<string, unknown>> = (
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message
-) => Promise<void>;
+) => void | Promise<void>;
 
 // =============================================================================
 // Reactions / Emoji
@@ -1382,7 +1382,7 @@ export interface ReactionEvent<TRawMessage = unknown> {
  * });
  * ```
  */
-export type ReactionHandler = (event: ReactionEvent) => Promise<void>;
+export type ReactionHandler = (event: ReactionEvent) => void | Promise<void>;
 
 // =============================================================================
 // Action Events (Button Clicks)
@@ -1451,7 +1451,7 @@ export interface ActionEvent<TRawMessage = unknown> {
  * });
  * ```
  */
-export type ActionHandler = (event: ActionEvent) => Promise<void>;
+export type ActionHandler = (event: ActionEvent) => void | Promise<void>;
 
 // =============================================================================
 // Modal Events (Form Submissions)
@@ -1533,24 +1533,24 @@ export interface ModalCloseEvent<TRawMessage = unknown> {
   viewId: string;
 }
 
-export type ModalErrorsResponse = {
+export interface ModalErrorsResponse {
   action: "errors";
   errors: Record<string, string>;
-};
+}
 
-export type ModalUpdateResponse = {
+export interface ModalUpdateResponse {
   action: "update";
   modal: import("./modals").ModalElement;
-};
+}
 
-export type ModalPushResponse = {
+export interface ModalPushResponse {
   action: "push";
   modal: import("./modals").ModalElement;
-};
+}
 
-export type ModalCloseResponse = {
+export interface ModalCloseResponse {
   action: "close";
-};
+}
 
 export type ModalResponse =
   | ModalCloseResponse
@@ -1560,9 +1560,12 @@ export type ModalResponse =
 
 export type ModalSubmitHandler = (
   event: ModalSubmitEvent
-) => Promise<ModalResponse | undefined>;
+  // biome-ignore lint/suspicious/noConfusingVoidType: void is needed for sync handlers that return nothing
+) => void | Promise<ModalResponse | undefined>;
 
-export type ModalCloseHandler = (event: ModalCloseEvent) => Promise<void>;
+export type ModalCloseHandler = (
+  event: ModalCloseEvent
+) => void | Promise<void>;
 
 // =============================================================================
 // Slash Command Events
@@ -1657,7 +1660,7 @@ export interface SlashCommandEvent<TState = Record<string, unknown>> {
  */
 export type SlashCommandHandler<TState = Record<string, unknown>> = (
   event: SlashCommandEvent<TState>
-) => Promise<void>;
+) => void | Promise<void>;
 
 // =============================================================================
 // Assistant Events (Slack Assistants API / AI Apps)
@@ -1680,7 +1683,7 @@ export interface AssistantThreadStartedEvent {
 
 export type AssistantThreadStartedHandler = (
   event: AssistantThreadStartedEvent
-) => Promise<void>;
+) => void | Promise<void>;
 
 export interface AssistantContextChangedEvent {
   adapter: Adapter;
@@ -1699,7 +1702,7 @@ export interface AssistantContextChangedEvent {
 
 export type AssistantContextChangedHandler = (
   event: AssistantContextChangedEvent
-) => Promise<void>;
+) => void | Promise<void>;
 
 export interface AppHomeOpenedEvent {
   adapter: Adapter;
@@ -1707,4 +1710,6 @@ export interface AppHomeOpenedEvent {
   userId: string;
 }
 
-export type AppHomeOpenedHandler = (event: AppHomeOpenedEvent) => Promise<void>;
+export type AppHomeOpenedHandler = (
+  event: AppHomeOpenedEvent
+) => void | Promise<void>;

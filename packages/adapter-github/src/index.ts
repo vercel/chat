@@ -34,6 +34,9 @@ import type {
   PullRequestReviewCommentWebhookPayload,
 } from "./types";
 
+const REVIEW_COMMENT_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+):rc:(\d+)$/;
+const PR_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+)$/;
+
 // Re-export types
 export type {
   GitHubAdapterAppConfig,
@@ -97,17 +100,20 @@ export class GitHubAdapter
   readonly userName: string;
 
   // Single Octokit instance for PAT or single-tenant app mode
-  private octokit: Octokit | null = null;
+  private readonly octokit: Octokit | null = null;
   // App credentials for multi-tenant mode
-  private appCredentials: { appId: string; privateKey: string } | null = null;
+  private readonly appCredentials: {
+    appId: string;
+    privateKey: string;
+  } | null = null;
   // Cache of Octokit instances per installation (for multi-tenant)
-  private installationClients = new Map<number, Octokit>();
+  private readonly installationClients = new Map<number, Octokit>();
 
-  private webhookSecret: string;
+  private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
-  private logger: Logger;
+  private readonly logger: Logger;
   private _botUserId: number | null = null;
-  private formatConverter = new GitHubFormatConverter();
+  private readonly formatConverter = new GitHubFormatConverter();
 
   /** Bot user ID (numeric) used for self-message detection */
   get botUserId(): string | undefined {
@@ -998,7 +1004,7 @@ export class GitHubAdapter
     const withoutPrefix = threadId.slice(7); // Remove "github:"
 
     // Check for review comment thread format
-    const rcMatch = withoutPrefix.match(/^([^/]+)\/([^:]+):(\d+):rc:(\d+)$/);
+    const rcMatch = withoutPrefix.match(REVIEW_COMMENT_THREAD_PATTERN);
     if (rcMatch) {
       return {
         owner: rcMatch[1],
@@ -1009,7 +1015,7 @@ export class GitHubAdapter
     }
 
     // PR-level thread format
-    const prMatch = withoutPrefix.match(/^([^/]+)\/([^:]+):(\d+)$/);
+    const prMatch = withoutPrefix.match(PR_THREAD_PATTERN);
     if (prMatch) {
       return {
         owner: prMatch[1],

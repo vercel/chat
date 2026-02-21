@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const HELP_REGEX = /help/i;
+
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
 import { jsx } from "./jsx-runtime";
@@ -39,7 +42,7 @@ describe("Chat", () => {
     );
   });
 
-  it("should initialize adapters", async () => {
+  it("should initialize adapters", () => {
     expect(mockAdapter.initialize).toHaveBeenCalledWith(chat);
     expect(mockState.connect).toHaveBeenCalled();
   });
@@ -114,7 +117,7 @@ describe("Chat", () => {
 
   it("should match message patterns", async () => {
     const helpHandler = vi.fn().mockResolvedValue(undefined);
-    chat.onNewMessage(/help/i, helpHandler);
+    chat.onNewMessage(HELP_REGEX, helpHandler);
 
     const message = createTestMessage("msg-1", "Can someone help me?");
 
@@ -148,7 +151,7 @@ describe("Chat", () => {
 
     it("should set isMention=false when bot is not mentioned", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
-      chat.onNewMessage(/help/i, handler);
+      chat.onNewMessage(HELP_REGEX, handler);
 
       const message = createTestMessage("msg-1", "I need help");
 

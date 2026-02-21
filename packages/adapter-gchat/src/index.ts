@@ -54,6 +54,7 @@ const SUBSCRIPTION_REFRESH_BUFFER_MS = 60 * 60 * 1000;
 const SUBSCRIPTION_CACHE_TTL_MS = 25 * 60 * 60 * 1000;
 /** Key prefix for space subscription cache */
 const SPACE_SUB_KEY_PREFIX = "gchat:space-sub:";
+const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 
 /** Service account credentials for JWT auth */
 export interface ServiceAccountCredentials {
@@ -238,24 +239,24 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /** Bot's user ID (e.g., "users/123...") - learned from annotations */
   botUserId?: string;
 
-  private chatApi: chat_v1.Chat;
+  private readonly chatApi: chat_v1.Chat;
   private chat: ChatInstance | null = null;
   private state: StateAdapter | null = null;
-  private logger: Logger;
-  private formatConverter = new GoogleChatFormatConverter();
-  private pubsubTopic?: string;
-  private credentials?: ServiceAccountCredentials;
-  private useADC = false;
+  private readonly logger: Logger;
+  private readonly formatConverter = new GoogleChatFormatConverter();
+  private readonly pubsubTopic?: string;
+  private readonly credentials?: ServiceAccountCredentials;
+  private readonly useADC: boolean = false;
   /** Custom auth client (e.g., Vercel OIDC) */
-  private customAuth?: Parameters<typeof google.chat>[0]["auth"];
+  private readonly customAuth?: Parameters<typeof google.chat>[0]["auth"];
   /** Auth client for making authenticated requests */
-  private authClient!: Parameters<typeof google.chat>[0]["auth"];
+  private readonly authClient!: Parameters<typeof google.chat>[0]["auth"];
   /** User email to impersonate for Workspace Events API (domain-wide delegation) */
-  private impersonateUser?: string;
+  private readonly impersonateUser?: string;
   /** In-progress subscription creations to prevent duplicate requests */
-  private pendingSubscriptions = new Map<string, Promise<void>>();
+  private readonly pendingSubscriptions = new Map<string, Promise<void>>();
   /** Chat API client with impersonation for user-context operations (DMs, etc.) */
-  private impersonatedChatApi?: chat_v1.Chat;
+  private readonly impersonatedChatApi?: chat_v1.Chat;
   /** HTTP endpoint URL for button click actions */
   private endpointUrl?: string;
   /** User info cache for display name lookups - initialized later in initialize() */
@@ -657,9 +658,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // The RenderActions format expects cards in google.apps.card.v1 format,
       // actionResponse is for the older Google Chat API format.
       // Returning {} acknowledges the action without changing the card.
-      return new Response(JSON.stringify({}), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({});
     }
 
     // Check for message payload in the Add-ons format
@@ -679,9 +678,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     // Google Chat expects an empty response or a message response
-    return new Response(JSON.stringify({}), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({});
   }
 
   /**
@@ -702,9 +699,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     ];
     if (eventType && !allowedEventTypes.includes(eventType)) {
       this.logger.debug("Skipping unsupported Pub/Sub event", { eventType });
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ success: true });
     }
 
     try {
@@ -726,9 +721,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       }
 
       // Acknowledge the message
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ success: true });
     } catch (error) {
       this.logger.error("Error processing Pub/Sub message", { error });
       // Return 200 to avoid retries for malformed messages
@@ -804,9 +797,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Extract message name from reaction name
     // Format: spaces/{space}/messages/{message}/reactions/{reaction}
     const reactionName = reaction.name || "";
-    const messageNameMatch = reactionName.match(
-      /(spaces\/[^/]+\/messages\/[^/]+)/
-    );
+    const messageNameMatch = reactionName.match(REACTION_MESSAGE_NAME_PATTERN);
     const messageName = messageNameMatch ? messageNameMatch[1] : "";
 
     // Extract space name from targetResource
@@ -1662,7 +1653,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (direction === "forward") {
         // Forward direction: fetch oldest messages first
         // GChat API always returns newest first, so we need to work around this
-        return this.fetchMessagesForward(
+        return await this.fetchMessagesForward(
           api,
           spaceName,
           threadId,
@@ -1674,7 +1665,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       // Backward direction (default): most recent messages first
       // GChat API returns newest first, which matches this use case
-      return this.fetchMessagesBackward(
+      return await this.fetchMessagesBackward(
         api,
         spaceName,
         threadId,
@@ -1819,7 +1810,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       startIndex + limit < allRawMessages.length &&
       selectedMessages.length > 0
     ) {
-      const lastMsg = selectedMessages[selectedMessages.length - 1];
+      const lastMsg = selectedMessages.at(-1);
       if (lastMsg?.name) {
         nextCursor = lastMsg.name;
       }
@@ -1941,7 +1932,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     try {
       if (direction === "backward") {
-        return this.fetchChannelMessagesBackward(
+        return await this.fetchChannelMessagesBackward(
           api,
           spaceName,
           channelId,
@@ -1950,7 +1941,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         );
       }
 
-      return this.fetchChannelMessagesForward(
+      return await this.fetchChannelMessagesForward(
         api,
         spaceName,
         channelId,
@@ -1979,11 +1970,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     // Extract the thread ID from thread.name: "spaces/X/threads/THREAD_ID"
     const threadParts = msg.thread.name.split("/");
-    const threadId = threadParts[threadParts.length - 1];
+    const threadId = threadParts.at(-1);
 
     // Extract message ID parts from name: "spaces/X/messages/THREAD_ID.MSG_ID"
     const msgParts = msg.name.split("/");
-    const msgIdFull = msgParts[msgParts.length - 1] || "";
+    const msgIdFull = msgParts.at(-1) || "";
     const dotIndex = msgIdFull.indexOf(".");
     if (dotIndex === -1) {
       return true; // No dot = top-level
@@ -2111,7 +2102,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     let nextCursor: string | undefined;
     if (startIndex + limit < topLevel.length && selectedMessages.length > 0) {
-      const lastMsg = selectedMessages[selectedMessages.length - 1];
+      const lastMsg = selectedMessages.at(-1);
       if (lastMsg?.name) {
         nextCursor = lastMsg.name;
       }

@@ -39,10 +39,10 @@ describe("Replay Tests - Modal privateMetadata", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
-          onModalSubmit: async (event) => {
+          onModalSubmit: (event) => {
             capturedModalSubmit = event;
           },
         }
@@ -148,7 +148,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
           onModalSubmit: async (event) => {

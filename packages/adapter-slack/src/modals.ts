@@ -115,6 +115,10 @@ function modalChildToBlock(child: ModalChild): SlackBlock {
       return convertTextToBlock(child);
     case "fields":
       return convertFieldsToBlock(child);
+    default:
+      throw new Error(
+        `Unknown modal child type: ${(child as { type: string }).type}`
+      );
   }
 }
 

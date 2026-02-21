@@ -115,6 +115,8 @@ function processChild(
     case "fields":
       convertFieldsElement(child, fields);
       break;
+    default:
+      break;
   }
 }
 

@@ -503,7 +503,7 @@ describe("modalToSlackView with radio select", () => {
     const view = modalToSlackView(modal);
 
     const element = view.blocks[0].element as {
-      options: Array<unknown>;
+      options: unknown[];
     };
     expect(element.options).toHaveLength(10);
   });

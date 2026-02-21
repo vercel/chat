@@ -70,7 +70,7 @@ describe("Slack Assistant Thread Started", () => {
       ctx = createSlackTestContext(
         { botName: BOT_NAME, botUserId: BOT_USER_ID },
         {
-          onAssistantThreadStarted: async (event) => {
+          onAssistantThreadStarted: (event) => {
             capturedEvent = event;
           },
         }
@@ -176,7 +176,7 @@ describe("Slack Assistant Thread Started", () => {
       ctx = createSlackTestContext(
         { botName: BOT_NAME, botUserId: BOT_USER_ID },
         {
-          onAssistantThreadStarted: async () => {
+          onAssistantThreadStarted: () => {
             throw new Error("Handler exploded");
           },
         }
@@ -255,10 +255,10 @@ describe("Slack Assistant Thread Started", () => {
         {}
       );
 
-      ctx.chat.onAssistantThreadStarted(async () => {
+      ctx.chat.onAssistantThreadStarted(() => {
         callOrder.push(1);
       });
-      ctx.chat.onAssistantThreadStarted(async () => {
+      ctx.chat.onAssistantThreadStarted(() => {
         callOrder.push(2);
       });
 
@@ -316,7 +316,7 @@ describe("Slack Assistant Context Changed", () => {
     ctx = createSlackTestContext(
       { botName: BOT_NAME, botUserId: BOT_USER_ID },
       {
-        onAssistantContextChanged: async (event) => {
+        onAssistantContextChanged: (event) => {
           capturedEvent = event;
         },
       }

@@ -65,6 +65,10 @@ import {
 import { cardToAdaptiveCard } from "./cards";
 import { TeamsFormatConverter } from "./markdown";
 
+const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
+const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
+const SEMICOLON_MESSAGEID_CAPTURE_PATTERN = /;messageid=(\d+)/;
+
 /** Microsoft Graph API chat message type */
 interface GraphChatMessage {
   attachments?: Array<{
@@ -128,12 +132,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
-  private botAdapter: ServerlessCloudAdapter;
-  private graphClient: Client | null = null;
+  private readonly botAdapter: ServerlessCloudAdapter;
+  private readonly graphClient: Client | null = null;
   private chat: ChatInstance | null = null;
-  private logger: Logger;
-  private formatConverter = new TeamsFormatConverter();
-  private config: TeamsAdapterConfig;
+  private readonly logger: Logger;
+  private readonly formatConverter = new TeamsFormatConverter();
+  private readonly config: TeamsAdapterConfig;
 
   constructor(config: TeamsAdapterConfig) {
     this.config = config;
@@ -278,7 +282,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       const teamAadGroupId = team?.aadGroupId;
       const teamThreadId = team?.id; // Thread-style ID like "19:xxx@thread.tacv2"
       const conversationId = activity.conversation?.id || "";
-      const baseChannelId = conversationId.replace(/;messageid=\d+/, "");
+      const baseChannelId = conversationId.replace(MESSAGEID_STRIP_PATTERN, "");
 
       if (teamAadGroupId && channelData?.channel?.id && tenantId) {
         // We have aadGroupId (from installationUpdate/conversationUpdate) - cache it
@@ -599,7 +603,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // Extract the message ID from conversation ID
     // Format: "19:xxx@thread.tacv2;messageid=1767297849909"
     const conversationId = activity.conversation?.id || "";
-    const messageIdMatch = conversationId.match(/messageid=(\d+)/);
+    const messageIdMatch = conversationId.match(MESSAGEID_CAPTURE_PATTERN);
     const messageId = messageIdMatch?.[1] || activity.replyToId || "";
 
     // Build thread ID - KEEP the full conversation ID including ;messageid=XXX
@@ -1157,11 +1161,16 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const direction = options.direction ?? "backward";
 
     // Extract message ID for thread filtering (format: "19:xxx@thread.tacv2;messageid=123456")
-    const messageIdMatch = conversationId.match(/;messageid=(\d+)/);
+    const messageIdMatch = conversationId.match(
+      SEMICOLON_MESSAGEID_CAPTURE_PATTERN
+    );
     const threadMessageId = messageIdMatch?.[1];
 
     // Strip ;messageid= from conversation ID
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
 
     // Try to get cached channel context for proper thread-level message fetching
     let channelContext: TeamsChannelContext | null = null;
@@ -1338,7 +1347,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       if (hasMoreMessages && graphMessages.length > 0) {
         if (direction === "forward") {
           // Forward: use the newest message's timestamp (last in returned slice)
-          const lastMsg = graphMessages[graphMessages.length - 1];
+          const lastMsg = graphMessages.at(-1);
           if (lastMsg?.createdDateTime) {
             nextCursor = lastMsg.createdDateTime;
           }
@@ -1551,7 +1560,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     let nextCursor: string | undefined;
     if (hasMoreMessages && graphMessages.length > 0) {
       if (direction === "forward") {
-        const lastMsg = graphMessages[graphMessages.length - 1];
+        const lastMsg = graphMessages.at(-1);
         if (lastMsg?.createdDateTime) {
           nextCursor = lastMsg.createdDateTime;
         }
@@ -1689,7 +1698,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   channelIdFromThreadId(threadId: string): string {
     const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
     // Strip ;messageid=XXX from conversation ID
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
     return this.encodeThreadId({
       conversationId: baseConversationId,
       serviceUrl,
@@ -1712,7 +1724,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const { conversationId } = this.decodeThreadId(channelId);
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
     const limit = options.limit || 50;
     const direction = options.direction ?? "backward";
 
@@ -1864,7 +1879,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       let nextCursor: string | undefined;
       if (hasMoreMessages && graphMessages.length > 0) {
         if (direction === "forward") {
-          const lastMsg = graphMessages[graphMessages.length - 1];
+          const lastMsg = graphMessages.at(-1);
           if (lastMsg?.createdDateTime) {
             nextCursor = lastMsg.createdDateTime;
           }
@@ -1902,7 +1917,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const { conversationId, serviceUrl } = this.decodeThreadId(channelId);
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
     const limit = options.limit || 50;
 
     try {
@@ -2063,7 +2081,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
     const { conversationId } = this.decodeThreadId(channelId);
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
 
     // Check for channel context
     let channelContext: TeamsChannelContext | null = null;
@@ -2129,7 +2150,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   ): Promise<RawMessage<unknown>> {
     const { conversationId, serviceUrl } = this.decodeThreadId(channelId);
     // Ensure we use the base conversation ID (no messageid)
-    const baseConversationId = conversationId.replace(/;messageid=\d+/, "");
+    const baseConversationId = conversationId.replace(
+      MESSAGEID_STRIP_PATTERN,
+      ""
+    );
 
     const files = extractFiles(message);
     const fileAttachments =

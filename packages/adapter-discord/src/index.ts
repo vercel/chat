@@ -70,19 +70,21 @@ import {
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_CONTENT_LENGTH = 2000;
+const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
+const HEX_PATTERN = /^[0-9a-f]+$/;
 
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
   readonly userName: string;
   readonly botUserId?: string;
 
-  private botToken: string;
-  private publicKey: string;
-  private applicationId: string;
-  private mentionRoleIds: string[];
+  private readonly botToken: string;
+  private readonly publicKey: string;
+  private readonly applicationId: string;
+  private readonly mentionRoleIds: string[];
   private chat: ChatInstance | null = null;
-  private logger: Logger;
-  private formatConverter = new DiscordFormatConverter();
+  private readonly logger: Logger;
+  private readonly formatConverter = new DiscordFormatConverter();
 
   constructor(
     config: DiscordAdapterConfig & { logger: Logger; userName?: string }
@@ -96,10 +98,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.userName = config.userName ?? "bot";
 
     // Validate public key format
-    if (!/^[0-9a-f]{64}$/.test(this.publicKey)) {
+    if (!HEX_64_PATTERN.test(this.publicKey)) {
       this.logger.error("Invalid Discord public key format", {
         length: this.publicKey.length,
-        isHex: /^[0-9a-f]+$/.test(this.publicKey),
+        isHex: HEX_PATTERN.test(this.publicKey),
       });
     }
   }
@@ -281,9 +283,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Create a JSON response for Discord interactions.
    */
   private respondToInteraction(response: DiscordInteractionResponse): Response {
-    return new Response(JSON.stringify(response), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json(response);
   }
 
   /**
@@ -994,7 +994,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (rawMessages.length === limit) {
       if (direction === "backward") {
         // For backward, cursor is the oldest message ID in the batch
-        const oldest = rawMessages[rawMessages.length - 1];
+        const oldest = rawMessages.at(-1);
         nextCursor = oldest?.id;
       } else {
         // For forward, cursor is the newest message ID in the batch
@@ -1771,7 +1771,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     let nextCursor: string | undefined;
     if (rawMessages.length === limit) {
       if (direction === "backward") {
-        const oldest = rawMessages[rawMessages.length - 1];
+        const oldest = rawMessages.at(-1);
         nextCursor = oldest?.id;
       } else {
         const newest = rawMessages[0];

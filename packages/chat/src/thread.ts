@@ -99,15 +99,15 @@ export class ThreadImpl<TState = Record<string, unknown>>
   /** Direct adapter instance (if provided) */
   private _adapter?: Adapter;
   /** Adapter name for lazy resolution */
-  private _adapterName?: string;
+  private readonly _adapterName?: string;
   /** Direct state adapter instance (if provided) */
   private _stateAdapterInstance?: StateAdapter;
   private _recentMessages: Message[] = [];
-  private _isSubscribedContext: boolean;
+  private readonly _isSubscribedContext: boolean;
   /** Current message context for streaming - provides userId/teamId */
-  private _currentMessage?: Message;
+  private readonly _currentMessage?: Message;
   /** Update interval for fallback streaming */
-  private _streamingUpdateIntervalMs: number;
+  private readonly _streamingUpdateIntervalMs: number;
   /** Cached channel instance */
   private _channel?: Channel<TState>;
 

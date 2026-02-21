@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 
@@ -252,7 +253,7 @@ describe("Package README code examples", () => {
         // Check that imports reference valid packages
         const importMatches = block.match(/from ["']([^"']+)["']/g) || [];
         for (const importMatch of importMatches) {
-          const pkg = importMatch.match(/from ["']([^"']+)["']/)?.[1];
+          const pkg = importMatch.match(IMPORT_PACKAGE_REGEX)?.[1];
           if (pkg && !pkg.startsWith(".") && !pkg.startsWith("@/")) {
             // Known valid packages
             const validPackages = [

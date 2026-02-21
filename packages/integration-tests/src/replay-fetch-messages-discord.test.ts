@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DISCORD_BOT_USER_ID,
@@ -33,7 +33,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
     );
 
     // Mock messages.list to return actual recorded messages
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       // Discord returns newest first, so reverse the chronological order
       return [...DISCORD_RAW_MESSAGES].reverse();
     });
@@ -148,7 +148,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
   it("should respect limit parameter", async () => {
     // Mock to return limited results
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       // Return only first 5 messages (newest first)
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 5);
     });
@@ -187,7 +187,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
   it("should return nextCursor when more messages are available", async () => {
     // Mock to return exactly limit messages (indicating more available)
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 10);
     });
 
@@ -202,7 +202,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
   it("should not return nextCursor when fewer messages than limit", async () => {
     // Mock to return fewer than limit
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 5);
     });
 
@@ -228,7 +228,7 @@ describe("allMessages Replay Tests - Discord", () => {
     );
 
     // Mock messages.list to return actual recorded messages
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse();
     });
   });
@@ -248,7 +248,7 @@ describe("allMessages Replay Tests - Discord", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }

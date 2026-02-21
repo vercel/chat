@@ -18,7 +18,7 @@ import type {
   Text,
 } from "mdast";
 
-import { toString } from "mdast-util-to-string";
+import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
@@ -31,20 +31,20 @@ type PostableMessageInput = AdapterPostableMessage;
 
 // Re-export types for adapters
 export type {
-  Root,
-  Content,
-  Text,
-  Strong,
-  Emphasis,
-  Delete,
-  InlineCode,
-  Code,
-  Link,
   Blockquote,
+  Code,
+  Content,
+  Delete,
+  Emphasis,
+  InlineCode,
+  Link,
   List,
   ListItem,
   Paragraph,
-};
+  Root,
+  Strong,
+  Text,
+} from "mdast";
 
 // ============================================================================
 // Type Guards for mdast nodes
@@ -175,7 +175,7 @@ export function stringifyMarkdown(ast: Root): string {
  * Extract plain text from an AST (strips all formatting).
  */
 export function toPlainText(ast: Root): string {
-  return toString(ast);
+  return mdastToString(ast);
 }
 
 /**
@@ -183,7 +183,7 @@ export function toPlainText(ast: Root): string {
  */
 export function markdownToPlainText(markdown: string): string {
   const ast = parseMarkdown(markdown);
-  return toString(ast);
+  return mdastToString(ast);
 }
 
 /**

@@ -81,7 +81,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   readonly isDM: boolean;
 
   private _adapter?: Adapter;
-  private _adapterName?: string;
+  private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
 

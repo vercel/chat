@@ -16,14 +16,14 @@ import { recorder, withRecording } from "./recorder";
 // Create a logger for adapters
 const logger = new ConsoleLogger("info");
 
-export type Adapters = {
+export interface Adapters {
   discord?: DiscordAdapter;
+  gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
-  gchat?: GoogleChatAdapter;
-};
+}
 
 // Methods to record for each adapter (outgoing API calls)
 const DISCORD_METHODS = [

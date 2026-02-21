@@ -148,7 +148,7 @@ describe("Discord Integration", () => {
 
     it("should not call handler for non-matching action IDs", async () => {
       const handlerMock = vi.fn();
-      chat.onAction("approve", async () => {
+      chat.onAction("approve", () => {
         handlerMock();
       });
 
@@ -169,7 +169,7 @@ describe("Discord Integration", () => {
 
     it("should call catch-all action handler", async () => {
       const handlerMock = vi.fn();
-      chat.onAction(async (event) => {
+      chat.onAction((event) => {
         handlerMock(event.actionId);
       });
 
@@ -371,7 +371,7 @@ describe("Discord Integration", () => {
 
     it("should include thread info in action events", async () => {
       let capturedEvent: unknown;
-      chat.onAction("info", async (event) => {
+      chat.onAction("info", (event) => {
         capturedEvent = {
           actionId: event.actionId,
           threadId: event.threadId,
@@ -394,8 +394,12 @@ describe("Discord Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedEvent).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const event = capturedEvent as any;
+      const event = capturedEvent as {
+        actionId: string;
+        threadId: string;
+        userId: string;
+        userName: string;
+      };
       expect(event.actionId).toBe("info");
       expect(event.threadId).toBe(TEST_THREAD_ID);
       expect(event.userId).toBe("USER789");

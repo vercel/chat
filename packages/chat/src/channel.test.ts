@@ -6,7 +6,7 @@ import {
   createTestMessage,
 } from "./mock-adapter";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message } from "./types";
+import type { Adapter, Message, ThreadSummary } from "./types";
 
 describe("ChannelImpl", () => {
   describe("basic properties", () => {
@@ -139,7 +139,7 @@ describe("ChannelImpl", () => {
     });
 
     it("should fall back to fetchMessages when fetchChannelMessages is not available", async () => {
-      delete mockAdapter.fetchChannelMessages;
+      mockAdapter.fetchChannelMessages = undefined;
 
       const messages = [
         createTestMessage("msg-1", "First"),
@@ -282,7 +282,7 @@ describe("ChannelImpl", () => {
         nextCursor: undefined,
       });
 
-      const collected = [];
+      const collected: ThreadSummary[] = [];
       for await (const t of channel.threads()) {
         collected.push(t);
       }
@@ -294,9 +294,9 @@ describe("ChannelImpl", () => {
     });
 
     it("should return empty iterable when adapter has no listThreads", async () => {
-      delete mockAdapter.listThreads;
+      mockAdapter.listThreads = undefined;
 
-      const collected = [];
+      const collected: ThreadSummary[] = [];
       for await (const t of channel.threads()) {
         collected.push(t);
       }
@@ -334,7 +334,7 @@ describe("ChannelImpl", () => {
         }
       );
 
-      const collected = [];
+      const collected: ThreadSummary[] = [];
       for await (const t of channel.threads()) {
         collected.push(t);
       }
@@ -366,7 +366,7 @@ describe("ChannelImpl", () => {
 
     it("should return basic info when adapter has no fetchChannelInfo", async () => {
       const mockAdapter = createMockAdapter();
-      delete mockAdapter.fetchChannelInfo;
+      mockAdapter.fetchChannelInfo = undefined;
       const mockState = createMockState();
 
       const channel = new ChannelImpl({
@@ -405,7 +405,7 @@ describe("ChannelImpl", () => {
 
     it("should fall back to postMessage when postChannelMessage is not available", async () => {
       const mockAdapter = createMockAdapter();
-      delete mockAdapter.postChannelMessage;
+      mockAdapter.postChannelMessage = undefined;
       const mockState = createMockState();
 
       const channel = new ChannelImpl({
@@ -500,7 +500,7 @@ describe("deriveChannelId", () => {
 
   it("should use default fallback (first two parts)", () => {
     const mockAdapter = createMockAdapter();
-    delete mockAdapter.channelIdFromThreadId;
+    mockAdapter.channelIdFromThreadId = undefined;
 
     const channelId = deriveChannelId(mockAdapter, "slack:C123:1234.5678");
     expect(channelId).toBe("slack:C123");
@@ -508,7 +508,7 @@ describe("deriveChannelId", () => {
 
   it("should work with different adapters", () => {
     const mockAdapter = createMockAdapter("gchat");
-    delete mockAdapter.channelIdFromThreadId;
+    mockAdapter.channelIdFromThreadId = undefined;
 
     const channelId = deriveChannelId(
       mockAdapter,

@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EXPECTED_NUMBERED_TEXTS,
@@ -34,9 +34,10 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
     );
 
     // Mock messages.list to return actual recorded messages
-    // biome-ignore lint/suspicious/noExplicitAny: mock type override for testing
-    (ctx.mockChatApi.spaces.messages.list as any).mockImplementation(
-      async (params: {
+    (
+      ctx.mockChatApi.spaces.messages.list as ReturnType<typeof vi.fn>
+    ).mockImplementation(
+      (params: {
         parent: string;
         pageSize?: number;
         pageToken?: string;
@@ -211,9 +212,10 @@ describe("allMessages Replay Tests - Google Chat", () => {
     );
 
     // Mock messages.list to return actual recorded messages
-    // biome-ignore lint/suspicious/noExplicitAny: mock type override for testing
-    (ctx.mockChatApi.spaces.messages.list as any).mockImplementation(
-      async (params: {
+    (
+      ctx.mockChatApi.spaces.messages.list as ReturnType<typeof vi.fn>
+    ).mockImplementation(
+      (params: {
         parent: string;
         pageSize?: number;
         pageToken?: string;
@@ -253,7 +255,7 @@ describe("allMessages Replay Tests - Google Chat", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }

@@ -159,12 +159,15 @@ export interface DiscordMessagePayload {
  * Note: Only the types currently used are defined here.
  * Additional types: ChannelMessageWithSource (4), UpdateMessage (7)
  */
-export enum InteractionResponseType {
+export const InteractionResponseType = {
   /** ACK and edit later (deferred) */
-  DeferredChannelMessageWithSource = 5,
+  DeferredChannelMessageWithSource: 5,
   /** ACK component interaction, update message later */
-  DeferredUpdateMessage = 6,
-}
+  DeferredUpdateMessage: 6,
+} as const;
+
+export type InteractionResponseType =
+  (typeof InteractionResponseType)[keyof typeof InteractionResponseType];
 
 /**
  * Discord interaction response.

@@ -27,7 +27,7 @@ describe("IoRedisStateAdapter", () => {
   // Note: Integration tests with a real Redis instance would go here
   // but require a running Redis server, so they're skipped by default
 
-  describe.skip("integration tests (require Redis)", () => {
+  describe("integration tests (require Redis)", () => {
     it("should connect to Redis", async () => {
       const adapter = createIoRedisState({
         url: process.env.REDIS_URL || "redis://localhost:6379",

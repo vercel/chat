@@ -17,6 +17,9 @@ import {
 } from "./teams-utils";
 import { createWaitUntilTracker } from "./test-scenarios";
 
+const ANY_CHAR_REGEX = /./;
+const HELP_REGEX = /help/i;
+
 const mockLogger: Logger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -175,7 +178,7 @@ describe("Teams Integration", () => {
 
     it("should handle messages matching a pattern", async () => {
       const patternHandler = vi.fn();
-      chat.onNewMessage(/help/i, async (thread, message) => {
+      chat.onNewMessage(HELP_REGEX, async (thread, message) => {
         patternHandler(message.text);
         await thread.post("Here is some help!");
       });
@@ -201,7 +204,7 @@ describe("Teams Integration", () => {
 
     it("should skip messages from the bot itself", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -225,7 +228,7 @@ describe("Teams Integration", () => {
 
     it("should skip non-message activity types", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -283,7 +286,7 @@ describe("Teams Integration", () => {
   describe("thread operations", () => {
     it("should include thread info in message objects", async () => {
       let capturedMessage: unknown;
-      chat.onNewMention(async (_thread, message) => {
+      chat.onNewMention((_thread, message) => {
         capturedMessage = message;
       });
 
@@ -308,8 +311,10 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedMessage).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const msg = capturedMessage as any;
+      const msg = capturedMessage as {
+        threadId: string;
+        author: { userId: string; userName: string; isBot: boolean };
+      };
       expect(msg.threadId).toBe(TEST_THREAD_ID);
       expect(msg.author.userId).toBe("user-123");
       expect(msg.author.userName).toBe("John Doe");

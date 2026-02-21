@@ -17,12 +17,12 @@ export interface Logger {
  * Default console logger implementation.
  */
 export class ConsoleLogger implements Logger {
-  private prefix: string;
+  private readonly prefix: string;
 
-  constructor(
-    private level: LogLevel = "info",
-    prefix = "chat-sdk"
-  ) {
+  private readonly level: LogLevel;
+
+  constructor(level: LogLevel = "info", prefix = "chat-sdk") {
+    this.level = level;
     this.prefix = prefix;
   }
 

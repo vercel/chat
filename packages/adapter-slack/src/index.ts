@@ -284,21 +284,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
 
-  private client: WebClient;
-  private signingSecret: string;
-  private defaultBotToken: string | undefined;
+  private readonly client: WebClient;
+  private readonly signingSecret: string;
+  private readonly defaultBotToken: string | undefined;
   private chat: ChatInstance | null = null;
-  private logger: Logger;
+  private readonly logger: Logger;
   private _botUserId: string | null = null;
   private _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
-  private formatConverter = new SlackFormatConverter();
+  private readonly formatConverter = new SlackFormatConverter();
   private static USER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
   // Multi-workspace support
-  private clientId: string | undefined;
-  private clientSecret: string | undefined;
-  private encryptionKey: Buffer | undefined;
-  private requestContext = new AsyncLocalStorage<{
+  private readonly clientId: string | undefined;
+  private readonly clientSecret: string | undefined;
+  private readonly encryptionKey: Buffer | undefined;
+  private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
   }>();
@@ -701,9 +701,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Handle URL verification challenge (no token needed)
     if (payload.type === "url_verification" && payload.challenge) {
-      return new Response(JSON.stringify({ challenge: payload.challenge }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ challenge: payload.challenge });
     }
 
     // In multi-workspace mode, resolve token from team_id before processing events
@@ -2172,7 +2170,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (direction === "forward") {
         // Forward direction: fetch oldest messages first, cursor moves to newer
         // Uses native Slack cursor pagination which is efficient
-        return this.fetchMessagesForward(
+        return await this.fetchMessagesForward(
           channel,
           threadTs,
           threadId,
@@ -2182,7 +2180,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
       // Backward direction: fetch most recent messages first, cursor moves to older
       // Slack API returns oldest-first, so we need to work around this
-      return this.fetchMessagesBackward(
+      return await this.fetchMessagesBackward(
         channel,
         threadTs,
         threadId,
@@ -2546,7 +2544,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // For forward pagination, cursor points to newer messages
     let nextCursor: string | undefined;
     if (result.has_more && slackMessages.length > 0) {
-      const newest = slackMessages[slackMessages.length - 1];
+      const newest = slackMessages.at(-1);
       if (newest?.ts) {
         nextCursor = newest.ts;
       }
@@ -2744,7 +2742,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Use the existing postMessage logic but with no threadTs
     // Build a synthetic thread ID with empty threadTs
     const syntheticThreadId = `slack:${channel}:`;
-    return this.postMessage(syntheticThreadId, message);
+    return await this.postMessage(syntheticThreadId, message);
   }
 
   renderFormatted(content: FormattedContent): string {

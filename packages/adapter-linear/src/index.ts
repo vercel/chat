@@ -30,6 +30,8 @@ import type {
   ReactionWebhookPayload,
 } from "./types";
 
+const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
+
 // Re-export types
 export type {
   LinearAdapterAPIKeyConfig,
@@ -91,14 +93,14 @@ export class LinearAdapter
   readonly userName: string;
 
   private linearClient!: LinearClient;
-  private webhookSecret: string;
+  private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
-  private logger: Logger;
+  private readonly logger: Logger;
   private _botUserId: string | null = null;
-  private formatConverter = new LinearFormatConverter();
+  private readonly formatConverter = new LinearFormatConverter();
 
   // Client credentials auth state
-  private clientCredentials: {
+  private readonly clientCredentials: {
     clientId: string;
     clientSecret: string;
   } | null = null;
@@ -795,7 +797,7 @@ export class LinearAdapter
     }
 
     // Check for comment thread format: {issueId}:c:{commentId}
-    const commentMatch = withoutPrefix.match(/^([^:]+):c:([^:]+)$/);
+    const commentMatch = withoutPrefix.match(COMMENT_THREAD_PATTERN);
     if (commentMatch) {
       return {
         issueId: commentMatch[1],

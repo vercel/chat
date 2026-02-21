@@ -25,6 +25,8 @@ import {
   type TeamsTestContext,
 } from "./replay-test-utils";
 
+const AI_WORD_REGEX = /\bAI\b/i;
+
 /**
  * Helper to create an async iterable text stream from chunks.
  * Simulates AI streaming response.
@@ -50,7 +52,7 @@ describe("Streaming Replay Tests", () => {
           onMention: async (thread, message) => {
             await thread.subscribe();
             // Check if message contains "AI" to enable AI mode
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               // Stream response for the initial AI question
@@ -147,7 +149,7 @@ describe("Streaming Replay Tests", () => {
         {
           onMention: async (thread, message) => {
             await thread.subscribe();
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               const stream = createTextStream([
@@ -230,7 +232,7 @@ describe("Streaming Replay Tests", () => {
         {
           onMention: async (thread, message) => {
             await thread.subscribe();
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               const stream = createTextStream([

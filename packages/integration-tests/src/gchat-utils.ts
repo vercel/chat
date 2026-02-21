@@ -153,7 +153,7 @@ export function createMockGoogleChatApi() {
     spaces: {
       messages: {
         create: vi.fn(
-          async (params: {
+          (params: {
             parent: string;
             requestBody: { text: string; thread?: { name: string } };
           }) => {
@@ -177,7 +177,7 @@ export function createMockGoogleChatApi() {
           }
         ),
         update: vi.fn(
-          async (params: {
+          (params: {
             name: string;
             updateMask: string;
             requestBody: { text: string };
@@ -194,14 +194,14 @@ export function createMockGoogleChatApi() {
             };
           }
         ),
-        delete: vi.fn(async (params: { name: string }) => {
+        delete: vi.fn((params: { name: string }) => {
           deletedMessages.push(params.name);
           return { data: {} };
         }),
-        list: vi.fn(async () => ({ data: { messages: [] } })),
+        list: vi.fn(() => ({ data: { messages: [] } })),
         reactions: {
           create: vi.fn(
-            async (params: {
+            (params: {
               parent: string;
               requestBody: { emoji: { unicode: string } };
             }) => {
@@ -216,17 +216,17 @@ export function createMockGoogleChatApi() {
           ),
         },
       },
-      get: vi.fn(async (params: { name: string }) => ({
+      get: vi.fn((params: { name: string }) => ({
         data: {
           name: params.name,
           displayName: "Test Space",
           type: "ROOM",
         },
       })),
-      findDirectMessage: vi.fn(async () => ({
+      findDirectMessage: vi.fn(() => ({
         data: { name: null as string | null },
       })),
-      setup: vi.fn(async (_params: { requestBody: { spaceType: string } }) => ({
+      setup: vi.fn((_params: { requestBody: { spaceType: string } }) => ({
         data: { name: `spaces/dm-${Date.now()}` },
       })),
     },

@@ -11,6 +11,8 @@ import {
   type SlackTestContext,
 } from "./replay-test-utils";
 
+const EPHEMERAL_PREFIX_REGEX = /^ephemeral:/;
+
 /**
  * Store the modal context in the state adapter to simulate what happens when
  * openModal() is called. The context includes the serialized thread and message
@@ -50,13 +52,13 @@ describe("Replay Tests - Modals", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
             if (event.actionId === "feedback") {
               openModalCalled = true;
             }
           },
-          onModalSubmit: async (event) => {
+          onModalSubmit: (event) => {
             capturedModalSubmit = event;
           },
         }
@@ -161,7 +163,7 @@ describe("Replay Tests - Modals", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
           onModalSubmit: async (event) => {
@@ -197,7 +199,7 @@ describe("Replay Tests - Modals", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
           onModalSubmit: async (event) => {
@@ -228,7 +230,7 @@ describe("Replay Tests - Modals", () => {
       ctx = createSlackTestContext(
         { botName: slackFixtures.botName, botUserId: slackFixtures.botUserId },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
             if (event.actionId === "ephemeral_modal") {
               openModalCalled = true;
@@ -246,7 +248,7 @@ describe("Replay Tests - Modals", () => {
       );
       expect(openModalCalled).toBe(true);
 
-      expect(capturedAction?.messageId).toMatch(/^ephemeral:/);
+      expect(capturedAction?.messageId).toMatch(EPHEMERAL_PREFIX_REGEX);
       expect(capturedAction?.messageId).toContain("1771126609.000200");
 
       expect(capturedAction?.threadId).toBe(

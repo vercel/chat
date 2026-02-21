@@ -36,12 +36,12 @@ export interface IoRedisStateClientOptions {
  * ```
  */
 export class IoRedisStateAdapter implements StateAdapter {
-  private client: Redis;
-  private keyPrefix: string;
-  private logger: Logger;
+  private readonly client: Redis;
+  private readonly keyPrefix: string;
+  private readonly logger: Logger;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
-  private ownsClient: boolean;
+  private readonly ownsClient: boolean;
 
   constructor(options: IoRedisStateAdapterOptions | IoRedisStateClientOptions) {
     if ("client" in options) {

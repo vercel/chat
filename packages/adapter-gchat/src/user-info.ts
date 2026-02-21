@@ -23,12 +23,14 @@ export interface CachedUserInfo {
  * Uses both in-memory cache (fast path) and persistent state adapter.
  */
 export class UserInfoCache {
-  private inMemoryCache = new Map<string, CachedUserInfo>();
+  private readonly inMemoryCache = new Map<string, CachedUserInfo>();
+  private readonly state: StateAdapter | null;
+  private readonly logger: Logger;
 
-  constructor(
-    private state: StateAdapter | null,
-    private logger: Logger
-  ) {}
+  constructor(state: StateAdapter | null, logger: Logger) {
+    this.state = state;
+    this.logger = logger;
+  }
 
   /**
    * Cache user info for later lookup.

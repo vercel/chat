@@ -36,10 +36,10 @@ describe("Replay Tests - Slash Commands", () => {
       ctx = createSlackTestContext(
         { botName: slackFixtures.botName, botUserId: slackFixtures.botUserId },
         {
-          onSlashCommand: async (event) => {
+          onSlashCommand: (event) => {
             capturedSlashCommand = event;
           },
-          onModalSubmit: async (event) => {
+          onModalSubmit: (event) => {
             capturedModalSubmit = event;
           },
         }

@@ -91,12 +91,18 @@ function sanitizeHeaderValue(key: string, value: string): string {
 
 const RECORDING_TTL_SECONDS = 1 * 60 * 60; // 1 hour
 
+const DEFAULT_FETCH_URL_PATTERNS: RegExp[] = [
+  /graph\.microsoft\.com/,
+  /\.slack\.com/,
+  /chat\.googleapis\.com/,
+];
+
 class Recorder {
-  private redis: RedisClientType | null = null;
-  private sessionId: string;
-  private enabled: boolean;
+  private readonly redis: RedisClientType | null = null;
+  private readonly sessionId: string;
+  private readonly enabled: boolean;
   private connectPromise: Promise<void> | null = null;
-  private originalFetch: typeof fetch | null = null;
+  private originalFetch: typeof globalThis.fetch | null = null;
   private fetchUrlPatterns: RegExp[] = [];
 
   constructor() {
@@ -179,8 +185,9 @@ class Recorder {
       return;
     }
 
-    if (response && response instanceof Response) {
-      response = await response.clone().text();
+    let recordedResponse = response;
+    if (recordedResponse && recordedResponse instanceof Response) {
+      recordedResponse = await recordedResponse.clone().text();
     }
 
     const record: ApiCallRecord = {
@@ -189,7 +196,7 @@ class Recorder {
       platform,
       method,
       args,
-      response,
+      response: recordedResponse,
       error: error?.message,
     };
 
@@ -288,11 +295,7 @@ class Recorder {
    * @param urlPatterns - Array of regex patterns to match URLs (default: Graph API)
    */
   startFetchRecording(
-    urlPatterns: RegExp[] = [
-      /graph\.microsoft\.com/,
-      /\.slack\.com/,
-      /chat\.googleapis\.com/,
-    ]
+    urlPatterns: RegExp[] = DEFAULT_FETCH_URL_PATTERNS
   ): void {
     if (!this.isEnabled || this.originalFetch) {
       return;
@@ -306,12 +309,14 @@ class Recorder {
       input: RequestInfo | URL,
       init?: RequestInit
     ): Promise<Response> {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
+      let url: string;
+      if (typeof input === "string") {
+        url = input;
+      } else if (input instanceof URL) {
+        url = input.href;
+      } else {
+        url = input.url;
+      }
       const method = init?.method || "GET";
       const startTime = Date.now();
 

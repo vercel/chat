@@ -17,9 +17,9 @@ export interface RedisStateAdapterOptions {
  * across multiple server instances.
  */
 export class RedisStateAdapter implements StateAdapter {
-  private client: RedisClientType;
-  private keyPrefix: string;
-  private logger: Logger;
+  private readonly client: RedisClientType;
+  private readonly keyPrefix: string;
+  private readonly logger: Logger;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 

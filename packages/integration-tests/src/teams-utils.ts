@@ -133,7 +133,7 @@ export function createMockBotAdapter() {
     const conversationId = `dm-conversation-${conversationCounter}`;
 
     // The callback is the last argument
-    const callback = args[args.length - 1] as
+    const callback = args.at(-1) as
       | ((context: unknown) => Promise<void>)
       | undefined;
 
@@ -158,14 +158,14 @@ export function createMockBotAdapter() {
   // Create reusable mock context factory
   const createMockContext = (activity: unknown) => ({
     activity,
-    sendActivity: vi.fn(async (act: unknown) => {
+    sendActivity: vi.fn((act: unknown) => {
       sentActivities.push(act);
       return { id: `response-${Date.now()}` };
     }),
-    updateActivity: vi.fn(async (act: unknown) => {
+    updateActivity: vi.fn((act: unknown) => {
       updatedActivities.push(act);
     }),
-    deleteActivity: vi.fn(async (id: string) => {
+    deleteActivity: vi.fn((id: string) => {
       deletedActivities.push(id);
     }),
     // For openDM - provides access to adapter.createConversationAsync
@@ -264,13 +264,16 @@ export function createMockGraphClient() {
 
   const mockRequest = {
     top: vi.fn((n: number) => {
-      apiCalls[apiCalls.length - 1].top = n;
+      const lastCall = apiCalls.at(-1);
+      if (lastCall) {
+        lastCall.top = n;
+      }
       currentTop = n;
       return mockRequest;
     }),
     orderby: vi.fn(() => mockRequest),
     filter: vi.fn(() => mockRequest),
-    get: vi.fn(async () => {
+    get: vi.fn(() => {
       const response = mockResponses[callIndex] || { value: [] };
       callIndex++;
       // Respect the top() limit if set (only for paginated responses with value array)

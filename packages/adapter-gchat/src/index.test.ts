@@ -7,6 +7,8 @@ import {
 } from "./index";
 import type { WorkspaceEventNotification } from "./workspace-events";
 
+const GCHAT_PREFIX_PATTERN = /^gchat:/;
+
 // Test credentials
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -98,7 +100,7 @@ describe("GoogleChatAdapter", () => {
       };
 
       const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(/^gchat:/);
+      expect(encoded).toMatch(GCHAT_PREFIX_PATTERN);
 
       const decoded = adapter.decodeThreadId(encoded);
       expect(decoded.spaceName).toBe(original.spaceName);
@@ -220,7 +222,6 @@ describe("GoogleChatAdapter", () => {
       };
 
       // Access private method via any cast for testing
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
         "gchat:spaces/ABC123"
@@ -245,7 +246,6 @@ describe("GoogleChatAdapter", () => {
         },
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
         "gchat:spaces/ABC123"
@@ -272,7 +272,6 @@ describe("GoogleChatAdapter", () => {
         },
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
         "gchat:spaces/ABC123"

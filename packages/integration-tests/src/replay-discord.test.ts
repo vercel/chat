@@ -26,6 +26,9 @@ import {
   expectValidAction,
 } from "./replay-test-utils";
 
+const ENABLE_AI_REGEX = /enable\s*AI/i;
+const AI_WORD_REGEX = /\bAI\b/i;
+
 // Runtime check that throws if null and returns the value
 // Requires explicit type parameter: defined<Message>(capturedMessage)
 function defined<T>(value: unknown): T {
@@ -223,7 +226,7 @@ describe("Discord Replay Tests", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -273,7 +276,7 @@ describe("Discord Replay Tests", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -292,7 +295,7 @@ describe("Discord Replay Tests", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             capturedAction = event;
           },
         }
@@ -315,7 +318,7 @@ describe("Discord Replay Tests", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onAction: async (event) => {
+          onAction: (event) => {
             threadIds.push(event.thread.id);
           },
         }
@@ -487,7 +490,7 @@ describe("Discord Replay Tests", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onAction: async () => {},
+          onAction: () => {},
         }
       );
 
@@ -672,7 +675,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -699,7 +702,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -733,7 +736,7 @@ describe("Discord Gateway Forwarded Events", () => {
             // Subscribe to the thread when mentioned
             await thread.subscribe();
           },
-          onSubscribed: async () => {
+          onSubscribed: () => {
             subscribedMessageCount++;
           },
         }
@@ -784,9 +787,9 @@ describe("Discord Gateway Forwarded Events", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onSubscribed: async (_thread, message) => {
+          onSubscribed: (_thread, message) => {
             // This simulates the regex check in bot.tsx
-            if (/enable\s*AI/i.test(message.text)) {
+            if (ENABLE_AI_REGEX.test(message.text)) {
               aiModeEnabled = true;
             }
           },
@@ -824,7 +827,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
         {
-          onReaction: async (event) => {
+          onReaction: (event) => {
             capturedReaction = event;
           },
         }
@@ -851,7 +854,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
         {
-          onReaction: async (event) => {
+          onReaction: (event) => {
             capturedReaction = event;
           },
         }
@@ -884,7 +887,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
         {
-          onMention: async (thread, message) => {
+          onMention: (thread, message) => {
             capturedMessage = message;
             capturedThread = thread;
           },
@@ -917,7 +920,7 @@ describe("Discord Gateway Forwarded Events", () => {
           onMention: async (thread) => {
             await thread.subscribe();
           },
-          onSubscribed: async (_thread, message) => {
+          onSubscribed: (_thread, message) => {
             capturedMessages.push(message);
           },
         }
@@ -960,7 +963,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onMention: async (thread, message) => {
+          onMention: (thread, message) => {
             capturedMessage = message;
             capturedThread = thread;
           },
@@ -986,7 +989,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -998,7 +1001,7 @@ describe("Discord Gateway Forwarded Events", () => {
       expect(msg.text).toBe("<@1457469483726668048> AI What is love");
       expect(msg.isMention).toBe(true);
       // Verify the message contains "AI" for AI mode trigger
-      expect(msg.text).toMatch(/\bAI\b/i);
+      expect(msg.text).toMatch(AI_WORD_REGEX);
     });
 
     it("should skip real gatewayBotWelcome fixture (bot's own message)", async () => {
@@ -1007,7 +1010,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -1027,10 +1030,10 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onMention: async () => {
+          onMention: () => {
             mentionCount++;
           },
-          onSubscribed: async () => {
+          onSubscribed: () => {
             subscribedCount++;
           },
         }
@@ -1049,7 +1052,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onReaction: async (event) => {
+          onReaction: (event) => {
             capturedReaction = event;
           },
         }
@@ -1070,7 +1073,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onSubscribed: async (_thread, message) => {
+          onSubscribed: (_thread, message) => {
             capturedMessages.push(message);
           },
         }
@@ -1105,7 +1108,7 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onSubscribed: async (_thread, message) => {
+          onSubscribed: (_thread, message) => {
             dmMessage = message;
           },
         }
@@ -1137,10 +1140,10 @@ describe("Discord Gateway Forwarded Events", () => {
       ctx = await createDiscordTestContext(
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
-          onMention: async () => {
+          onMention: () => {
             handlerCallCount++;
           },
-          onSubscribed: async () => {
+          onSubscribed: () => {
             handlerCallCount++;
           },
         }
@@ -1182,7 +1185,7 @@ describe("Discord Gateway Forwarded Events", () => {
           mentionRoleIds: [REAL_ROLE_ID],
         },
         {
-          onMention: async (thread, message) => {
+          onMention: (thread, message) => {
             capturedMessage = message;
             capturedThread = thread;
           },
@@ -1214,7 +1217,7 @@ describe("Discord Gateway Forwarded Events", () => {
           mentionRoleIds: ["DIFFERENT_ROLE_ID"],
         },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -1237,7 +1240,7 @@ describe("Discord Gateway Forwarded Events", () => {
           // No mentionRoleIds configured
         },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -1260,7 +1263,7 @@ describe("Discord Gateway Forwarded Events", () => {
           mentionRoleIds: [REAL_ROLE_ID],
         },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -1286,7 +1289,7 @@ describe("Discord Gateway Forwarded Events", () => {
           mentionRoleIds: ["OTHER_ROLE_1", REAL_ROLE_ID, "OTHER_ROLE_2"],
         },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }
@@ -1308,7 +1311,7 @@ describe("Discord Gateway Forwarded Events", () => {
           mentionRoleIds: ["ROLE_123"],
         },
         {
-          onMention: async (_thread, message) => {
+          onMention: (_thread, message) => {
             capturedMessage = message;
           },
         }

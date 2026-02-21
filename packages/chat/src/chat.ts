@@ -45,6 +45,8 @@ import type {
 import { ChatError, ConsoleLogger, LockError } from "./types";
 
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
+const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
+const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
 /** TTL for message deduplication entries */
 const DEDUPE_TTL_MS = 60_000; // 60 seconds
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -173,24 +175,26 @@ export class Chat<
     return hasChatSingleton();
   }
 
-  private adapters: Map<string, Adapter>;
-  private _stateAdapter: StateAdapter;
-  private userName: string;
-  private logger: Logger;
-  private _streamingUpdateIntervalMs: number;
+  private readonly adapters: Map<string, Adapter>;
+  private readonly _stateAdapter: StateAdapter;
+  private readonly userName: string;
+  private readonly logger: Logger;
+  private readonly _streamingUpdateIntervalMs: number;
 
-  private mentionHandlers: MentionHandler<TState>[] = [];
-  private messagePatterns: MessagePattern<TState>[] = [];
-  private subscribedMessageHandlers: SubscribedMessageHandler<TState>[] = [];
-  private reactionHandlers: ReactionPattern[] = [];
-  private actionHandlers: ActionPattern[] = [];
-  private modalSubmitHandlers: ModalSubmitPattern[] = [];
-  private modalCloseHandlers: ModalClosePattern[] = [];
-  private slashCommandHandlers: SlashCommandPattern<TState>[] = [];
-  private assistantThreadStartedHandlers: AssistantThreadStartedHandler[] = [];
-  private assistantContextChangedHandlers: AssistantContextChangedHandler[] =
+  private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly messagePatterns: MessagePattern<TState>[] = [];
+  private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
-  private appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly reactionHandlers: ReactionPattern[] = [];
+  private readonly actionHandlers: ActionPattern[] = [];
+  private readonly modalSubmitHandlers: ModalSubmitPattern[] = [];
+  private readonly modalCloseHandlers: ModalClosePattern[] = [];
+  private readonly slashCommandHandlers: SlashCommandPattern<TState>[] = [];
+  private readonly assistantThreadStartedHandlers: AssistantThreadStartedHandler[] =
+    [];
+  private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
+    [];
+  private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -201,7 +205,7 @@ export class Chat<
    * @example
    * chat.webhooks.slack(request, { backgroundTask: waitUntil });
    */
-  public readonly webhooks: Webhooks<TAdapters>;
+  readonly webhooks: Webhooks<TAdapters>;
 
   constructor(config: ChatConfig<TAdapters>) {
     this.userName = config.userName;
@@ -458,8 +462,7 @@ export class Chat<
    * @param handler - The handler (if action ID filter is provided)
    */
   onAction(handler: ActionHandler): void;
-  onAction(actionId: string, handler: ActionHandler): void;
-  onAction(actionIds: string[], handler: ActionHandler): void;
+  onAction(actionIds: string[] | string, handler: ActionHandler): void;
   onAction(
     actionIdOrHandler: string | string[] | ActionHandler,
     handler?: ActionHandler
@@ -479,8 +482,10 @@ export class Chat<
   }
 
   onModalSubmit(handler: ModalSubmitHandler): void;
-  onModalSubmit(callbackId: string, handler: ModalSubmitHandler): void;
-  onModalSubmit(callbackIds: string[], handler: ModalSubmitHandler): void;
+  onModalSubmit(
+    callbackIds: string[] | string,
+    handler: ModalSubmitHandler
+  ): void;
   onModalSubmit(
     callbackIdOrHandler: string | string[] | ModalSubmitHandler,
     handler?: ModalSubmitHandler
@@ -501,8 +506,10 @@ export class Chat<
   }
 
   onModalClose(handler: ModalCloseHandler): void;
-  onModalClose(callbackId: string, handler: ModalCloseHandler): void;
-  onModalClose(callbackIds: string[], handler: ModalCloseHandler): void;
+  onModalClose(
+    callbackIds: string[] | string,
+    handler: ModalCloseHandler
+  ): void;
   onModalClose(
     callbackIdOrHandler: string | string[] | ModalCloseHandler,
     handler?: ModalCloseHandler
@@ -559,9 +566,8 @@ export class Chat<
    * @param handler - The handler (if command filter is provided)
    */
   onSlashCommand(handler: SlashCommandHandler<TState>): void;
-  onSlashCommand(command: string, handler: SlashCommandHandler<TState>): void;
   onSlashCommand(
-    commands: string[],
+    commands: string[] | string,
     handler: SlashCommandHandler<TState>
   ): void;
   onSlashCommand(
@@ -1395,7 +1401,7 @@ export class Chat<
     }
 
     // Slack: U followed by alphanumeric (e.g., U00FAKEUSER1)
-    if (/^U[A-Z0-9]+$/i.test(userId)) {
+    if (SLACK_USER_ID_REGEX.test(userId)) {
       const adapter = this.adapters.get("slack");
       if (adapter) {
         return adapter;
@@ -1403,7 +1409,7 @@ export class Chat<
     }
 
     // Discord: snowflake ID (17-19 digit number)
-    if (/^\d{17,19}$/.test(userId)) {
+    if (DISCORD_SNOWFLAKE_REGEX.test(userId)) {
       const adapter = this.adapters.get("discord");
       if (adapter) {
         return adapter;
@@ -1556,12 +1562,12 @@ export class Chat<
     }
   }
 
-  private async createThread(
+  private createThread(
     adapter: Adapter,
     threadId: string,
     initialMessage: Message,
     isSubscribedContext = false
-  ): Promise<Thread<TState>> {
+  ): Thread<TState> {
     // Parse thread ID to get channel info
     // Format: "adapter:channel:thread"
     const parts = threadId.split(":");
@@ -1629,7 +1635,7 @@ export class Chat<
 
   private async runHandlers(
     handlers: Array<
-      (thread: Thread<TState>, message: Message) => Promise<void>
+      (thread: Thread<TState>, message: Message) => void | Promise<void>
     >,
     thread: Thread<TState>,
     message: Message

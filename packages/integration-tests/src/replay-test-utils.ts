@@ -71,7 +71,6 @@ const mockLogger: Logger = {
   child: () => mockLogger,
 };
 
-// Re-export for convenience
 export { createWaitUntilTracker } from "./test-scenarios";
 
 // ============================================================================
@@ -162,19 +161,19 @@ export interface SlackTestContext {
 export function createSlackTestContext(
   fixtures: { botName: string; botUserId: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
-    onModalSubmit?: (event: ModalSubmitEvent) => Promise<void>;
-    onSlashCommand?: (event: SlashCommandEvent) => Promise<void>;
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
+    onModalSubmit?: (event: ModalSubmitEvent) => void | Promise<void>;
+    onSlashCommand?: (event: SlashCommandEvent) => void | Promise<void>;
     onAssistantThreadStarted?: (
       event: AssistantThreadStartedEvent
-    ) => Promise<void>;
+    ) => void | Promise<void>;
     onAssistantContextChanged?: (
       event: AssistantContextChangedEvent
-    ) => Promise<void>;
-    onAppHomeOpened?: (event: AppHomeOpenedEvent) => Promise<void>;
+    ) => void | Promise<void>;
+    onAppHomeOpened?: (event: AppHomeOpenedEvent) => void | Promise<void>;
   }
 ): SlackTestContext {
   const adapter = createSlackAdapter({
@@ -321,10 +320,10 @@ export interface TeamsTestContext {
 export function createTeamsTestContext(
   fixtures: { botName: string; appId?: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
   }
 ): TeamsTestContext {
   const appId = fixtures.appId || "test-app-id";
@@ -414,10 +413,10 @@ export interface GchatTestContext {
 export function createGchatTestContext(
   fixtures: { botName: string; botUserId: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
   }
 ): GchatTestContext {
   const adapter = createGoogleChatAdapter({
@@ -506,31 +505,42 @@ export function expectValidMention(
     threadIdContains?: string;
   }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread).not.toBeNull();
 
   if (options.textContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionMessage?.text).toContain(options.textContains);
   }
 
   if (options.authorUserId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionMessage?.author.userId).toBe(options.authorUserId);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage?.author.isBot).toBe(
     options.authorIsBot ?? false
   );
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage?.author.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.adapter.name).toBe(options.adapterName);
 
   if (options.threadIdContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionThread?.id).toContain(options.threadIdContains);
   }
 
   // Verify recent messages includes the mention
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.recentMessages).toHaveLength(1);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.recentMessages[0]).toBe(
     captured.mentionMessage
   );
@@ -548,22 +558,29 @@ export function expectValidFollowUp(
     adapterName: string;
   }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpThread).not.toBeNull();
 
   if (options.text) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.followUpMessage?.text).toBe(options.text);
   }
 
   if (options.textContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.followUpMessage?.text).toContain(options.textContains);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage?.author.isBot).toBe(
     options.authorIsBot ?? false
   );
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage?.author.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpThread?.recentMessages.length).toBeGreaterThan(0);
 }
 
@@ -581,34 +598,48 @@ export function expectValidAction(
     isDM?: boolean;
   }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.actionId).toBe(options.actionId);
 
   if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.user.userId).toBe(options.userId);
   }
 
   if (options.userName) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.user.userName).toBe(options.userName);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.user.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.thread.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.thread.isDM).toBe(options.isDM);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.threadId).toBe(action?.thread.id);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.messageId).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.raw).toBeDefined();
 }
 
@@ -628,40 +659,57 @@ export function expectValidReaction(
     isDM?: boolean;
   }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction).not.toBeNull();
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.emoji.name).toBe(options.emojiName);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.emoji.toString()).toBe(`{{emoji:${options.emojiName}}}`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.rawEmoji).toBe(options.rawEmoji);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.added).toBe(options.added ?? true);
 
   if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.user.userId).toBe(options.userId);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.user.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.thread.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.thread.isDM).toBe(options.isDM);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.threadId).toBe(reaction?.thread.id);
 
   if (options.messageId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.messageId).toBe(options.messageId);
   } else {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.messageId).toBeDefined();
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.raw).toBeDefined();
 }
 
@@ -679,30 +727,40 @@ export function expectValidSlashCommand(
     channelId?: string;
   }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event?.command).toBe(options.command);
 
   if (options.text !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(event?.text).toBe(options.text);
   }
 
   if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(event?.user.userId).toBe(options.userId);
   }
 
   if (options.userName) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(event?.user.userName).toBe(options.userName);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event?.user.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event?.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(event?.channel.id).toContain(options.channelId);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(event?.raw).toBeDefined();
 }
 
@@ -719,6 +777,7 @@ export function expectSentMessage(
 ): void {
   if ("chat" in mock && "postMessage" in mock.chat) {
     // Slack mock client
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -726,6 +785,7 @@ export function expectSentMessage(
     );
   } else if ("sentActivities" in mock) {
     // Teams mock adapter
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.sentActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -733,6 +793,7 @@ export function expectSentMessage(
     );
   } else if ("sentMessages" in mock) {
     // GChat mock API
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.sentMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -750,6 +811,7 @@ export function expectUpdatedMessage(
 ): void {
   if ("chat" in mock && "update" in mock.chat) {
     // Slack mock client
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.chat.update).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -757,6 +819,7 @@ export function expectUpdatedMessage(
     );
   } else if ("updatedActivities" in mock) {
     // Teams mock adapter
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.updatedActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -764,6 +827,7 @@ export function expectUpdatedMessage(
     );
   } else if ("updatedMessages" in mock) {
     // GChat mock API
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.updatedMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
@@ -798,10 +862,10 @@ export async function createDiscordTestContext(
     mentionRoleIds?: string[];
   },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
   }
 ): Promise<DiscordTestContext> {
   const applicationId = fixtures.applicationId || DISCORD_APPLICATION_ID;

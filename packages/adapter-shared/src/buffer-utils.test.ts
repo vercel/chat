@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { bufferToDataUri, toBuffer, toBufferSync } from "./buffer-utils";
 import { ValidationError } from "./errors";
 
+const DATA_URI_PNG_PREFIX = /^data:image\/png;base64,/;
+
 // ============================================================================
 // toBuffer Tests
 // ============================================================================
@@ -135,7 +137,7 @@ describe("bufferToDataUri", () => {
   it("handles image mime types", () => {
     const buffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]); // PNG magic bytes
     const result = bufferToDataUri(buffer, "image/png");
-    expect(result).toMatch(/^data:image\/png;base64,/);
+    expect(result).toMatch(DATA_URI_PNG_PREFIX);
   });
 
   it("handles empty buffer", () => {

@@ -5,6 +5,10 @@ import {
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { Chat, type Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const ANY_CHAR_REGEX = /./;
+const HELP_REGEX = /help/i;
+
 import {
   createGoogleChatEvent,
   createGoogleChatWebhookRequest,
@@ -210,7 +214,7 @@ describe("Google Chat Integration", () => {
 
     it("should handle messages matching a pattern", async () => {
       const patternHandler = vi.fn();
-      chat.onNewMessage(/help/i, async (thread, message) => {
+      chat.onNewMessage(HELP_REGEX, async (thread, message) => {
         patternHandler(message.text);
         await thread.post("Here is some help!");
       });
@@ -237,7 +241,7 @@ describe("Google Chat Integration", () => {
 
     it("should skip messages from this bot (isMe)", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -265,7 +269,7 @@ describe("Google Chat Integration", () => {
 
     it("should process messages from other bots (not isMe)", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -350,7 +354,7 @@ describe("Google Chat Integration", () => {
   describe("thread operations", () => {
     it("should include thread info in message objects", async () => {
       let capturedMessage: unknown;
-      chat.onNewMention(async (_thread, message) => {
+      chat.onNewMention((_thread, message) => {
         capturedMessage = message;
       });
 
@@ -370,8 +374,10 @@ describe("Google Chat Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedMessage).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const msg = capturedMessage as any;
+      const msg = capturedMessage as {
+        threadId: string;
+        author: { userId: string; userName: string; isBot: boolean };
+      };
       expect(msg.threadId).toBe(TEST_THREAD_ID);
       expect(msg.author.userId).toBe("users/user-123");
       expect(msg.author.userName).toBe("John Doe");

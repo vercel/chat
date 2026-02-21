@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TEAMS_BOT_APP_ID,
@@ -27,6 +27,8 @@ import {
   injectMockGraphClient,
   type MockGraphClient,
 } from "./teams-utils";
+
+const REPLIES_SUFFIX_REGEX = /\/replies$/;
 
 describe("fetchMessages Replay Tests - Teams", () => {
   let ctx: TeamsTestContext;
@@ -100,12 +102,12 @@ describe("fetchMessages Replay Tests - Teams", () => {
       `/messages/${TEAMS_PARENT_MESSAGE_ID}`
     );
     // Should NOT end with /replies (that's the second call)
-    expect(mockGraphClient.apiCalls[0].url).not.toMatch(/\/replies$/);
+    expect(mockGraphClient.apiCalls[0].url).not.toMatch(REPLIES_SUFFIX_REGEX);
 
     // Second call: fetch replies
     expect(mockGraphClient.apiCalls[1].url).toContain("/teams/");
     expect(mockGraphClient.apiCalls[1].url).toContain("/channels/");
-    expect(mockGraphClient.apiCalls[1].url).toMatch(/\/replies$/);
+    expect(mockGraphClient.apiCalls[1].url).toMatch(REPLIES_SUFFIX_REGEX);
   });
 
   it("should return all messages in chronological order", async () => {
@@ -380,7 +382,7 @@ describe("allMessages Replay Tests - Teams", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }

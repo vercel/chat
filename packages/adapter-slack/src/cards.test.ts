@@ -482,7 +482,7 @@ describe("cardToBlockKit with radio select elements", () => {
     const blocks = cardToBlockKit(card);
 
     const elements = blocks[0].elements as Array<{
-      options: Array<unknown>;
+      options: unknown[];
     }>;
     expect(elements[0].options).toHaveLength(10);
   });
