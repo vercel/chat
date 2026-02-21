@@ -7,6 +7,16 @@
   ],
   "linter": {
     "rules": {
+      "suspicious": {
+        "noEmptyBlockStatements": "off",
+        "useAwait": "off"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off"
+      },
+      "performance": {
+        "noBarrelFile": "off"
+      },
       "style": {
         "useNumericSeparators": "off"
       }
