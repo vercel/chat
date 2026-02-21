@@ -9,7 +9,8 @@
     "rules": {
       "suspicious": {
         "noEmptyBlockStatements": "off",
-        "useAwait": "off"
+        "useAwait": "off",
+        "noSkippedTests": "off"
       },
       "complexity": {
         "noExcessiveCognitiveComplexity": "off"
