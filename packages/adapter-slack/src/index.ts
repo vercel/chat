@@ -2712,7 +2712,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return {
         id: channelId,
         name: info?.name ? `#${info.name}` : undefined,
-        isDM: info?.is_im || info?.is_mpim,
+        isDM: Boolean(info?.is_im || info?.is_mpim),
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,
