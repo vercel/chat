@@ -30,9 +30,6 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
-    "lint": {
-      "outputs": []
-    },
     "clean": {
       "cache": false
     }

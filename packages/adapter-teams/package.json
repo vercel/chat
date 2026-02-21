@@ -21,7 +21,6 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src",
     "clean": "rm -rf dist"
   },
   "dependencies": {

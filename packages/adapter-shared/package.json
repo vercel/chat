@@ -16,14 +16,12 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "vitest run --coverage",
-    "lint": "biome check src"
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.10",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
