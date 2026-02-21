@@ -26,7 +26,7 @@ pnpm --filter @chat-adapter/slack test
 ### Other commands
 
 ```bash
-pnpm lint        # Lint all packages
+pnpm check       # Check all packages (linting and formatting)
 pnpm typecheck   # Type-check all packages
 pnpm knip        # Check for unused exports/dependencies
 pnpm validate    # Run everything (knip, lint, typecheck, test, build)

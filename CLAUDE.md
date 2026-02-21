@@ -14,8 +14,8 @@ pnpm build
 # Type-check all packages
 pnpm typecheck
 
-# Lint all packages
-pnpm lint
+# Check all packages (linting and formatting)
+pnpm check
 
 # Check for unused exports/dependencies
 pnpm knip

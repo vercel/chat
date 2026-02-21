@@ -18,9 +18,8 @@
     "test": "turbo test --filter='!example-nextjs-chat'",
     "test:workspace": "vitest run",
     "typecheck": "turbo typecheck",
-    "lint": "turbo lint",
     "knip": "knip",
-    "validate": "pnpm knip && turbo lint && turbo typecheck && turbo test && pnpm build:validate",
+    "validate": "pnpm knip && pnpm check && turbo typecheck && turbo test && pnpm build:validate",
     "clean": "turbo clean && rm -rf node_modules",
     "check": "ultracite check",
     "fix": "ultracite fix"
