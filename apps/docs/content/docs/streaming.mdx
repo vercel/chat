@@ -97,3 +97,29 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.post(response.textStream);
 });
 ```
+
+## Streaming from serialized threads
+
+When using workflow engines or durable execution, you can serialize a thread and later deserialize it to resume streaming.
+
+```typescript title="lib/workflow.ts" lineNumbers
+import { ThreadImpl } from "chat";
+
+// In your webhook handler - serialize and pass to workflow
+bot.onNewMention(async (thread, message) => {
+  await workflow.start("ai-response", {
+    thread: thread.toJSON(),
+    prompt: message.text,
+  });
+});
+
+// In your workflow - deserialize and stream
+async function runWorkflow(input: { thread: SerializedThread; prompt: string }) {
+  // Requires chat.registerSingleton() to have been called
+  const thread = ThreadImpl.fromJSON(input.thread);
+
+  const response = await agent.stream({ prompt: input.prompt });
+  // Streaming works correctly - the serialized thread includes the message context
+  await thread.post(response.textStream);
+}
+```
