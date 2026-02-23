@@ -1,5 +1,11 @@
 # chat
 
+## 4.13.2
+
+### Patch Changes
+
+- 7d00feb: Add docs to package
+
 ## 4.13.1
 
 ## 4.13.0
