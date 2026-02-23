@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-ioredis",
-  "version": "4.13.2",
+  "version": "4.13.3",
   "description": "ioredis state adapter for chat (production)",
   "type": "module",
   "main": "./dist/index.js",

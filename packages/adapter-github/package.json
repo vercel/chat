@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.13.2",
+  "version": "4.13.3",
   "description": "GitHub adapter for chat - PR comment threads",
   "type": "module",
   "main": "./dist/index.js",

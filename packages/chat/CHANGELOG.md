@@ -1,5 +1,11 @@
 # chat
 
+## 4.13.3
+
+### Patch Changes
+
+- ce33270: Currently deserialized threads cannot post streams to Slack due to lost metadata
+
 ## 4.13.2
 
 ### Patch Changes
