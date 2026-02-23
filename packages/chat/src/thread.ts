@@ -11,7 +11,7 @@ import {
   text as textNode,
   toPlainText,
 } from "./markdown";
-import { Message } from "./message";
+import { Message, type SerializedMessage } from "./message";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -35,6 +35,7 @@ export interface SerializedThread {
   _type: "chat:Thread";
   adapterName: string;
   channelId: string;
+  currentMessage?: SerializedMessage;
   id: string;
   isDM: boolean;
 }
@@ -549,6 +550,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       _type: "chat:Thread",
       id: this.id,
       channelId: this.channelId,
+      currentMessage: this._currentMessage?.toJSON(),
       isDM: this.isDM,
       adapterName: this.adapter.name,
     };
@@ -576,6 +578,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
       id: json.id,
       adapterName: json.adapterName,
       channelId: json.channelId,
+      currentMessage: json.currentMessage
+        ? Message.fromJSON(json.currentMessage)
+        : undefined,
       isDM: json.isDM,
     });
     if (adapter) {

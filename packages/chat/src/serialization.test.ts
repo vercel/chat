@@ -30,6 +30,7 @@ describe("Serialization", () => {
         _type: "chat:Thread",
         id: "slack:C123:1234.5678",
         channelId: "C123",
+        currentMessage: undefined,
         isDM: false,
         adapterName: "slack",
       });
@@ -160,6 +161,66 @@ describe("Serialization", () => {
       expect(restored.channelId).toBe(original.channelId);
       expect(restored.isDM).toBe(original.isDM);
       expect(restored.adapter.name).toBe(original.adapter.name);
+    });
+
+    it("should serialize currentMessage", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const currentMessage = createTestMessage("msg-1", "Hello", {
+        raw: { team_id: "T123" },
+        author: {
+          userId: "U456",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const original = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage,
+      });
+
+      const json = original.toJSON();
+
+      expect(json.currentMessage).toBeDefined();
+      expect(json.currentMessage?._type).toBe("chat:Message");
+      expect(json.currentMessage?.author.userId).toBe("U456");
+      expect(json.currentMessage?.raw).toEqual({ team_id: "T123" });
+    });
+
+    it("should round-trip with currentMessage for streaming", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const currentMessage = createTestMessage("msg-1", "Hello", {
+        raw: { team_id: "T123" },
+        author: {
+          userId: "U456",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const original = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage,
+      });
+
+      const json = original.toJSON();
+      const restored = ThreadImpl.fromJSON(json);
+
+      expect(json.currentMessage?.author.userId).toBe("U456");
+      expect(json.currentMessage?.raw).toEqual({ team_id: "T123" });
+
+      expect(restored.id).toBe(original.id);
+      expect(restored.channelId).toBe(original.channelId);
     });
   });
 
@@ -608,6 +669,7 @@ describe("Serialization", () => {
           _type: "chat:Thread",
           id: "slack:C123:1234.5678",
           channelId: "C123",
+          currentMessage: undefined,
           isDM: false,
           adapterName: "slack",
         });
