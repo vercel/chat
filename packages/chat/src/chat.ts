@@ -180,6 +180,7 @@ export class Chat<
   private readonly userName: string;
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
+  private readonly _dedupeTtlMs: number;
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
@@ -212,6 +213,7 @@ export class Chat<
     this._stateAdapter = config.state;
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
+    this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
 
     // Initialize logger
     if (typeof config.logger === "string") {
@@ -1469,7 +1471,7 @@ export class Chat<
       });
       return;
     }
-    await this._stateAdapter.set(dedupeKey, true, DEDUPE_TTL_MS);
+    await this._stateAdapter.set(dedupeKey, true, this._dedupeTtlMs);
 
     // Try to acquire lock on thread
     const lock = await this._stateAdapter.acquireLock(

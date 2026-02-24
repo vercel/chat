@@ -47,6 +47,12 @@ export interface ChatConfig<
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
+  /**
+   * TTL for message deduplication entries in milliseconds.
+   * Defaults to 60000 (60 seconds). Increase if your webhook cold starts
+   * cause platform retries that arrive after the default TTL expires.
+   */
+  dedupeTtlMs?: number;
   /** Default bot username across all adapters */
   userName: string;
 }
