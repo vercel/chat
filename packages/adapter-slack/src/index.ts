@@ -74,6 +74,11 @@ export interface SlackAdapterConfig {
    * If provided, bot tokens stored via setInstallation() will be encrypted at rest.
    */
   encryptionKey?: string;
+  /**
+   * Prefix for the state key used to store workspace installations.
+   * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.
+   */
+  installationKeyPrefix?: string;
   /** Logger instance for error reporting */
   logger: Logger;
   /** Signing secret for webhook verification */
@@ -299,6 +304,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly clientId: string | undefined;
   private readonly clientSecret: string | undefined;
   private readonly encryptionKey: Buffer | undefined;
+  private readonly installationKeyPrefix: string;
   private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
@@ -323,6 +329,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
+    this.installationKeyPrefix =
+      config.installationKeyPrefix ?? "slack:installation";
 
     if (config.encryptionKey) {
       this.encryptionKey = decodeKey(config.encryptionKey);
@@ -389,7 +397,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // ===========================================================================
 
   private installationKey(teamId: string): string {
-    return `slack:installation:${teamId}`;
+    return `${this.installationKeyPrefix}:${teamId}`;
   }
 
   /**
@@ -2947,6 +2955,7 @@ export function createSlackAdapter(
       config?.clientSecret ??
       (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
+    installationKeyPrefix: config?.installationKeyPrefix,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
     userName: config?.userName,
     botUserId: config?.botUserId,
