@@ -763,8 +763,9 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Show typing indicator in the thread.
    *
    * Some platforms support persistent typing indicators, others just send once.
+   * Optional status (e.g. "Typing...", "Searching documents...") is shown where supported.
    */
-  startTyping(): Promise<void>;
+  startTyping(status?: string): Promise<void>;
 
   /**
    * Subscribe to future messages in this thread.
