@@ -2078,21 +2078,24 @@ export function createDiscordAdapter(
 ): DiscordAdapter {
   const botToken = config?.botToken ?? process.env.DISCORD_BOT_TOKEN;
   if (!botToken) {
-    throw new Error(
-      "Discord botToken is required. Provide it in config or set DISCORD_BOT_TOKEN env var."
+    throw new ValidationError(
+      "discord",
+      "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
     );
   }
   const publicKey = config?.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
   if (!publicKey) {
-    throw new Error(
-      "Discord publicKey is required. Provide it in config or set DISCORD_PUBLIC_KEY env var."
+    throw new ValidationError(
+      "discord",
+      "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
     );
   }
   const applicationId =
     config?.applicationId ?? process.env.DISCORD_APPLICATION_ID;
   if (!applicationId) {
-    throw new Error(
-      "Discord applicationId is required. Provide it in config or set DISCORD_APPLICATION_ID env var."
+    throw new ValidationError(
+      "discord",
+      "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
     );
   }
   const mentionRoleIds =

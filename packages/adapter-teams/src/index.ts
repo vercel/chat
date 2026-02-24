@@ -2373,14 +2373,16 @@ export function createTeamsAdapter(
 ): TeamsAdapter {
   const appId = config?.appId ?? process.env.TEAMS_APP_ID;
   if (!appId) {
-    throw new Error(
-      "Teams appId is required. Provide it in config or set TEAMS_APP_ID env var."
+    throw new ValidationError(
+      "teams",
+      "appId is required. Set TEAMS_APP_ID or provide it in config."
     );
   }
   const appPassword = config?.appPassword ?? process.env.TEAMS_APP_PASSWORD;
   if (!appPassword) {
-    throw new Error(
-      "Teams appPassword is required. Provide it in config or set TEAMS_APP_PASSWORD env var."
+    throw new ValidationError(
+      "teams",
+      "appPassword is required. Set TEAMS_APP_PASSWORD or provide it in config."
     );
   }
   const resolved: TeamsAdapterConfig = {

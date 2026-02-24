@@ -1239,15 +1239,24 @@ export function createGitHubAdapter(config?: {
   const webhookSecret =
     config?.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    throw new Error(
-      "GitHub webhookSecret is required. Provide it in config or set GITHUB_WEBHOOK_SECRET env var."
+    throw new ValidationError(
+      "github",
+      "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
     );
   }
   const userName =
     config?.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
 
-  // Auto-detect auth mode
-  const token = config?.token ?? process.env.GITHUB_TOKEN;
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.token ||
+    config?.appId ||
+    config?.privateKey
+  );
+
+  const token =
+    config?.token ?? (hasAuthConfig ? undefined : process.env.GITHUB_TOKEN);
   if (token) {
     return new GitHubAdapter({
       token,
@@ -1258,8 +1267,11 @@ export function createGitHubAdapter(config?: {
     });
   }
 
-  const appId = config?.appId ?? process.env.GITHUB_APP_ID;
-  const privateKey = config?.privateKey ?? process.env.GITHUB_PRIVATE_KEY;
+  const appId =
+    config?.appId ?? (hasAuthConfig ? undefined : process.env.GITHUB_APP_ID);
+  const privateKey =
+    config?.privateKey ??
+    (hasAuthConfig ? undefined : process.env.GITHUB_PRIVATE_KEY);
   if (appId && privateKey) {
     const installationIdRaw =
       config?.installationId ??
@@ -1289,8 +1301,8 @@ export function createGitHubAdapter(config?: {
     });
   }
 
-  throw new Error(
-    "GitHub auth is required. Provide token or appId/privateKey in config, " +
-      "or set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY env vars."
+  throw new ValidationError(
+    "github",
+    "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
   );
 }

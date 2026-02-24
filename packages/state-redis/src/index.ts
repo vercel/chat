@@ -210,7 +210,7 @@ export function createRedisState(
   const url = options?.url ?? process.env.REDIS_URL;
   if (!url) {
     throw new Error(
-      "Redis url is required. Provide it in options or set REDIS_URL env var."
+      "Redis url is required. Set REDIS_URL or provide it in options."
     );
   }
   const resolved: RedisStateAdapterOptions = {

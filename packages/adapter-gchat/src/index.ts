@@ -2500,7 +2500,14 @@ export function createGoogleChatAdapter(config?: {
 }): GoogleChatAdapter {
   const logger = config?.logger ?? new ConsoleLogger("info").child("gchat");
 
-  // Auto-detect auth mode
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.auth ||
+    config?.credentials ||
+    config?.useApplicationDefaultCredentials
+  );
+
   if (config?.auth) {
     return new GoogleChatAdapter({
       auth: config.auth,
@@ -2514,13 +2521,15 @@ export function createGoogleChatAdapter(config?: {
   }
 
   // Service account credentials from config or env
-  const credentialsJson =
-    config?.credentials ??
-    (process.env.GOOGLE_CHAT_CREDENTIALS
-      ? (JSON.parse(
-          process.env.GOOGLE_CHAT_CREDENTIALS
-        ) as ServiceAccountCredentials)
-      : undefined);
+  let credentialsJson = config?.credentials;
+  if (
+    !(credentialsJson || hasAuthConfig) &&
+    process.env.GOOGLE_CHAT_CREDENTIALS
+  ) {
+    credentialsJson = JSON.parse(
+      process.env.GOOGLE_CHAT_CREDENTIALS
+    ) as ServiceAccountCredentials;
+  }
   if (credentialsJson) {
     return new GoogleChatAdapter({
       credentials: credentialsJson,
@@ -2536,7 +2545,7 @@ export function createGoogleChatAdapter(config?: {
   // Application Default Credentials
   if (
     config?.useApplicationDefaultCredentials ||
-    process.env.GOOGLE_CHAT_USE_ADC === "true"
+    (!hasAuthConfig && process.env.GOOGLE_CHAT_USE_ADC === "true")
   ) {
     return new GoogleChatAdapter({
       useApplicationDefaultCredentials: true,
@@ -2549,9 +2558,9 @@ export function createGoogleChatAdapter(config?: {
     });
   }
 
-  throw new Error(
-    "Google Chat auth is required. Provide credentials, useApplicationDefaultCredentials, or auth in config, " +
-      "or set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true env var."
+  throw new ValidationError(
+    "gchat",
+    "Authentication is required. Set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true, or provide credentials/auth in config."
   );
 }
 

@@ -2924,15 +2924,28 @@ export function createSlackAdapter(
   const signingSecret =
     config?.signingSecret ?? process.env.SLACK_SIGNING_SECRET;
   if (!signingSecret) {
-    throw new Error(
-      "Slack signingSecret is required. Provide it in config or set SLACK_SIGNING_SECRET env var."
+    throw new ValidationError(
+      "slack",
+      "signingSecret is required. Set SLACK_SIGNING_SECRET or provide it in config."
     );
   }
+  // Auth fields (botToken, clientId, clientSecret) are modal: botToken's
+  // presence selects single-workspace mode, its absence selects multi-workspace
+  // (per-team token lookup via installations). Only fall back to env vars
+  // in zero-config mode (no config provided at all).
+  const zeroConfig = !config;
+
   const resolved: SlackAdapterConfig = {
     signingSecret,
-    botToken: config?.botToken ?? process.env.SLACK_BOT_TOKEN,
-    clientId: config?.clientId ?? process.env.SLACK_CLIENT_ID,
-    clientSecret: config?.clientSecret ?? process.env.SLACK_CLIENT_SECRET,
+    botToken:
+      config?.botToken ??
+      (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined),
+    clientId:
+      config?.clientId ??
+      (zeroConfig ? process.env.SLACK_CLIENT_ID : undefined),
+    clientSecret:
+      config?.clientSecret ??
+      (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
     userName: config?.userName,

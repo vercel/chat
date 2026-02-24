@@ -915,15 +915,25 @@ export function createLinearAdapter(config?: {
   const webhookSecret =
     config?.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    throw new Error(
-      "Linear webhookSecret is required. Provide it in config or set LINEAR_WEBHOOK_SECRET env var."
+    throw new ValidationError(
+      "linear",
+      "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
     );
   }
   const userName =
     config?.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
 
-  // Auto-detect auth mode
-  const apiKey = config?.apiKey ?? process.env.LINEAR_API_KEY;
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.apiKey ||
+    config?.accessToken ||
+    config?.clientId ||
+    config?.clientSecret
+  );
+
+  const apiKey =
+    config?.apiKey ?? (hasAuthConfig ? undefined : process.env.LINEAR_API_KEY);
   if (apiKey) {
     return new LinearAdapter({
       apiKey,
@@ -933,7 +943,9 @@ export function createLinearAdapter(config?: {
     });
   }
 
-  const accessToken = config?.accessToken ?? process.env.LINEAR_ACCESS_TOKEN;
+  const accessToken =
+    config?.accessToken ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_ACCESS_TOKEN);
   if (accessToken) {
     return new LinearAdapter({
       accessToken,
@@ -943,8 +955,12 @@ export function createLinearAdapter(config?: {
     });
   }
 
-  const clientId = config?.clientId ?? process.env.LINEAR_CLIENT_ID;
-  const clientSecret = config?.clientSecret ?? process.env.LINEAR_CLIENT_SECRET;
+  const clientId =
+    config?.clientId ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_ID);
+  const clientSecret =
+    config?.clientSecret ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_SECRET);
   if (clientId && clientSecret) {
     return new LinearAdapter({
       clientId,
@@ -955,8 +971,8 @@ export function createLinearAdapter(config?: {
     });
   }
 
-  throw new Error(
-    "Linear auth is required. Provide apiKey, accessToken, or clientId/clientSecret in config, " +
-      "or set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET env vars."
+  throw new ValidationError(
+    "linear",
+    "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
   );
 }
