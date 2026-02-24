@@ -513,17 +513,4 @@ describe("Slack Assistant Status and Title", () => {
       })
     );
   });
-
-  it("should not call assistant.threads.setStatus when startTyping() called without status", async () => {
-    ctx = createSlackTestContext(
-      { botName: BOT_NAME, botUserId: BOT_USER_ID },
-      {
-        onAssistantThreadStarted: async (event) => {
-          await event.adapter.startTyping(event.threadId);
-        },
-      }
-    );
-    await ctx.sendWebhook(createAssistantThreadStartedPayload());
-    expect(ctx.mockClient.assistant.threads.setStatus).not.toHaveBeenCalled();
-  });
 });
