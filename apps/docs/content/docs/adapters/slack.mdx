@@ -284,6 +284,21 @@ await thread.stream(textStream, {
 
 ## Troubleshooting
 
+### `handleOAuthCallback` throws "Adapter not initialized"
+
+- Call `await bot.initialize()` before `handleOAuthCallback()` in your callback route.
+- In a Next.js app, this ensures:
+  - state adapter is connected
+  - the Slack adapter is attached to Chat
+  - installation writes succeed
+
+```typescript title="app/api/slack/install/callback/route.ts" lineNumbers
+const slackAdapter = bot.getAdapter("slack");
+
+await bot.initialize();
+await slackAdapter.handleOAuthCallback(request);
+```
+
 ### "Invalid signature" error
 
 - Verify `SLACK_SIGNING_SECRET` is correct
