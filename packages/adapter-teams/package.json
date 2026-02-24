@@ -26,11 +26,11 @@
   "dependencies": {
     "@azure/identity": "^4.13.0",
     "@chat-adapter/shared": "workspace:*",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
     "botbuilder": "^4.23.1",
     "chat": "workspace:*"
   },
   "devDependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

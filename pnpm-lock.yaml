@@ -391,9 +391,6 @@ importers:
       '@chat-adapter/shared':
         specifier: workspace:*
         version: link:../adapter-shared
-      '@microsoft/microsoft-graph-client':
-        specifier: ^3.0.7
-        version: 3.0.7(@azure/identity@4.13.0)
       botbuilder:
         specifier: ^4.23.1
         version: 4.23.3
@@ -401,6 +398,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@microsoft/microsoft-graph-client':
+        specifier: ^3.0.7
+        version: 3.0.7(@azure/identity@4.13.0)
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.3
