@@ -16,7 +16,7 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, Message } from "chat";
+import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToLinearMarkdown } from "./cards";
 import { LinearFormatConverter } from "./markdown";
 import type {
@@ -902,8 +902,61 @@ export class LinearAdapter
  * });
  * ```
  */
-export function createLinearAdapter(
-  config: LinearAdapterConfig
-): LinearAdapter {
-  return new LinearAdapter(config);
+export function createLinearAdapter(config?: {
+  accessToken?: string;
+  apiKey?: string;
+  clientId?: string;
+  clientSecret?: string;
+  logger?: Logger;
+  userName?: string;
+  webhookSecret?: string;
+}): LinearAdapter {
+  const logger = config?.logger ?? new ConsoleLogger("info").child("linear");
+  const webhookSecret =
+    config?.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error(
+      "Linear webhookSecret is required. Provide it in config or set LINEAR_WEBHOOK_SECRET env var."
+    );
+  }
+  const userName =
+    config?.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+
+  // Auto-detect auth mode
+  const apiKey = config?.apiKey ?? process.env.LINEAR_API_KEY;
+  if (apiKey) {
+    return new LinearAdapter({
+      apiKey,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const accessToken = config?.accessToken ?? process.env.LINEAR_ACCESS_TOKEN;
+  if (accessToken) {
+    return new LinearAdapter({
+      accessToken,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const clientId = config?.clientId ?? process.env.LINEAR_CLIENT_ID;
+  const clientSecret = config?.clientSecret ?? process.env.LINEAR_CLIENT_SECRET;
+  if (clientId && clientSecret) {
+    return new LinearAdapter({
+      clientId,
+      clientSecret,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  throw new Error(
+    "Linear auth is required. Provide apiKey, accessToken, or clientId/clientSecret in config, " +
+      "or set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET env vars."
+  );
 }

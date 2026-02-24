@@ -31,6 +31,7 @@ import type {
   WebhookOptions,
 } from "chat";
 import {
+  ConsoleLogger,
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   getEmoji,
@@ -2073,9 +2074,44 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
  * Create a Discord adapter instance.
  */
 export function createDiscordAdapter(
-  config: DiscordAdapterConfig & { logger: Logger; userName?: string }
+  config?: Partial<DiscordAdapterConfig & { logger: Logger; userName?: string }>
 ): DiscordAdapter {
-  return new DiscordAdapter(config);
+  const botToken = config?.botToken ?? process.env.DISCORD_BOT_TOKEN;
+  if (!botToken) {
+    throw new Error(
+      "Discord botToken is required. Provide it in config or set DISCORD_BOT_TOKEN env var."
+    );
+  }
+  const publicKey = config?.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
+  if (!publicKey) {
+    throw new Error(
+      "Discord publicKey is required. Provide it in config or set DISCORD_PUBLIC_KEY env var."
+    );
+  }
+  const applicationId =
+    config?.applicationId ?? process.env.DISCORD_APPLICATION_ID;
+  if (!applicationId) {
+    throw new Error(
+      "Discord applicationId is required. Provide it in config or set DISCORD_APPLICATION_ID env var."
+    );
+  }
+  const mentionRoleIds =
+    config?.mentionRoleIds ??
+    (process.env.DISCORD_MENTION_ROLE_IDS
+      ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
+      : undefined);
+  const resolved: DiscordAdapterConfig & {
+    logger: Logger;
+    userName?: string;
+  } = {
+    botToken,
+    publicKey,
+    applicationId,
+    mentionRoleIds,
+    logger: config?.logger ?? new ConsoleLogger("info").child("discord"),
+    userName: config?.userName,
+  };
+  return new DiscordAdapter(resolved);
 }
 
 // Re-export card converter for advanced use

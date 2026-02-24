@@ -39,7 +39,7 @@ export interface ChatConfig<
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
-  logger: Logger | LogLevel;
+  logger?: Logger | LogLevel;
   /** State adapter for subscriptions and locking */
   state: StateAdapter;
   /**

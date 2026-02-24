@@ -37,6 +37,7 @@ import type {
 
 import {
   ChatError,
+  ConsoleLogger,
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   isJSX,
@@ -2917,8 +2918,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 }
 
-export function createSlackAdapter(config: SlackAdapterConfig): SlackAdapter {
-  return new SlackAdapter(config);
+export function createSlackAdapter(
+  config?: Partial<SlackAdapterConfig>
+): SlackAdapter {
+  const signingSecret =
+    config?.signingSecret ?? process.env.SLACK_SIGNING_SECRET;
+  if (!signingSecret) {
+    throw new Error(
+      "Slack signingSecret is required. Provide it in config or set SLACK_SIGNING_SECRET env var."
+    );
+  }
+  const resolved: SlackAdapterConfig = {
+    signingSecret,
+    botToken: config?.botToken ?? process.env.SLACK_BOT_TOKEN,
+    clientId: config?.clientId ?? process.env.SLACK_CLIENT_ID,
+    clientSecret: config?.clientSecret ?? process.env.SLACK_CLIENT_SECRET,
+    encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
+    logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
+    userName: config?.userName,
+    botUserId: config?.botUserId,
+  };
+  return new SlackAdapter(resolved);
 }
 
 // Re-export card converter for advanced use

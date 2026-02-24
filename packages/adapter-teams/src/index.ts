@@ -57,6 +57,7 @@ import type {
   WebhookOptions,
 } from "chat";
 import {
+  ConsoleLogger,
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   Message,
@@ -2367,8 +2368,30 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 }
 
-export function createTeamsAdapter(config: TeamsAdapterConfig): TeamsAdapter {
-  return new TeamsAdapter(config);
+export function createTeamsAdapter(
+  config?: Partial<TeamsAdapterConfig>
+): TeamsAdapter {
+  const appId = config?.appId ?? process.env.TEAMS_APP_ID;
+  if (!appId) {
+    throw new Error(
+      "Teams appId is required. Provide it in config or set TEAMS_APP_ID env var."
+    );
+  }
+  const appPassword = config?.appPassword ?? process.env.TEAMS_APP_PASSWORD;
+  if (!appPassword) {
+    throw new Error(
+      "Teams appPassword is required. Provide it in config or set TEAMS_APP_PASSWORD env var."
+    );
+  }
+  const resolved: TeamsAdapterConfig = {
+    appId,
+    appPassword,
+    appTenantId: config?.appTenantId ?? process.env.TEAMS_APP_TENANT_ID,
+    appType: config?.appType,
+    logger: config?.logger ?? new ConsoleLogger("info").child("teams"),
+    userName: config?.userName,
+  };
+  return new TeamsAdapter(resolved);
 }
 
 // Re-export card converter for advanced use

@@ -28,7 +28,12 @@ import type {
   ThreadSummary,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, defaultEmojiResolver, Message } from "chat";
+import {
+  ConsoleLogger,
+  convertEmojiPlaceholders,
+  defaultEmojiResolver,
+  Message,
+} from "chat";
 import { type chat_v1, google } from "googleapis";
 import { cardToGoogleCard } from "./cards";
 import { GoogleChatFormatConverter } from "./markdown";
@@ -2483,10 +2488,71 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }
 }
 
-export function createGoogleChatAdapter(
-  config: GoogleChatAdapterConfig
-): GoogleChatAdapter {
-  return new GoogleChatAdapter(config);
+export function createGoogleChatAdapter(config?: {
+  auth?: Parameters<typeof google.chat>[0]["auth"];
+  credentials?: ServiceAccountCredentials;
+  endpointUrl?: string;
+  impersonateUser?: string;
+  logger?: Logger;
+  pubsubTopic?: string;
+  useApplicationDefaultCredentials?: boolean;
+  userName?: string;
+}): GoogleChatAdapter {
+  const logger = config?.logger ?? new ConsoleLogger("info").child("gchat");
+
+  // Auto-detect auth mode
+  if (config?.auth) {
+    return new GoogleChatAdapter({
+      auth: config.auth,
+      endpointUrl: config.endpointUrl,
+      impersonateUser:
+        config.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
+      logger,
+      pubsubTopic: config.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
+      userName: config.userName,
+    });
+  }
+
+  // Service account credentials from config or env
+  const credentialsJson =
+    config?.credentials ??
+    (process.env.GOOGLE_CHAT_CREDENTIALS
+      ? (JSON.parse(
+          process.env.GOOGLE_CHAT_CREDENTIALS
+        ) as ServiceAccountCredentials)
+      : undefined);
+  if (credentialsJson) {
+    return new GoogleChatAdapter({
+      credentials: credentialsJson,
+      endpointUrl: config?.endpointUrl,
+      impersonateUser:
+        config?.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
+      logger,
+      pubsubTopic: config?.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
+      userName: config?.userName,
+    });
+  }
+
+  // Application Default Credentials
+  if (
+    config?.useApplicationDefaultCredentials ||
+    process.env.GOOGLE_CHAT_USE_ADC === "true"
+  ) {
+    return new GoogleChatAdapter({
+      useApplicationDefaultCredentials: true,
+      endpointUrl: config?.endpointUrl,
+      impersonateUser:
+        config?.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
+      logger,
+      pubsubTopic: config?.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
+      userName: config?.userName,
+    });
+  }
+
+  throw new Error(
+    "Google Chat auth is required. Provide credentials, useApplicationDefaultCredentials, or auth in config, " +
+      "or set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true env var."
+  );
 }
 
 // Re-export card converter for advanced use
