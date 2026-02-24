@@ -130,6 +130,19 @@ await thread.post(
 | `@chat-adapter/state-ioredis` | ioredis state (alternative) |
 | `@chat-adapter/state-memory` | In-memory state (development) |
 
+## Changesets (Release Flow)
+
+This monorepo uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs. Every PR that changes a package's behavior must include a changeset.
+
+```bash
+pnpm changeset
+# → select affected package(s) (e.g. @chat-adapter/slack, chat)
+# → choose bump type: patch (fixes), minor (features), major (breaking)
+# → write a short summary for the CHANGELOG
+```
+
+This creates a file in `.changeset/` — commit it with the PR. When merged to `main`, the Changesets GitHub Action opens a "Version Packages" PR to bump versions and update CHANGELOGs. Merging that PR publishes to npm.
+
 ## Webhook setup
 
 Each adapter exposes a webhook handler via `bot.webhooks.{platform}`. Wire these to your HTTP framework's routes (e.g. Next.js API routes, Hono, Express).

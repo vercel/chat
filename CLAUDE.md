@@ -165,6 +165,42 @@ cat /tmp/recording.json | jq '[.[] | select(.type == "webhook" and .platform == 
 cat /tmp/teams-webhooks.json | jq '[.[] | {type, text, channelData, value}]'
 ```
 
+## Changesets (Release Flow)
+
+This monorepo uses [Changesets](https://github.com/changesets/changesets) to manage versioning and changelogs. **Every PR that changes a package's behavior must include a changeset.**
+
+### Creating a changeset
+
+```bash
+pnpm changeset
+```
+
+You'll be prompted to:
+1. **Select the affected package(s)** — choose which packages your change touches (e.g., `@chat-adapter/slack`, `chat`)
+2. **Choose the semver bump** — `patch` for fixes, `minor` for new features, `major` for breaking changes
+3. **Write a summary** — a short description of the change (this goes into the CHANGELOG)
+
+This creates a markdown file in `.changeset/` — commit it with your PR.
+
+### When to use which bump
+
+- **patch** — bug fixes, internal refactors with no API change
+- **minor** — new features, new exports, new options
+- **major** — breaking changes (removed exports, changed signatures, dropped support)
+
+### Example
+
+```bash
+pnpm changeset
+# → select: @chat-adapter/slack
+# → bump: minor
+# → summary: Add custom installation prefix support for preview deployments
+```
+
+### Publishing (maintainers)
+
+When changesets are merged to `main`, the Changesets GitHub Action opens a "Version Packages" PR that bumps versions and updates CHANGELOGs. Merging that PR triggers publishing to npm.
+
 ## Environment Variables
 
 Key env vars used (see `turbo.json` for full list):
