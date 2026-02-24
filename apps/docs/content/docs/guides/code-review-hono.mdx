@@ -150,15 +150,9 @@ const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 export const bot = new Chat({
   userName: process.env.BOT_USERNAME!,
   adapters: {
-    github: createGitHubAdapter({
-      token: process.env.GITHUB_TOKEN!,
-      webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-      userName: process.env.BOT_USERNAME!,
-    }),
+    github: createGitHubAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-  }),
+  state: createRedisState(),
 });
 
 bot.onNewMention(async (thread, message) => {

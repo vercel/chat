@@ -31,8 +31,9 @@ const bot = new Chat(config);
       type: 'StateAdapter',
     },
     logger: {
-      description: 'Logger instance or log level.',
+      description: 'Logger instance or log level. Defaults to ConsoleLogger("info") if omitted.',
       type: 'Logger | "debug" | "info" | "warn" | "error" | "silent"',
+      default: 'ConsoleLogger("info")',
     },
     streamingUpdateIntervalMs: {
       description: 'Throttle interval for fallback streaming (post + edit) in milliseconds.',

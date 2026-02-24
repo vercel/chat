@@ -14,6 +14,8 @@ pnpm add @chat-adapter/teams
 
 ## Usage
 
+The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from environment variables:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createTeamsAdapter } from "@chat-adapter/teams";
@@ -22,10 +24,7 @@ const bot = new Chat({
   userName: "mybot",
   adapters: {
     teams: createTeamsAdapter({
-      appId: process.env.TEAMS_APP_ID!,
-      appPassword: process.env.TEAMS_APP_PASSWORD!,
       appType: "SingleTenant",
-      appTenantId: process.env.TEAMS_APP_TENANT_ID!,
     }),
   },
 });
@@ -136,12 +135,17 @@ Create icon files (32x32 `outline.png` and 192x192 `color.png`), then zip all th
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `appId` | Yes | Azure Bot App ID |
-| `appPassword` | Yes | Azure Bot App Password |
+| `appId` | No* | Azure Bot App ID. Auto-detected from `TEAMS_APP_ID` |
+| `appPassword` | No* | Azure Bot App Password. Auto-detected from `TEAMS_APP_PASSWORD` |
 | `appType` | No | `"MultiTenant"` or `"SingleTenant"` (default: `"MultiTenant"`) |
-| `appTenantId` | For SingleTenant | Azure AD Tenant ID |
+| `appTenantId` | For SingleTenant | Azure AD Tenant ID. Auto-detected from `TEAMS_APP_TENANT_ID` |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`appId` and `appPassword` are required — either via config or env vars.
 
 ## Environment variables
 

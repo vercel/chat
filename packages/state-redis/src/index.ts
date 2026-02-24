@@ -1,4 +1,5 @@
 import type { Lock, Logger, StateAdapter } from "chat";
+import { ConsoleLogger } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
 export interface RedisStateAdapterOptions {
@@ -204,7 +205,18 @@ function generateToken(): string {
 }
 
 export function createRedisState(
-  options: RedisStateAdapterOptions
+  options?: Partial<RedisStateAdapterOptions>
 ): RedisStateAdapter {
-  return new RedisStateAdapter(options);
+  const url = options?.url ?? process.env.REDIS_URL;
+  if (!url) {
+    throw new Error(
+      "Redis url is required. Set REDIS_URL or provide it in options."
+    );
+  }
+  const resolved: RedisStateAdapterOptions = {
+    url,
+    keyPrefix: options?.keyPrefix,
+    logger: options?.logger ?? new ConsoleLogger("info").child("redis"),
+  };
+  return new RedisStateAdapter(resolved);
 }

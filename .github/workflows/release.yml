@@ -29,6 +29,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
+        env:
+          REDIS_URL: "redis://placeholder"
 
       - name: Create Release Pull Request or Publish
         uses: changesets/action@v1

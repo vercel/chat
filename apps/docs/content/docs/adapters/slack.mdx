@@ -14,7 +14,7 @@ pnpm add @chat-adapter/slack
 
 ## Single-workspace mode
 
-For bots deployed to a single Slack workspace:
+For bots deployed to a single Slack workspace. The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from environment variables:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -23,10 +23,7 @@ import { createSlackAdapter } from "@chat-adapter/slack";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-    }),
+    slack: createSlackAdapter(),
   },
 });
 
@@ -39,21 +36,21 @@ bot.onNewMention(async (thread, message) => {
 
 For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks.
 
+When you pass any auth-related config (like `clientId`), the adapter won't fall back to env vars for other auth fields, preventing accidental mixing of auth modes.
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { createSlackAdapter } from "@chat-adapter/slack";
 import { createRedisState } from "@chat-adapter/state-redis";
 
 const slackAdapter = createSlackAdapter({
-  signingSecret: process.env.SLACK_SIGNING_SECRET!,
   clientId: process.env.SLACK_CLIENT_ID!,
   clientSecret: process.env.SLACK_CLIENT_SECRET!,
-  encryptionKey: process.env.SLACK_ENCRYPTION_KEY,
 });
 
 const bot = new Chat({
   userName: "mybot",
   adapters: { slack: slackAdapter },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
+  state: createRedisState(),
 });
 ```
 
@@ -181,13 +178,18 @@ After creating the app, go to **Basic Information** → **App Credentials** and 
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided. You can call `createSlackAdapter()` with no arguments if the env vars are set.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `botToken` | No | Bot token (`xoxb-...`). Required for single-workspace, omit for multi-workspace |
-| `signingSecret` | Yes | Signing secret for webhook verification |
-| `clientId` | No | App client ID (required for multi-workspace OAuth) |
-| `clientSecret` | No | App client secret (required for multi-workspace OAuth) |
-| `encryptionKey` | No | Base64-encoded 32-byte AES-256-GCM key for encrypting stored tokens |
+| `botToken` | No | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN` |
+| `signingSecret` | No* | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET` |
+| `clientId` | No | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID` |
+| `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
+| `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`signingSecret` is required — either via config or `SLACK_SIGNING_SECRET` env var.
 
 ## Environment variables
 

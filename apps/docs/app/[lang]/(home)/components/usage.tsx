@@ -11,17 +11,9 @@ import { createRedisState } from "@chat-adapter/state-redis";
 export const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-      logger: new ConsoleLogger(),
-    }),
+    slack: createSlackAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-    logger: new ConsoleLogger(),
-  }),
-  logger: new ConsoleLogger(),
+  state: createRedisState(),
 });
 
 // Respond when someone @mentions the bot

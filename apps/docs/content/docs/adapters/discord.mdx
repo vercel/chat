@@ -14,6 +14,8 @@ pnpm add @chat-adapter/discord
 
 ## Usage
 
+The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from environment variables:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
@@ -21,12 +23,7 @@ import { createDiscordAdapter } from "@chat-adapter/discord";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    discord: createDiscordAdapter({
-      botToken: process.env.DISCORD_BOT_TOKEN!,
-      publicKey: process.env.DISCORD_PUBLIC_KEY!,
-      applicationId: process.env.DISCORD_APPLICATION_ID!,
-      mentionRoleIds: process.env.DISCORD_MENTION_ROLE_IDS?.split(","),
-    }),
+    discord: createDiscordAdapter(),
   },
 });
 
@@ -143,23 +140,25 @@ By default, only direct user mentions (`@BotName`) trigger `onNewMention` handle
 
 ```typescript title="lib/bot.ts" lineNumbers
 createDiscordAdapter({
-  botToken: process.env.DISCORD_BOT_TOKEN!,
-  publicKey: process.env.DISCORD_PUBLIC_KEY!,
-  applicationId: process.env.DISCORD_APPLICATION_ID!,
   mentionRoleIds: ["1457473602180878604"],
 });
 ```
 
-Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string.
+Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string in your environment variables.
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `botToken` | Yes | Discord bot token |
-| `publicKey` | Yes | Application public key (for webhook signature verification) |
-| `applicationId` | Yes | Discord application ID |
-| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers |
+| `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
+| `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
+| `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
 
 ## Environment variables
 

@@ -16,6 +16,8 @@ pnpm add @chat-adapter/github
 
 ## Usage
 
+The adapter auto-detects credentials from `GITHUB_TOKEN` (or `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY`), `GITHUB_WEBHOOK_SECRET`, and `GITHUB_BOT_USERNAME` environment variables:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createGitHubAdapter } from "@chat-adapter/github";
@@ -23,11 +25,7 @@ import { createGitHubAdapter } from "@chat-adapter/github";
 const bot = new Chat({
   userName: "my-bot",
   adapters: {
-    github: createGitHubAdapter({
-      token: process.env.GITHUB_TOKEN!,
-      webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-      userName: "my-bot",
-    }),
+    github: createGitHubAdapter(),
   },
 });
 
@@ -49,8 +47,6 @@ Best for personal projects, testing, or single-repo bots.
 ```typescript title="lib/bot.ts" lineNumbers
 createGitHubAdapter({
   token: process.env.GITHUB_TOKEN!,
-  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-  userName: "my-bot",
 });
 ```
 
@@ -88,8 +84,6 @@ createGitHubAdapter({
   appId: process.env.GITHUB_APP_ID!,
   privateKey: process.env.GITHUB_PRIVATE_KEY!,
   installationId: parseInt(process.env.GITHUB_INSTALLATION_ID!),
-  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-  userName: "my-bot[bot]",
 });
 ```
 
@@ -99,8 +93,6 @@ createGitHubAdapter({
 createGitHubAdapter({
   appId: process.env.GITHUB_APP_ID!,
   privateKey: process.env.GITHUB_PRIVATE_KEY!,
-  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-  userName: "my-bot[bot]",
 });
 ```
 
@@ -146,17 +138,22 @@ Supports GitHub's reaction emoji:
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `token` | Yes* | Personal Access Token with `repo` scope |
-| `appId` | Yes* | GitHub App ID |
-| `privateKey` | For Apps | GitHub App private key (PEM format) |
-| `installationId` | No | Installation ID (omit for multi-tenant) |
-| `webhookSecret` | Yes | Webhook secret for signature verification |
-| `userName` | Yes | Bot username for @mention detection |
+| `token` | No* | Personal Access Token. Auto-detected from `GITHUB_TOKEN` |
+| `appId` | No* | GitHub App ID. Auto-detected from `GITHUB_APP_ID` |
+| `privateKey` | No | GitHub App private key (PEM). Auto-detected from `GITHUB_PRIVATE_KEY` |
+| `installationId` | No | Installation ID (omit for multi-tenant). Auto-detected from `GITHUB_INSTALLATION_ID` |
+| `webhookSecret` | No** | Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET` |
+| `userName` | No | Bot username for @mention detection. Auto-detected from `GITHUB_BOT_USERNAME` (default: `"github-bot"`) |
 | `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*Either `token` or `appId`/`privateKey` is required.
+*Either `token`/`GITHUB_TOKEN` or `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY` is required.
+
+**`webhookSecret` is required — either via config or `GITHUB_WEBHOOK_SECRET` env var.
 
 ## Environment variables
 

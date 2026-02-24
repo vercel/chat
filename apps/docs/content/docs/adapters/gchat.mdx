@@ -14,6 +14,8 @@ pnpm add @chat-adapter/gchat
 
 ## Usage
 
+The adapter auto-detects credentials from `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC` environment variables:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createGoogleChatAdapter } from "@chat-adapter/gchat";
@@ -21,9 +23,7 @@ import { createGoogleChatAdapter } from "@chat-adapter/gchat";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    gchat: createGoogleChatAdapter({
-      credentials: JSON.parse(process.env.GOOGLE_CHAT_CREDENTIALS!),
-    }),
+    gchat: createGoogleChatAdapter(),
   },
 });
 
@@ -94,11 +94,12 @@ By default, Google Chat only sends webhooks for @mentions. To receive all messag
 
 ```typescript title="lib/bot.ts" lineNumbers
 createGoogleChatAdapter({
-  credentials: JSON.parse(process.env.GOOGLE_CHAT_CREDENTIALS!),
   pubsubTopic: process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
   impersonateUser: process.env.GOOGLE_CHAT_IMPERSONATE_USER,
 });
 ```
+
+`GOOGLE_CHAT_PUBSUB_TOPIC` and `GOOGLE_CHAT_IMPERSONATE_USER` are also auto-detected from env vars, so you can omit them from config if the env vars are set.
 
 ### 1. Create Pub/Sub topic
 
@@ -156,14 +157,18 @@ Set `GOOGLE_CHAT_IMPERSONATE_USER` to an admin user email in your domain (e.g., 
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `credentials` | Yes* | Service account credentials JSON |
-| `useADC` | No | Use Application Default Credentials instead |
-| `pubsubTopic` | No | Pub/Sub topic for Workspace Events |
-| `impersonateUser` | No | User email for domain-wide delegation |
+| `credentials` | No* | Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS` |
+| `useApplicationDefaultCredentials` | No | Use Application Default Credentials. Auto-detected from `GOOGLE_CHAT_USE_ADC` |
+| `pubsubTopic` | No | Pub/Sub topic for Workspace Events. Auto-detected from `GOOGLE_CHAT_PUBSUB_TOPIC` |
+| `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
+| `auth` | No | Custom auth object (advanced) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*Either `credentials` or `useADC: true` is required.
+*Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
 
 ## Environment variables
 

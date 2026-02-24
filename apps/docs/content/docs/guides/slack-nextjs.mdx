@@ -109,17 +109,9 @@ import { createRedisState } from "@chat-adapter/state-redis";
 export const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-      logger: new ConsoleLogger(),
-    }),
+    slack: createSlackAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-    logger: new ConsoleLogger(),
-  }),
-  logger: new ConsoleLogger(),
+  state: createRedisState(),
 });
 
 // Respond when someone @mentions the bot
@@ -133,6 +125,8 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.post(`You said: ${message.text}`);
 });
 ```
+
+The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from your environment, and `createRedisState()` reads `REDIS_URL` automatically.
 
 `onNewMention` fires when a user @mentions your bot. Calling `thread.subscribe()` tells the SDK to track that thread, so subsequent messages trigger `onSubscribedMessage`.
 
@@ -186,17 +180,9 @@ import { createRedisState } from "@chat-adapter/state-redis";
 export const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-      logger: new ConsoleLogger(),
-    }),
+    slack: createSlackAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-    logger: new ConsoleLogger(),
-  }),
-  logger: new ConsoleLogger(),
+  state: createRedisState(),
 });
 
 bot.onNewMention(async (thread) => {

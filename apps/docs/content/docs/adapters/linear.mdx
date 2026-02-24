@@ -16,6 +16,8 @@ pnpm add @chat-adapter/linear
 
 ## Usage
 
+The adapter auto-detects credentials from `LINEAR_API_KEY` (or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`), `LINEAR_WEBHOOK_SECRET`, and `LINEAR_BOT_USERNAME` environment variables:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createLinearAdapter } from "@chat-adapter/linear";
@@ -23,11 +25,7 @@ import { createLinearAdapter } from "@chat-adapter/linear";
 const bot = new Chat({
   userName: "my-bot",
   adapters: {
-    linear: createLinearAdapter({
-      apiKey: process.env.LINEAR_API_KEY!,
-      webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
-      userName: "my-bot",
-    }),
+    linear: createLinearAdapter(),
   },
 });
 
@@ -51,8 +49,6 @@ Best for personal projects, testing, or single-workspace bots. Actions are attri
 ```typescript title="lib/bot.ts" lineNumbers
 createLinearAdapter({
   apiKey: process.env.LINEAR_API_KEY!,
-  webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
-  userName: "my-bot",
 });
 ```
 
@@ -69,8 +65,6 @@ The bot gets its own identity in Linear. The adapter handles token management in
 createLinearAdapter({
   clientId: process.env.LINEAR_CLIENT_ID!,
   clientSecret: process.env.LINEAR_CLIENT_SECRET!,
-  webhookSecret: process.env.LINEAR_WEBHOOK_SECRET!,
-  userName: "my-bot",
 });
 ```
 
@@ -138,16 +132,21 @@ When a user writes a comment, the bot replies within the same comment thread.
 
 ## Configuration
 
+All options are auto-detected from environment variables when not provided.
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `apiKey` | Yes* | Personal API key |
-| `clientId` | Yes* | OAuth app client ID |
-| `clientSecret` | Yes* | OAuth app client secret |
-| `accessToken` | Yes* | Pre-obtained OAuth access token |
-| `webhookSecret` | Yes | Webhook signing secret for verification |
-| `userName` | Yes | Bot display name for @mention detection |
+| `apiKey` | No* | Personal API key. Auto-detected from `LINEAR_API_KEY` |
+| `clientId` | No* | OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
+| `clientSecret` | No* | OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
+| `accessToken` | No* | Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN` |
+| `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
+| `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*One of `apiKey`, `clientId`/`clientSecret`, or `accessToken` is required.
+*One of `apiKey`, `clientId`/`clientSecret`, or `accessToken` is required (via config or env vars).
+
+**`webhookSecret` is required — either via config or `LINEAR_WEBHOOK_SECRET` env var.
 
 ## Environment variables
 

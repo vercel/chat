@@ -16,7 +16,7 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, Message } from "chat";
+import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToLinearMarkdown } from "./cards";
 import { LinearFormatConverter } from "./markdown";
 import type {
@@ -902,8 +902,77 @@ export class LinearAdapter
  * });
  * ```
  */
-export function createLinearAdapter(
-  config: LinearAdapterConfig
-): LinearAdapter {
-  return new LinearAdapter(config);
+export function createLinearAdapter(config?: {
+  accessToken?: string;
+  apiKey?: string;
+  clientId?: string;
+  clientSecret?: string;
+  logger?: Logger;
+  userName?: string;
+  webhookSecret?: string;
+}): LinearAdapter {
+  const logger = config?.logger ?? new ConsoleLogger("info").child("linear");
+  const webhookSecret =
+    config?.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new ValidationError(
+      "linear",
+      "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
+    );
+  }
+  const userName =
+    config?.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.apiKey ||
+    config?.accessToken ||
+    config?.clientId ||
+    config?.clientSecret
+  );
+
+  const apiKey =
+    config?.apiKey ?? (hasAuthConfig ? undefined : process.env.LINEAR_API_KEY);
+  if (apiKey) {
+    return new LinearAdapter({
+      apiKey,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const accessToken =
+    config?.accessToken ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_ACCESS_TOKEN);
+  if (accessToken) {
+    return new LinearAdapter({
+      accessToken,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const clientId =
+    config?.clientId ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_ID);
+  const clientSecret =
+    config?.clientSecret ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_SECRET);
+  if (clientId && clientSecret) {
+    return new LinearAdapter({
+      clientId,
+      clientSecret,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  throw new ValidationError(
+    "linear",
+    "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
+  );
 }

@@ -309,16 +309,21 @@ You typically don't need to construct these yourself — they're provided by the
 
 ## Logging
 
-Configure logging when creating the `Chat` instance:
+The `logger` option is optional — if omitted, Chat SDK uses `ConsoleLogger("info")` by default. Each adapter also creates its own child logger automatically.
 
 ```typescript title="lib/bot.ts" lineNumbers
-// Use a built-in log level
+// Use defaults (ConsoleLogger at "info" level)
+const bot = new Chat({
+  // ...
+});
+
+// Or set a specific log level
 const bot = new Chat({
   // ...
   logger: "debug", // "debug" | "info" | "warn" | "error" | "silent"
 });
 
-// Or use ConsoleLogger for child loggers
+// Or use a custom ConsoleLogger for child loggers
 import { ConsoleLogger } from "chat";
 
 const logger = new ConsoleLogger("info");
@@ -328,11 +333,10 @@ const bot = new Chat({
 });
 ```
 
-Pass child loggers to adapters for prefixed log output:
+You can pass child loggers to adapters for prefixed log output, but adapters create their own child loggers by default:
 
 ```typescript title="lib/bot.ts"
 createSlackAdapter({
-  // ...
-  logger: logger.child("slack"),
+  logger: logger.child("slack"), // optional — auto-created if omitted
 });
 ```

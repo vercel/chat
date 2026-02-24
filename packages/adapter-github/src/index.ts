@@ -19,7 +19,7 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, Message } from "chat";
+import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToGitHubMarkdown } from "./cards";
 import { GitHubFormatConverter } from "./markdown";
 import type {
@@ -1225,8 +1225,84 @@ export class GitHubAdapter
  * });
  * ```
  */
-export function createGitHubAdapter(
-  config: GitHubAdapterConfig
-): GitHubAdapter {
-  return new GitHubAdapter(config);
+export function createGitHubAdapter(config?: {
+  appId?: string;
+  botUserId?: number;
+  installationId?: number;
+  logger?: Logger;
+  privateKey?: string;
+  token?: string;
+  userName?: string;
+  webhookSecret?: string;
+}): GitHubAdapter {
+  const logger = config?.logger ?? new ConsoleLogger("info").child("github");
+  const webhookSecret =
+    config?.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new ValidationError(
+      "github",
+      "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
+    );
+  }
+  const userName =
+    config?.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
+
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.token ||
+    config?.appId ||
+    config?.privateKey
+  );
+
+  const token =
+    config?.token ?? (hasAuthConfig ? undefined : process.env.GITHUB_TOKEN);
+  if (token) {
+    return new GitHubAdapter({
+      token,
+      webhookSecret,
+      userName,
+      botUserId: config?.botUserId,
+      logger,
+    });
+  }
+
+  const appId =
+    config?.appId ?? (hasAuthConfig ? undefined : process.env.GITHUB_APP_ID);
+  const privateKey =
+    config?.privateKey ??
+    (hasAuthConfig ? undefined : process.env.GITHUB_PRIVATE_KEY);
+  if (appId && privateKey) {
+    const installationIdRaw =
+      config?.installationId ??
+      (process.env.GITHUB_INSTALLATION_ID
+        ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
+        : undefined);
+    if (installationIdRaw) {
+      // Single-tenant app mode
+      return new GitHubAdapter({
+        appId,
+        privateKey,
+        installationId: installationIdRaw,
+        webhookSecret,
+        userName,
+        botUserId: config?.botUserId,
+        logger,
+      });
+    }
+    // Multi-tenant app mode
+    return new GitHubAdapter({
+      appId,
+      privateKey,
+      webhookSecret,
+      userName,
+      botUserId: config?.botUserId,
+      logger,
+    });
+  }
+
+  throw new ValidationError(
+    "github",
+    "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
+  );
 }

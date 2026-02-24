@@ -1,5 +1,14 @@
 # @chat-adapter/github
 
+## 4.13.4
+
+### Patch Changes
+
+- f266dcf: Automatically load from env vars
+- Updated dependencies [716ce2a]
+  - chat@4.13.4
+  - @chat-adapter/shared@4.13.4
+
 ## 4.13.3
 
 ### Patch Changes

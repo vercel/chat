@@ -34,17 +34,9 @@ import { createRedisState } from "@chat-adapter/state-redis";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-      logger: new ConsoleLogger(),
-    }),
+    slack: createSlackAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-    logger: new ConsoleLogger(),
-  }),
-  logger: new ConsoleLogger(),
+  state: createRedisState(),
 });
 
 bot.onNewMention(async (thread) => {
@@ -52,6 +44,8 @@ bot.onNewMention(async (thread) => {
   await thread.post("Hello! I'm listening to this thread.");
 });
 ```
+
+Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
 
 ## Supported platforms
 

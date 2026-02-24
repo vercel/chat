@@ -1,5 +1,11 @@
 # chat
 
+## 4.13.4
+
+### Patch Changes
+
+- 716ce2a: Automatically create new ConsoleLogger
+
 ## 4.13.3
 
 ### Patch Changes

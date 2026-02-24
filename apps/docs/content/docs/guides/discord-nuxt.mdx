@@ -69,29 +69,18 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 Create `server/lib/bot.ts` with a `Chat` instance configured with the Discord adapter. This bot uses AI SDK to answer support questions:
 
 ```typescript title="server/lib/bot.tsx" lineNumbers
-import { Chat, ConsoleLogger, Card, CardText as Text, Actions, Button, Divider } from "chat";
+import { Chat, Card, CardText as Text, Actions, Button, Divider } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { generateText } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 
-const logger = new ConsoleLogger();
-
 export const bot = new Chat({
   userName: "support-bot",
   adapters: {
-    discord: createDiscordAdapter({
-      botToken: process.env.DISCORD_BOT_TOKEN!,
-      publicKey: process.env.DISCORD_PUBLIC_KEY!,
-      applicationId: process.env.DISCORD_APPLICATION_ID!,
-      logger,
-    }),
+    discord: createDiscordAdapter(),
   },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-    logger,
-  }),
-  logger,
+  state: createRedisState(),
 });
 
 bot.onNewMention(async (thread) => {

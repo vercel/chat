@@ -93,11 +93,11 @@ import { createRedisState } from "@chat-adapter/state-redis";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({ /* ... */ }),
-    teams: createTeamsAdapter({ /* ... */ }),
-    gchat: createGoogleChatAdapter({ /* ... */ }),
+    slack: createSlackAdapter(),
+    teams: createTeamsAdapter(),
+    gchat: createGoogleChatAdapter(),
   },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
+  state: createRedisState(),
 });
 
 // This handler fires for mentions on any platform
@@ -106,5 +106,7 @@ bot.onNewMention(async (thread) => {
   await thread.post("Hello!");
 });
 ```
+
+Each adapter auto-detects credentials from environment variables, so you only need to pass config when overriding defaults.
 
 Each adapter creates a webhook handler accessible via `bot.webhooks.slack`, `bot.webhooks.teams`, etc.

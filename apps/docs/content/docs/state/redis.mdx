@@ -16,6 +16,8 @@ pnpm add @chat-adapter/state-redis
 
 ## Usage
 
+`createRedisState()` auto-detects the `REDIS_URL` environment variable, so you can call it with no arguments:
+
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createRedisState } from "@chat-adapter/state-redis";
@@ -23,10 +25,14 @@ import { createRedisState } from "@chat-adapter/state-redis";
 const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
-  state: createRedisState({
-    url: process.env.REDIS_URL!,
-  }),
+  state: createRedisState(),
 });
+```
+
+To provide a URL explicitly:
+
+```typescript title="lib/bot.ts"
+const state = createRedisState({ url: "redis://localhost:6379" });
 ```
 
 ### Using an existing client
@@ -57,11 +63,12 @@ const state = createRedisState({
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `url` | Yes* | Redis connection URL |
+| `url` | No* | Redis connection URL (auto-detected from `REDIS_URL`) |
 | `client` | No | Existing `redis` client instance |
 | `keyPrefix` | No | Prefix for all keys (default: `"chat-sdk"`) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*Either `url` or `client` is required.
+*Either `url`, `REDIS_URL` env var, or `client` is required.
 
 ## Environment variables
 

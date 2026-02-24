@@ -217,7 +217,7 @@ export class Chat<
     if (typeof config.logger === "string") {
       this.logger = new ConsoleLogger(config.logger as LogLevel);
     } else {
-      this.logger = config.logger;
+      this.logger = config.logger || new ConsoleLogger("info");
     }
 
     // Register adapters and create webhook handlers
