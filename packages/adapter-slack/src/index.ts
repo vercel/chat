@@ -2064,8 +2064,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  async startTyping(_threadId: string): Promise<void> {
-    // Slack doesn't have a direct typing indicator API for bots
+  /**
+   * Show typing indicator with optional custom status.
+   *
+   * When status is provided, uses Slack's assistant.threads.setStatus API
+   * to show custom loading text (requires Agents & AI Apps feature and assistant:write scope).
+   * The status auto-clears when a message is posted to the thread.
+   *
+   * When status is not provided, defaults to "Typing..." with default loading messages.
+   *
+   * @param threadId - The thread to show the indicator in
+   * @param status - Optional custom status message (e.g., "Searching documents...")
+   */
+  async startTyping(threadId: string, status?: string): Promise<void> {
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    if (!threadTs) {
+      this.logger.debug("Slack: startTyping skipped - no thread context");
+      return;
+    }
+    this.logger.debug("Slack API: assistant.threads.setStatus", {
+      channel,
+      threadTs,
+      status,
+    });
+    try {
+      await this.client.assistant.threads.setStatus(
+        this.withToken({
+          channel_id: channel,
+          thread_ts: threadTs,
+          status: status ?? "Typing...",
+          loading_messages: [status ?? "Typing..."],
+        })
+      );
+    } catch (error) {
+      this.logger.warn("Slack API: assistant.threads.setStatus failed", {
+        channel,
+        threadTs,
+        error,
+      });
+    }
   }
 
   /**

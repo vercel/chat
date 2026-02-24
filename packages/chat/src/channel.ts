@@ -319,8 +319,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return null;
   }
 
-  async startTyping(): Promise<void> {
-    await this.adapter.startTyping(this.id);
+  async startTyping(status?: string): Promise<void> {
+    await this.adapter.startTyping(this.id, status);
   }
 
   mentionUser(userId: string): string {

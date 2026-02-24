@@ -284,8 +284,16 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
 
-  /** Show typing indicator */
-  startTyping(threadId: string): Promise<void>;
+  /**
+   * Show typing indicator with optional custom status.
+   *
+   * On Slack: Uses assistant.threads.setStatus API to show custom loading text.
+   * On other platforms: Shows standard typing indicator (status is ignored).
+   *
+   * @param threadId - The thread to show the indicator in
+   * @param status - Optional custom status message (e.g., "Searching documents...")
+   */
+  startTyping(threadId: string, status?: string): Promise<void>;
 
   /**
    * Stream a message using platform-native streaming APIs.
@@ -542,8 +550,15 @@ export interface Postable<
     options?: { replace?: boolean }
   ): Promise<void>;
 
-  /** Show typing indicator */
-  startTyping(): Promise<void>;
+  /**
+   * Show typing indicator with optional custom status.
+   *
+   * On Slack: Uses assistant.threads.setStatus API to show custom loading text.
+   * On other platforms: Shows standard typing indicator (status is ignored).
+   *
+   * @param status - Optional custom status message (e.g., "Searching documents...")
+   */
+  startTyping(status?: string): Promise<void>;
 
   /**
    * Get the current state.
