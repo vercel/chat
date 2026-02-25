@@ -11,7 +11,7 @@ import { convertEmojiPlaceholders } from "chat";
 /**
  * Supported platform names for adapter utilities.
  */
-export type PlatformName = "slack" | "gchat" | "teams" | "discord";
+export type PlatformName = "slack" | "gchat" | "teams" | "discord" | "telegram";
 
 /**
  * Button style mappings per platform.
@@ -27,6 +27,7 @@ export const BUTTON_STYLE_MAPPINGS: Record<
   gchat: { primary: "primary", danger: "danger" }, // Colors handled via buttonColor
   teams: { primary: "positive", danger: "destructive" },
   discord: { primary: "primary", danger: "danger" },
+  telegram: { primary: "primary", danger: "danger" },
 };
 
 /**

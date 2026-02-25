@@ -1,0 +1,41 @@
+{
+  "name": "@chat-adapter/telegram",
+  "version": "0.0.0",
+  "description": "Telegram adapter for chat",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*",
+    "grammy": "^1.35.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

@@ -11,7 +11,9 @@
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_SECRET_TOKEN"
   ],
   "tasks": {
     "build": {
