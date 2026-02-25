@@ -39,6 +39,21 @@ bot.onNewMessage(/.*/, async (thread, message) => {
 });
 ```
 
+### Filtering options
+
+Restrict which messages the bot processes:
+
+```typescript
+const adapter = createWhatsAppAdapter({
+  userName: "My Bot",
+  sessionPath: ".wwebjs_auth",
+  allowedNumbers: ["34689396755"],
+  blockedNumbers: ["34600000000"],
+  allowedGroups: ["123456789-1234567890@g.us"],
+  requireMentionInGroups: true,
+});
+```
+
 ## Configuration
 
 | Option | Type | Default | Description |
@@ -47,6 +62,10 @@ bot.onNewMessage(/.*/, async (thread, message) => {
 | `userName` | `string` | `"bot"` | Bot display name |
 | `sessionPath` | `string` | `".wwebjs_auth"` or `WHATSAPP_SESSION_PATH` | Path for session persistence |
 | `puppeteerOptions` | `object` | `{}` | Options passed to Puppeteer |
+| `allowedNumbers` | `string[]` | — | If set, only process messages from these numbers (e.g. `"34689396755"` or `"34689396755@c.us"`). DMs and groups both use sender ID. |
+| `blockedNumbers` | `string[]` | — | Never process messages from these numbers. Takes precedence over `allowedNumbers`. |
+| `allowedGroups` | `string[]` | — | If set, only process messages from these group IDs (e.g. `"123456789-1234567890@g.us"`). DMs are unaffected. |
+| `requireMentionInGroups` | `boolean` | `false` | In group chats, only process messages that @mention the bot. DMs are unaffected. |
 
 ## Thread ID Format
 

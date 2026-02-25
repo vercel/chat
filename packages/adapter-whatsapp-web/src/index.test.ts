@@ -97,4 +97,21 @@ describe("WhatsAppAdapter", () => {
       expect(adapter.isDM("whatsapp:1234567890-1234567890@g.us")).toBe(false);
     });
   });
+
+  describe("filtering config", () => {
+    it("should accept blockedNumbers, allowedGroups, requireMentionInGroups", async () => {
+      const { createWhatsAppAdapter } = await import("./index");
+      const { ConsoleLogger } = await import("chat");
+
+      const adapter = createWhatsAppAdapter({
+        logger: new ConsoleLogger("silent"),
+        blockedNumbers: ["34600000000"],
+        allowedGroups: ["123456789-1234567890"],
+        requireMentionInGroups: true,
+      });
+
+      expect(adapter).toBeDefined();
+      expect(adapter.name).toBe("whatsapp");
+    });
+  });
 });

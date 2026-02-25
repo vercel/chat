@@ -38,6 +38,8 @@ import {
   Message,
 } from "chat";
 import type WAWebJS from "whatsapp-web.js";
+import { getMessageMediaClass, initializeClient } from "./client";
+import { handleIncomingMessage, handleReaction } from "./events";
 import { WhatsAppFormatConverter } from "./markdown";
 import type { WhatsAppAdapterConfig, WhatsAppThreadId } from "./types";
 
@@ -52,6 +54,10 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
   private readonly formatConverter = new WhatsAppFormatConverter();
   private readonly sessionPath: string;
   private readonly puppeteerOptions: Record<string, unknown>;
+  private readonly allowedNumbers: Set<string>;
+  private readonly blockedNumbers: Set<string>;
+  private readonly allowedGroups: Set<string>;
+  private readonly requireMentionInGroups: boolean;
   private isReady = false;
   private qrCode: string | null = null;
 
@@ -60,28 +66,34 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
     this.userName = config.userName ?? "bot";
     this.sessionPath = config.sessionPath ?? ".wwebjs_auth";
     this.puppeteerOptions = config.puppeteerOptions ?? {};
+    this.allowedNumbers = new Set(
+      (config.allowedNumbers ?? []).map((n) =>
+        n.includes("@") ? n : `${n.replace(/\D/g, "")}@c.us`
+      )
+    );
+    this.blockedNumbers = new Set(
+      (config.blockedNumbers ?? []).map((n) =>
+        n.includes("@") ? n : `${n.replace(/\D/g, "")}@c.us`
+      )
+    );
+    this.allowedGroups = new Set(
+      (config.allowedGroups ?? []).map((g) =>
+        g.includes("@") ? g : `${g}@g.us`
+      )
+    );
+    this.requireMentionInGroups = config.requireMentionInGroups ?? false;
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
-
-    const wa = await import("whatsapp-web.js");
-    const mod = wa as unknown as { default?: typeof wa; Client?: unknown; LocalAuth?: new (opts?: { dataPath?: string }) => unknown };
-    const { Client, LocalAuth } = mod.default ?? mod;
-
-    this.client = new (Client as new (opts: unknown) => WAWebJS.Client)({
-      authStrategy: new (LocalAuth as new (opts?: { dataPath?: string }) => unknown)({
-        dataPath: this.sessionPath,
-      }),
-      puppeteer: {
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        ...this.puppeteerOptions,
+    this.client = await initializeClient(
+      {
+        sessionPath: this.sessionPath,
+        puppeteerOptions: this.puppeteerOptions,
       },
-    });
-
+      this.logger
+    );
     this.setupEventListeners();
-
     this.logger.info("WhatsApp adapter initializing...");
   }
 
@@ -109,9 +121,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       if (info) {
         (this as { botUserId: string }).botUserId = info.wid._serialized;
       }
-      this.logger.info("WhatsApp client ready", {
-        botUserId: this.botUserId,
-      });
+      this.logger.info("WhatsApp client ready", { botUserId: this.botUserId });
     });
 
     this.client.on("disconnected", (reason: string) => {
@@ -120,18 +130,28 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
     });
 
     this.client.on("message_create", async (message: WAWebJS.Message) => {
-      if (message.fromMe) {
-        return;
-      }
-      await this.handleIncomingMessage(message);
+      if (message.fromMe) return;
+      await handleIncomingMessage(message, this.getEventContext());
     });
 
-    this.client.on(
-      "message_reaction",
-      async (reaction: WAWebJS.Reaction) => {
-        await this.handleReaction(reaction);
-      }
-    );
+    this.client.on("message_reaction", async (reaction: WAWebJS.Reaction) => {
+      await handleReaction(reaction, this.getEventContext());
+    });
+  }
+
+  private getEventContext() {
+    return {
+      chat: this.chat,
+      logger: this.logger,
+      formatConverter: this.formatConverter,
+      botUserId: this.botUserId,
+      allowedNumbers: this.allowedNumbers,
+      blockedNumbers: this.blockedNumbers,
+      allowedGroups: this.allowedGroups,
+      requireMentionInGroups: this.requireMentionInGroups,
+      encodeThreadId: this.encodeThreadId.bind(this),
+      adapter: this as Adapter,
+    };
   }
 
   async start(): Promise<void> {
@@ -175,99 +195,6 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
     );
   }
 
-  private async handleIncomingMessage(message: WAWebJS.Message): Promise<void> {
-    if (!this.chat) {
-      this.logger.warn("Chat instance not initialized, ignoring message");
-      return;
-    }
-
-    const chatId = message.from;
-    const threadId = this.encodeThreadId({ chatId });
-
-    const contact = await message.getContact();
-    const isMe = message.fromMe;
-
-    const isMention = await this.checkIfMentioned(message);
-
-    const chatMessage = new Message({
-      id: message.id._serialized,
-      threadId,
-      text: this.formatConverter.extractPlainText(message.body),
-      formatted: this.formatConverter.toAst(message.body),
-      raw: message,
-      author: {
-        userId: contact.id._serialized,
-        userName: contact.pushname || contact.name || contact.id.user || "unknown",
-        fullName: contact.name || contact.pushname || contact.id.user || "unknown",
-        isBot: false,
-        isMe,
-      },
-      metadata: {
-        dateSent: new Date(message.timestamp * 1000),
-        edited: false,
-      },
-      attachments: message.hasMedia
-        ? [
-            {
-              type: "file" as const,
-              url: undefined,
-              name: undefined,
-              mimeType: undefined,
-              fetchData: async () => {
-                const media = await message.downloadMedia();
-                return Buffer.from(media.data, "base64");
-              },
-            },
-          ]
-        : [],
-      isMention,
-    });
-
-    try {
-      await this.chat.handleIncomingMessage(this, threadId, chatMessage);
-    } catch (error) {
-      this.logger.error("Error handling incoming message", {
-        error: String(error),
-        messageId: message.id._serialized,
-      });
-    }
-  }
-
-  private async checkIfMentioned(message: WAWebJS.Message): Promise<boolean> {
-    if (!this.botUserId) return false;
-    const mentions = await message.getMentions();
-    return mentions.some((m) => m.id._serialized === this.botUserId);
-  }
-
-  private async handleReaction(reaction: WAWebJS.Reaction): Promise<void> {
-    if (!this.chat) return;
-
-    const threadId = this.encodeThreadId({ chatId: reaction.id.remote });
-    const rawEmoji = reaction.reaction;
-    const normalizedEmoji = defaultEmojiResolver.fromGChat(rawEmoji);
-
-    const added = !!reaction.reaction;
-
-    const reactionEvent = {
-      adapter: this as Adapter,
-      threadId,
-      messageId: reaction.msgId._serialized,
-      emoji: normalizedEmoji,
-      rawEmoji,
-      added,
-      user: {
-        userId: reaction.senderId,
-        userName: reaction.senderId,
-        fullName: reaction.senderId,
-        isBot: false,
-        isMe: reaction.senderId === this.botUserId,
-      },
-      raw: reaction,
-    };
-
-    this.chat.processReaction(reactionEvent);
-  }
-
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
@@ -290,7 +217,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
     } else {
       content = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "whatsapp"
+        "whatsapp" //need to add platform 
       );
     }
 
@@ -305,8 +232,8 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
     let result: WAWebJS.Message;
 
     if (files.length > 0) {
-      const wa = await import("whatsapp-web.js");
-      const { MessageMedia } = (wa as unknown as { default?: typeof wa }).default ?? wa;
+      const MessageMedia = await getMessageMediaClass();
+      let lastSent: WAWebJS.Message | undefined;
       for (const file of files) {
         const buffer = await toBuffer(file.data, { platform: "whatsapp" });
         if (!buffer) continue;
@@ -315,22 +242,23 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
           buffer.toString("base64"),
           file.filename
         );
-        result = await this.client.sendMessage(chatId, media, {
+        lastSent = await this.client.sendMessage(chatId, media, {
           caption: content,
         });
       }
+      result = lastSent ?? (await this.client.sendMessage(chatId, content));
     } else {
       result = await this.client.sendMessage(chatId, content);
     }
 
     this.logger.debug("WhatsApp: message sent", {
-      messageId: result!.id._serialized,
+      messageId: result.id._serialized,
     });
 
     return {
-      id: result!.id._serialized,
+      id: result.id._serialized,
       threadId,
-      raw: result!,
+      raw: result,
     };
   }
 
@@ -343,6 +271,47 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       "whatsapp",
       "WhatsApp does not support editing messages via the Web API"
     );
+  }
+
+  /**
+   * Reply directly to a specific message (quotes the original).
+   * This uses WhatsApp's native reply feature.
+   */
+  async replyToMessage(
+    threadId: string,
+    messageId: string,
+    content: string | AdapterPostableMessage
+  ): Promise<RawMessage<unknown>> {
+    if (!this.client || !this.isReady) {
+      throw new NetworkError("whatsapp", "WhatsApp client not connected");
+    }
+
+    const { chatId } = this.decodeThreadId(threadId);
+    const chat = await this.client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 50 });
+    const targetMessage = messages.find((m) => m.id._serialized === messageId);
+
+    if (!targetMessage) {
+      throw new ValidationError("whatsapp", `Message not found: ${messageId}`);
+    }
+
+    const text =
+      typeof content === "string"
+        ? content
+        : this.formatConverter.renderPostable(content);
+
+    const result = await targetMessage.reply(text);
+
+    this.logger.debug("WhatsApp: replied to message", {
+      messageId,
+      replyId: result.id._serialized,
+    });
+
+    return {
+      id: result.id._serialized,
+      threadId,
+      raw: result,
+    };
   }
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
@@ -359,9 +328,10 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       await targetMessage.delete(true);
       this.logger.debug("WhatsApp: message deleted", { messageId });
     } else {
-      this.logger.warn("WhatsApp: cannot delete message (not found or not ours)", {
-        messageId,
-      });
+      this.logger.warn(
+        "WhatsApp: cannot delete message (not found or not ours)",
+        { messageId }
+      );
     }
   }
 
@@ -383,7 +353,10 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       const emojiStr =
         typeof emoji === "string" ? emoji : defaultEmojiResolver.toGChat(emoji);
       await targetMessage.react(emojiStr);
-      this.logger.debug("WhatsApp: reaction added", { messageId, emoji: emojiStr });
+      this.logger.debug("WhatsApp: reaction added", {
+        messageId,
+        emoji: emojiStr,
+      });
     }
   }
 
@@ -408,9 +381,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
   }
 
   async startTyping(threadId: string, _status?: string): Promise<void> {
-    if (!this.client || !this.isReady) {
-      return;
-    }
+    if (!this.client || !this.isReady) return;
 
     const { chatId } = this.decodeThreadId(threadId);
     const chat = await this.client.getChatById(chatId);
@@ -458,10 +429,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       })
     );
 
-    return {
-      messages,
-      nextCursor: undefined,
-    };
+    return { messages, nextCursor: undefined };
   }
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
@@ -478,10 +446,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
       channelId: chatId,
       channelName: chat.name,
       isDM: !isGroup,
-      metadata: {
-        isGroup,
-        raw: chat,
-      },
+      metadata: { isGroup, raw: chat },
     };
   }
 
@@ -507,9 +472,7 @@ export class WhatsAppAdapter implements Adapter<WhatsAppThreadId, unknown> {
         `Invalid WhatsApp thread ID: ${threadId}`
       );
     }
-    return {
-      chatId: parts.slice(1).join(":"),
-    };
+    return { chatId: parts.slice(1).join(":") };
   }
 
   parseMessage(raw: unknown): Message<unknown> {
@@ -564,6 +527,10 @@ export function createWhatsAppAdapter(
     userName: config?.userName,
     sessionPath: config?.sessionPath ?? process.env.WHATSAPP_SESSION_PATH,
     puppeteerOptions: config?.puppeteerOptions,
+    allowedNumbers: config?.allowedNumbers,
+    blockedNumbers: config?.blockedNumbers,
+    allowedGroups: config?.allowedGroups,
+    requireMentionInGroups: config?.requireMentionInGroups,
   };
   return new WhatsAppAdapter(resolved);
 }
