@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear. Write your bot logic once, deploy everywhere.
+A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, GitHub, Linear, and Feishu (Lark). Write your bot logic once, deploy everywhere.
 
 ## Installation
 
@@ -15,7 +15,7 @@ npm install chat
 Install adapters for your platforms:
 
 ```bash
-npm install @chat-adapter/slack @chat-adapter/teams @chat-adapter/gchat @chat-adapter/discord
+npm install @chat-adapter/slack @chat-adapter/teams @chat-adapter/gchat @chat-adapter/discord @chat-adapter/feishu
 ```
 
 ## Usage
@@ -55,6 +55,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+| Feishu | `@chat-adapter/feishu` | Yes | Yes | Yes | No | Post+Edit | Yes |
 
 ## Features
 
@@ -80,6 +81,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | `@chat-adapter/discord` | [Discord adapter](https://chat-sdk.dev/docs/adapters/discord) |
 | `@chat-adapter/github` | [GitHub adapter](https://chat-sdk.dev/docs/adapters/github) |
 | `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/docs/adapters/linear) |
+| `@chat-adapter/feishu` | [Feishu adapter](https://chat-sdk.dev/docs/adapters/feishu) |
 | `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
 | `@chat-adapter/state-ioredis` | [ioredis state adapter](https://chat-sdk.dev/docs/state/ioredis) (alternative) |
 | `@chat-adapter/state-memory` | [In-memory state adapter](https://chat-sdk.dev/docs/state/memory) (development) |

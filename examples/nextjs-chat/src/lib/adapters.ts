@@ -2,6 +2,7 @@ import {
   createDiscordAdapter,
   type DiscordAdapter,
 } from "@chat-adapter/discord";
+import { createFeishuAdapter, type FeishuAdapter } from "@chat-adapter/feishu";
 import {
   createGoogleChatAdapter,
   type GoogleChatAdapter,
@@ -18,6 +19,7 @@ const logger = new ConsoleLogger("info");
 
 export interface Adapters {
   discord?: DiscordAdapter;
+  feishu?: FeishuAdapter;
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
@@ -34,6 +36,15 @@ const DISCORD_METHODS = [
   "removeReaction",
   "startTyping",
   "openDM",
+  "fetchMessages",
+];
+const FEISHU_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
   "fetchMessages",
 ];
 const SLACK_METHODS = [
@@ -185,6 +196,17 @@ export function buildAdapters(): Adapters {
         "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
       );
     }
+  }
+
+  // Feishu adapter (optional) - env vars: FEISHU_APP_ID, FEISHU_APP_SECRET
+  if (process.env.FEISHU_APP_ID) {
+    adapters.feishu = withRecording(
+      createFeishuAdapter({
+        logger: logger.child("feishu"),
+      }),
+      "feishu",
+      FEISHU_METHODS
+    );
   }
 
   return adapters;

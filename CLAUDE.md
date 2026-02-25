@@ -35,6 +35,7 @@ pnpm --filter chat build
 pnpm --filter @chat-adapter/slack build
 pnpm --filter @chat-adapter/gchat build
 pnpm --filter @chat-adapter/teams build
+pnpm --filter @chat-adapter/feishu build
 
 # Run tests for a specific package
 pnpm --filter chat test
@@ -59,6 +60,7 @@ This is a **pnpm monorepo** using **Turborepo** for build orchestration. All pac
 - **`packages/adapter-slack`** - Slack adapter using `@slack/web-api`
 - **`packages/adapter-gchat`** - Google Chat adapter using `googleapis`
 - **`packages/adapter-teams`** - Microsoft Teams adapter using `botbuilder`
+- **`packages/adapter-feishu`** - Feishu (Lark) adapter using direct fetch
 - **`packages/state-memory`** - In-memory state adapter (for development/testing)
 - **`packages/state-redis`** - Redis state adapter (for production)
 - **`packages/integration-tests`** - Integration tests against real platform APIs
@@ -67,7 +69,7 @@ This is a **pnpm monorepo** using **Turborepo** for build orchestration. All pac
 ### Core Concepts
 
 1. **Chat** (`packages/chat-sdk/src/chat.ts` in `chat` package) - Main entry point that coordinates adapters and handlers
-2. **Adapter** - Platform-specific implementations (Slack, Teams, Google Chat). Each adapter:
+2. **Adapter** - Platform-specific implementations (Slack, Teams, Google Chat, Feishu). Each adapter:
    - Handles webhook verification and parsing
    - Converts platform-specific message formats to/from normalized format
    - Provides `FormatConverter` for markdown/AST transformations
@@ -82,6 +84,7 @@ All thread IDs follow the pattern: `{adapter}:{channel}:{thread}`
 - Slack: `slack:C123ABC:1234567890.123456`
 - Teams: `teams:{base64(conversationId)}:{base64(serviceUrl)}`
 - Google Chat: `gchat:spaces/ABC123:{base64(threadName)}`
+- Feishu: `feishu:oc_abc123:om_msg456`
 
 ### Message Handling Flow
 
@@ -160,6 +163,7 @@ cat /tmp/recording.json | jq '[.[] | select(.type == "webhook")] | group_by(.pla
 cat /tmp/recording.json | jq '[.[] | select(.type == "webhook" and .platform == "teams") | .body | fromjson]' > /tmp/teams-webhooks.json
 cat /tmp/recording.json | jq '[.[] | select(.type == "webhook" and .platform == "slack") | .body | fromjson]' > /tmp/slack-webhooks.json
 cat /tmp/recording.json | jq '[.[] | select(.type == "webhook" and .platform == "gchat") | .body | fromjson]' > /tmp/gchat-webhooks.json
+cat /tmp/recording.json | jq '[.[] | select(.type == "webhook" and .platform == "feishu") | .body | fromjson]' > /tmp/feishu-webhooks.json
 
 # Inspect specific webhook fields (e.g., Teams channelData)
 cat /tmp/teams-webhooks.json | jq '[.[] | {type, text, channelData, value}]'
@@ -208,6 +212,7 @@ Key env vars used (see `turbo.json` for full list):
 - `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` - Slack credentials
 - `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID` - Teams credentials
 - `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC` - Google Chat auth
+- `FEISHU_APP_ID`, `FEISHU_APP_SECRET` - Feishu credentials
 - `REDIS_URL` - Redis connection for state adapter
 - `BOT_USERNAME` - Default bot username
 

@@ -1,6 +1,6 @@
 # Next.js Chat Example
 
-A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear — configure whichever platforms you need via environment variables.
+A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, Linear, and Feishu (Lark) — configure whichever platforms you need via environment variables.
 
 ## Getting started
 
@@ -46,7 +46,7 @@ The app runs at `http://localhost:3000`. Platform webhooks should point to `/api
 - **Ephemeral messages** — user-only visible messages with DM fallback
 - **DMs** — programmatic direct message initiation
 - **File uploads** — attachment detection and display
-- **Multi-platform** — same bot logic across all six platforms
+- **Multi-platform** — same bot logic across all seven platforms
 
 ## Project structure
 
@@ -82,6 +82,10 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | `DISCORD_PUBLIC_KEY` | Discord interaction verification key |
 | `GITHUB_TOKEN` | GitHub PAT or App credentials |
 | `LINEAR_API_KEY` | Linear API key |
+| `FEISHU_APP_ID` | Feishu app ID |
+| `FEISHU_APP_SECRET` | Feishu app secret |
+| `FEISHU_ENCRYPT_KEY` | Feishu event encryption key (optional) |
+| `FEISHU_VERIFICATION_TOKEN` | Feishu webhook verification token (optional) |
 | `REDIS_URL` | Redis connection string |
 
 See the [Chat SDK docs](https://chat-sdk.dev/docs) for full platform setup guides.

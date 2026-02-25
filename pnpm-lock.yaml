@@ -174,6 +174,9 @@ importers:
       '@chat-adapter/discord':
         specifier: workspace:*
         version: link:../../packages/adapter-discord
+      '@chat-adapter/feishu':
+        specifier: workspace:*
+        version: link:../../packages/adapter-feishu
       '@chat-adapter/gchat':
         specifier: workspace:*
         version: link:../../packages/adapter-gchat
@@ -247,6 +250,28 @@ importers:
       discord.js:
         specifier: ^14.25.1
         version: 14.25.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.3)(lightningcss@1.30.2)
+
+  packages/adapter-feishu:
+    dependencies:
+      '@chat-adapter/shared':
+        specifier: workspace:*
+        version: link:../adapter-shared
+      chat:
+        specifier: workspace:*
+        version: link:../chat
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -8282,7 +8307,7 @@ snapshots:
 
   '@types/jsonwebtoken@9.0.6':
     dependencies:
-      '@types/node': 22.19.3
+      '@types/node': 24.10.13
 
   '@types/mdast@4.0.4':
     dependencies:
@@ -8321,11 +8346,11 @@ snapshots:
 
   '@types/ws@6.0.4':
     dependencies:
-      '@types/node': 22.19.3
+      '@types/node': 24.10.13
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 22.19.3
+      '@types/node': 24.10.13
 
   '@typespec/ts-http-runtime@0.3.2':
     dependencies:
