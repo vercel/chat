@@ -64,6 +64,7 @@ This is a **pnpm monorepo** using **Turborepo** for build orchestration. All pac
 - **`packages/adapter-teams`** - Microsoft Teams adapter using `botbuilder`
 - **`packages/state-memory`** - In-memory state adapter (for development/testing)
 - **`packages/state-redis`** - Redis state adapter (for production)
+- **`packages/adapter-whatsapp`** - WhatsApp adapter using Meta Cloud API
 - **`packages/integration-tests`** - Integration tests against real platform APIs
 - **`examples/nextjs-chat`** - Example Next.js app showing how to use the SDK
 
@@ -211,6 +212,7 @@ Key env vars used (see `turbo.json` for full list):
 - `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` - Slack credentials
 - `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID` - Teams credentials
 - `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC` - Google Chat auth
+- `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` - WhatsApp credentials
 - `REDIS_URL` - Redis connection for state adapter
 - `BOT_USERNAME` - Default bot username
 
