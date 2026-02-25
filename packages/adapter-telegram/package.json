@@ -37,5 +37,20 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-telegram"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "keywords": [
+    "chat",
+    "telegram",
+    "bot",
+    "adapter"
+  ],
   "license": "MIT"
 }
