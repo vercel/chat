@@ -38,6 +38,8 @@ export interface FeishuThreadId {
 export interface FeishuEventCallback {
   /** Challenge token for URL verification */
   challenge?: string;
+  /** Encrypted event payload (base64 AES-256-CBC) — present when encryptKey is configured */
+  encrypt?: string;
   /** Event data */
   event?: FeishuEvent;
   /** Event header */

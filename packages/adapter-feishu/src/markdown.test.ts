@@ -57,6 +57,26 @@ describe("FeishuFormatConverter", () => {
       const result = converter.fromAst(ast);
       expect(result).toContain('<at user_id="someone">someone</at>');
     });
+
+    it("should convert @mentions with hyphens", () => {
+      const ast = converter.toAst("Hello @user-name");
+      const result = converter.fromAst(ast);
+      expect(result).toContain('<at user_id="user-name">user-name</at>');
+    });
+
+    it("should convert @mentions with dots", () => {
+      const ast = converter.toAst("Hello @john.doe");
+      const result = converter.fromAst(ast);
+      expect(result).toContain('<at user_id="john.doe">john.doe</at>');
+    });
+
+    it("should convert @mentions with mixed special chars", () => {
+      const ast = converter.toAst("CC @first.last-name");
+      const result = converter.fromAst(ast);
+      expect(result).toContain(
+        '<at user_id="first.last-name">first.last-name</at>'
+      );
+    });
   });
 
   describe("toAst (Feishu markdown -> AST)", () => {
@@ -171,6 +191,13 @@ describe("FeishuFormatConverter", () => {
       const ast = converter.toAst("Hello **world**");
       const result = converter.renderPostable({ ast });
       expect(result).toContain("**world**");
+    });
+
+    it("should render @mentions with hyphens and dots", () => {
+      const result = converter.renderPostable("Hello @user-name and @john.doe");
+      expect(result).toBe(
+        'Hello <at user_id="user-name">user-name</at> and <at user_id="john.doe">john.doe</at>'
+      );
     });
   });
 

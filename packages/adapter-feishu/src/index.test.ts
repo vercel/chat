@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { Logger } from "chat";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -59,11 +60,13 @@ function restoreFeishuEnv(): void {
 function createTestAdapter(overrides?: {
   userName?: string;
   verificationToken?: string;
+  encryptKey?: string;
 }): FeishuAdapter {
   return new FeishuAdapter({
     appId: "test-app-id",
     appSecret: "test-app-secret",
     verificationToken: overrides?.verificationToken,
+    encryptKey: overrides?.encryptKey,
     logger: mockLogger,
     userName: overrides?.userName,
   });
@@ -130,6 +133,32 @@ function createMessageEventPayload(overrides?: {
       },
     },
   };
+}
+
+function encryptPayload(payload: object, encryptKey: string): string {
+  const hash = crypto.createHash("sha256");
+  hash.update(encryptKey);
+  const key = hash.digest();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  const plaintext = JSON.stringify(payload);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  return Buffer.concat([iv, encrypted]).toString("base64");
+}
+
+function computeSignature(
+  timestamp: string,
+  nonce: string,
+  encryptKey: string,
+  body: string
+): string {
+  return crypto
+    .createHash("sha256")
+    .update(timestamp + nonce + encryptKey + body)
+    .digest("hex");
 }
 
 afterEach(() => {
@@ -396,6 +425,149 @@ describe("handleWebhook", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(handleIncomingMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleWebhook - encrypted events", () => {
+  it("decrypts an encrypted event payload and processes it", async () => {
+    const encryptKey = "test-encrypt-key-123";
+    const adapter = createTestAdapter({
+      verificationToken: "test-token",
+      encryptKey,
+    });
+    const handleIncomingMessage = vi.fn(async () => {});
+    Object.defineProperty(adapter, "chat", {
+      value: { handleIncomingMessage },
+      writable: true,
+    });
+
+    const eventPayload = createMessageEventPayload({ token: "test-token" });
+    const encrypted = encryptPayload(eventPayload, encryptKey);
+    const body = JSON.stringify({ encrypt: encrypted });
+
+    // Create request with signature headers
+    const timestamp = "1700000000";
+    const nonce = "test-nonce-abc";
+    const signature = computeSignature(timestamp, nonce, encryptKey, body);
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": signature,
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(handleIncomingMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 400 when encrypted event received but no encryptKey configured", async () => {
+    const adapter = createTestAdapter(); // No encryptKey
+    const body = JSON.stringify({ encrypt: "some-encrypted-data" });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Encryption key not configured");
+  });
+
+  it("returns 400 when decryption fails due to wrong key", async () => {
+    const adapter = createTestAdapter({ encryptKey: "wrong-key" });
+    // Encrypt with a different key
+    const eventPayload = createMessageEventPayload();
+    const encrypted = encryptPayload(eventPayload, "correct-key");
+    const body = JSON.stringify({ encrypt: encrypted });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Decryption failed");
+  });
+});
+
+describe("handleWebhook - signature verification", () => {
+  it("accepts a request with valid signature", async () => {
+    const encryptKey = "test-encrypt-key";
+    const adapter = createTestAdapter({
+      verificationToken: "test-token",
+      encryptKey,
+    });
+
+    const payload = createMessageEventPayload({ token: "test-token" });
+    const body = JSON.stringify(payload);
+    const timestamp = "1700000000";
+    const nonce = "nonce123";
+    const signature = computeSignature(timestamp, nonce, encryptKey, body);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": signature,
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+  });
+
+  it("returns 401 for invalid signature", async () => {
+    const encryptKey = "test-encrypt-key";
+    const adapter = createTestAdapter({
+      verificationToken: "test-token",
+      encryptKey,
+    });
+
+    const payload = createMessageEventPayload({ token: "test-token" });
+    const body = JSON.stringify(payload);
+    const timestamp = "1700000000";
+    const nonce = "nonce123";
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": "invalid-signature-value",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Invalid signature");
+  });
+
+  it("skips signature verification when headers are absent", async () => {
+    const encryptKey = "test-encrypt-key";
+    const adapter = createTestAdapter({
+      verificationToken: "test-token",
+      encryptKey,
+    });
+
+    const payload = createMessageEventPayload({ token: "test-token" });
+    const body = JSON.stringify(payload);
+
+    // No signature headers
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+
+    // Should still succeed — signature verification is skipped when headers absent
+    expect(response.status).toBe(200);
   });
 });
 

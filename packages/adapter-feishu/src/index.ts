@@ -7,6 +7,7 @@
  * @see https://open.feishu.cn/document/server-docs/getting-started/getting-started
  */
 
+import crypto from "node:crypto";
 import {
   extractCard,
   extractFiles,
@@ -118,6 +119,42 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
       payload = JSON.parse(body);
     } catch {
       return new Response("Invalid JSON", { status: 400 });
+    }
+
+    // Decrypt event payload if encrypted
+    if (payload.encrypt) {
+      if (!this.encryptKey) {
+        this.logger.warn(
+          "Received encrypted event but no encryptKey is configured"
+        );
+        return new Response("Encryption key not configured", { status: 400 });
+      }
+      try {
+        const decryptedJson = this.decryptEvent(payload.encrypt);
+        payload = JSON.parse(decryptedJson);
+      } catch (error) {
+        this.logger.error("Failed to decrypt Feishu event", {
+          error: String(error),
+        });
+        return new Response("Decryption failed", { status: 400 });
+      }
+    }
+
+    // Verify event signature if encryptKey is configured
+    // Headers: X-Lark-Request-Timestamp, X-Lark-Request-Nonce, X-Lark-Signature
+    if (this.encryptKey) {
+      const timestamp = request.headers.get("x-lark-request-timestamp");
+      const nonce = request.headers.get("x-lark-request-nonce");
+      const signature = request.headers.get("x-lark-signature");
+
+      // Only verify if signature headers are present (they may be absent for URL verification)
+      if (timestamp && nonce && signature) {
+        const isValid = this.verifySignature(timestamp, nonce, body, signature);
+        if (!isValid) {
+          this.logger.warn("Feishu event signature verification failed");
+          return new Response("Invalid signature", { status: 401 });
+        }
+      }
     }
 
     // Handle URL verification challenge
@@ -332,11 +369,19 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
       mimeType?: string;
     }>
   ): Promise<RawMessage<unknown>> {
-    // Post the first file as an image if possible, otherwise as a file
-    // Feishu only supports one attachment per message
     const file = files[0];
     if (!file) {
       throw new NetworkError("feishu", "No files to upload");
+    }
+
+    // Warn if multiple files were provided since Feishu only supports one attachment per message
+    if (files.length > 1) {
+      this.logger.warn(
+        `Feishu only supports one attachment per message. Sending first file only, ${files.length - 1} file(s) dropped: ${files
+          .slice(1)
+          .map((f) => f.filename)
+          .join(", ")}`
+      );
     }
 
     const buffer = await toBuffer(file.data, {
@@ -502,12 +547,42 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
     });
 
     try {
+      // List reactions on the message to find the correct reaction_id (UUID)
+      // Feishu API requires a UUID reaction_id for deletion, not the emoji type string
+      const listResponse = await this.client.im.messageReaction.list({
+        path: { message_id: messageId },
+        params: { reaction_type: emojiType },
+      });
+
+      const items =
+        (
+          listResponse as {
+            data?: {
+              items?: Array<{
+                reaction_id?: string;
+                reaction_type?: { emoji_type?: string };
+              }>;
+            };
+          }
+        ).data?.items ?? [];
+
+      // Find a reaction matching the emoji type (prefer our bot's reaction)
+      const match = items.find(
+        (item) => item.reaction_type?.emoji_type === emojiType
+      );
+
+      if (!match?.reaction_id) {
+        this.logger.warn("Feishu API: No matching reaction found to remove", {
+          messageId,
+          emojiType,
+        });
+        return;
+      }
+
       await this.client.im.messageReaction.delete({
         path: {
           message_id: messageId,
-          // The Feishu SDK may require the reaction_id, but we use emoji_type
-          // This is a simplified approach; production may need to list reactions first
-          reaction_id: emojiType,
+          reaction_id: match.reaction_id,
         },
       });
       this.logger.debug("Feishu API: DELETE reaction response", { ok: true });
@@ -803,6 +878,59 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
     return this.formatConverter.fromAst(content);
   }
 
+  /**
+   * Decrypt an encrypted event payload using AES-256-CBC.
+   * Algorithm matches the official Feishu SDK:
+   * 1. Key = SHA-256 hash of the encryptKey string
+   * 2. Ciphertext = Base64-decoded encrypt string
+   * 3. IV = first 16 bytes of ciphertext
+   * 4. Decrypt remaining bytes with AES-256-CBC
+   *
+   * @see https://github.com/larksuite/node-sdk/blob/main/utils/aes-cipher.ts
+   */
+  private decryptEvent(encryptedString: string): string {
+    if (!this.encryptKey) {
+      throw new Error("encryptKey is required for decryption");
+    }
+
+    const hash = crypto.createHash("sha256");
+    hash.update(this.encryptKey);
+    const key = hash.digest();
+
+    const encryptBuffer = Buffer.from(encryptedString, "base64");
+    const iv = encryptBuffer.subarray(0, 16);
+    const ciphertext = encryptBuffer.subarray(16);
+
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    let decrypted = decipher.update(ciphertext.toString("hex"), "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  }
+
+  /**
+   * Verify the event signature using SHA-256.
+   * Formula: sha256(timestamp + nonce + encryptKey + body)
+   *
+   * @see https://github.com/larksuite/node-sdk/blob/main/dispatcher/request-handle.ts
+   */
+  private verifySignature(
+    timestamp: string,
+    nonce: string,
+    body: string,
+    expectedSignature: string
+  ): boolean {
+    if (!this.encryptKey) {
+      return true;
+    }
+
+    const content = timestamp + nonce + this.encryptKey + body;
+    const computedSignature = crypto
+      .createHash("sha256")
+      .update(content)
+      .digest("hex");
+
+    return computedSignature === expectedSignature;
+  }
   /**
    * Resolve an emoji value to a Feishu emoji type string.
    */

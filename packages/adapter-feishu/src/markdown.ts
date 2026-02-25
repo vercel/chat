@@ -38,7 +38,7 @@ export class FeishuFormatConverter extends BaseFormatConverter {
    * @name → <at user_id="name">name</at>
    */
   private convertMentionsToFeishu(text: string): string {
-    return text.replace(/@(\w+)/g, '<at user_id="$1">$1</at>');
+    return text.replace(/@([\w.-]+)/g, '<at user_id="$1">$1</at>');
   }
 
   /**
@@ -92,7 +92,7 @@ export class FeishuFormatConverter extends BaseFormatConverter {
 
     if (isTextNode(node)) {
       // Convert @mentions to Feishu format
-      return node.value.replace(/@(\w+)/g, '<at user_id="$1">$1</at>');
+      return node.value.replace(/@([\w.-]+)/g, '<at user_id="$1">$1</at>');
     }
 
     if (isStrongNode(node)) {
