@@ -78,6 +78,13 @@ describe("decodeThreadId", () => {
       "Invalid WhatsApp thread ID"
     );
   });
+
+  it("should throw on extra segments", () => {
+    const adapter = createTestAdapter();
+    expect(() => adapter.decodeThreadId("whatsapp:123:456:extra")).toThrow(
+      "Invalid WhatsApp thread ID format"
+    );
+  });
 });
 
 describe("encodeThreadId / decodeThreadId roundtrip", () => {
@@ -423,7 +430,7 @@ describe("parseMessage - media attachments", () => {
   });
 });
 
-describe("parseMessage - isMention", () => {
+describe("parseMessage - isMention and threadId", () => {
   it("should set isMention to true for all messages", () => {
     const adapter = createTestAdapter();
     const raw = {
@@ -438,6 +445,22 @@ describe("parseMessage - isMention", () => {
     };
     const message = adapter.parseMessage(raw);
     expect(message.isMention).toBe(true);
+  });
+
+  it("should encode threadId from phoneNumberId and sender", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.THREAD001",
+        from: "15559876543",
+        timestamp: "1700000000",
+        type: "text" as const,
+        text: { body: "test" },
+      },
+      phoneNumberId: "987654321",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.threadId).toBe("whatsapp:987654321:15559876543");
   });
 });
 

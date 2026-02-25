@@ -186,11 +186,11 @@ function renderChild(child: CardChild): string[] {
 function renderText(text: TextElement): string[] {
   switch (text.style) {
     case "bold":
-      return [`*${text.content}*`];
+      return [`*${escapeWhatsApp(text.content)}*`];
     case "muted":
-      return [`_${text.content}_`];
+      return [`_${escapeWhatsApp(text.content)}_`];
     default:
-      return [text.content];
+      return [escapeWhatsApp(text.content)];
   }
 }
 
@@ -293,7 +293,12 @@ function buildBodyText(card: CardElement): string {
  * Escape WhatsApp formatting characters.
  */
 function escapeWhatsApp(text: string): string {
-  return text.replace(/\*/g, "\\*").replace(/_/g, "\\_").replace(/~/g, "\\~");
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/~/g, "\\~")
+    .replace(/`/g, "\\`");
 }
 
 /**
