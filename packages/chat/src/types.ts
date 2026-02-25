@@ -37,7 +37,7 @@ export interface ChatConfig<
   adapters: TAdapters;
   /**
    * TTL for message deduplication entries in milliseconds.
-   * Defaults to 60000 (60 seconds). Increase if your webhook cold starts
+   * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
    * cause platform retries that arrive after the default TTL expires.
    */
   dedupeTtlMs?: number;

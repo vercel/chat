@@ -49,7 +49,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 | `state` | `StateAdapter` | **required** | State adapter for subscriptions, locking, and dedup |
 | `logger` | `Logger \| LogLevel` | `"info"` | Logger instance or log level (`"silent"` to disable) |
 | `streamingUpdateIntervalMs` | `number` | `500` | Update interval for fallback streaming (post + edit) in ms |
-| `dedupeTtlMs` | `number` | `60000` | TTL for message deduplication entries in ms. Increase if webhook cold starts cause platform retries (e.g., Slack's `http_timeout` retry) that arrive after the default window |
+| `dedupeTtlMs` | `number` | `300000` | TTL for message deduplication entries in ms. Increase if webhook cold starts cause platform retries (e.g., Slack's `http_timeout` retry) that arrive after the default window |
 
 ## AI coding agent support
 
