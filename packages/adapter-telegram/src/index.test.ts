@@ -1,9 +1,16 @@
-import { ValidationError } from "@chat-adapter/shared";
+import {
+  AdapterRateLimitError,
+  AuthenticationError,
+  NetworkError,
+  PermissionError,
+  ValidationError,
+} from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTelegramAdapter,
   TelegramAdapter,
+  type TelegramReactionType,
   type TelegramMessage,
 } from "./index";
 import { encodeTelegramCallbackData } from "./cards";
@@ -32,6 +39,26 @@ function telegramOk(result: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function telegramError(
+  status: number,
+  errorCode: number,
+  description: string,
+  parameters?: { retry_after?: number }
+): Response {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error_code: errorCode,
+      description,
+      parameters,
+    }),
+    {
+      status,
+      headers: { "content-type": "application/json" },
+    }
+  );
 }
 
 function createMockChat(): ChatInstance {
@@ -169,6 +196,42 @@ describe("TelegramAdapter", () => {
     expect(parsedMessage.isMention).toBe(true);
   });
 
+  it("rejects webhook requests with invalid secret token", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      secretToken: "expected-secret",
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": "wrong-secret",
+      },
+      body: JSON.stringify({ update_id: 1 }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 400 for invalid webhook JSON", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{invalid-json",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(400);
+  });
+
   it("posts, edits, deletes, and sends typing events", async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -283,6 +346,7 @@ describe("TelegramAdapter", () => {
 
     const row = sendMessageBody.reply_markup?.inline_keyboard[0];
     expect(row).toBeDefined();
+    expect(sendMessageBody.parse_mode).toBe("Markdown");
     expect(row?.[0]).toEqual({
       text: "Approve",
       callback_data: encodeTelegramCallbackData("approve", "request-123"),
@@ -330,6 +394,72 @@ describe("TelegramAdapter", () => {
 
     expect(addBody.reaction[0]).toEqual({ type: "emoji", emoji: "👍" });
     expect(removeBody.reaction).toEqual([]);
+  });
+
+  it("processes Telegram reaction updates for added and removed emoji", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const oldReaction: TelegramReactionType[] = [
+      { type: "emoji", emoji: "❤️" },
+      { type: "emoji", emoji: "🔥" },
+    ];
+    const newReaction: TelegramReactionType[] = [
+      { type: "emoji", emoji: "❤️" },
+      { type: "emoji", emoji: "🚀" },
+    ];
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 7,
+        message_reaction: {
+          chat: { id: 123, type: "private", first_name: "User" },
+          message_id: 11,
+          date: 1735689600,
+          old_reaction: oldReaction,
+          new_reaction: newReaction,
+          user: {
+            id: 456,
+            is_bot: false,
+            first_name: "User",
+            username: "user",
+          },
+        },
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processReaction = chat.processReaction as ReturnType<typeof vi.fn>;
+    expect(processReaction).toHaveBeenCalledTimes(2);
+
+    const [addedEvent] = processReaction.mock.calls[0] as [{ added: boolean; rawEmoji: string }];
+    const [removedEvent] = processReaction.mock.calls[1] as [
+      { added: boolean; rawEmoji: string },
+    ];
+
+    expect(addedEvent.added).toBe(true);
+    expect(addedEvent.rawEmoji).toBe("🚀");
+    expect(removedEvent.added).toBe(false);
+    expect(removedEvent.rawEmoji).toBe("🔥");
   });
 
   it("paginates cached messages", async () => {
@@ -439,5 +569,214 @@ describe("TelegramAdapter", () => {
 
     expect(event.actionId).toBe("approve");
     expect(event.value).toBe("request-123");
+  });
+
+  it("falls back to raw callback data for non-encoded callback payloads", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 3,
+        callback_query: {
+          id: "callback-2",
+          from: {
+            id: 456,
+            is_bot: false,
+            first_name: "User",
+            username: "user",
+          },
+          message: sampleMessage(),
+          chat_instance: "ci_2",
+          data: "legacy_action",
+        },
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processAction = chat.processAction as ReturnType<typeof vi.fn>;
+    expect(processAction).toHaveBeenCalledTimes(1);
+
+    const [event] = processAction.mock.calls[0] as [
+      {
+        actionId: string;
+        value?: string;
+      },
+    ];
+
+    expect(event.actionId).toBe("legacy_action");
+    expect(event.value).toBe("legacy_action");
+  });
+
+  it("fetches thread and channel metadata", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: -100123,
+          type: "supergroup",
+          title: "General",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: -100123,
+          type: "supergroup",
+          title: "General",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(42));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    const thread = await adapter.fetchThread("telegram:-100123:99");
+    const channel = await adapter.fetchChannelInfo("-100123");
+
+    expect(thread.channelId).toBe("-100123");
+    expect(thread.channelName).toBe("General");
+    expect(thread.metadata.messageThreadId).toBe(99);
+
+    expect(channel.id).toBe("-100123");
+    expect(channel.name).toBe("General");
+    expect(channel.memberCount).toBe(42);
+  });
+
+  it("returns undefined memberCount when getChatMemberCount fails", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: -100123,
+          type: "supergroup",
+          title: "General",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramError(403, 403, "Forbidden: bot is not an administrator")
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    const channel = await adapter.fetchChannelInfo("-100123");
+    expect(channel.memberCount).toBeUndefined();
+  });
+
+  it("maps Telegram API errors to adapter-specific error types", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      telegramError(401, 401, "Unauthorized")
+    );
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      AuthenticationError
+    );
+
+    mockFetch.mockResolvedValueOnce(
+      telegramError(429, 429, "Too Many Requests", { retry_after: 5 })
+    );
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      AdapterRateLimitError
+    );
+
+    mockFetch.mockResolvedValueOnce(
+      telegramError(403, 403, "Forbidden")
+    );
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      PermissionError
+    );
+
+    mockFetch.mockResolvedValueOnce(
+      telegramError(400, 400, "Bad Request")
+    );
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      ValidationError
+    );
+  });
+
+  it("throws NetworkError when Telegram returns non-JSON response", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response("<html>oops</html>", {
+        status: 500,
+        headers: { "content-type": "text/html" },
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      NetworkError
+    );
+  });
+
+  it("throws NetworkError when Telegram API response has no result", async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await expect(adapter.startTyping("telegram:123")).rejects.toBeInstanceOf(
+      NetworkError
+    );
   });
 });
