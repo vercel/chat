@@ -6,6 +6,7 @@ import {
   NetworkError,
   ValidationError,
 } from "@chat-adapter/shared";
+import { auth, chat, type chat_v1 } from "@googleapis/chat";
 import type {
   ActionEvent,
   Adapter,
@@ -34,7 +35,6 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
-import { auth, chat, type chat_v1 } from "@googleapis/chat";
 import { cardToGoogleCard } from "./cards";
 import { GoogleChatFormatConverter } from "./markdown";
 import {
