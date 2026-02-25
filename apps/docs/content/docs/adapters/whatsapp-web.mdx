@@ -1,0 +1,265 @@
+---
+title: WhatsApp Web
+description: Configure the WhatsApp Web adapter using whatsapp-web.js with QR code authentication.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/whatsapp-web
+```
+
+## Usage
+
+The adapter requires a persistent process for QR code authentication and maintaining the WebSocket connection:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createWhatsAppAdapter } from "@chat-adapter/whatsapp-web";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    whatsapp: createWhatsAppAdapter({
+      sessionDataPath: "./whatsapp-session",
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from WhatsApp!");
+});
+
+// Initialize to start QR code auth and connect
+await bot.adapters.whatsapp.initialize();
+```
+
+## WhatsApp setup
+
+### 1. First run (QR code auth)
+
+On first run, the adapter generates a QR code in the terminal:
+
+```
+[WhatsApp] QR Code (scan in WhatsApp):
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█ ▄▄▄▄▄ █...
+```
+
+1. Open WhatsApp on your phone
+2. Go to **Linked Devices** (Settings → Linked Devices)
+3. Tap **Link a Device**
+4. Scan the QR code displayed in the terminal
+
+### 2. Session persistence
+
+The adapter saves session data to the path specified in `sessionDataPath`. On subsequent runs, it reconnects automatically without requiring QR code scan.
+
+```typescript title="lib/bot.ts"
+createWhatsAppAdapter({
+  sessionDataPath: "./whatsapp-session", // Session stored here
+});
+```
+
+<Callout type="warn">
+Keep the session directory secure. Anyone with access to these files can impersonate your WhatsApp account.
+</Callout>
+
+## Architecture
+
+Unlike other adapters that use webhooks, the WhatsApp Web adapter:
+
+- Maintains a persistent WebSocket connection via Puppeteer
+- Uses `whatsapp-web.js` library under the hood
+- Requires a long-running process (not suitable for serverless)
+- Supports both direct messages and group chats
+
+## Message filtering
+
+The adapter supports filtering to control which messages are processed:
+
+| Option | Description |
+|--------|-------------|
+| `blockedNumbers` | Array of phone numbers to ignore (e.g., `["1234567890"]`) |
+| `allowedGroups` | Array of group IDs to accept messages from (ignores other groups) |
+| `requireMentionInGroups` | If `true`, only process group messages where the bot is @mentioned |
+
+### Filtering examples
+
+Block specific numbers:
+
+```typescript title="lib/bot.ts"
+createWhatsAppAdapter({
+  blockedNumbers: ["1234567890", "0987654321"],
+});
+```
+
+Only respond in specific groups:
+
+```typescript title="lib/bot.ts"
+createWhatsAppAdapter({
+  allowedGroups: ["120363123456789012@g.us"],
+});
+```
+
+Require @mention in groups (respond to all DMs, but only mentioned messages in groups):
+
+```typescript title="lib/bot.ts"
+createWhatsAppAdapter({
+  requireMentionInGroups: true,
+});
+```
+
+Combine filters:
+
+```typescript title="lib/bot.ts"
+createWhatsAppAdapter({
+  blockedNumbers: ["1234567890"],
+  allowedGroups: ["120363123456789012@g.us"],
+  requireMentionInGroups: true,
+});
+```
+
+## Media handling
+
+### Receiving media
+
+Incoming media (images, videos, audio, documents) is available via `message.attachments`:
+
+```typescript title="lib/bot.ts"
+bot.onNewMessage(async (thread, message) => {
+  for (const attachment of message.attachments) {
+    console.log(`Received: ${attachment.name} (${attachment.mimeType})`);
+    
+    // Download the media data
+    const buffer = await attachment.fetchData();
+    // Process buffer...
+  }
+});
+```
+
+Media is lazy-loaded — `fetchData()` downloads only when called.
+
+### Sending media
+
+Use `thread.post()` with the `files` option:
+
+```typescript title="lib/bot.ts"
+import { FileUpload } from "chat";
+
+bot.onNewMessage(async (thread, message) => {
+  if (message.text === "!image") {
+    await thread.post({
+      markdown: "Here's an image:",
+      files: [
+        FileUpload.fromBuffer(imageBuffer, "photo.jpg", "image/jpeg"),
+      ],
+    });
+  }
+});
+```
+
+## Reply to messages
+
+Use `replyToMessage()` for quoted replies:
+
+```typescript title="lib/bot.ts"
+const adapter = bot.adapters.whatsapp;
+
+bot.onNewMessage(async (thread, message) => {
+  // Reply directly to the incoming message (quoted reply)
+  await adapter.replyToMessage(thread.id, message.id, "Got your message!");
+});
+```
+
+## Configuration
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `sessionDataPath` | No | Path to store session data (default: `./.wwebjs_auth`) |
+| `blockedNumbers` | No | Array of phone numbers to ignore |
+| `allowedGroups` | No | Array of group IDs to accept (ignores others) |
+| `requireMentionInGroups` | No | Only process group messages with @mentions |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Mentions | Yes |
+| Reactions (add/remove) | Yes (add only) |
+| Cards | No |
+| Modals | No |
+| Streaming | No |
+| DMs | Yes |
+| Ephemeral messages | No |
+| File uploads | Yes |
+| Typing indicator | No |
+| Message history | No |
+
+## Thread ID format
+
+Thread IDs follow the pattern: `whatsapp:{chatId}`
+
+- DMs: `whatsapp:1234567890@c.us`
+- Groups: `whatsapp:120363123456789012@g.us`
+
+## Running in production
+
+Since the adapter requires a persistent connection, deploy as a long-running process:
+
+```typescript title="bot.ts"
+import { Chat } from "chat";
+import { createWhatsAppAdapter } from "@chat-adapter/whatsapp-web";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    whatsapp: createWhatsAppAdapter({
+      sessionDataPath: "/data/whatsapp-session",
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`Hello! You said: ${message.text}`);
+});
+
+async function main() {
+  await bot.adapters.whatsapp.initialize();
+  console.log("WhatsApp bot is running");
+}
+
+main().catch(console.error);
+```
+
+Run with:
+
+```sh title="Terminal"
+node --loader ts-node/esm bot.ts
+# or
+tsx bot.ts
+```
+
+## Troubleshooting
+
+### QR code not appearing
+
+1. **Check terminal support**: Some terminals don't render QR codes well. Try a different terminal emulator
+2. **Verify dependencies**: Ensure `qrcode-terminal` is installed
+3. **Check for existing session**: Delete the session folder to force new QR auth
+
+### Connection drops
+
+1. **Session expired**: WhatsApp sessions expire after inactivity. Delete session folder and re-authenticate
+2. **Rate limiting**: WhatsApp may disconnect if sending too many messages. Add delays between messages
+3. **Phone disconnected**: The linked device requires your phone to have internet connectivity
+
+### Messages not being received
+
+1. **Check filters**: Verify `blockedNumbers`, `allowedGroups`, and `requireMentionInGroups` settings
+2. **Handler registration**: Ensure handlers are registered before calling `initialize()`
+3. **Group permissions**: Bot account needs to be a participant in the group
