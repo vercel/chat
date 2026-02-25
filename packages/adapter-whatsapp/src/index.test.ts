@@ -236,6 +236,211 @@ describe("parseMessage", () => {
   });
 });
 
+describe("parseMessage - media attachments", () => {
+  it("should create an image attachment with fetchData", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.IMG001",
+        from: "15551234567",
+        timestamp: "1700000200",
+        type: "image" as const,
+        image: {
+          id: "media-img-123",
+          mime_type: "image/jpeg",
+          sha256: "abc",
+          caption: "A photo",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("A photo");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("image");
+    expect(message.attachments[0].mimeType).toBe("image/jpeg");
+    expect(typeof message.attachments[0].fetchData).toBe("function");
+  });
+
+  it("should create a document attachment with filename", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.DOC001",
+        from: "15551234567",
+        timestamp: "1700000300",
+        type: "document" as const,
+        document: {
+          id: "media-doc-456",
+          mime_type: "application/pdf",
+          sha256: "def",
+          filename: "report.pdf",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Document: report.pdf]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("file");
+    expect(message.attachments[0].mimeType).toBe("application/pdf");
+    expect(message.attachments[0].name).toBe("report.pdf");
+  });
+
+  it("should create an audio attachment", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.AUD001",
+        from: "15551234567",
+        timestamp: "1700000400",
+        type: "audio" as const,
+        audio: {
+          id: "media-aud-789",
+          mime_type: "audio/ogg",
+          sha256: "ghi",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Audio message]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("audio");
+    expect(message.attachments[0].mimeType).toBe("audio/ogg");
+  });
+
+  it("should create a video attachment", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.VID001",
+        from: "15551234567",
+        timestamp: "1700000500",
+        type: "video" as const,
+        video: {
+          id: "media-vid-101",
+          mime_type: "video/mp4",
+          sha256: "jkl",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Video]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("video");
+    expect(message.attachments[0].mimeType).toBe("video/mp4");
+  });
+
+  it("should create a sticker attachment as image type", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.STK001",
+        from: "15551234567",
+        timestamp: "1700000600",
+        type: "sticker" as const,
+        sticker: {
+          id: "media-stk-202",
+          mime_type: "image/webp",
+          sha256: "mno",
+          animated: false,
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Sticker]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("image");
+    expect(message.attachments[0].mimeType).toBe("image/webp");
+    expect(message.attachments[0].name).toBe("sticker");
+  });
+
+  it("should create a location attachment with Google Maps URL", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.LOC001",
+        from: "15551234567",
+        timestamp: "1700000700",
+        type: "location" as const,
+        location: {
+          latitude: 37.7749,
+          longitude: -122.4194,
+          name: "San Francisco",
+          address: "CA, USA",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Location: San Francisco - CA, USA]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("file");
+    expect(message.attachments[0].name).toBe("San Francisco");
+    expect(message.attachments[0].url).toBe(
+      "https://www.google.com/maps?q=37.7749,-122.4194"
+    );
+  });
+
+  it("should format location text with coordinates when no name", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.LOC002",
+        from: "15551234567",
+        timestamp: "1700000800",
+        type: "location" as const,
+        location: {
+          latitude: 48.8566,
+          longitude: 2.3522,
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Location: 48.8566, 2.3522]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].name).toBe("Location");
+  });
+
+  it("should have no attachments for plain text messages", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.TXT001",
+        from: "15551234567",
+        timestamp: "1700000000",
+        type: "text" as const,
+        text: { body: "Hello" },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.attachments).toHaveLength(0);
+  });
+});
+
+describe("parseMessage - isMention", () => {
+  it("should set isMention to true for all messages", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.MENTION001",
+        from: "15551234567",
+        timestamp: "1700000000",
+        type: "text" as const,
+        text: { body: "Hello" },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.isMention).toBe(true);
+  });
+});
+
 describe("handleWebhook - verification challenge", () => {
   it("should respond to valid verification challenge", async () => {
     const adapter = createTestAdapter();
