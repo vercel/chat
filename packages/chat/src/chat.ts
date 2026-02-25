@@ -48,7 +48,7 @@ const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
 const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
 /** TTL for message deduplication entries */
-const DEDUPE_TTL_MS = 60_000; // 60 seconds
+const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
