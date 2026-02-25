@@ -111,6 +111,13 @@ export interface WhatsAppContact {
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
  */
 export interface WhatsAppInboundMessage {
+  /** Audio message content */
+  audio?: {
+    id: string;
+    mime_type: string;
+    sha256: string;
+    voice?: boolean;
+  };
   /** Context for quoted replies */
   context?: {
     from: string;
@@ -148,10 +155,25 @@ export interface WhatsAppInboundMessage {
     };
     type: "button_reply" | "list_reply";
   };
+  /** Location message content */
+  location?: {
+    address?: string;
+    latitude: number;
+    longitude: number;
+    name?: string;
+    url?: string;
+  };
   /** Reaction to a message */
   reaction?: {
     emoji: string;
     message_id: string;
+  };
+  /** Sticker message content */
+  sticker?: {
+    animated: boolean;
+    id: string;
+    mime_type: string;
+    sha256: string;
   };
   /** Text message content */
   text?: {
@@ -173,6 +195,27 @@ export interface WhatsAppInboundMessage {
     | "reaction"
     | "order"
     | "system";
+  /** Video message content */
+  video?: {
+    caption?: string;
+    id: string;
+    mime_type: string;
+    sha256: string;
+  };
+}
+
+/**
+ * Response from the media URL endpoint.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#get-media-url
+ */
+export interface WhatsAppMediaResponse {
+  file_size: number;
+  id: string;
+  messaging_product: "whatsapp";
+  mime_type: string;
+  sha256: string;
+  url: string;
 }
 
 /**

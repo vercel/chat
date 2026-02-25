@@ -3,6 +3,7 @@ import { extractCard, ValidationError } from "@chat-adapter/shared";
 import type {
   Adapter,
   AdapterPostableMessage,
+  Attachment,
   Author,
   ChatInstance,
   EmojiValue,
@@ -22,6 +23,7 @@ import type {
   WhatsAppAdapterConfig,
   WhatsAppContact,
   WhatsAppInboundMessage,
+  WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppSendResponse,
   WhatsAppThreadId,
@@ -34,6 +36,7 @@ const GRAPH_API_URL = "https://graph.facebook.com/v21.0";
 // Re-export types
 export type {
   WhatsAppAdapterConfig,
+  WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppThreadId,
 } from "./types";
@@ -373,8 +376,20 @@ export class WhatsAppAdapter
         return "[Video]";
       case "sticker":
         return "[Sticker]";
-      case "location":
+      case "location": {
+        const loc = message.location;
+        if (loc) {
+          const parts = [`[Location: ${loc.latitude}, ${loc.longitude}`];
+          if (loc.name) {
+            parts[0] = `[Location: ${loc.name}`;
+          }
+          if (loc.address) {
+            parts.push(loc.address);
+          }
+          return `${parts.join(" - ")}]`;
+        }
         return "[Location]";
+      }
       default:
         return null;
     }
@@ -405,6 +420,8 @@ export class WhatsAppAdapter
       phoneNumberId: this.phoneNumberId,
     };
 
+    const attachments = this.buildAttachments(inbound);
+
     return new Message<WhatsAppRawMessage>({
       id: inbound.id,
       threadId,
@@ -412,12 +429,153 @@ export class WhatsAppAdapter
       formatted,
       raw,
       author,
+      // All WhatsApp messages are DMs directly to the bot
+      isMention: true,
       metadata: {
         dateSent: new Date(Number.parseInt(inbound.timestamp, 10) * 1000),
         edited: false,
       },
-      attachments: [],
+      attachments,
     });
+  }
+
+  /**
+   * Build attachments from an inbound message.
+   */
+  private buildAttachments(inbound: WhatsAppInboundMessage): Attachment[] {
+    const attachments: Attachment[] = [];
+
+    if (inbound.image) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.image.id,
+          "image",
+          inbound.image.mime_type
+        )
+      );
+    }
+
+    if (inbound.document) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.document.id,
+          "file",
+          inbound.document.mime_type,
+          inbound.document.filename
+        )
+      );
+    }
+
+    if (inbound.audio) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.audio.id,
+          "audio",
+          inbound.audio.mime_type
+        )
+      );
+    }
+
+    if (inbound.video) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.video.id,
+          "video",
+          inbound.video.mime_type
+        )
+      );
+    }
+
+    if (inbound.sticker) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.sticker.id,
+          "image",
+          inbound.sticker.mime_type,
+          "sticker"
+        )
+      );
+    }
+
+    if (inbound.location) {
+      const loc = inbound.location;
+      const mapUrl = `https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`;
+      attachments.push({
+        type: "file",
+        name: loc.name || "Location",
+        url: mapUrl,
+        mimeType: "application/geo+json",
+      });
+    }
+
+    return attachments;
+  }
+
+  /**
+   * Build a single media attachment with a lazy fetchData function.
+   */
+  private buildMediaAttachment(
+    mediaId: string,
+    type: Attachment["type"],
+    mimeType: string,
+    name?: string
+  ): Attachment {
+    return {
+      type,
+      mimeType,
+      name,
+      fetchData: () => this.downloadMedia(mediaId),
+    };
+  }
+
+  /**
+   * Download media from WhatsApp.
+   *
+   * WhatsApp media is fetched in two steps:
+   * 1. GET the media metadata to obtain the download URL
+   * 2. GET the actual binary data from the download URL
+   *
+   * @param mediaId - The media ID from the inbound message
+   * @returns The media data as a Buffer
+   *
+   * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#download-media
+   */
+  async downloadMedia(mediaId: string): Promise<Buffer> {
+    // Step 1: Get the media URL
+    const metaResponse = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+
+    if (!metaResponse.ok) {
+      const errorBody = await metaResponse.text();
+      this.logger.error("Failed to get media URL", {
+        status: metaResponse.status,
+        body: errorBody,
+        mediaId,
+      });
+      throw new Error(
+        `Failed to get media URL: ${metaResponse.status} ${errorBody}`
+      );
+    }
+
+    const mediaInfo: WhatsAppMediaResponse =
+      (await metaResponse.json()) as WhatsAppMediaResponse;
+
+    // Step 2: Download the actual file
+    const dataResponse = await fetch(mediaInfo.url, {
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+
+    if (!dataResponse.ok) {
+      this.logger.error("Failed to download media", {
+        status: dataResponse.status,
+        mediaId,
+      });
+      throw new Error(`Failed to download media: ${dataResponse.status}`);
+    }
+
+    const arrayBuffer = await dataResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   }
 
   /**
@@ -731,6 +889,7 @@ export class WhatsAppAdapter
   parseMessage(raw: WhatsAppRawMessage): Message<WhatsAppRawMessage> {
     const text = this.extractTextContent(raw.message) || "";
     const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const attachments = this.buildAttachments(raw.message);
 
     return new Message<WhatsAppRawMessage>({
       id: raw.message.id,
@@ -744,11 +903,12 @@ export class WhatsAppAdapter
         isBot: false,
         isMe: raw.message.from === this._botUserId,
       },
+      isMention: true,
       metadata: {
         dateSent: new Date(Number.parseInt(raw.message.timestamp, 10) * 1000),
         edited: false,
       },
-      attachments: [],
+      attachments,
       raw,
     });
   }
