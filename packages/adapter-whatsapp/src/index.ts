@@ -255,7 +255,13 @@ export class WhatsAppAdapter
       userWaId: inbound.from,
     });
 
-    const message = this.buildMessage(inbound, contact, threadId, text);
+    const message = this.buildMessage(
+      inbound,
+      contact,
+      threadId,
+      text,
+      phoneNumberId
+    );
     this.chat.processMessage(this, threadId, message, options);
   }
 
@@ -402,7 +408,8 @@ export class WhatsAppAdapter
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     threadId: string,
-    text: string
+    text: string,
+    phoneNumberId?: string
   ): Message<WhatsAppRawMessage> {
     const author: Author = {
       userId: inbound.from,
@@ -417,7 +424,7 @@ export class WhatsAppAdapter
     const raw: WhatsAppRawMessage = {
       message: inbound,
       contact,
-      phoneNumberId: this.phoneNumberId,
+      phoneNumberId: phoneNumberId || this.phoneNumberId,
     };
 
     const attachments = this.buildAttachments(inbound);
@@ -627,6 +634,11 @@ export class WhatsAppAdapter
       }
     );
 
+    if (!(response.messages?.length && response.messages[0]?.id)) {
+      throw new Error(
+        "WhatsApp API did not return a message ID for text message"
+      );
+    }
     const messageId = response.messages[0].id;
 
     return {
@@ -664,6 +676,11 @@ export class WhatsAppAdapter
       }
     );
 
+    if (!(response.messages?.length && response.messages[0]?.id)) {
+      throw new Error(
+        "WhatsApp API did not return a message ID for interactive message"
+      );
+    }
     const messageId = response.messages[0].id;
 
     return {
@@ -839,7 +856,7 @@ export class WhatsAppAdapter
     }
 
     const parts = withoutPrefix.split(":");
-    if (parts.length < 2 || !parts[0] || !parts[1]) {
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
       throw new ValidationError(
         "whatsapp",
         `Invalid WhatsApp thread ID format: ${threadId}`
@@ -890,10 +907,14 @@ export class WhatsAppAdapter
     const text = this.extractTextContent(raw.message) || "";
     const formatted: FormattedContent = this.formatConverter.toAst(text);
     const attachments = this.buildAttachments(raw.message);
+    const threadId = this.encodeThreadId({
+      phoneNumberId: raw.phoneNumberId,
+      userWaId: raw.message.from,
+    });
 
     return new Message<WhatsAppRawMessage>({
       id: raw.message.id,
-      threadId: "",
+      threadId,
       text,
       formatted,
       author: {
