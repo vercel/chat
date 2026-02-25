@@ -147,17 +147,23 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
       const nonce = request.headers.get("x-lark-request-nonce");
       const signature = request.headers.get("x-lark-signature");
 
-      // Only verify if signature headers are present (they may be absent for URL verification)
-      if (timestamp && nonce && signature) {
-        const isValid = this.verifySignature(timestamp, nonce, body, signature);
-        if (!isValid) {
-          this.logger.warn("Feishu event signature verification failed");
-          return new Response("Invalid signature", { status: 401 });
-        }
+      if (!(timestamp && nonce && signature)) {
+        this.logger.warn(
+          "Feishu event missing signature headers while encryptKey is configured"
+        );
+        return new Response("Missing signature headers", { status: 401 });
+      }
+
+      const isValid = this.verifySignature(timestamp, nonce, body, signature);
+      if (!isValid) {
+        this.logger.warn("Feishu event signature verification failed");
+        return new Response("Invalid signature", { status: 401 });
       }
     }
 
     // Handle URL verification challenge
+    // Note: challenge is checked after signature verification for security,
+    // but challenge requests may arrive before encryptKey is configured.
     if (payload.challenge) {
       this.logger.info("Feishu URL verification challenge received");
       return Response.json({ challenge: payload.challenge });
@@ -293,14 +299,12 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
     });
 
     try {
-      // Reply to the root message in the thread
-      const response = await this.client.im.message.reply({
-        path: { message_id: rootMessageId },
-        data: {
-          content,
-          msg_type: msgType,
-        },
-      });
+      const response = await this.sendToChat(
+        chatId,
+        rootMessageId,
+        content,
+        msgType
+      );
 
       const messageId =
         (response as { data?: { message_id?: string } }).data?.message_id ??
@@ -356,12 +360,42 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
   }
 
   /**
+   * Send a message to a chat — uses `create` for DM threads (messageId === "dm")
+   * and `reply` for regular threads.
+   */
+  private async sendToChat(
+    chatId: string,
+    rootMessageId: string,
+    content: string,
+    msgType: string
+  ): Promise<unknown> {
+    if (rootMessageId === "dm") {
+      return this.client.im.message.create({
+        params: { receive_id_type: "chat_id" },
+        data: {
+          receive_id: chatId,
+          content,
+          msg_type: msgType,
+        },
+      });
+    }
+
+    return this.client.im.message.reply({
+      path: { message_id: rootMessageId },
+      data: {
+        content,
+        msg_type: msgType,
+      },
+    });
+  }
+
+  /**
    * Post a message with file attachments.
    * Feishu requires uploading files first, then sending them as image/file messages.
    */
   private async postMessageWithFiles(
     threadId: string,
-    _chatId: string,
+    chatId: string,
     rootMessageId: string,
     files: Array<{
       filename: string;
@@ -415,13 +449,12 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
 
       const msgType = isImage && imageKey ? "image" : "text";
 
-      const response = await this.client.im.message.reply({
-        path: { message_id: rootMessageId },
-        data: {
-          content,
-          msg_type: msgType,
-        },
-      });
+      const response = await this.sendToChat(
+        chatId,
+        rootMessageId,
+        content,
+        msgType
+      );
 
       const messageId =
         (response as { data?: { message_id?: string } }).data?.message_id ??
@@ -929,7 +962,14 @@ export class FeishuAdapter implements Adapter<FeishuThreadId, unknown> {
       .update(content)
       .digest("hex");
 
-    return computedSignature === expectedSignature;
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(computedSignature),
+        Buffer.from(expectedSignature)
+      );
+    } catch {
+      return false;
+    }
   }
   /**
    * Resolve an emoji value to a Feishu emoji type string.

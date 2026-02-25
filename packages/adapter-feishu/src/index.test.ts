@@ -551,7 +551,7 @@ describe("handleWebhook - signature verification", () => {
     expect(await response.text()).toBe("Invalid signature");
   });
 
-  it("skips signature verification when headers are absent", async () => {
+  it("returns 401 when signature headers are absent but encryptKey is configured", async () => {
     const encryptKey = "test-encrypt-key";
     const adapter = createTestAdapter({
       verificationToken: "test-token",
@@ -566,8 +566,59 @@ describe("handleWebhook - signature verification", () => {
 
     const response = await adapter.handleWebhook(request);
 
-    // Should still succeed — signature verification is skipped when headers absent
-    expect(response.status).toBe(200);
+    // Should reject — missing signature headers when encryptKey is configured
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Missing signature headers");
+  });
+
+  it("uses timing-safe comparison for signature verification", async () => {
+    const encryptKey = "test-encrypt-key";
+    const adapter = createTestAdapter({
+      verificationToken: "test-token",
+      encryptKey,
+    });
+
+    const payload = createMessageEventPayload({ token: "test-token" });
+    const body = JSON.stringify(payload);
+
+    const timestamp = "1700000000";
+    const nonce = "test-nonce";
+    // Compute valid signature
+    const content = timestamp + nonce + encryptKey + body;
+    const validSignature = crypto
+      .createHash("sha256")
+      .update(content)
+      .digest("hex");
+
+    // Valid signature should pass
+    const validRequest = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": validSignature,
+      },
+      body,
+    });
+
+    const validResponse = await adapter.handleWebhook(validRequest);
+    expect(validResponse.status).toBe(200);
+
+    // Signature with different length should fail (caught by timingSafeEqual try/catch)
+    const shortRequest = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": "short",
+      },
+      body,
+    });
+
+    const shortResponse = await adapter.handleWebhook(shortRequest);
+    expect(shortResponse.status).toBe(401);
   });
 });
 
