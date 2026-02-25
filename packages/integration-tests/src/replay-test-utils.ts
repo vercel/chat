@@ -19,11 +19,15 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
   type ActionEvent,
+  type AppHomeOpenedEvent,
+  type AssistantContextChangedEvent,
+  type AssistantThreadStartedEvent,
   Chat,
   type Logger,
   type Message,
   type ModalSubmitEvent,
   type ReactionEvent,
+  type SlashCommandEvent,
   type StateAdapter,
   type Thread,
 } from "chat";
@@ -67,7 +71,6 @@ const mockLogger: Logger = {
   child: () => mockLogger,
 };
 
-// Re-export for convenience
 export { createWaitUntilTracker } from "./test-scenarios";
 
 // ============================================================================
@@ -80,7 +83,7 @@ export { createWaitUntilTracker } from "./test-scenarios";
  */
 export function createSignedSlackRequest(
   body: string,
-  contentType = "application/json",
+  contentType = "application/json"
 ): Request {
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const sigBasestring = `v0:${timestamp}:${body}`;
@@ -129,10 +132,10 @@ export function createTeamsRequest(body: unknown): Request {
  * Captured data from message handlers during tests.
  */
 export interface CapturedMessages {
-  mentionMessage: Message | null;
-  mentionThread: Thread | null;
   followUpMessage: Message | null;
   followUpThread: Thread | null;
+  mentionMessage: Message | null;
+  mentionThread: Thread | null;
 }
 
 // ============================================================================
@@ -140,15 +143,16 @@ export interface CapturedMessages {
 // ============================================================================
 
 export interface SlackTestContext {
-  chat: Chat<{ slack: SlackAdapter }>;
   adapter: SlackAdapter;
-  mockClient: MockSlackClient;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
-  state: StateAdapter;
-  sendWebhook: (fixture: unknown) => Promise<void>;
+  chat: Chat<{ slack: SlackAdapter }>;
+  mockClient: MockSlackClient;
   sendSlackAction: (fixture: unknown) => Promise<void>;
+  sendSlackSlashCommand: (fixture: Record<string, string>) => Promise<Response>;
   sendSlackViewSubmission: (fixture: unknown) => Promise<Response>;
+  sendWebhook: (fixture: unknown) => Promise<void>;
+  state: StateAdapter;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -157,12 +161,20 @@ export interface SlackTestContext {
 export function createSlackTestContext(
   fixtures: { botName: string; botUserId: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
-    onModalSubmit?: (event: ModalSubmitEvent) => Promise<void>;
-  },
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
+    onModalSubmit?: (event: ModalSubmitEvent) => void | Promise<void>;
+    onSlashCommand?: (event: SlashCommandEvent) => void | Promise<void>;
+    onAssistantThreadStarted?: (
+      event: AssistantThreadStartedEvent
+    ) => void | Promise<void>;
+    onAssistantContextChanged?: (
+      event: AssistantContextChangedEvent
+    ) => void | Promise<void>;
+    onAppHomeOpened?: (event: AppHomeOpenedEvent) => void | Promise<void>;
+  }
 ): SlackTestContext {
   const adapter = createSlackAdapter({
     botToken: SLACK_BOT_TOKEN,
@@ -228,6 +240,22 @@ export function createSlackTestContext(
     });
   }
 
+  if (handlers.onSlashCommand) {
+    chat.onSlashCommand(handlers.onSlashCommand);
+  }
+
+  if (handlers.onAssistantThreadStarted) {
+    chat.onAssistantThreadStarted(handlers.onAssistantThreadStarted);
+  }
+
+  if (handlers.onAssistantContextChanged) {
+    chat.onAssistantContextChanged(handlers.onAssistantContextChanged);
+  }
+
+  if (handlers.onAppHomeOpened) {
+    chat.onAppHomeOpened(handlers.onAppHomeOpened);
+  }
+
   const tracker = createWaitUntilTracker();
 
   return {
@@ -240,7 +268,7 @@ export function createSlackTestContext(
     sendWebhook: async (fixture: unknown) => {
       await chat.webhooks.slack(
         createSignedSlackRequest(JSON.stringify(fixture)),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     },
@@ -248,7 +276,7 @@ export function createSlackTestContext(
       const body = `payload=${encodeURIComponent(JSON.stringify(fixture))}`;
       await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
     },
@@ -256,7 +284,16 @@ export function createSlackTestContext(
       const body = `payload=${encodeURIComponent(JSON.stringify(fixture))}`;
       const response = await chat.webhooks.slack(
         createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
+      );
+      await tracker.waitForAll();
+      return response;
+    },
+    sendSlackSlashCommand: async (fixture: Record<string, string>) => {
+      const body = new URLSearchParams(fixture).toString();
+      const response = await chat.webhooks.slack(
+        createSignedSlackRequest(body, "application/x-www-form-urlencoded"),
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;
@@ -269,12 +306,12 @@ export function createSlackTestContext(
 // ============================================================================
 
 export interface TeamsTestContext {
-  chat: Chat<{ teams: TeamsAdapter }>;
   adapter: TeamsAdapter;
-  mockBotAdapter: MockBotAdapter;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
+  chat: Chat<{ teams: TeamsAdapter }>;
+  mockBotAdapter: MockBotAdapter;
   sendWebhook: (fixture: unknown) => Promise<void>;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -283,11 +320,11 @@ export interface TeamsTestContext {
 export function createTeamsTestContext(
   fixtures: { botName: string; appId?: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
+  }
 ): TeamsTestContext {
   const appId = fixtures.appId || "test-app-id";
   const adapter = createTeamsAdapter({
@@ -362,12 +399,12 @@ export function createTeamsTestContext(
 // ============================================================================
 
 export interface GchatTestContext {
-  chat: Chat<{ gchat: GoogleChatAdapter }>;
   adapter: GoogleChatAdapter;
-  mockChatApi: MockGoogleChatApi;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
+  chat: Chat<{ gchat: GoogleChatAdapter }>;
+  mockChatApi: MockGoogleChatApi;
   sendWebhook: (fixture: unknown) => Promise<void>;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -376,11 +413,11 @@ export interface GchatTestContext {
 export function createGchatTestContext(
   fixtures: { botName: string; botUserId: string },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
+  }
 ): GchatTestContext {
   const adapter = createGoogleChatAdapter({
     credentials: GCHAT_TEST_CREDENTIALS,
@@ -466,35 +503,46 @@ export function expectValidMention(
     authorIsBot?: boolean;
     adapterName: string;
     threadIdContains?: string;
-  },
+  }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread).not.toBeNull();
 
   if (options.textContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionMessage?.text).toContain(options.textContains);
   }
 
   if (options.authorUserId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionMessage?.author.userId).toBe(options.authorUserId);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage?.author.isBot).toBe(
-    options.authorIsBot ?? false,
+    options.authorIsBot ?? false
   );
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionMessage?.author.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.adapter.name).toBe(options.adapterName);
 
   if (options.threadIdContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.mentionThread?.id).toContain(options.threadIdContains);
   }
 
   // Verify recent messages includes the mention
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.recentMessages).toHaveLength(1);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.mentionThread?.recentMessages[0]).toBe(
-    captured.mentionMessage,
+    captured.mentionMessage
   );
 }
 
@@ -508,24 +556,31 @@ export function expectValidFollowUp(
     textContains?: string;
     authorIsBot?: boolean;
     adapterName: string;
-  },
+  }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpThread).not.toBeNull();
 
   if (options.text) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.followUpMessage?.text).toBe(options.text);
   }
 
   if (options.textContains) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(captured.followUpMessage?.text).toContain(options.textContains);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage?.author.isBot).toBe(
-    options.authorIsBot ?? false,
+    options.authorIsBot ?? false
   );
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpMessage?.author.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(captured.followUpThread?.recentMessages.length).toBeGreaterThan(0);
 }
 
@@ -541,36 +596,50 @@ export function expectValidAction(
     adapterName: string;
     channelId?: string;
     isDM?: boolean;
-  },
+  }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.actionId).toBe(options.actionId);
 
   if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.user.userId).toBe(options.userId);
   }
 
   if (options.userName) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.user.userName).toBe(options.userName);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.user.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.thread.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(action?.thread.isDM).toBe(options.isDM);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.threadId).toBe(action?.thread.id);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.messageId).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.raw).toBeDefined();
 }
 
@@ -588,43 +657,111 @@ export function expectValidReaction(
     channelId?: string;
     messageId?: string;
     isDM?: boolean;
-  },
+  }
 ): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction).not.toBeNull();
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.emoji.name).toBe(options.emojiName);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.emoji.toString()).toBe(`{{emoji:${options.emojiName}}}`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.rawEmoji).toBe(options.rawEmoji);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.added).toBe(options.added ?? true);
 
   if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.user.userId).toBe(options.userId);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.user.isMe).toBe(false);
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread).toBeDefined();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread.id).toContain(`${options.adapterName}:`);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.thread.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.thread.isDM).toBe(options.isDM);
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.threadId).toBe(reaction?.thread.id);
 
   if (options.messageId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.messageId).toBe(options.messageId);
   } else {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(reaction?.messageId).toBeDefined();
   }
 
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.raw).toBeDefined();
+}
+
+/**
+ * Assert that a slash command event was captured correctly.
+ */
+export function expectValidSlashCommand(
+  event: SlashCommandEvent | null,
+  options: {
+    command: string;
+    text?: string;
+    userId?: string;
+    userName?: string;
+    adapterName: string;
+    channelId?: string;
+  }
+): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event).not.toBeNull();
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event?.command).toBe(options.command);
+
+  if (options.text !== undefined) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+    expect(event?.text).toBe(options.text);
+  }
+
+  if (options.userId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+    expect(event?.user.userId).toBe(options.userId);
+  }
+
+  if (options.userName) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+    expect(event?.user.userName).toBe(options.userName);
+  }
+
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event?.user.isBot).toBe(false);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event?.user.isMe).toBe(false);
+
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event?.adapter.name).toBe(options.adapterName);
+
+  if (options.channelId) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+    expect(event?.channel.id).toContain(options.channelId);
+  }
+
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(event?.raw).toBeDefined();
 }
 
 /**
@@ -636,28 +773,31 @@ export function expectSentMessage(
     | MockBotAdapter
     | MockGoogleChatApi
     | Mock<(...args: unknown[]) => unknown>,
-  textContains: string,
+  textContains: string
 ): void {
   if ("chat" in mock && "postMessage" in mock.chat) {
     // Slack mock client
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("sentActivities" in mock) {
     // Teams mock adapter
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.sentActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("sentMessages" in mock) {
     // GChat mock API
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.sentMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   }
 }
@@ -667,28 +807,31 @@ export function expectSentMessage(
  */
 export function expectUpdatedMessage(
   mock: MockSlackClient | MockBotAdapter | MockGoogleChatApi,
-  textContains: string,
+  textContains: string
 ): void {
   if ("chat" in mock && "update" in mock.chat) {
     // Slack mock client
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.chat.update).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("updatedActivities" in mock) {
     // Teams mock adapter
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.updatedActivities).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   } else if ("updatedMessages" in mock) {
     // GChat mock API
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
     expect(mock.updatedMessages).toContainEqual(
       expect.objectContaining({
         text: expect.stringContaining(textContains),
-      }),
+      })
     );
   }
 }
@@ -698,15 +841,15 @@ export function expectUpdatedMessage(
 // ============================================================================
 
 export interface DiscordTestContext {
-  chat: Chat<{ discord: DiscordAdapter }>;
   adapter: DiscordAdapter;
-  mockApi: MockDiscordApi;
-  tracker: ReturnType<typeof createWaitUntilTracker>;
   captured: CapturedMessages;
-  state: StateAdapter;
-  sendWebhook: (fixture: unknown) => Promise<Response>;
-  sendGatewayEvent: (fixture: unknown) => Promise<Response>;
+  chat: Chat<{ discord: DiscordAdapter }>;
   cleanup: () => void;
+  mockApi: MockDiscordApi;
+  sendGatewayEvent: (fixture: unknown) => Promise<Response>;
+  sendWebhook: (fixture: unknown) => Promise<Response>;
+  state: StateAdapter;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
 }
 
 /**
@@ -719,11 +862,11 @@ export async function createDiscordTestContext(
     mentionRoleIds?: string[];
   },
   handlers: {
-    onMention?: (thread: Thread, message: Message) => Promise<void>;
-    onSubscribed?: (thread: Thread, message: Message) => Promise<void>;
-    onAction?: (event: ActionEvent) => Promise<void>;
-    onReaction?: (event: ReactionEvent) => Promise<void>;
-  },
+    onMention?: (thread: Thread, message: Message) => void | Promise<void>;
+    onSubscribed?: (thread: Thread, message: Message) => void | Promise<void>;
+    onAction?: (event: ActionEvent) => void | Promise<void>;
+    onReaction?: (event: ReactionEvent) => void | Promise<void>;
+  }
 ): Promise<DiscordTestContext> {
   const applicationId = fixtures.applicationId || DISCORD_APPLICATION_ID;
   const botName = fixtures.botName || DISCORD_BOT_USERNAME;
@@ -796,7 +939,7 @@ export async function createDiscordTestContext(
       const { createDiscordWebhookRequest } = await import("./discord-utils");
       const response = await chat.webhooks.discord(
         createDiscordWebhookRequest(fixture as Record<string, unknown>),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;
@@ -805,7 +948,7 @@ export async function createDiscordTestContext(
       const { createDiscordGatewayRequest } = await import("./discord-utils");
       const response = await chat.webhooks.discord(
         createDiscordGatewayRequest(fixture as Record<string, unknown>),
-        { waitUntil: tracker.waitUntil },
+        { waitUntil: tracker.waitUntil }
       );
       await tracker.waitForAll();
       return response;

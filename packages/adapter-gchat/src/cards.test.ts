@@ -292,13 +292,13 @@ describe("cardToGoogleCard", () => {
     // Should have 3 sections: before, section contents, after
     expect(gchatCard.card.sections).toHaveLength(3);
     expect(gchatCard.card.sections[0].widgets[0].textParagraph?.text).toBe(
-      "Before section",
+      "Before section"
     );
     expect(gchatCard.card.sections[1].widgets[0].textParagraph?.text).toBe(
-      "Inside section",
+      "Inside section"
     );
     expect(gchatCard.card.sections[2].widgets[0].textParagraph?.text).toBe(
-      "After section",
+      "After section"
     );
   });
 
@@ -369,12 +369,82 @@ describe("cardToFallbackText", () => {
     expect(text).toContain("Your order is ready");
     expect(text).toContain("Order ID: #1234");
     expect(text).toContain("Status: Ready");
-    expect(text).toContain("[Schedule Pickup] [Delay]");
+    // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+    expect(text).not.toContain("[Schedule Pickup]");
+    expect(text).not.toContain("[Delay]");
   });
 
   it("handles card with only title", () => {
     const card = Card({ title: "Simple Card" });
     const text = cardToFallbackText(card);
     expect(text).toBe("*Simple Card*");
+  });
+});
+
+describe("markdown bold to Google Chat conversion", () => {
+  it("converts **bold** to *bold* in CardText content", () => {
+    const card = Card({
+      children: [CardText("The **domain** is example.com")],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets[0].textParagraph.text).toBe("The *domain* is example.com");
+  });
+
+  it("converts multiple **bold** segments", () => {
+    const card = Card({
+      children: [CardText("**Project**: my-app, **Status**: active")],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets[0].textParagraph.text).toBe(
+      "*Project*: my-app, *Status*: active"
+    );
+  });
+
+  it("preserves existing single *asterisk* formatting", () => {
+    const card = Card({
+      children: [CardText("Already *bold* in GChat format")],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets[0].textParagraph.text).toBe(
+      "Already *bold* in GChat format"
+    );
+  });
+
+  it("converts **bold** in field values", () => {
+    const card = Card({
+      children: [Fields([Field({ label: "Status", value: "**Active**" })])],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    const decoratedText = widgets[0].decoratedText;
+    expect(decoratedText.text).toBe("*Active*");
+    expect(decoratedText.text).not.toContain("**");
+  });
+
+  it("converts **bold** in field labels", () => {
+    const card = Card({
+      children: [Fields([Field({ label: "**Important**", value: "value" })])],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets[0].decoratedText.topLabel).toBe("*Important*");
+  });
+
+  it("handles text with no markdown", () => {
+    const card = Card({
+      children: [CardText("Plain text")],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets[0].textParagraph.text).toBe("Plain text");
   });
 });

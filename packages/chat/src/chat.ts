@@ -1,3 +1,4 @@
+import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
   getChatSingleton,
   hasChatSingleton,
@@ -11,7 +12,14 @@ import type {
   ActionEvent,
   ActionHandler,
   Adapter,
+  AppHomeOpenedEvent,
+  AppHomeOpenedHandler,
+  AssistantContextChangedEvent,
+  AssistantContextChangedHandler,
+  AssistantThreadStartedEvent,
+  AssistantThreadStartedHandler,
   Author,
+  Channel,
   ChatConfig,
   ChatInstance,
   EmojiValue,
@@ -27,6 +35,8 @@ import type {
   ReactionEvent,
   ReactionHandler,
   SentMessage,
+  SlashCommandEvent,
+  SlashCommandHandler,
   StateAdapter,
   SubscribedMessageHandler,
   Thread,
@@ -35,19 +45,22 @@ import type {
 import { ChatError, ConsoleLogger, LockError } from "./types";
 
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
+const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
+const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
 /** TTL for message deduplication entries */
 const DEDUPE_TTL_MS = 60_000; // 60 seconds
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
 interface StoredModalContext {
-  thread: SerializedThread;
+  channel?: SerializedChannel;
   message?: SerializedMessage;
+  thread?: SerializedThread;
 }
 
 interface MessagePattern<TState = Record<string, unknown>> {
-  pattern: RegExp;
   handler: MessageHandler<TState>;
+  pattern: RegExp;
 }
 
 /** Filter can be EmojiValue objects, emoji names, or raw emoji formats */
@@ -75,12 +88,18 @@ interface ModalClosePattern {
   handler: ModalCloseHandler;
 }
 
+interface SlashCommandPattern<TState = Record<string, unknown>> {
+  /** If specified, only these commands trigger the handler. Empty means all commands. */
+  commands: string[];
+  handler: SlashCommandHandler<TState>;
+}
+
 /**
  * Type-safe webhook handler that is available for each adapter.
  */
 type WebhookHandler = (
   request: Request,
-  options?: WebhookOptions,
+  options?: WebhookOptions
 ) => Promise<Response>;
 
 /**
@@ -156,19 +175,26 @@ export class Chat<
     return hasChatSingleton();
   }
 
-  private adapters: Map<string, Adapter>;
-  private _stateAdapter: StateAdapter;
-  private userName: string;
-  private logger: Logger;
-  private _streamingUpdateIntervalMs: number;
+  private readonly adapters: Map<string, Adapter>;
+  private readonly _stateAdapter: StateAdapter;
+  private readonly userName: string;
+  private readonly logger: Logger;
+  private readonly _streamingUpdateIntervalMs: number;
 
-  private mentionHandlers: MentionHandler<TState>[] = [];
-  private messagePatterns: MessagePattern<TState>[] = [];
-  private subscribedMessageHandlers: SubscribedMessageHandler<TState>[] = [];
-  private reactionHandlers: ReactionPattern[] = [];
-  private actionHandlers: ActionPattern[] = [];
-  private modalSubmitHandlers: ModalSubmitPattern[] = [];
-  private modalCloseHandlers: ModalClosePattern[] = [];
+  private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly messagePatterns: MessagePattern<TState>[] = [];
+  private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
+    [];
+  private readonly reactionHandlers: ReactionPattern[] = [];
+  private readonly actionHandlers: ActionPattern[] = [];
+  private readonly modalSubmitHandlers: ModalSubmitPattern[] = [];
+  private readonly modalCloseHandlers: ModalClosePattern[] = [];
+  private readonly slashCommandHandlers: SlashCommandPattern<TState>[] = [];
+  private readonly assistantThreadStartedHandlers: AssistantThreadStartedHandler[] =
+    [];
+  private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
+    [];
+  private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -179,7 +205,7 @@ export class Chat<
    * @example
    * chat.webhooks.slack(request, { backgroundTask: waitUntil });
    */
-  public readonly webhooks: Webhooks<TAdapters>;
+  readonly webhooks: Webhooks<TAdapters>;
 
   constructor(config: ChatConfig<TAdapters>) {
     this.userName = config.userName;
@@ -191,7 +217,7 @@ export class Chat<
     if (typeof config.logger === "string") {
       this.logger = new ConsoleLogger(config.logger as LogLevel);
     } else {
-      this.logger = config.logger;
+      this.logger = config.logger || new ConsoleLogger("info");
     }
 
     // Register adapters and create webhook handlers
@@ -216,7 +242,7 @@ export class Chat<
   private async handleWebhook(
     adapterName: string,
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     // Ensure initialization
     await this.ensureInitialized();
@@ -257,7 +283,7 @@ export class Chat<
         const result = await adapter.initialize(this);
         this.logger.debug("Adapter initialized", adapter.name);
         return result;
-      },
+      }
     );
     await Promise.all(initPromises);
 
@@ -392,7 +418,7 @@ export class Chat<
   onReaction(emoji: EmojiFilter[], handler: ReactionHandler): void;
   onReaction(
     emojiOrHandler: EmojiFilter[] | ReactionHandler,
-    handler?: ReactionHandler,
+    handler?: ReactionHandler
   ): void {
     if (typeof emojiOrHandler === "function") {
       // No emoji filter - handle all reactions
@@ -436,11 +462,10 @@ export class Chat<
    * @param handler - The handler (if action ID filter is provided)
    */
   onAction(handler: ActionHandler): void;
-  onAction(actionId: string, handler: ActionHandler): void;
-  onAction(actionIds: string[], handler: ActionHandler): void;
+  onAction(actionIds: string[] | string, handler: ActionHandler): void;
   onAction(
     actionIdOrHandler: string | string[] | ActionHandler,
-    handler?: ActionHandler,
+    handler?: ActionHandler
   ): void {
     if (typeof actionIdOrHandler === "function") {
       // No action filter - handle all actions
@@ -457,11 +482,13 @@ export class Chat<
   }
 
   onModalSubmit(handler: ModalSubmitHandler): void;
-  onModalSubmit(callbackId: string, handler: ModalSubmitHandler): void;
-  onModalSubmit(callbackIds: string[], handler: ModalSubmitHandler): void;
+  onModalSubmit(
+    callbackIds: string[] | string,
+    handler: ModalSubmitHandler
+  ): void;
   onModalSubmit(
     callbackIdOrHandler: string | string[] | ModalSubmitHandler,
-    handler?: ModalSubmitHandler,
+    handler?: ModalSubmitHandler
   ): void {
     if (typeof callbackIdOrHandler === "function") {
       this.modalSubmitHandlers.push({
@@ -479,11 +506,13 @@ export class Chat<
   }
 
   onModalClose(handler: ModalCloseHandler): void;
-  onModalClose(callbackId: string, handler: ModalCloseHandler): void;
-  onModalClose(callbackIds: string[], handler: ModalCloseHandler): void;
+  onModalClose(
+    callbackIds: string[] | string,
+    handler: ModalCloseHandler
+  ): void;
   onModalClose(
     callbackIdOrHandler: string | string[] | ModalCloseHandler,
-    handler?: ModalCloseHandler,
+    handler?: ModalCloseHandler
   ): void {
     if (typeof callbackIdOrHandler === "function") {
       this.modalCloseHandlers.push({
@@ -498,6 +527,86 @@ export class Chat<
       this.modalCloseHandlers.push({ callbackIds, handler });
       this.logger.debug("Registered modal close handler", { callbackIds });
     }
+  }
+
+  /**
+   * Register a handler for slash command events.
+   *
+   * Slash commands are triggered when a user types `/command` in the message composer.
+   * Use `event.channel.post()` or `event.channel.postEphemeral()` to respond.
+   *
+   * @example
+   * ```typescript
+   * // Handle a specific command
+   * chat.onSlashCommand("/help", async (event) => {
+   *   await event.channel.post("Here are the available commands...");
+   * });
+   *
+   * // Handle multiple commands
+   * chat.onSlashCommand(["/status", "/health"], async (event) => {
+   *   await event.channel.post("All systems operational!");
+   * });
+   *
+   * // Handle all commands (catch-all)
+   * chat.onSlashCommand(async (event) => {
+   *   console.log(`Received command: ${event.command} ${event.text}`);
+   * });
+   *
+   * // Open a modal from a slash command
+   * chat.onSlashCommand("/feedback", async (event) => {
+   *   await event.openModal({
+   *     callbackId: "feedback_modal",
+   *     title: "Submit Feedback",
+   *     inputs: [{ id: "feedback", type: "text_input", label: "Your feedback" }],
+   *   });
+   * });
+   * ```
+   *
+   * @param commandOrHandler - Either a command, array of commands, or the handler
+   * @param handler - The handler (if command filter is provided)
+   */
+  onSlashCommand(handler: SlashCommandHandler<TState>): void;
+  onSlashCommand(
+    commands: string[] | string,
+    handler: SlashCommandHandler<TState>
+  ): void;
+  onSlashCommand(
+    commandOrHandler: string | string[] | SlashCommandHandler<TState>,
+    handler?: SlashCommandHandler<TState>
+  ): void {
+    if (typeof commandOrHandler === "function") {
+      this.slashCommandHandlers.push({
+        commands: [],
+        handler: commandOrHandler,
+      });
+      this.logger.debug("Registered slash command handler for all commands");
+    } else if (handler) {
+      const commands = Array.isArray(commandOrHandler)
+        ? commandOrHandler
+        : [commandOrHandler];
+      const normalizedCommands = commands.map((cmd) =>
+        cmd.startsWith("/") ? cmd : `/${cmd}`
+      );
+      this.slashCommandHandlers.push({ commands: normalizedCommands, handler });
+      this.logger.debug("Registered slash command handler", {
+        commands: normalizedCommands,
+      });
+    }
+  }
+
+  onAssistantThreadStarted(handler: AssistantThreadStartedHandler): void {
+    this.assistantThreadStartedHandlers.push(handler);
+    this.logger.debug("Registered assistant thread started handler");
+  }
+
+  onAssistantContextChanged(handler: AssistantContextChangedHandler): void {
+    this.assistantContextChangedHandlers.push(handler);
+    this.logger.debug("Registered assistant context changed handler");
+  }
+
+  onAppHomeOpened(handler: AppHomeOpenedHandler): void {
+    this.appHomeOpenedHandlers.push(handler);
+    this.logger.debug("Registered app home opened handler");
   }
 
   /**
@@ -535,6 +644,9 @@ export class Chat<
         if (typed._type === "chat:Thread") {
           return ThreadImpl.fromJSON(value as SerializedThread);
         }
+        if (typed._type === "chat:Channel") {
+          return ChannelImpl.fromJSON(value as SerializedChannel);
+        }
         if (typed._type === "chat:Message") {
           return Message.fromJSON(value as SerializedMessage);
         }
@@ -554,7 +666,7 @@ export class Chat<
     adapter: Adapter,
     threadId: string,
     messageOrFactory: Message | (() => Promise<Message>),
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     const task = (async () => {
       const message =
@@ -577,7 +689,7 @@ export class Chat<
    */
   processReaction(
     event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     const task = this.handleReactionEvent(event).catch((err) => {
       this.logger.error("Reaction processing error", {
@@ -598,7 +710,7 @@ export class Chat<
    */
   processAction(
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     const task = this.handleActionEvent(event).catch((err) => {
       this.logger.error("Action processing error", {
@@ -614,26 +726,30 @@ export class Chat<
   }
 
   async processModalSubmit(
-    event: Omit<ModalSubmitEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalSubmitEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
-    _options?: WebhookOptions,
+    _options?: WebhookOptions
   ): Promise<ModalResponse | undefined> {
-    const { relatedThread, relatedMessage } = await this.retrieveModalContext(
-      event.adapter.name,
-      contextId,
-    );
+    const { relatedThread, relatedMessage, relatedChannel } =
+      await this.retrieveModalContext(event.adapter.name, contextId);
 
     const fullEvent: ModalSubmitEvent = {
       ...event,
       relatedThread,
       relatedMessage,
+      relatedChannel,
     };
 
     for (const { callbackIds, handler } of this.modalSubmitHandlers) {
       if (callbackIds.length === 0 || callbackIds.includes(event.callbackId)) {
         try {
           const response = await handler(fullEvent);
-          if (response) return response;
+          if (response) {
+            return response;
+          }
         } catch (err) {
           this.logger.error("Modal submit handler error", {
             error: err,
@@ -645,20 +761,22 @@ export class Chat<
   }
 
   processModalClose(
-    event: Omit<ModalCloseEvent, "relatedThread" | "relatedMessage">,
+    event: Omit<
+      ModalCloseEvent,
+      "relatedThread" | "relatedMessage" | "relatedChannel"
+    >,
     contextId?: string,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     const task = (async () => {
-      const { relatedThread, relatedMessage } = await this.retrieveModalContext(
-        event.adapter.name,
-        contextId,
-      );
+      const { relatedThread, relatedMessage, relatedChannel } =
+        await this.retrieveModalContext(event.adapter.name, contextId);
 
       const fullEvent: ModalCloseEvent = {
         ...event,
         relatedThread,
         relatedMessage,
+        relatedChannel,
       };
 
       for (const { callbackIds, handler } of this.modalCloseHandlers) {
@@ -682,65 +800,258 @@ export class Chat<
   }
 
   /**
-   * Store modal context server-side and return a context ID.
-   * Called when opening a modal to preserve thread/message for the submit handler.
+   * Process an incoming slash command from an adapter.
+   * Handles waitUntil registration and error catching internally.
    */
-  private async storeModalContext(
+  processSlashCommand(
+    event: Omit<SlashCommandEvent, "channel" | "openModal"> & {
+      adapter: Adapter;
+      channelId: string;
+    },
+    options?: WebhookOptions
+  ): void {
+    const task = this.handleSlashCommandEvent(event).catch((err) => {
+      this.logger.error("Slash command processing error", {
+        error: err,
+        command: event.command,
+        text: event.text,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processAssistantThreadStarted(
+    event: AssistantThreadStartedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.assistantThreadStartedHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Assistant thread started handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processAssistantContextChanged(
+    event: AssistantContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.assistantContextChangedHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Assistant context changed handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processAppHomeOpened(
+    event: AppHomeOpenedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.appHomeOpenedHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("App home opened handler error", {
+        error: err,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  /**
+   * Handle a slash command event internally.
+   */
+  private async handleSlashCommandEvent(
+    event: Omit<SlashCommandEvent, "channel" | "openModal"> & {
+      adapter: Adapter;
+      channelId: string;
+    }
+  ): Promise<void> {
+    this.logger.debug("Incoming slash command", {
+      adapter: event.adapter.name,
+      command: event.command,
+      text: event.text,
+      user: event.user.userName,
+    });
+    if (event.user.isMe) {
+      this.logger.debug("Skipping slash command from self", {
+        command: event.command,
+      });
+      return;
+    }
+    const channel = new ChannelImpl<TState>({
+      id: event.channelId,
+      adapter: event.adapter,
+      stateAdapter: this._stateAdapter,
+    });
+    const fullEvent: SlashCommandEvent<TState> = {
+      ...event,
+      channel,
+      openModal: async (modal) => {
+        if (!event.triggerId) {
+          this.logger.warn("Cannot open modal: no triggerId available");
+          return undefined;
+        }
+        if (!event.adapter.openModal) {
+          this.logger.warn(
+            `Cannot open modal: ${event.adapter.name} does not support modals`
+          );
+          return undefined;
+        }
+        let modalElement: ModalElement = modal as ModalElement;
+        if (isJSX(modal)) {
+          const converted = toModalElement(modal);
+          if (!converted) {
+            throw new Error("Invalid JSX element: must be a Modal element");
+          }
+          modalElement = converted;
+        }
+        const contextId = crypto.randomUUID();
+        this.storeModalContext(
+          event.adapter.name,
+          contextId,
+          undefined,
+          undefined,
+          channel
+        );
+        return event.adapter.openModal(
+          event.triggerId,
+          modalElement,
+          contextId
+        );
+      },
+    };
+    this.logger.debug("Checking slash command handlers", {
+      handlerCount: this.slashCommandHandlers.length,
+      command: event.command,
+    });
+    for (const { commands, handler } of this.slashCommandHandlers) {
+      if (commands.length === 0) {
+        this.logger.debug("Running catch-all slash command handler");
+        await handler(fullEvent);
+        continue;
+      }
+      if (commands.includes(event.command)) {
+        this.logger.debug("Running matched slash command handler", {
+          command: event.command,
+        });
+        await handler(fullEvent);
+      }
+    }
+  }
+
+  /**
+   * Store modal context server-side with a context ID.
+   * Called when opening a modal to preserve thread/message/channel for the submit handler.
+   */
+  private storeModalContext(
     adapterName: string,
-    thread: ThreadImpl<TState>,
+    contextId: string,
+    thread?: ThreadImpl<TState>,
     message?: Message,
-  ): Promise<string> {
-    const contextId = crypto.randomUUID();
+    channel?: ChannelImpl<TState>
+  ): void {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
-      thread: thread.toJSON(),
+      thread: thread?.toJSON(),
       message: message?.toJSON(),
+      channel: channel?.toJSON(),
     };
-    await this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS);
-    return contextId;
+    this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS).catch((err) => {
+      this.logger.error("Failed to store modal context", {
+        contextId,
+        error: err,
+      });
+    });
   }
 
   /**
    * Retrieve and delete modal context from server-side storage.
-   * Called when processing modal submit/close to reconstruct thread/message.
+   * Called when processing modal submit/close to reconstruct thread/message/channel.
    */
   private async retrieveModalContext(
     adapterName: string,
-    contextId?: string,
+    contextId?: string
   ): Promise<{
     relatedThread: Thread | undefined;
     relatedMessage: SentMessage | undefined;
+    relatedChannel: Channel | undefined;
   }> {
     if (!contextId) {
-      return { relatedThread: undefined, relatedMessage: undefined };
+      return {
+        relatedThread: undefined,
+        relatedMessage: undefined,
+        relatedChannel: undefined,
+      };
     }
 
     const key = `modal-context:${adapterName}:${contextId}`;
     const stored = await this._stateAdapter.get<StoredModalContext>(key);
 
     if (!stored) {
-      return { relatedThread: undefined, relatedMessage: undefined };
+      return {
+        relatedThread: undefined,
+        relatedMessage: undefined,
+        relatedChannel: undefined,
+      };
     }
 
-    // Reconstruct thread with adapter directly
     const adapter = this.adapters.get(adapterName);
-    const thread = ThreadImpl.fromJSON(stored.thread, adapter);
+
+    // Reconstruct thread with adapter directly (if present)
+    let relatedThread: Thread | undefined;
+    if (stored.thread) {
+      relatedThread = ThreadImpl.fromJSON(stored.thread, adapter) as Thread;
+    }
 
     // Reconstruct message if present
     let relatedMessage: SentMessage | undefined;
-    if (stored.message) {
+    if (stored.message && relatedThread) {
       const message = Message.fromJSON(stored.message);
-      relatedMessage = thread.createSentMessageFromMessage(message);
+      relatedMessage = (
+        relatedThread as ThreadImpl<TState>
+      ).createSentMessageFromMessage(message);
     }
 
-    return { relatedThread: thread as Thread, relatedMessage };
+    // Reconstruct channel if present
+    let relatedChannel: Channel | undefined;
+    if (stored.channel) {
+      relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
+    }
+
+    return { relatedThread, relatedMessage, relatedChannel };
   }
 
   /**
    * Handle an action event internally.
    */
   private async handleActionEvent(
-    event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
+    event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter }
   ): Promise<void> {
     this.logger.debug("Incoming action", {
       adapter: event.adapter.name,
@@ -759,28 +1070,29 @@ export class Chat<
       return;
     }
 
-    const [isSubscribed, fetchedMessage] = await Promise.all([
-      this._stateAdapter.isSubscribed(event.threadId),
-      event.messageId && event.adapter.fetchMessage
-        ? event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch((err) => {
-              this.logger.warn("Failed to fetch message for action event", {
-                messageId: event.messageId,
-                error: err,
-              });
-              return null;
-            })
-        : Promise.resolve(null),
-    ]);
+    const isSubscribed = false;
+    const messageForThread = event.messageId
+      ? new Message({
+          id: event.messageId,
+          threadId: event.threadId,
+          text: "",
+          formatted: { type: "root", children: [] },
+          raw: event.raw,
+          author: event.user,
+          metadata: { dateSent: new Date(), edited: false },
+          attachments: [],
+        })
+      : ({} as Message);
 
-    // Create thread for the action event
-    const thread = await this.createThread(
-      event.adapter,
-      event.threadId,
-      fetchedMessage ?? ({} as Message),
-      isSubscribed,
-    );
+    // Create thread for the action event (skip for view-based actions with no threadId)
+    const thread = event.threadId
+      ? await this.createThread(
+          event.adapter,
+          event.threadId,
+          messageForThread,
+          isSubscribed
+        )
+      : (null as unknown as Thread<TState>);
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
@@ -793,7 +1105,7 @@ export class Chat<
         }
         if (!event.adapter.openModal) {
           this.logger.warn(
-            `Cannot open modal: ${event.adapter.name} does not support modals`,
+            `Cannot open modal: ${event.adapter.name} does not support modals`
           );
           return undefined;
         }
@@ -809,21 +1121,40 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        // Only pass message if it's a proper Message object (has toJSON method)
-        const recentMessage = thread.recentMessages[0];
-        const message =
-          recentMessage && typeof recentMessage.toJSON === "function"
-            ? recentMessage
-            : undefined;
-        const contextId = await this.storeModalContext(
+        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+        let message: Message | undefined;
+        if (isEphemeralMessage) {
+          const recentMessage = thread.recentMessages[0];
+          if (recentMessage && typeof recentMessage.toJSON === "function") {
+            message = recentMessage as Message;
+          }
+        } else if (event.messageId && event.adapter.fetchMessage) {
+          const fetched = await event.adapter
+            .fetchMessage(event.threadId, event.messageId)
+            .catch(() => null);
+          if (fetched) {
+            message = new Message(fetched);
+          } else {
+            const recentMessage = thread.recentMessages[0];
+            if (recentMessage && typeof recentMessage.toJSON === "function") {
+              message = recentMessage as Message;
+            }
+          }
+        }
+        const contextId = crypto.randomUUID();
+        const channel = (thread as ThreadImpl<TState>)
+          .channel as ChannelImpl<TState>;
+        this.storeModalContext(
           event.adapter.name,
+          contextId,
           thread as ThreadImpl<TState>,
           message,
+          channel
         );
         return event.adapter.openModal(
           event.triggerId,
           modalElement,
-          contextId,
+          contextId
         );
       },
     };
@@ -856,7 +1187,7 @@ export class Chat<
    * Handle a reaction event internally.
    */
   private async handleReactionEvent(
-    event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
+    event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter }
   ): Promise<void> {
     this.logger.debug("Incoming reaction", {
       adapter: event.adapter?.name,
@@ -888,7 +1219,7 @@ export class Chat<
       event.adapter,
       event.threadId,
       event.message ?? ({} as Message),
-      isSubscribed,
+      isSubscribed
     );
 
     // Build full event with thread and adapter
@@ -916,7 +1247,9 @@ export class Chat<
       // Check if the reaction matches any of the specified emoji
       const matches = emojiFilter.some((filter) => {
         // EmojiValue object identity comparison (recommended)
-        if (filter === fullEvent.emoji) return true;
+        if (filter === fullEvent.emoji) {
+          return true;
+        }
 
         // String comparison: check against emoji name or rawEmoji
         const filterName = typeof filter === "string" ? filter : filter.name;
@@ -928,7 +1261,7 @@ export class Chat<
 
       this.logger.debug("Reaction filter check", {
         filterEmoji: emojiFilter.map((e) =>
-          typeof e === "string" ? e : e.name,
+          typeof e === "string" ? e : e.name
         ),
         eventEmoji: fullEvent.emoji.name,
         matches,
@@ -962,9 +1295,9 @@ export class Chat<
    * Accepts either a user ID string or an Author object (from message.author or event.user).
    *
    * The adapter is automatically inferred from the userId format:
-   * - Slack: `U...` (e.g., "U03STHCA1JM")
+   * - Slack: `U...` (e.g., "U00FAKEUSER1")
    * - Teams: `29:...` (e.g., "29:198PbJuw...")
-   * - Google Chat: `users/...` (e.g., "users/117994873354375860089")
+   * - Google Chat: `users/...` (e.g., "users/100000000000000000001")
    * - Discord: numeric snowflake (e.g., "1033044521375764530")
    *
    * @param user - Platform-specific user ID string, or an Author object
@@ -989,12 +1322,62 @@ export class Chat<
     if (!adapter.openDM) {
       throw new ChatError(
         `Adapter "${adapter.name}" does not support openDM`,
-        "NOT_SUPPORTED",
+        "NOT_SUPPORTED"
       );
     }
 
     const threadId = await adapter.openDM(userId);
     return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
+   * Get a Channel by its channel ID.
+   *
+   * The adapter is automatically inferred from the channel ID prefix.
+   *
+   * @param channelId - Channel ID (e.g., "slack:C123ABC", "gchat:spaces/ABC123")
+   * @returns A Channel that can be used to list threads, post messages, iterate messages, etc.
+   *
+   * @example
+   * ```typescript
+   * const channel = chat.channel("slack:C123ABC");
+   *
+   * // Iterate messages newest first
+   * for await (const msg of channel.messages) {
+   *   console.log(msg.text);
+   * }
+   *
+   * // List threads
+   * for await (const t of channel.threads()) {
+   *   console.log(t.rootMessage.text, t.replyCount);
+   * }
+   *
+   * // Post to channel
+   * await channel.post("Hello channel!");
+   * ```
+   */
+  channel(channelId: string): Channel<TState> {
+    const adapterName = channelId.split(":")[0];
+    if (!adapterName) {
+      throw new ChatError(
+        `Invalid channel ID: ${channelId}`,
+        "INVALID_CHANNEL_ID"
+      );
+    }
+
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${adapterName}" not found for channel ID "${channelId}"`,
+        "ADAPTER_NOT_FOUND"
+      );
+    }
+
+    return new ChannelImpl<TState>({
+      id: channelId,
+      adapter,
+      stateAdapter: this._stateAdapter,
+    });
   }
 
   /**
@@ -1004,30 +1387,38 @@ export class Chat<
     // Google Chat: users/123456789
     if (userId.startsWith("users/")) {
       const adapter = this.adapters.get("gchat");
-      if (adapter) return adapter;
+      if (adapter) {
+        return adapter;
+      }
     }
 
     // Teams: 29:base64string...
     if (userId.startsWith("29:")) {
       const adapter = this.adapters.get("teams");
-      if (adapter) return adapter;
+      if (adapter) {
+        return adapter;
+      }
     }
 
-    // Slack: U followed by alphanumeric (e.g., U03STHCA1JM)
-    if (/^U[A-Z0-9]+$/i.test(userId)) {
+    // Slack: U followed by alphanumeric (e.g., U00FAKEUSER1)
+    if (SLACK_USER_ID_REGEX.test(userId)) {
       const adapter = this.adapters.get("slack");
-      if (adapter) return adapter;
+      if (adapter) {
+        return adapter;
+      }
     }
 
     // Discord: snowflake ID (17-19 digit number)
-    if (/^\d{17,19}$/.test(userId)) {
+    if (DISCORD_SNOWFLAKE_REGEX.test(userId)) {
       const adapter = this.adapters.get("discord");
-      if (adapter) return adapter;
+      if (adapter) {
+        return adapter;
+      }
     }
 
     throw new ChatError(
       `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), or Discord (numeric snowflake).`,
-      "UNKNOWN_USER_ID_FORMAT",
+      "UNKNOWN_USER_ID_FORMAT"
     );
   }
 
@@ -1044,7 +1435,7 @@ export class Chat<
   async handleIncomingMessage(
     adapter: Adapter,
     threadId: string,
-    message: Message,
+    message: Message
   ): Promise<void> {
     this.logger.debug("Incoming message", {
       adapter: adapter.name,
@@ -1083,12 +1474,12 @@ export class Chat<
     // Try to acquire lock on thread
     const lock = await this._stateAdapter.acquireLock(
       threadId,
-      DEFAULT_LOCK_TTL_MS,
+      DEFAULT_LOCK_TTL_MS
     );
     if (!lock) {
       this.logger.warn("Could not acquire lock on thread", { threadId });
       throw new LockError(
-        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`,
+        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
       );
     }
 
@@ -1113,7 +1504,7 @@ export class Chat<
         adapter,
         threadId,
         message,
-        isSubscribed,
+        isSubscribed
       );
 
       if (isSubscribed) {
@@ -1171,12 +1562,12 @@ export class Chat<
     }
   }
 
-  private async createThread(
+  private createThread(
     adapter: Adapter,
     threadId: string,
     initialMessage: Message,
-    isSubscribedContext = false,
-  ): Promise<Thread<TState>> {
+    isSubscribedContext = false
+  ): Thread<TState> {
     // Parse thread ID to get channel info
     // Format: "adapter:channel:thread"
     const parts = threadId.split(":");
@@ -1209,7 +1600,7 @@ export class Chat<
     // Primary check: @username format (normalized by all adapters)
     const usernamePattern = new RegExp(
       `@${this.escapeRegex(botUserName)}\\b`,
-      "i",
+      "i"
     );
     if (usernamePattern.test(message.text)) {
       return true;
@@ -1219,7 +1610,7 @@ export class Chat<
     if (botUserId) {
       const userIdPattern = new RegExp(
         `@${this.escapeRegex(botUserId)}\\b`,
-        "i",
+        "i"
       );
       if (userIdPattern.test(message.text)) {
         return true;
@@ -1228,7 +1619,7 @@ export class Chat<
       // Discord format: <@USER_ID> or <@!USER_ID>
       const discordPattern = new RegExp(
         `<@!?${this.escapeRegex(botUserId)}>`,
-        "i",
+        "i"
       );
       if (discordPattern.test(message.text)) {
         return true;
@@ -1244,10 +1635,10 @@ export class Chat<
 
   private async runHandlers(
     handlers: Array<
-      (thread: Thread<TState>, message: Message) => Promise<void>
+      (thread: Thread<TState>, message: Message) => void | Promise<void>
     >,
     thread: Thread<TState>,
-    message: Message,
+    message: Message
   ): Promise<void> {
     for (const handler of handlers) {
       await handler(thread, message);

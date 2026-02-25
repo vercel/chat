@@ -1,0 +1,52 @@
+---
+title: Memory
+description: In-memory state adapter for local development and testing.
+type: reference
+prerequisites:
+  - /docs/getting-started
+---
+
+An in-memory state adapter for development and testing. Zero configuration required.
+
+<Callout type="warn">
+Only use the memory adapter for local development and testing. State is lost on restart and locks don't work across multiple instances. For production, use [Redis](/docs/state/redis) or [ioredis](/docs/state/ioredis).
+</Callout>
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/state-memory
+```
+
+## Usage
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createMemoryState(),
+});
+```
+
+No configuration options are needed.
+
+## Features
+
+- Thread subscriptions (in-memory)
+- Locking (single-process only)
+- Zero configuration
+
+## Limitations
+
+- **Not suitable for production** — state is lost on restart
+- **Single process only** — locks don't work across multiple instances
+- **No persistence** — subscriptions reset when the process restarts
+
+## When to use
+
+- Local development
+- Unit testing
+- Quick prototyping

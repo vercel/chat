@@ -1,6 +1,6 @@
 {
   "botName": "Chat SDK Demo",
-  "botUserId": "users/113977916201552346146",
+  "botUserId": "users/100000000000000000002",
   "aiMention": {
     "commonEventObject": {
       "userLocale": "en",
@@ -13,10 +13,10 @@
     },
     "chat": {
       "user": {
-        "name": "users/117994873354375860089",
-        "displayName": "Malte Ubl",
+        "name": "users/100000000000000000001",
+        "displayName": "Test User",
         "avatarUrl": "https://lh3.googleusercontent.com/a-/user-avatar",
-        "email": "malte@industrialempathy.com",
+        "email": "testuser@example.com",
         "type": "HUMAN",
         "domainId": "12juw1z"
       },
@@ -33,10 +33,10 @@
         "message": {
           "name": "spaces/AAQAO1heGsE/messages/QCiv1HErQkk.QCiv1HErQkk",
           "sender": {
-            "name": "users/117994873354375860089",
-            "displayName": "Malte Ubl",
+            "name": "users/100000000000000000001",
+            "displayName": "Test User",
             "avatarUrl": "https://lh3.googleusercontent.com/a-/user-avatar",
-            "email": "malte@industrialempathy.com",
+            "email": "testuser@example.com",
             "type": "HUMAN",
             "domainId": "12juw1z"
           },
@@ -49,9 +49,9 @@
               "length": 14,
               "userMention": {
                 "user": {
-                  "name": "users/113977916201552346146",
+                  "name": "users/100000000000000000002",
                   "displayName": "Chat SDK Demo",
-                  "avatarUrl": "https://lh6.googleusercontent.com/proxy/bot-avatar",
+                  "avatarUrl": "https://lh6.googleusercontent.com/proxy/default-bot-avatar",
                   "type": "BOT"
                 },
                 "type": "MENTION"
@@ -89,13 +89,13 @@
         "ce-time": "2026-01-03T02:18:12.886639Z",
         "ce-type": "google.workspace.chat.message.v1.created"
       },
-      "data": "eyJtZXNzYWdlIjp7Im5hbWUiOiJzcGFjZXMvQUFRQU8xaGVHc0UvbWVzc2FnZXMvUUNpdjFIRXJRa2suTEpGclN1UmxqZ1kiLCJzZW5kZXIiOnsibmFtZSI6InVzZXJzLzExNzk5NDg3MzM1NDM3NTg2MDA4OSIsInR5cGUiOiJIVU1BTiJ9LCJjcmVhdGVUaW1lIjoiMjAyNi0wMS0wM1QwMjoxODoxMi44ODY2MzlaIiwidGV4dCI6IldobyBhcmUgeW91PyIsInRocmVhZCI6eyJuYW1lIjoic3BhY2VzL0FBUUFPMWhlR3NFL3RocmVhZHMvUUNpdjFIRXJRa2sifSwic3BhY2UiOnsibmFtZSI6InNwYWNlcy9BQVFBTzFoZUdzRSJ9LCJhcmd1bWVudFRleHQiOiJXaG8gYXJlIHlvdT8iLCJ0aHJlYWRSZXBseSI6dHJ1ZSwiZm9ybWF0dGVkVGV4dCI6IldobyBhcmUgeW91PyJ9fQ==",
+      "data": "eyJtZXNzYWdlIjp7Im5hbWUiOiJzcGFjZXMvQUFRQU8xaGVHc0UvbWVzc2FnZXMvUUNpdjFIRXJRa2suTEpGclN1UmxqZ1kiLCJzZW5kZXIiOnsibmFtZSI6InVzZXJzLzEwMDAwMDAwMDAwMDAwMDAwMDAwMSIsInR5cGUiOiJIVU1BTiJ9LCJjcmVhdGVUaW1lIjoiMjAyNi0wMS0wM1QwMjoxODoxMi44ODY2MzlaIiwidGV4dCI6IldobyBhcmUgeW91PyIsInRocmVhZCI6eyJuYW1lIjoic3BhY2VzL0FBUUFPMWhlR3NFL3RocmVhZHMvUUNpdjFIRXJRa2sifSwic3BhY2UiOnsibmFtZSI6InNwYWNlcy9BQVFBTzFoZUdzRSJ9LCJhcmd1bWVudFRleHQiOiJXaG8gYXJlIHlvdT8iLCJ0aHJlYWRSZXBseSI6dHJ1ZSwiZm9ybWF0dGVkVGV4dCI6IldobyBhcmUgeW91PyJ9fQ==",
       "messageId": "17622191887796419",
       "message_id": "17622191887796419",
       "orderingKey": "//workspaceevents.googleapis.com/subscriptions/chat-spaces-czpBQVFBTzFoZUdzRToxMTc5OTQ4NzMzNTQzNzU4NjAwODk6MTEzOTc3OTE2MjAxNTUyMzQ2MTQ2",
       "publishTime": "2026-01-03T02:18:12.996Z",
       "publish_time": "2026-01-03T02:18:12.996Z"
     },
-    "subscription": "projects/chat-sdk-demo-482018/subscriptions/chat-messages-push"
+    "subscription": "projects/example-chat-project-123456/subscriptions/chat-messages-push"
   }
 }

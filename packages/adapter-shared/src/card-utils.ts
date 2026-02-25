@@ -42,7 +42,7 @@ export const BUTTON_STYLE_MAPPINGS: Record<
  * ```
  */
 export function createEmojiConverter(
-  platform: PlatformName,
+  platform: PlatformName
 ): (text: string) => string {
   return (text: string) => convertEmojiPlaceholders(text, platform);
 }
@@ -59,9 +59,11 @@ export function createEmojiConverter(
  */
 export function mapButtonStyle(
   style: ButtonElement["style"],
-  platform: PlatformName,
+  platform: PlatformName
 ): string | undefined {
-  if (!style) return undefined;
+  if (!style) {
+    return undefined;
+  }
   return BUTTON_STYLE_MAPPINGS[platform][style];
 }
 
@@ -94,7 +96,7 @@ export interface FallbackTextOptions {
  */
 export function cardToFallbackText(
   card: CardElement,
-  options: FallbackTextOptions = {},
+  options: FallbackTextOptions = {}
 ): string {
   const { boldFormat = "*", lineBreak = "\n", platform } = options;
 
@@ -128,7 +130,7 @@ export function cardToFallbackText(
  */
 function childToFallbackText(
   child: CardChild,
-  convertText: (t: string) => string,
+  convertText: (t: string) => string
 ): string | null {
   switch (child.type) {
     case "text":
@@ -138,7 +140,10 @@ function childToFallbackText(
         .map((f) => `${convertText(f.label)}: ${convertText(f.value)}`)
         .join("\n");
     case "actions":
-      return `[${child.children.map((b) => convertText(b.label)).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // Fallback text is used for notifications and screen readers where buttons aren't actionable.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c, convertText))

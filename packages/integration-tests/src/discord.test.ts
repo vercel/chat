@@ -148,7 +148,7 @@ describe("Discord Integration", () => {
 
     it("should not call handler for non-matching action IDs", async () => {
       const handlerMock = vi.fn();
-      chat.onAction("approve", async () => {
+      chat.onAction("approve", () => {
         handlerMock();
       });
 
@@ -169,7 +169,7 @@ describe("Discord Integration", () => {
 
     it("should call catch-all action handler", async () => {
       const handlerMock = vi.fn();
-      chat.onAction(async (event) => {
+      chat.onAction((event) => {
         handlerMock(event.actionId);
       });
 
@@ -244,7 +244,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Hello Discord!",
-        }),
+        })
       );
     });
 
@@ -269,7 +269,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.update).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Edited message",
-        }),
+        })
       );
     });
 
@@ -316,7 +316,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: expect.stringContaining("**Bold**"),
-        }),
+        })
       );
     });
 
@@ -340,7 +340,7 @@ describe("Discord Integration", () => {
       expect(mockApi.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
           content: "Hey <@john>, check this out!",
-        }),
+        })
       );
     });
   });
@@ -365,13 +365,13 @@ describe("Discord Integration", () => {
 
       expect(mockApi.channels.typing).toHaveBeenCalled();
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Done typing!" }),
+        expect.objectContaining({ content: "Done typing!" })
       );
     });
 
     it("should include thread info in action events", async () => {
       let capturedEvent: unknown;
-      chat.onAction("info", async (event) => {
+      chat.onAction("info", (event) => {
         capturedEvent = {
           actionId: event.actionId,
           threadId: event.threadId,
@@ -394,8 +394,12 @@ describe("Discord Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedEvent).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const event = capturedEvent as any;
+      const event = capturedEvent as {
+        actionId: string;
+        threadId: string;
+        userId: string;
+        userName: string;
+      };
       expect(event.actionId).toBe("info");
       expect(event.threadId).toBe(TEST_THREAD_ID);
       expect(event.userId).toBe("USER789");
@@ -462,7 +466,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step1");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Step 1 complete" }),
+        expect.objectContaining({ content: "Step 1 complete" })
       );
 
       mockApi.clearMocks();
@@ -481,7 +485,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step2");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Step 2 complete" }),
+        expect.objectContaining({ content: "Step 2 complete" })
       );
 
       mockApi.clearMocks();
@@ -500,7 +504,7 @@ describe("Discord Integration", () => {
 
       expect(actionLog).toContain("step3");
       expect(mockApi.messages.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "All steps complete!" }),
+        expect.objectContaining({ content: "All steps complete!" })
       );
       expect(mockApi.reactions.add).toHaveBeenCalled();
     });

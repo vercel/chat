@@ -7,6 +7,8 @@ import {
 } from "./index";
 import type { WorkspaceEventNotification } from "./workspace-events";
 
+const GCHAT_PREFIX_PATTERN = /^gchat:/;
+
 // Test credentials
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -32,11 +34,6 @@ function createMockStateAdapter(): StateAdapter & {
     subscribe: vi.fn().mockResolvedValue(undefined),
     unsubscribe: vi.fn().mockResolvedValue(undefined),
     isSubscribed: vi.fn().mockResolvedValue(false),
-    listSubscriptions: vi.fn().mockReturnValue({
-      async *[Symbol.asyncIterator]() {
-        /* empty */
-      },
-    }),
     acquireLock: vi
       .fn()
       .mockResolvedValue({ threadId: "", token: "", expiresAt: 0 } as Lock),
@@ -98,7 +95,7 @@ describe("GoogleChatAdapter", () => {
       };
 
       const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(/^gchat:/);
+      expect(encoded).toMatch(GCHAT_PREFIX_PATTERN);
 
       const decoded = adapter.decodeThreadId(encoded);
       expect(decoded.spaceName).toBe(original.spaceName);
@@ -164,7 +161,7 @@ describe("GoogleChatAdapter", () => {
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
         { displayName: "John Doe", email: "john@example.com" },
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -193,7 +190,7 @@ describe("GoogleChatAdapter", () => {
       expect(mockState.set).not.toHaveBeenCalledWith(
         "gchat:user:users/123456789",
         expect.anything(),
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -220,10 +217,9 @@ describe("GoogleChatAdapter", () => {
       };
 
       // Access private method via any cast for testing
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       expect(parsedMessage.author.fullName).toBe("Jane Smith");
@@ -245,10 +241,9 @@ describe("GoogleChatAdapter", () => {
         },
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       // Should fall back to "User {numeric_id}"
@@ -272,10 +267,9 @@ describe("GoogleChatAdapter", () => {
         },
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: Testing private method
       const parsedMessage = await (adapter as any).parsePubSubMessage(
         notification,
-        "gchat:spaces/ABC123",
+        "gchat:spaces/ABC123"
       );
 
       expect(parsedMessage.author.fullName).toBe("Bob Wilson");

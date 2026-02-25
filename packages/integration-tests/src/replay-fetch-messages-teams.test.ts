@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TEAMS_BOT_APP_ID,
@@ -28,6 +28,8 @@ import {
   type MockGraphClient,
 } from "./teams-utils";
 
+const REPLIES_SUFFIX_REGEX = /\/replies$/;
+
 describe("fetchMessages Replay Tests - Teams", () => {
   let ctx: TeamsTestContext;
   let mockGraphClient: MockGraphClient;
@@ -45,7 +47,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
 
     ctx = createTeamsTestContext(
       { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
-      {},
+      {}
     );
 
     mockGraphClient = createMockGraphClient();
@@ -62,13 +64,13 @@ describe("fetchMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()
       .set(
         `teams:channelContext:${TEAMS_CHANNEL_ID}`,
-        JSON.stringify(channelContext),
+        JSON.stringify(channelContext)
       );
 
     // Mock Graph API to return actual recorded messages
@@ -97,15 +99,15 @@ describe("fetchMessages Replay Tests - Teams", () => {
     expect(mockGraphClient.apiCalls[0].url).toContain("/teams/");
     expect(mockGraphClient.apiCalls[0].url).toContain("/channels/");
     expect(mockGraphClient.apiCalls[0].url).toContain(
-      `/messages/${TEAMS_PARENT_MESSAGE_ID}`,
+      `/messages/${TEAMS_PARENT_MESSAGE_ID}`
     );
     // Should NOT end with /replies (that's the second call)
-    expect(mockGraphClient.apiCalls[0].url).not.toMatch(/\/replies$/);
+    expect(mockGraphClient.apiCalls[0].url).not.toMatch(REPLIES_SUFFIX_REGEX);
 
     // Second call: fetch replies
     expect(mockGraphClient.apiCalls[1].url).toContain("/teams/");
     expect(mockGraphClient.apiCalls[1].url).toContain("/channels/");
-    expect(mockGraphClient.apiCalls[1].url).toMatch(/\/replies$/);
+    expect(mockGraphClient.apiCalls[1].url).toMatch(REPLIES_SUFFIX_REGEX);
   });
 
   it("should return all messages in chronological order", async () => {
@@ -139,7 +141,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && expectedNumbers.includes(m.text || ""),
+      (m) => !m.author.isBot && expectedNumbers.includes(m.text || "")
     );
 
     // Should have exactly 13 numbered messages (1-13)
@@ -180,7 +182,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = result.messages.filter(
-      (m) => !m.author.isBot && expectedNumbers.includes(m.text || ""),
+      (m) => !m.author.isBot && expectedNumbers.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(expectedNumbers);
@@ -224,10 +226,10 @@ describe("fetchMessages Replay Tests - Teams", () => {
       expect(msg.author.userName).not.toBe("unknown");
     }
 
-    // Human messages should have "Malte Ubl" as userName
+    // Human messages should have "Test User" as userName
     const humanMessages = result.messages.filter((m) => !m.author.isBot);
     for (const msg of humanMessages) {
-      expect(msg.author.userName).toBe("Malte Ubl");
+      expect(msg.author.userName).toBe("Test User");
     }
 
     // Bot messages should have "Chat SDK Demo" as userName
@@ -261,7 +263,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
         attachments?: Array<{ contentType?: string }>;
       };
       return raw.attachments?.some(
-        (a) => a.contentType === "application/vnd.microsoft.card.adaptive",
+        (a) => a.contentType === "application/vnd.microsoft.card.adaptive"
       );
     });
 
@@ -288,7 +290,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
       return raw.attachments?.some(
         (a) =>
           a.contentType === "application/vnd.microsoft.card.adaptive" &&
-          a.content?.includes("Welcome"),
+          a.content?.includes("Welcome")
       );
     });
 
@@ -331,7 +333,7 @@ describe("allMessages Replay Tests - Teams", () => {
 
     ctx = createTeamsTestContext(
       { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
-      {},
+      {}
     );
 
     mockGraphClient = createMockGraphClient();
@@ -348,13 +350,13 @@ describe("allMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()
       .set(
         `teams:channelContext:${TEAMS_CHANNEL_ID}`,
-        JSON.stringify(channelContext),
+        JSON.stringify(channelContext)
       );
 
     // Mock Graph API to return actual recorded messages
@@ -380,7 +382,7 @@ describe("allMessages Replay Tests - Teams", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }
@@ -409,7 +411,7 @@ describe("allMessages Replay Tests - Teams", () => {
       "13",
     ];
     const numberedMessages = messages.filter((m) =>
-      expectedNumbers.includes(m.text || ""),
+      expectedNumbers.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(13);
 

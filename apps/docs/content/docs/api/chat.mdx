@@ -1,0 +1,470 @@
+---
+title: Chat
+description: The main entry point for creating a multi-platform chat bot.
+type: reference
+---
+
+The `Chat` class coordinates adapters, state, and event handlers. Create one instance and register handlers for different event types.
+
+```typescript
+import { Chat } from "chat";
+```
+
+## Constructor
+
+```typescript
+const bot = new Chat(config);
+```
+
+<TypeTable
+  type={{
+    userName: {
+      description: 'Default bot username across all adapters.',
+      type: 'string',
+    },
+    adapters: {
+      description: 'Map of adapter name to adapter instance.',
+      type: 'Record<string, Adapter>',
+    },
+    state: {
+      description: 'State adapter for subscriptions, locking, and caching.',
+      type: 'StateAdapter',
+    },
+    logger: {
+      description: 'Logger instance or log level. Defaults to ConsoleLogger("info") if omitted.',
+      type: 'Logger | "debug" | "info" | "warn" | "error" | "silent"',
+      default: 'ConsoleLogger("info")',
+    },
+    streamingUpdateIntervalMs: {
+      description: 'Throttle interval for fallback streaming (post + edit) in milliseconds.',
+      type: 'number',
+      default: '500',
+    },
+  }}
+/>
+
+## Event handlers
+
+### onNewMention
+
+Fires when the bot is @-mentioned in a thread it has **not** subscribed to. This is the primary entry point for new conversations.
+
+```typescript
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post("Hello!");
+});
+```
+
+<TypeTable
+  type={{
+    thread: {
+      description: 'The thread where the mention occurred.',
+      type: 'Thread',
+    },
+    message: {
+      description: 'The message that contains the @-mention.',
+      type: 'Message',
+    },
+  }}
+/>
+
+### onSubscribedMessage
+
+Fires for every new message in a subscribed thread. Once subscribed, all messages (including @-mentions) route here instead of `onNewMention`.
+
+```typescript
+bot.onSubscribedMessage(async (thread, message) => {
+  if (message.isMention) {
+    // User @-mentioned us in a thread we're already watching
+  }
+  await thread.post(`Got: ${message.text}`);
+});
+```
+
+### onNewMessage
+
+Fires for messages matching a regex pattern in **unsubscribed** threads.
+
+```typescript
+bot.onNewMessage(/^!help/i, async (thread, message) => {
+  await thread.post("Available commands: !help, !status");
+});
+```
+
+<TypeTable
+  type={{
+    pattern: {
+      description: 'Regular expression to match against message text.',
+      type: 'RegExp',
+    },
+    handler: {
+      description: 'Handler called when the pattern matches.',
+      type: '(thread: Thread, message: Message) => Promise<void>',
+    },
+  }}
+/>
+
+### onReaction
+
+Fires when a user adds or removes an emoji reaction.
+
+```typescript
+import { emoji } from "chat";
+
+// Filter to specific emoji
+bot.onReaction([emoji.thumbs_up, emoji.heart], async (event) => {
+  if (event.added) {
+    await event.thread.post(`Thanks for the ${event.emoji}!`);
+  }
+});
+
+// Handle all reactions
+bot.onReaction(async (event) => { /* ... */ });
+```
+
+<TypeTable
+  type={{
+    'event.emoji': {
+      description: 'Normalized emoji value (supports === comparison).',
+      type: 'EmojiValue',
+    },
+    'event.rawEmoji': {
+      description: 'Platform-specific emoji string.',
+      type: 'string',
+    },
+    'event.added': {
+      description: 'true if added, false if removed.',
+      type: 'boolean',
+    },
+    'event.user': {
+      description: 'The user who reacted.',
+      type: 'Author',
+    },
+    'event.thread': {
+      description: 'The thread where the reaction occurred.',
+      type: 'Thread',
+    },
+    'event.message': {
+      description: 'The message that was reacted to (if available).',
+      type: 'Message | undefined',
+    },
+    'event.messageId': {
+      description: 'The message ID that was reacted to.',
+      type: 'string',
+    },
+  }}
+/>
+
+### onAction
+
+Fires when a user clicks a button or selects an option in a card.
+
+```typescript
+// Single action
+bot.onAction("approve", async (event) => {
+  await event.thread.post("Approved!");
+});
+
+// Multiple actions
+bot.onAction(["approve", "reject"], async (event) => { /* ... */ });
+
+// All actions
+bot.onAction(async (event) => { /* ... */ });
+```
+
+<TypeTable
+  type={{
+    'event.actionId': {
+      description: 'Action ID from the button or select.',
+      type: 'string',
+    },
+    'event.value': {
+      description: 'Optional payload value from the button.',
+      type: 'string | undefined',
+    },
+    'event.user': {
+      description: 'User who triggered the action.',
+      type: 'Author',
+    },
+    'event.thread': {
+      description: 'The thread containing the card.',
+      type: 'Thread',
+    },
+    'event.triggerId': {
+      description: 'Trigger ID for opening modals (platform-specific, may expire quickly).',
+      type: 'string | undefined',
+    },
+    'event.openModal': {
+      description: 'Open a modal form in response to this action.',
+      type: '(modal: ModalElement | CardJSXElement) => Promise<{ viewId: string } | undefined>',
+    },
+  }}
+/>
+
+### onModalSubmit
+
+Fires when a user submits a modal form.
+
+```typescript
+bot.onModalSubmit("feedback", async (event) => {
+  const comment = event.values.comment;
+  if (event.relatedThread) {
+    await event.relatedThread.post(`Feedback: ${comment}`);
+  }
+});
+```
+
+<TypeTable
+  type={{
+    'event.callbackId': {
+      description: 'The callback ID specified when the modal was created.',
+      type: 'string',
+    },
+    'event.values': {
+      description: 'Form field values keyed by input ID.',
+      type: 'Record<string, string>',
+    },
+    'event.user': {
+      description: 'User who submitted the modal.',
+      type: 'Author',
+    },
+    'event.relatedThread': {
+      description: 'The thread where the modal was triggered from (if available).',
+      type: 'Thread | undefined',
+    },
+    'event.relatedMessage': {
+      description: 'The message containing the action that opened the modal.',
+      type: 'SentMessage | undefined',
+    },
+    'event.relatedChannel': {
+      description: 'The channel where the modal was triggered from (available when opened via slash commands).',
+      type: 'Channel | undefined',
+    },
+    'event.privateMetadata': {
+      description: 'Arbitrary string passed through the modal lifecycle.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+Returns `ModalResponse | undefined` to control the modal after submission:
+
+- `{ action: "close" }` — close the modal
+- `{ action: "errors", errors: { fieldId: "message" } }` — show validation errors
+- `{ action: "update", modal: ModalElement }` — replace the modal content
+- `{ action: "push", modal: ModalElement }` — push a new modal view onto the stack
+
+### onSlashCommand
+
+Fires when a user invokes a `/command` in the message composer. Currently supported on Slack.
+
+```typescript
+// Specific command
+bot.onSlashCommand("/status", async (event) => {
+  await event.channel.post("All systems operational!");
+});
+
+// Multiple commands
+bot.onSlashCommand(["/help", "/info"], async (event) => {
+  await event.channel.post(`You invoked ${event.command}`);
+});
+
+// Catch-all
+bot.onSlashCommand(async (event) => {
+  console.log(`${event.command} ${event.text}`);
+});
+```
+
+<TypeTable
+  type={{
+    'event.command': {
+      description: 'The command name (e.g., "/status").',
+      type: 'string',
+    },
+    'event.text': {
+      description: 'Arguments after the command.',
+      type: 'string',
+    },
+    'event.user': {
+      description: 'The user who invoked the command.',
+      type: 'Author',
+    },
+    'event.channel': {
+      description: 'The channel where the command was invoked.',
+      type: 'Channel',
+    },
+    'event.triggerId': {
+      description: 'Trigger ID for opening modals (time-limited).',
+      type: 'string | undefined',
+    },
+    'event.openModal': {
+      description: 'Open a modal form in response to this command.',
+      type: '(modal: ModalElement | CardJSXElement) => Promise<{ viewId: string } | undefined>',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+    'event.raw': {
+      description: 'Platform-specific raw payload.',
+      type: 'unknown',
+    },
+  }}
+/>
+
+### onModalClose
+
+Fires when a user closes a modal (requires `notifyOnClose: true` on the modal).
+
+```typescript
+bot.onModalClose("feedback", async (event) => { /* ... */ });
+```
+
+### onAssistantThreadStarted
+
+Fires when a user opens a new assistant thread (Slack Assistants API). Use this to set suggested prompts, show a status indicator, or send an initial greeting.
+
+```typescript
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Get started", message: "What can you help me with?" },
+  ]);
+});
+```
+
+<TypeTable
+  type={{
+    'event.threadId': {
+      description: 'Encoded thread ID.',
+      type: 'string',
+    },
+    'event.userId': {
+      description: 'The user who opened the thread.',
+      type: 'string',
+    },
+    'event.channelId': {
+      description: 'The DM channel ID.',
+      type: 'string',
+    },
+    'event.threadTs': {
+      description: 'Thread timestamp.',
+      type: 'string',
+    },
+    'event.context': {
+      description: 'Context about where the thread was opened (channel, team, enterprise, entry point).',
+      type: 'AssistantThreadContext',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+  }}
+/>
+
+### onAssistantContextChanged
+
+Fires when a user navigates to a different channel while the assistant panel is open (Slack Assistants API). Use this to update suggested prompts or context based on the new channel.
+
+```typescript
+bot.onAssistantContextChanged(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.setAssistantStatus(event.channelId, event.threadTs, "Updating context...");
+});
+```
+
+The event shape is identical to `onAssistantThreadStarted`.
+
+### onAppHomeOpened
+
+Fires when a user opens the bot's Home tab in Slack. Use this to publish a dynamic Home tab view.
+
+```typescript
+bot.onAppHomeOpened(async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.publishHomeView(event.userId, {
+    type: "home",
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: "Welcome!" } }],
+  });
+});
+```
+
+<TypeTable
+  type={{
+    'event.userId': {
+      description: 'The user who opened the Home tab.',
+      type: 'string',
+    },
+    'event.channelId': {
+      description: 'The channel ID associated with the Home tab.',
+      type: 'string',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+  }}
+/>
+
+## Utility methods
+
+### webhooks
+
+Type-safe webhook handlers keyed by adapter name. Pass these to your HTTP route handler.
+
+```typescript
+bot.webhooks.slack(request, { waitUntil });
+bot.webhooks.teams(request, { waitUntil });
+```
+
+### getAdapter
+
+Get an adapter instance by name.
+
+```typescript
+const slack = bot.getAdapter("slack");
+```
+
+### openDM
+
+Open a direct message thread with a user.
+
+```typescript
+const dm = await bot.openDM("U123456");
+await dm.post("Hello via DM!");
+
+// Or with an Author object
+const dm = await bot.openDM(message.author);
+```
+
+### channel
+
+Get a Channel by its channel ID.
+
+```typescript
+const channel = bot.channel("slack:C123ABC");
+
+for await (const msg of channel.messages) {
+  console.log(msg.text);
+}
+```
+
+### initialize / shutdown
+
+Manually manage the lifecycle. Initialization happens automatically on the first webhook, but you can call it explicitly for non-webhook use cases.
+
+```typescript
+await bot.initialize();
+// ... do work ...
+await bot.shutdown();
+```
+
+### reviver
+
+Get a `JSON.parse` reviver that deserializes `Thread` and `Message` objects from workflow payloads.
+
+```typescript
+const data = JSON.parse(payload, bot.reviver());
+await data.thread.post("Hello from workflow!");
+```

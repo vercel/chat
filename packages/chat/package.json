@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "4.8.0",
+  "version": "4.14.0",
   "description": "Unified chat abstraction for Slack, Teams, Google Chat, and Discord",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,19 +21,19 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsup",
+    "build": "pnpm clean && tsup && cp -r ../../apps/docs/content/docs ./docs",
     "dev": "tsup --watch",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist docs"
   },
   "dependencies": {
-    "@workflow/serde": "4.0.1-beta.1",
+    "@workflow/serde": "4.1.0-beta.2",
     "mdast-util-to-string": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
@@ -49,12 +49,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/chat.git",
+    "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/chat-sdk"
   },
-  "homepage": "https://github.com/vercel-labs/chat#readme",
+  "homepage": "https://github.com/vercel/chat#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/chat/issues"
+    "url": "https://github.com/vercel/chat/issues"
   },
   "publishConfig": {
     "access": "public"

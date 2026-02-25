@@ -1,13 +1,14 @@
 import type { Lock, Logger, StateAdapter } from "chat";
+import { ConsoleLogger } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
 export interface RedisStateAdapterOptions {
-  /** Redis connection URL (e.g., redis://localhost:6379) */
-  url: string;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger: Logger;
+  /** Redis connection URL (e.g., redis://localhost:6379) */
+  url: string;
 }
 
 /**
@@ -17,9 +18,9 @@ export interface RedisStateAdapterOptions {
  * across multiple server instances.
  */
 export class RedisStateAdapter implements StateAdapter {
-  private client: RedisClientType;
-  private keyPrefix: string;
-  private logger: Logger;
+  private readonly client: RedisClientType;
+  private readonly keyPrefix: string;
+  private readonly logger: Logger;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
@@ -78,33 +79,6 @@ export class RedisStateAdapter implements StateAdapter {
   async isSubscribed(threadId: string): Promise<boolean> {
     this.ensureConnected();
     return this.client.sIsMember(this.subscriptionsSetKey(), threadId);
-  }
-
-  async *listSubscriptions(adapterName?: string): AsyncIterable<string> {
-    this.ensureConnected();
-
-    // Use SSCAN for large sets to avoid blocking
-    let cursor = 0;
-    do {
-      const result = await this.client.sScan(
-        this.subscriptionsSetKey(),
-        cursor,
-        {
-          COUNT: 100,
-        },
-      );
-      cursor = result.cursor;
-
-      for (const threadId of result.members) {
-        if (adapterName) {
-          if (threadId.startsWith(`${adapterName}:`)) {
-            yield threadId;
-          }
-        } else {
-          yield threadId;
-        }
-      }
-    } while (cursor !== 0);
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -213,7 +187,7 @@ export class RedisStateAdapter implements StateAdapter {
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
-        "RedisStateAdapter is not connected. Call connect() first.",
+        "RedisStateAdapter is not connected. Call connect() first."
       );
     }
   }
@@ -231,7 +205,18 @@ function generateToken(): string {
 }
 
 export function createRedisState(
-  options: RedisStateAdapterOptions,
+  options?: Partial<RedisStateAdapterOptions>
 ): RedisStateAdapter {
-  return new RedisStateAdapter(options);
+  const url = options?.url ?? process.env.REDIS_URL;
+  if (!url) {
+    throw new Error(
+      "Redis url is required. Set REDIS_URL or provide it in options."
+    );
+  }
+  const resolved: RedisStateAdapterOptions = {
+    url,
+    keyPrefix: options?.keyPrefix,
+    logger: options?.logger ?? new ConsoleLogger("info").child("redis"),
+  };
+  return new RedisStateAdapter(resolved);
 }

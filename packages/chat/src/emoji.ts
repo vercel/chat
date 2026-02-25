@@ -175,9 +175,9 @@ export const DEFAULT_EMOJI_MAP: Record<string, EmojiFormats> = {
  * Emoji resolver that handles conversion between platform formats and normalized names.
  */
 export class EmojiResolver {
-  private emojiMap: Record<string, EmojiFormats>;
-  private slackToNormalized: Map<string, string>;
-  private gchatToNormalized: Map<string, string>;
+  private readonly emojiMap: Record<string, EmojiFormats>;
+  private readonly slackToNormalized: Map<string, string>;
+  private readonly gchatToNormalized: Map<string, string>;
 
   constructor(customMap?: EmojiMapConfig) {
     this.emojiMap = { ...DEFAULT_EMOJI_MAP, ...customMap };
@@ -251,7 +251,9 @@ export class EmojiResolver {
   toSlack(emoji: EmojiValue | string): string {
     const name = typeof emoji === "string" ? emoji : emoji.name;
     const formats = this.emojiMap[name];
-    if (!formats) return name;
+    if (!formats) {
+      return name;
+    }
     return Array.isArray(formats.slack) ? formats.slack[0] : formats.slack;
   }
 
@@ -262,7 +264,9 @@ export class EmojiResolver {
   toGChat(emoji: EmojiValue | string): string {
     const name = typeof emoji === "string" ? emoji : emoji.name;
     const formats = this.emojiMap[name];
-    if (!formats) return name;
+    if (!formats) {
+      return name;
+    }
     return Array.isArray(formats.gchat) ? formats.gchat[0] : formats.gchat;
   }
 
@@ -281,7 +285,9 @@ export class EmojiResolver {
   matches(rawEmoji: string, normalized: EmojiValue | string): boolean {
     const name = typeof normalized === "string" ? normalized : normalized.name;
     const formats = this.emojiMap[name];
-    if (!formats) return rawEmoji === name;
+    if (!formats) {
+      return rawEmoji === name;
+    }
 
     const slackFormats = Array.isArray(formats.slack)
       ? formats.slack
@@ -330,7 +336,7 @@ const EMOJI_PLACEHOLDER_REGEX = /\{\{emoji:([a-z0-9_]+)\}\}/gi;
 export function convertEmojiPlaceholders(
   text: string,
   platform: "slack" | "gchat" | "teams" | "discord" | "github" | "linear",
-  resolver: EmojiResolver = defaultEmojiResolver,
+  resolver: EmojiResolver = defaultEmojiResolver
 ): string {
   return text.replace(EMOJI_PLACEHOLDER_REGEX, (_, emojiName: string) => {
     switch (platform) {

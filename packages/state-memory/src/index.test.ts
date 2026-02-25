@@ -20,24 +20,6 @@ describe("MemoryStateAdapter", () => {
       await adapter.unsubscribe("slack:C123:1234.5678");
       expect(await adapter.isSubscribed("slack:C123:1234.5678")).toBe(false);
     });
-
-    it("should list subscriptions", async () => {
-      await adapter.subscribe("slack:C123:1234.5678");
-      await adapter.subscribe("slack:C456:9876.5432");
-      await adapter.subscribe("teams:T789:abcd");
-
-      const all: string[] = [];
-      for await (const id of adapter.listSubscriptions()) {
-        all.push(id);
-      }
-      expect(all).toHaveLength(3);
-
-      const slackOnly: string[] = [];
-      for await (const id of adapter.listSubscriptions("slack")) {
-        slackOnly.push(id);
-      }
-      expect(slackOnly).toHaveLength(2);
-    });
   });
 
   describe("locking", () => {
@@ -102,7 +84,7 @@ describe("MemoryStateAdapter", () => {
       // Extend the lock
       const extended = await adapter.extendLock(
         lock as NonNullable<typeof lock>,
-        5000,
+        5000
       );
       expect(extended).toBe(true);
 
@@ -120,7 +102,7 @@ describe("MemoryStateAdapter", () => {
 
       const extended = await adapter.extendLock(
         lock as NonNullable<typeof lock>,
-        5000,
+        5000
       );
       expect(extended).toBe(false);
     });
@@ -130,7 +112,7 @@ describe("MemoryStateAdapter", () => {
     it("should throw when not connected", async () => {
       const newAdapter = createMemoryState();
       await expect(newAdapter.subscribe("test")).rejects.toThrow(
-        "not connected",
+        "not connected"
       );
     });
 

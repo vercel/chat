@@ -2,12 +2,12 @@ import type { Lock, Logger, StateAdapter } from "chat";
 import Redis from "ioredis";
 
 export interface IoRedisStateAdapterOptions {
-  /** Redis connection URL (e.g., redis://localhost:6379) */
-  url: string;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger: Logger;
+  /** Redis connection URL (e.g., redis://localhost:6379) */
+  url: string;
 }
 
 export interface IoRedisStateClientOptions {
@@ -36,12 +36,12 @@ export interface IoRedisStateClientOptions {
  * ```
  */
 export class IoRedisStateAdapter implements StateAdapter {
-  private client: Redis;
-  private keyPrefix: string;
-  private logger: Logger;
+  private readonly client: Redis;
+  private readonly keyPrefix: string;
+  private readonly logger: Logger;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
-  private ownsClient: boolean;
+  private readonly ownsClient: boolean;
 
   constructor(options: IoRedisStateAdapterOptions | IoRedisStateClientOptions) {
     if ("client" in options) {
@@ -119,35 +119,9 @@ export class IoRedisStateAdapter implements StateAdapter {
     this.ensureConnected();
     const result = await this.client.sismember(
       this.subscriptionsSetKey(),
-      threadId,
+      threadId
     );
     return result === 1;
-  }
-
-  async *listSubscriptions(adapterName?: string): AsyncIterable<string> {
-    this.ensureConnected();
-
-    // Use SSCAN for large sets to avoid blocking
-    let cursor = "0";
-    do {
-      const [nextCursor, members] = await this.client.sscan(
-        this.subscriptionsSetKey(),
-        cursor,
-        "COUNT",
-        100,
-      );
-      cursor = nextCursor;
-
-      for (const threadId of members) {
-        if (adapterName) {
-          if (threadId.startsWith(`${adapterName}:`)) {
-            yield threadId;
-          }
-        } else {
-          yield threadId;
-        }
-      }
-    } while (cursor !== "0");
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -206,7 +180,7 @@ export class IoRedisStateAdapter implements StateAdapter {
       1,
       lockKey,
       lock.token,
-      ttlMs.toString(),
+      ttlMs.toString()
     );
 
     return result === 1;
@@ -253,7 +227,7 @@ export class IoRedisStateAdapter implements StateAdapter {
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
-        "IoRedisStateAdapter is not connected. Call connect() first.",
+        "IoRedisStateAdapter is not connected. Call connect() first."
       );
     }
   }
@@ -285,7 +259,7 @@ function generateToken(): string {
  * ```
  */
 export function createIoRedisState(
-  options: IoRedisStateAdapterOptions | IoRedisStateClientOptions,
+  options: IoRedisStateAdapterOptions | IoRedisStateClientOptions
 ): IoRedisStateAdapter {
   return new IoRedisStateAdapter(options);
 }

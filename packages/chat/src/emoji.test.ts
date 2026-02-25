@@ -411,7 +411,7 @@ describe("createEmoji", () => {
     const text = `${e.custom_test} Magic!`;
     // No need to manually extend resolver - createEmoji does it automatically
     expect(convertEmojiPlaceholders(text, "slack")).toBe(
-      ":custom_slack: Magic!",
+      ":custom_slack: Magic!"
     );
     expect(convertEmojiPlaceholders(text, "gchat")).toBe("🎯 Magic!");
   });

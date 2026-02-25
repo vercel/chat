@@ -11,6 +11,7 @@ import type { FieldsElement, TextElement } from "./cards";
 export const VALID_MODAL_CHILD_TYPES = [
   "text_input",
   "select",
+  "radio_select",
   "text",
   "fields",
 ] as const;
@@ -18,43 +19,56 @@ export const VALID_MODAL_CHILD_TYPES = [
 export type ModalChild =
   | TextInputElement
   | SelectElement
+  | RadioSelectElement
   | TextElement
   | FieldsElement;
 
 export interface ModalElement {
-  type: "modal";
   callbackId: string;
-  title: string;
-  submitLabel?: string;
+  children: ModalChild[];
   closeLabel?: string;
   notifyOnClose?: boolean;
-  children: ModalChild[];
+  /** Arbitrary string passed through the modal lifecycle (e.g., JSON context). */
+  privateMetadata?: string;
+  submitLabel?: string;
+  title: string;
+  type: "modal";
 }
 
 export interface TextInputElement {
-  type: "text_input";
   id: string;
-  label: string;
-  placeholder?: string;
   initialValue?: string;
+  label: string;
+  maxLength?: number;
   multiline?: boolean;
   optional?: boolean;
-  maxLength?: number;
+  placeholder?: string;
+  type: "text_input";
 }
 
 export interface SelectElement {
-  type: "select";
   id: string;
-  label: string;
-  placeholder?: string;
-  options: SelectOptionElement[];
   initialOption?: string;
+  label: string;
   optional?: boolean;
+  options: SelectOptionElement[];
+  placeholder?: string;
+  type: "select";
 }
 
 export interface SelectOptionElement {
+  description?: string;
   label: string;
   value: string;
+}
+
+export interface RadioSelectElement {
+  id: string;
+  initialOption?: string;
+  label: string;
+  optional?: boolean;
+  options: SelectOptionElement[];
+  type: "radio_select";
 }
 
 export function isModalElement(value: unknown): value is ModalElement {
@@ -73,13 +87,12 @@ export function filterModalChildren(children: unknown[]): ModalChild[] {
       c !== null &&
       "type" in c &&
       VALID_MODAL_CHILD_TYPES.includes(
-        (c as { type: string })
-          .type as (typeof VALID_MODAL_CHILD_TYPES)[number],
-      ),
+        (c as { type: string }).type as (typeof VALID_MODAL_CHILD_TYPES)[number]
+      )
   );
   if (validChildren.length < children.length) {
     console.warn(
-      "[chat] Modal contains unsupported child elements that were ignored",
+      "[chat] Modal contains unsupported child elements that were ignored"
     );
   }
   return validChildren;
@@ -91,11 +104,13 @@ export function filterModalChildren(children: unknown[]): ModalChild[] {
 
 export interface ModalOptions {
   callbackId: string;
-  title: string;
-  submitLabel?: string;
+  children?: ModalChild[];
   closeLabel?: string;
   notifyOnClose?: boolean;
-  children?: ModalChild[];
+  /** Arbitrary string passed through the modal lifecycle (e.g., JSON context). */
+  privateMetadata?: string;
+  submitLabel?: string;
+  title: string;
 }
 
 export function Modal(options: ModalOptions): ModalElement {
@@ -106,18 +121,19 @@ export function Modal(options: ModalOptions): ModalElement {
     submitLabel: options.submitLabel,
     closeLabel: options.closeLabel,
     notifyOnClose: options.notifyOnClose,
+    privateMetadata: options.privateMetadata,
     children: options.children ?? [],
   };
 }
 
 export interface TextInputOptions {
   id: string;
-  label: string;
-  placeholder?: string;
   initialValue?: string;
+  label: string;
+  maxLength?: number;
   multiline?: boolean;
   optional?: boolean;
-  maxLength?: number;
+  placeholder?: string;
 }
 
 export function TextInput(options: TextInputOptions): TextInputElement {
@@ -135,14 +151,17 @@ export function TextInput(options: TextInputOptions): TextInputElement {
 
 export interface SelectOptions {
   id: string;
-  label: string;
-  placeholder?: string;
-  options: SelectOptionElement[];
   initialOption?: string;
+  label: string;
   optional?: boolean;
+  options: SelectOptionElement[];
+  placeholder?: string;
 }
 
 export function Select(options: SelectOptions): SelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("Select requires at least one option");
+  }
   return {
     type: "select",
     id: options.id,
@@ -157,10 +176,34 @@ export function Select(options: SelectOptions): SelectElement {
 export function SelectOption(options: {
   label: string;
   value: string;
+  description?: string;
 }): SelectOptionElement {
   return {
     label: options.label,
     value: options.value,
+    description: options.description,
+  };
+}
+
+export interface RadioSelectOptions {
+  id: string;
+  initialOption?: string;
+  label: string;
+  optional?: boolean;
+  options: SelectOptionElement[];
+}
+
+export function RadioSelect(options: RadioSelectOptions): RadioSelectElement {
+  if (!options.options || options.options.length === 0) {
+    throw new Error("RadioSelect requires at least one option");
+  }
+  return {
+    type: "radio_select",
+    id: options.id,
+    label: options.label,
+    options: options.options,
+    initialOption: options.initialOption,
+    optional: options.optional,
   };
 }
 
@@ -170,8 +213,8 @@ export function SelectOption(options: {
 
 interface ReactElement {
   $$typeof: symbol;
-  type: unknown;
   props: Record<string, unknown>;
+  type: unknown;
 }
 
 function isReactElement(value: unknown): value is ReactElement {
@@ -195,11 +238,12 @@ const modalComponentMap = new Map<unknown, string>([
   [Modal, "Modal"],
   [TextInput, "TextInput"],
   [Select, "Select"],
+  [RadioSelect, "RadioSelect"],
   [SelectOption, "SelectOption"],
 ]);
 
 export function fromReactModalElement(
-  element: unknown,
+  element: unknown
 ): AnyModalElement | null {
   if (!isReactElement(element)) {
     if (isModalElement(element)) {
@@ -233,6 +277,7 @@ export function fromReactModalElement(
         submitLabel: props.submitLabel as string | undefined,
         closeLabel: props.closeLabel as string | undefined,
         notifyOnClose: props.notifyOnClose as boolean | undefined,
+        privateMetadata: props.privateMetadata as string | undefined,
         children: filterModalChildren(convertedChildren),
       });
 
@@ -254,7 +299,19 @@ export function fromReactModalElement(
         placeholder: props.placeholder as string | undefined,
         options: convertedChildren.filter(
           (c): c is SelectOptionElement =>
-            c !== null && "label" in c && "value" in c && !("type" in c),
+            c !== null && "label" in c && "value" in c && !("type" in c)
+        ),
+        initialOption: props.initialOption as string | undefined,
+        optional: props.optional as boolean | undefined,
+      });
+
+    case "RadioSelect":
+      return RadioSelect({
+        id: props.id as string,
+        label: props.label as string,
+        options: convertedChildren.filter(
+          (c): c is SelectOptionElement =>
+            c !== null && "label" in c && "value" in c && !("type" in c)
         ),
         initialOption: props.initialOption as string | undefined,
         optional: props.optional as boolean | undefined,
@@ -264,6 +321,7 @@ export function fromReactModalElement(
       return SelectOption({
         label: props.label as string,
         value: props.value as string,
+        description: props.description as string | undefined,
       });
 
     default:

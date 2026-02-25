@@ -1,47 +1,47 @@
 {
   "botName": "Chat SDK ExampleBot",
-  "botUserId": "U0A56JUFP9A",
+  "botUserId": "U00FAKEBOT01",
   "dmChannelId": "D0A5319PS02",
   "mention": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "api_app_id": "A0A5FUXP1ED",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "app_mention",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767376988.871629",
-      "text": "<@U0A56JUFP9A> Hey",
-      "channel": "C0A511MBCUW",
+      "text": "<@U00FAKEBOT01> Hey",
+      "channel": "C00FAKECHAN1",
       "event_ts": "1767376988.871629"
     },
     "type": "event_callback",
-    "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
   },
   "dmRequest": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "api_app_id": "A0A5FUXP1ED",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "message",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767376993.596659",
       "text": "DM me",
       "thread_ts": "1767376988.871629",
-      "parent_user_id": "U03STHCA1JM",
-      "channel": "C0A511MBCUW",
+      "parent_user_id": "U00FAKEUSER1",
+      "channel": "C00FAKECHAN1",
       "event_ts": "1767376993.596659",
       "channel_type": "channel"
     },
     "type": "event_callback",
-    "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
   },
   "dmMessage": {
-    "token": "VeYDktLdwHw0CTvugbEfRazy",
-    "team_id": "T03SH7G01GU",
-    "api_app_id": "A0A5FUXP1ED",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
     "event": {
       "type": "message",
-      "user": "U03STHCA1JM",
+      "user": "U00FAKEUSER1",
       "ts": "1767377001.319859",
       "text": "Hey!",
       "channel": "D0A5319PS02",
@@ -49,6 +49,6 @@
       "channel_type": "im"
     },
     "type": "event_callback",
-    "authorizations": [{ "user_id": "U0A56JUFP9A", "is_bot": true }]
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
   }
 }

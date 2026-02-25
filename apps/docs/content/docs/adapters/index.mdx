@@ -1,0 +1,112 @@
+---
+title: Overview
+description: Platform-specific adapters for Slack, Teams, Google Chat, Discord, GitHub, and Linear.
+type: overview
+prerequisites:
+  - /docs/getting-started
+---
+
+Adapters handle webhook verification, message parsing, and API calls for each platform. Install only the adapters you need.
+
+## Feature matrix
+
+### Messaging
+
+| Feature | [Slack](/docs/adapters/slack) | [Teams](/docs/adapters/teams) | [Google Chat](/docs/adapters/gchat) | [Discord](/docs/adapters/discord) | [GitHub](/docs/adapters/github) | [Linear](/docs/adapters/linear) |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Post message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Edit message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Delete message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| File uploads | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Streaming | ✅ Native | ⚠️ Post+Edit | ⚠️ Post+Edit | ⚠️ Post+Edit | ❌ | ❌ |
+
+### Rich content
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Card format | Block Kit | Adaptive Cards | Google Chat Cards | Embeds | GFM Markdown | Markdown |
+| Buttons | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Link buttons | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Select menus | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Fields | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Images in cards | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Modals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Conversations
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Mentions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Add reactions | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Remove reactions | ✅ | ❌ | ✅ | ✅ | ⚠️ | ⚠️ |
+| Typing indicator | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| DMs | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Ephemeral messages | ✅ Native | ❌ | ✅ Native | ❌ | ❌ | ❌ |
+
+### Message history
+
+| Feature | Slack | Teams | Google Chat | Discord | GitHub | Linear |
+|---------|-------|-------|-------------|---------|--------|--------|
+| Fetch messages | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Fetch single message | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Fetch thread info | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Fetch channel messages | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| List threads | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fetch channel info | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Post channel message | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+
+<Callout type="info">
+⚠️ indicates partial support — the feature works with limitations. See individual adapter pages for details.
+</Callout>
+
+## Packages
+
+| Platform | Package |
+|----------|---------|
+| [Slack](/docs/adapters/slack) | `@chat-adapter/slack` |
+| [Microsoft Teams](/docs/adapters/teams) | `@chat-adapter/teams` |
+| [Google Chat](/docs/adapters/gchat) | `@chat-adapter/gchat` |
+| [Discord](/docs/adapters/discord) | `@chat-adapter/discord` |
+| [GitHub](/docs/adapters/github) | `@chat-adapter/github` |
+| [Linear](/docs/adapters/linear) | `@chat-adapter/linear` |
+
+## How adapters work
+
+Each adapter implements a standard interface that the `Chat` class uses to route events and send messages. When a webhook arrives:
+
+1. The adapter verifies the request signature
+2. Parses the platform-specific payload into a normalized `Message`
+3. Routes to your handlers via the `Chat` class
+4. Converts outgoing messages from markdown/AST/cards to the platform's native format
+
+## Using multiple adapters
+
+Register multiple adapters and your event handlers work across all of them:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { createGoogleChatAdapter } from "@chat-adapter/gchat";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+    teams: createTeamsAdapter(),
+    gchat: createGoogleChatAdapter(),
+  },
+  state: createRedisState(),
+});
+
+// This handler fires for mentions on any platform
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello!");
+});
+```
+
+Each adapter auto-detects credentials from environment variables, so you only need to pass config when overriding defaults.
+
+Each adapter creates a webhook handler accessible via `bot.webhooks.slack`, `bot.webhooks.teams`, etc.

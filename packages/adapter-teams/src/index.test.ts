@@ -2,6 +2,8 @@ import type { Logger } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
 
+const TEAMS_PREFIX_PATTERN = /^teams:/;
+
 const mockLogger: Logger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -38,7 +40,7 @@ describe("TeamsAdapter", () => {
       };
 
       const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(/^teams:/);
+      expect(encoded).toMatch(TEAMS_PREFIX_PATTERN);
 
       const decoded = adapter.decodeThreadId(encoded);
       expect(decoded.conversationId).toBe(original.conversationId);

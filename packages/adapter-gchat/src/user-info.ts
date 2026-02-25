@@ -23,12 +23,14 @@ export interface CachedUserInfo {
  * Uses both in-memory cache (fast path) and persistent state adapter.
  */
 export class UserInfoCache {
-  private inMemoryCache = new Map<string, CachedUserInfo>();
+  private readonly inMemoryCache = new Map<string, CachedUserInfo>();
+  private readonly state: StateAdapter | null;
+  private readonly logger: Logger;
 
-  constructor(
-    private state: StateAdapter | null,
-    private logger: Logger,
-  ) {}
+  constructor(state: StateAdapter | null, logger: Logger) {
+    this.state = state;
+    this.logger = logger;
+  }
 
   /**
    * Cache user info for later lookup.
@@ -36,9 +38,11 @@ export class UserInfoCache {
   async set(
     userId: string,
     displayName: string,
-    email?: string,
+    email?: string
   ): Promise<void> {
-    if (!displayName || displayName === "unknown") return;
+    if (!displayName || displayName === "unknown") {
+      return;
+    }
 
     const userInfo: CachedUserInfo = { displayName, email };
 
@@ -51,7 +55,7 @@ export class UserInfoCache {
       await this.state.set<CachedUserInfo>(
         cacheKey,
         userInfo,
-        USER_INFO_CACHE_TTL_MS,
+        USER_INFO_CACHE_TTL_MS
       );
     }
   }
@@ -67,7 +71,9 @@ export class UserInfoCache {
     }
 
     // Fall back to state adapter
-    if (!this.state) return null;
+    if (!this.state) {
+      return null;
+    }
 
     const cacheKey = `${USER_INFO_KEY_PREFIX}${userId}`;
     const fromState = await this.state.get<CachedUserInfo>(cacheKey);
@@ -92,7 +98,7 @@ export class UserInfoCache {
     userId: string,
     providedDisplayName: string | undefined,
     botUserId: string | undefined,
-    botUserName: string,
+    botUserName: string
   ): Promise<string> {
     // If display name is provided and not "unknown", use it
     if (providedDisplayName && providedDisplayName !== "unknown") {

@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-memory",
-  "version": "4.8.0",
+  "version": "4.14.0",
   "description": "In-memory state adapter for chat (development/testing)",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,10 +18,9 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -29,12 +28,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/chat.git",
+    "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/state-memory"
   },
-  "homepage": "https://github.com/vercel-labs/chat#readme",
+  "homepage": "https://github.com/vercel/chat#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/chat/issues"
+    "url": "https://github.com/vercel/chat/issues"
   },
   "publishConfig": {
     "access": "public"

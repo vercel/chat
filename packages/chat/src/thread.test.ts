@@ -81,7 +81,7 @@ describe("ThreadImpl", () => {
       expect(mockState.set).toHaveBeenCalledWith(
         "thread-state:slack:C123:1234.5678",
         { aiMode: true },
-        expect.any(Number), // TTL
+        expect.any(Number) // TTL
       );
     });
 
@@ -89,7 +89,7 @@ describe("ThreadImpl", () => {
       await thread.state;
 
       expect(mockState.get).toHaveBeenCalledWith(
-        "thread-state:slack:C123:1234.5678",
+        "thread-state:slack:C123:1234.5678"
       );
     });
   });
@@ -114,7 +114,7 @@ describe("ThreadImpl", () => {
     // Helper to create an async iterable from an array of chunks
     async function* createTextStream(
       chunks: string[],
-      delayMs = 0,
+      delayMs = 0
     ): AsyncIterable<string> {
       for (const chunk of chunks) {
         if (delayMs > 0) {
@@ -138,7 +138,7 @@ describe("ThreadImpl", () => {
       expect(mockStream).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         expect.any(Object), // The async iterable
-        expect.any(Object), // Stream options
+        expect.any(Object) // Stream options
       );
       // Should NOT call postMessage for fallback
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe("ThreadImpl", () => {
 
     it("should fall back to post+edit when adapter has no native streaming", async () => {
       // Ensure no stream method
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream(["Hello", " ", "World"]);
       await thread.post(textStream);
@@ -154,18 +154,18 @@ describe("ThreadImpl", () => {
       // Should post initial placeholder
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        "...",
+        "..."
       );
       // Should edit with final content
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "Hello World",
+        "Hello World"
       );
     });
 
     it("should accumulate text chunks during streaming", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream([
         "This ",
@@ -180,14 +180,14 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "This is a test message.",
+        "This is a test message."
       );
       expect(result.text).toBe("This is a test message.");
     });
 
     it("should throttle edits to avoid rate limits", async () => {
       vi.useFakeTimers();
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       // Create a stream that yields chunks over time
       const chunks = ["A", "B", "C", "D", "E"];
@@ -220,14 +220,14 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "ABCDE",
+        "ABCDE"
       );
 
       vi.useRealTimers();
     });
 
     it("should return SentMessage with edit and delete capabilities", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream(["Hello"]);
       const result = await thread.post(textStream);
@@ -240,7 +240,7 @@ describe("ThreadImpl", () => {
     });
 
     it("should handle empty stream", async () => {
-      delete mockAdapter.stream;
+      mockAdapter.stream = undefined;
 
       const textStream = createTextStream([]);
       await thread.post(textStream);
@@ -248,13 +248,13 @@ describe("ThreadImpl", () => {
       // Should post initial placeholder
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        "...",
+        "..."
       );
       // Should edit with empty string (final content)
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "",
+        ""
       );
     });
 
@@ -299,7 +299,7 @@ describe("ThreadImpl", () => {
         expect.objectContaining({
           recipientUserId: "U456",
           recipientTeamId: "T123",
-        }),
+        })
       );
     });
   });
@@ -332,7 +332,7 @@ describe("ThreadImpl", () => {
         {
           messages,
           nextCursor: undefined,
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -351,7 +351,7 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: undefined,
-        },
+        }
       );
 
       // Consume the iterator
@@ -364,7 +364,7 @@ describe("ThreadImpl", () => {
         expect.objectContaining({
           direction: "forward",
           limit: 100,
-        }),
+        })
       );
     });
 
@@ -417,7 +417,7 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: undefined,
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -436,7 +436,7 @@ describe("ThreadImpl", () => {
         {
           messages,
           nextCursor: undefined,
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -454,7 +454,7 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: "some-cursor", // Cursor present but no messages
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -476,7 +476,7 @@ describe("ThreadImpl", () => {
         {
           messages: page1,
           nextCursor: "more-available",
-        },
+        }
       );
 
       const collected: Message[] = [];
@@ -500,7 +500,7 @@ describe("ThreadImpl", () => {
         {
           messages,
           nextCursor: undefined,
-        },
+        }
       );
 
       // First iteration
@@ -548,7 +548,7 @@ describe("ThreadImpl", () => {
         {
           messages,
           nextCursor: undefined,
-        },
+        }
       );
 
       expect(thread.recentMessages).toHaveLength(0);
@@ -565,14 +565,14 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: undefined,
-        },
+        }
       );
 
       await thread.refresh();
 
       expect(mockAdapter.fetchMessages).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        { limit: 50 },
+        { limit: 50 }
       );
     });
 
@@ -581,7 +581,7 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: undefined,
-        },
+        }
       );
 
       await thread.refresh();
@@ -589,7 +589,7 @@ describe("ThreadImpl", () => {
       // refresh() doesn't specify direction, so adapter uses its default (backward)
       expect(mockAdapter.fetchMessages).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        { limit: 50 },
+        { limit: 50 }
       );
     });
   });
@@ -616,7 +616,7 @@ describe("ThreadImpl", () => {
         {
           messages: [],
           nextCursor: undefined,
-        },
+        }
       );
 
       // Test that allMessages passes forward direction
@@ -629,7 +629,7 @@ describe("ThreadImpl", () => {
       expect(call[1]).toEqual(
         expect.objectContaining({
           direction: "forward",
-        }),
+        })
       );
     });
   });
@@ -749,7 +749,7 @@ describe("ThreadImpl", () => {
       expect(mockPostEphemeral).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "U456",
-        "Secret message",
+        "Secret message"
       );
       expect(result).toEqual({
         id: "ephemeral-1",
@@ -783,13 +783,13 @@ describe("ThreadImpl", () => {
       expect(mockPostEphemeral).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "U789",
-        "Secret message",
+        "Secret message"
       );
     });
 
     it("should fallback to DM when adapter has no postEphemeral and fallbackToDM is true", async () => {
       // Ensure no postEphemeral method
-      delete mockAdapter.postEphemeral;
+      mockAdapter.postEphemeral = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: true,
@@ -800,7 +800,7 @@ describe("ThreadImpl", () => {
       // Should post message to DM thread
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:DU456:",
-        "Secret message",
+        "Secret message"
       );
       // Should return with usedFallback: true
       expect(result).toEqual({
@@ -813,7 +813,7 @@ describe("ThreadImpl", () => {
 
     it("should return null when adapter has no postEphemeral and fallbackToDM is false", async () => {
       // Ensure no postEphemeral method
-      delete mockAdapter.postEphemeral;
+      mockAdapter.postEphemeral = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: false,
@@ -828,8 +828,8 @@ describe("ThreadImpl", () => {
 
     it("should return null when adapter has no postEphemeral or openDM", async () => {
       // Remove both methods
-      delete mockAdapter.postEphemeral;
-      delete mockAdapter.openDM;
+      mockAdapter.postEphemeral = undefined;
+      mockAdapter.openDM = undefined;
 
       const result = await thread.postEphemeral("U456", "Secret message", {
         fallbackToDM: true,

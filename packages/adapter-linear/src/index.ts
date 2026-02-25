@@ -16,7 +16,7 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, Message } from "chat";
+import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToLinearMarkdown } from "./cards";
 import { LinearFormatConverter } from "./markdown";
 import type {
@@ -29,6 +29,8 @@ import type {
   LinearWebhookPayload,
   ReactionWebhookPayload,
 } from "./types";
+
+const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
 
 // Re-export types
 export type {
@@ -91,14 +93,14 @@ export class LinearAdapter
   readonly userName: string;
 
   private linearClient!: LinearClient;
-  private webhookSecret: string;
+  private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
-  private logger: Logger;
+  private readonly logger: Logger;
   private _botUserId: string | null = null;
-  private formatConverter = new LinearFormatConverter();
+  private readonly formatConverter = new LinearFormatConverter();
 
   // Client credentials auth state
-  private clientCredentials: {
+  private readonly clientCredentials: {
     clientId: string;
     clientSecret: string;
   } | null = null;
@@ -130,7 +132,7 @@ export class LinearAdapter
       };
     } else {
       throw new Error(
-        "LinearAdapter requires either apiKey, accessToken, or clientId/clientSecret",
+        "LinearAdapter requires either apiKey, accessToken, or clientId/clientSecret"
       );
     }
   }
@@ -164,7 +166,9 @@ export class LinearAdapter
    * @see https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens
    */
   private async refreshClientCredentialsToken(): Promise<void> {
-    if (!this.clientCredentials) return;
+    if (!this.clientCredentials) {
+      return;
+    }
 
     const { clientId, clientSecret } = this.clientCredentials;
 
@@ -184,7 +188,7 @@ export class LinearAdapter
     if (!response.ok) {
       const errorBody = await response.text();
       throw new Error(
-        `Failed to fetch Linear client credentials token: ${response.status} ${errorBody}`,
+        `Failed to fetch Linear client credentials token: ${response.status} ${errorBody}`
       );
     }
 
@@ -226,7 +230,7 @@ export class LinearAdapter
    */
   async handleWebhook(
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
     this.logger.debug("Linear webhook raw body", {
@@ -295,7 +299,7 @@ export class LinearAdapter
     try {
       return timingSafeEqual(
         Buffer.from(computedSignature, "hex"),
-        Buffer.from(signature, "hex"),
+        Buffer.from(signature, "hex")
       );
     } catch {
       return false;
@@ -311,7 +315,7 @@ export class LinearAdapter
    */
   private handleCommentCreated(
     payload: CommentWebhookPayload,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
@@ -377,7 +381,7 @@ export class LinearAdapter
   private buildMessage(
     comment: LinearCommentData,
     actor: LinearWebhookActor,
-    threadId: string,
+    threadId: string
   ): Message<LinearRawMessage> {
     const text = comment.body || "";
 
@@ -426,7 +430,7 @@ export class LinearAdapter
    */
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
     const { issueId, commentId } = this.decodeThreadId(threadId);
@@ -482,7 +486,7 @@ export class LinearAdapter
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
     const { issueId } = this.decodeThreadId(threadId);
@@ -545,7 +549,7 @@ export class LinearAdapter
   async addReaction(
     _threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     await this.ensureValidToken();
     const emojiStr = this.resolveEmoji(emoji);
@@ -565,17 +569,17 @@ export class LinearAdapter
   async removeReaction(
     _threadId: string,
     _messageId: string,
-    _emoji: EmojiValue | string,
+    _emoji: EmojiValue | string
   ): Promise<void> {
     this.logger.warn(
-      "removeReaction is not fully supported on Linear - reaction ID lookup would be required",
+      "removeReaction is not fully supported on Linear - reaction ID lookup would be required"
     );
   }
 
   /**
    * Start typing indicator. Not supported by Linear.
    */
-  async startTyping(_threadId: string): Promise<void> {
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
     // Linear doesn't support typing indicators
   }
 
@@ -587,7 +591,7 @@ export class LinearAdapter
    */
   async fetchMessages(
     threadId: string,
-    options?: FetchOptions,
+    options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
     await this.ensureValidToken();
     const { issueId, commentId } = this.decodeThreadId(threadId);
@@ -607,7 +611,7 @@ export class LinearAdapter
   private async fetchIssueComments(
     threadId: string,
     issueId: string,
-    options?: FetchOptions,
+    options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
     const issue = await this.linearClient.issue(issueId);
     const commentsConnection = await issue.comments({
@@ -617,7 +621,7 @@ export class LinearAdapter
     const messages = await this.commentsToMessages(
       commentsConnection.nodes,
       threadId,
-      issueId,
+      issueId
     );
 
     return {
@@ -635,7 +639,7 @@ export class LinearAdapter
     threadId: string,
     issueId: string,
     commentId: string,
-    options?: FetchOptions,
+    options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
     const rootComment = await this.linearClient.comment({ id: commentId });
     if (!rootComment) {
@@ -651,12 +655,12 @@ export class LinearAdapter
     const rootMessages = await this.commentsToMessages(
       [rootComment],
       threadId,
-      issueId,
+      issueId
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
       threadId,
-      issueId,
+      issueId
     );
 
     return {
@@ -680,7 +684,7 @@ export class LinearAdapter
       user: LinearFetch<User> | undefined;
     }>,
     threadId: string,
-    issueId: string,
+    issueId: string
   ): Promise<Message<LinearRawMessage>[]> {
     const messages: Message<LinearRawMessage>[] = [];
 
@@ -695,7 +699,7 @@ export class LinearAdapter
       };
 
       const formatted: FormattedContent = this.formatConverter.toAst(
-        comment.body,
+        comment.body
       );
 
       messages.push(
@@ -725,7 +729,7 @@ export class LinearAdapter
               url: comment.url,
             },
           },
-        }),
+        })
       );
     }
 
@@ -780,7 +784,7 @@ export class LinearAdapter
     if (!threadId.startsWith("linear:")) {
       throw new ValidationError(
         "linear",
-        `Invalid Linear thread ID: ${threadId}`,
+        `Invalid Linear thread ID: ${threadId}`
       );
     }
 
@@ -788,12 +792,12 @@ export class LinearAdapter
     if (!withoutPrefix) {
       throw new ValidationError(
         "linear",
-        `Invalid Linear thread ID format: ${threadId}`,
+        `Invalid Linear thread ID format: ${threadId}`
       );
     }
 
     // Check for comment thread format: {issueId}:c:{commentId}
-    const commentMatch = withoutPrefix.match(/^([^:]+):c:([^:]+)$/);
+    const commentMatch = withoutPrefix.match(COMMENT_THREAD_PATTERN);
     if (commentMatch) {
       return {
         issueId: commentMatch[1],
@@ -803,6 +807,16 @@ export class LinearAdapter
 
     // Issue-level format: {issueId}
     return { issueId: withoutPrefix };
+  }
+
+  /**
+   * Derive channel ID from a Linear thread ID.
+   * linear:{issueId}:c:{commentId} -> linear:{issueId}
+   * linear:{issueId} -> linear:{issueId}
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { issueId } = this.decodeThreadId(threadId);
+    return `linear:${issueId}`;
   }
 
   /**
@@ -888,8 +902,77 @@ export class LinearAdapter
  * });
  * ```
  */
-export function createLinearAdapter(
-  config: LinearAdapterConfig,
-): LinearAdapter {
-  return new LinearAdapter(config);
+export function createLinearAdapter(config?: {
+  accessToken?: string;
+  apiKey?: string;
+  clientId?: string;
+  clientSecret?: string;
+  logger?: Logger;
+  userName?: string;
+  webhookSecret?: string;
+}): LinearAdapter {
+  const logger = config?.logger ?? new ConsoleLogger("info").child("linear");
+  const webhookSecret =
+    config?.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new ValidationError(
+      "linear",
+      "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
+    );
+  }
+  const userName =
+    config?.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+
+  // Auto-detect auth mode. Only fall back to env vars for auth fields when
+  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
+  const hasAuthConfig = !!(
+    config?.apiKey ||
+    config?.accessToken ||
+    config?.clientId ||
+    config?.clientSecret
+  );
+
+  const apiKey =
+    config?.apiKey ?? (hasAuthConfig ? undefined : process.env.LINEAR_API_KEY);
+  if (apiKey) {
+    return new LinearAdapter({
+      apiKey,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const accessToken =
+    config?.accessToken ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_ACCESS_TOKEN);
+  if (accessToken) {
+    return new LinearAdapter({
+      accessToken,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  const clientId =
+    config?.clientId ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_ID);
+  const clientSecret =
+    config?.clientSecret ??
+    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_SECRET);
+  if (clientId && clientSecret) {
+    return new LinearAdapter({
+      clientId,
+      clientSecret,
+      webhookSecret,
+      userName,
+      logger,
+    });
+  }
+
+  throw new ValidationError(
+    "linear",
+    "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
+  );
 }

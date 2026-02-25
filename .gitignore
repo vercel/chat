@@ -32,7 +32,13 @@ tsup.config.bundled*.mjs
 recording.json
 recording*.json
 todo/
+
 # Turborepo
 .turbo
 .vercel
 .env*.local
+
+next-env.d.ts
+.source
+
+packages/chat/docs

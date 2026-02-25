@@ -6,8 +6,8 @@
  * WaitUntil tracker for capturing and awaiting async operations
  */
 export interface WaitUntilTracker {
-  waitUntil: (task: Promise<unknown>) => void;
   waitForAll: () => Promise<void>;
+  waitUntil: (task: Promise<unknown>) => void;
 }
 
 export function createWaitUntilTracker(): WaitUntilTracker {

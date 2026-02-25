@@ -1,8 +1,9 @@
 # @chat-adapter/state-memory
 
-In-memory state adapter for the [chat](https://github.com/vercel-labs/chat) SDK.
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
 
-**Note:** This adapter is intended for development and testing only. For production, use [@chat-adapter/state-redis](https://github.com/vercel-labs/chat/tree/main/packages/state-redis) or [@chat-adapter/state-ioredis](https://github.com/vercel-labs/chat/tree/main/packages/state-ioredis).
+In-memory state adapter for [Chat SDK](https://chat-sdk.dev/docs). For development and testing only — state is lost on restart.
 
 ## Installation
 
@@ -16,30 +17,18 @@ npm install chat @chat-adapter/state-memory
 import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 
-const chat = new Chat({
+const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
   state: createMemoryState(),
 });
 ```
 
-## Features
+## Documentation
 
-- Thread subscriptions (in-memory storage)
-- Distributed locking (single-process only)
-- Zero configuration required
+Full documentation at [chat-sdk.dev/docs/state/memory](https://chat-sdk.dev/docs/state/memory).
 
-## Limitations
-
-- **Not suitable for production**: State is lost on restart
-- **Single process only**: Locks don't work across multiple instances
-- **No persistence**: Subscriptions reset when process restarts
-
-## When to Use
-
-- Local development
-- Unit testing
-- Single-instance deployments (not recommended for production)
+For production, use [Redis](https://chat-sdk.dev/docs/state/redis) or [ioredis](https://chat-sdk.dev/docs/state/ioredis).
 
 ## License
 

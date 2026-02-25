@@ -3,24 +3,24 @@
  */
 
 export class ChatError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly cause?: unknown,
-  ) {
+  readonly code: string;
+  override readonly cause?: unknown;
+
+  constructor(message: string, code: string, cause?: unknown) {
     super(message);
     this.name = "ChatError";
+    this.code = code;
+    this.cause = cause;
   }
 }
 
 export class RateLimitError extends ChatError {
-  constructor(
-    message: string,
-    public readonly retryAfterMs?: number,
-    cause?: unknown,
-  ) {
+  readonly retryAfterMs?: number;
+
+  constructor(message: string, retryAfterMs?: number, cause?: unknown) {
     super(message, "RATE_LIMITED", cause);
     this.name = "RateLimitError";
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -32,12 +32,11 @@ export class LockError extends ChatError {
 }
 
 export class NotImplementedError extends ChatError {
-  constructor(
-    message: string,
-    public readonly feature?: string,
-    cause?: unknown,
-  ) {
+  readonly feature?: string;
+
+  constructor(message: string, feature?: string, cause?: unknown) {
     super(message, "NOT_IMPLEMENTED", cause);
     this.name = "NotImplementedError";
+    this.feature = feature;
   }
 }

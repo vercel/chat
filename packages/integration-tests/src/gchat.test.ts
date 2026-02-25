@@ -5,6 +5,10 @@ import {
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { Chat, type Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const ANY_CHAR_REGEX = /./;
+const HELP_REGEX = /help/i;
+
 import {
   createGoogleChatEvent,
   createGoogleChatWebhookRequest,
@@ -36,7 +40,7 @@ describe("Google Chat Integration", () => {
   const TEST_THREAD_NAME = "spaces/AAAA_BBBB/threads/CCCC_DDDD";
   const TEST_THREAD_ID = getGoogleChatThreadId(
     TEST_SPACE_NAME,
-    TEST_THREAD_NAME,
+    TEST_THREAD_NAME
   );
 
   beforeEach(() => {
@@ -136,14 +140,14 @@ describe("Google Chat Integration", () => {
 
       expect(handlerMock).toHaveBeenCalledWith(
         TEST_THREAD_ID,
-        `@${GCHAT_BOT_NAME} hello bot!`,
+        `@${GCHAT_BOT_NAME} hello bot!`
       );
 
       expect(mockChatApi.sentMessages).toContainEqual(
         expect.objectContaining({
           parent: TEST_SPACE_NAME,
           text: "Hello from Google Chat!",
-        }),
+        })
       );
     });
 
@@ -176,7 +180,7 @@ describe("Google Chat Integration", () => {
       await tracker.waitForAll();
 
       expect(mockChatApi.sentMessages).toContainEqual(
-        expect.objectContaining({ text: "I'm now listening!" }),
+        expect.objectContaining({ text: "I'm now listening!" })
       );
 
       mockChatApi.clearMocks();
@@ -198,19 +202,19 @@ describe("Google Chat Integration", () => {
 
       expect(subscribedHandler).toHaveBeenCalledWith(
         TEST_THREAD_ID,
-        "This is a follow-up message",
+        "This is a follow-up message"
       );
 
       expect(mockChatApi.sentMessages).toContainEqual(
         expect.objectContaining({
           text: "You said: This is a follow-up message",
-        }),
+        })
       );
     });
 
     it("should handle messages matching a pattern", async () => {
       const patternHandler = vi.fn();
-      chat.onNewMessage(/help/i, async (thread, message) => {
+      chat.onNewMessage(HELP_REGEX, async (thread, message) => {
         patternHandler(message.text);
         await thread.post("Here is some help!");
       });
@@ -231,13 +235,13 @@ describe("Google Chat Integration", () => {
 
       expect(patternHandler).toHaveBeenCalledWith("I need help with something");
       expect(mockChatApi.sentMessages).toContainEqual(
-        expect.objectContaining({ text: "Here is some help!" }),
+        expect.objectContaining({ text: "Here is some help!" })
       );
     });
 
     it("should skip messages from this bot (isMe)", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -265,7 +269,7 @@ describe("Google Chat Integration", () => {
 
     it("should process messages from other bots (not isMe)", async () => {
       const handlerMock = vi.fn();
-      chat.onNewMessage(/./, async () => {
+      chat.onNewMessage(ANY_CHAR_REGEX, () => {
         handlerMock();
       });
 
@@ -316,7 +320,7 @@ describe("Google Chat Integration", () => {
       await tracker.waitForAll();
 
       expect(mockChatApi.updatedMessages).toContainEqual(
-        expect.objectContaining({ text: "Edited message" }),
+        expect.objectContaining({ text: "Edited message" })
       );
     });
 
@@ -342,7 +346,7 @@ describe("Google Chat Integration", () => {
       await tracker.waitForAll();
 
       expect(mockChatApi.addedReactions).toContainEqual(
-        expect.objectContaining({ emoji: "👍" }),
+        expect.objectContaining({ emoji: "👍" })
       );
     });
   });
@@ -350,7 +354,7 @@ describe("Google Chat Integration", () => {
   describe("thread operations", () => {
     it("should include thread info in message objects", async () => {
       let capturedMessage: unknown;
-      chat.onNewMention(async (_thread, message) => {
+      chat.onNewMention((_thread, message) => {
         capturedMessage = message;
       });
 
@@ -370,8 +374,10 @@ describe("Google Chat Integration", () => {
       await tracker.waitForAll();
 
       expect(capturedMessage).toBeDefined();
-      // biome-ignore lint/suspicious/noExplicitAny: checking captured value
-      const msg = capturedMessage as any;
+      const msg = capturedMessage as {
+        threadId: string;
+        author: { userId: string; userName: string; isBot: boolean };
+      };
       expect(msg.threadId).toBe(TEST_THREAD_ID);
       expect(msg.author.userId).toBe("users/user-123");
       expect(msg.author.userName).toBe("John Doe");
@@ -444,7 +450,7 @@ describe("Google Chat Integration", () => {
         conversationLog.push(`mention: ${message.text}`);
         await thread.subscribe();
         await thread.post(
-          "Hi! I'm now listening to this thread. How can I help?",
+          "Hi! I'm now listening to this thread. How can I help?"
         );
       });
 
@@ -454,12 +460,12 @@ describe("Google Chat Integration", () => {
 
         if (message.text.includes("weather")) {
           const response = await thread.post(
-            "Let me check the weather for you...",
+            "Let me check the weather for you..."
           );
           await response.edit("The weather today is sunny, 72°F!");
         } else if (message.text.includes("thanks")) {
           const response = await thread.post(
-            "You're welcome! Let me know if you need anything else.",
+            "You're welcome! Let me know if you need anything else."
           );
           await response.addReaction("😊");
         } else {
@@ -487,7 +493,7 @@ describe("Google Chat Integration", () => {
       expect(mockChatApi.sentMessages).toContainEqual(
         expect.objectContaining({
           text: "Hi! I'm now listening to this thread. How can I help?",
-        }),
+        })
       );
 
       mockChatApi.clearMocks();
@@ -511,10 +517,10 @@ describe("Google Chat Integration", () => {
       expect(mockChatApi.sentMessages).toContainEqual(
         expect.objectContaining({
           text: "Let me check the weather for you...",
-        }),
+        })
       );
       expect(mockChatApi.updatedMessages).toContainEqual(
-        expect.objectContaining({ text: "The weather today is sunny, 72°F!" }),
+        expect.objectContaining({ text: "The weather today is sunny, 72°F!" })
       );
 
       mockChatApi.clearMocks();
@@ -555,7 +561,7 @@ describe("Google Chat Integration", () => {
 
       expect(conversationLog).toContain("subscribed: thanks for your help!");
       expect(mockChatApi.addedReactions).toContainEqual(
-        expect.objectContaining({ emoji: "😊" }),
+        expect.objectContaining({ emoji: "😊" })
       );
 
       expect(messageCount).toBe(3);
@@ -609,7 +615,7 @@ describe("Google Chat Integration", () => {
         createGoogleChatWebhookRequest(thread1Mention),
         {
           waitUntil: tracker.waitUntil,
-        },
+        }
       );
       await tracker.waitForAll();
 
@@ -628,7 +634,7 @@ describe("Google Chat Integration", () => {
         createGoogleChatWebhookRequest(thread2Mention),
         {
           waitUntil: tracker.waitUntil,
-        },
+        }
       );
       await tracker.waitForAll();
 
@@ -648,7 +654,7 @@ describe("Google Chat Integration", () => {
         createGoogleChatWebhookRequest(thread1FollowUp),
         {
           waitUntil: tracker.waitUntil,
-        },
+        }
       );
       await tracker.waitForAll();
 
@@ -666,7 +672,7 @@ describe("Google Chat Integration", () => {
         createGoogleChatWebhookRequest(thread2FollowUp),
         {
           waitUntil: tracker.waitUntil,
-        },
+        }
       );
       await tracker.waitForAll();
 

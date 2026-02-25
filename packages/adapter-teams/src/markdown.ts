@@ -83,7 +83,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     // Bold: <b>, <strong> -> **text**
     markdown = markdown.replace(
       /<(b|strong)>([^<]+)<\/(b|strong)>/gi,
-      "**$2**",
+      "**$2**"
     );
 
     // Italic: <i>, <em> -> _text_
@@ -92,13 +92,13 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     // Strikethrough: <s>, <strike> -> ~~text~~
     markdown = markdown.replace(
       /<(s|strike)>([^<]+)<\/(s|strike)>/gi,
-      "~~$2~~",
+      "~~$2~~"
     );
 
     // Links: <a href="url">text</a> -> [text](url)
     markdown = markdown.replace(
       /<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/gi,
-      "[$2]($1)",
+      "[$2]($1)"
     );
 
     // Code: <code>text</code> -> `text`

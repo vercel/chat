@@ -12,23 +12,23 @@ import type { Logger } from "chat";
  * Base configuration options shared by all auth methods.
  */
 interface GitHubAdapterBaseConfig {
+  /**
+   * Bot's GitHub user ID (numeric).
+   * Used for self-message detection. If not provided, will be fetched on first API call.
+   */
+  botUserId?: number;
   /** Logger instance for error reporting */
   logger: Logger;
-  /**
-   * Webhook secret for HMAC-SHA256 verification.
-   * Set this in your GitHub webhook settings.
-   */
-  webhookSecret: string;
   /**
    * Bot username (e.g., "my-bot" or "my-bot[bot]" for GitHub Apps).
    * Used for @-mention detection.
    */
   userName: string;
   /**
-   * Bot's GitHub user ID (numeric).
-   * Used for self-message detection. If not provided, will be fetched on first API call.
+   * Webhook secret for HMAC-SHA256 verification.
+   * Set this in your GitHub webhook settings.
    */
-  botUserId?: number;
+  webhookSecret: string;
 }
 
 /**
@@ -36,11 +36,11 @@ interface GitHubAdapterBaseConfig {
  * Simpler setup, suitable for personal bots or testing.
  */
 export interface GitHubAdapterPATConfig extends GitHubAdapterBaseConfig {
+  appId?: never;
+  installationId?: never;
+  privateKey?: never;
   /** Personal Access Token with appropriate scopes (repo, write:discussion) */
   token: string;
-  appId?: never;
-  privateKey?: never;
-  installationId?: never;
 }
 
 /**
@@ -50,10 +50,10 @@ export interface GitHubAdapterPATConfig extends GitHubAdapterBaseConfig {
 export interface GitHubAdapterAppConfig extends GitHubAdapterBaseConfig {
   /** GitHub App ID */
   appId: string;
-  /** GitHub App private key (PEM format) */
-  privateKey: string;
   /** Installation ID for the app (for single-tenant apps) */
   installationId: number;
+  /** GitHub App private key (PEM format) */
+  privateKey: string;
   token?: never;
 }
 
@@ -66,10 +66,10 @@ export interface GitHubAdapterMultiTenantAppConfig
   extends GitHubAdapterBaseConfig {
   /** GitHub App ID */
   appId: string;
-  /** GitHub App private key (PEM format) */
-  privateKey: string;
   /** Omit installationId to enable multi-tenant mode */
   installationId?: never;
+  /** GitHub App private key (PEM format) */
+  privateKey: string;
   token?: never;
 }
 
@@ -95,10 +95,10 @@ export type GitHubAdapterConfig =
 export interface GitHubThreadId {
   /** Repository owner (user or organization) */
   owner: string;
-  /** Repository name */
-  repo: string;
   /** Pull request number */
   prNumber: number;
+  /** Repository name */
+  repo: string;
   /**
    * Root review comment ID for line-specific threads.
    * If present, this is a review comment thread.
@@ -115,9 +115,9 @@ export interface GitHubThreadId {
  * GitHub user object (simplified).
  */
 export interface GitHubUser {
+  avatar_url?: string;
   id: number;
   login: string;
-  avatar_url?: string;
   type: "User" | "Bot" | "Organization";
 }
 
@@ -125,9 +125,9 @@ export interface GitHubUser {
  * GitHub repository object (simplified).
  */
 export interface GitHubRepository {
+  full_name: string;
   id: number;
   name: string;
-  full_name: string;
   owner: GitHubUser;
 }
 
@@ -135,25 +135,23 @@ export interface GitHubRepository {
  * GitHub pull request object (simplified).
  */
 export interface GitHubPullRequest {
+  body: string | null;
+  html_url: string;
   id: number;
   number: number;
-  title: string;
-  body: string | null;
   state: "open" | "closed";
+  title: string;
   user: GitHubUser;
-  html_url: string;
 }
 
 /**
  * GitHub issue comment (PR-level comment in Conversation tab).
  */
 export interface GitHubIssueComment {
-  id: number;
   body: string;
-  user: GitHubUser;
   created_at: string;
-  updated_at: string;
   html_url: string;
+  id: number;
   /** Reactions summary */
   reactions?: {
     url: string;
@@ -167,44 +165,46 @@ export interface GitHubIssueComment {
     rocket: number;
     eyes: number;
   };
+  updated_at: string;
+  user: GitHubUser;
 }
 
 /**
  * GitHub pull request review comment (line-specific comment in Files Changed tab).
  */
 export interface GitHubReviewComment {
-  id: number;
   body: string;
-  user: GitHubUser;
-  created_at: string;
-  updated_at: string;
-  html_url: string;
   /** The commit SHA the comment is associated with */
   commit_id: string;
-  /** The original commit SHA (for outdated comments) */
-  original_commit_id: string;
+  created_at: string;
   /** The diff hunk the comment applies to */
   diff_hunk: string;
-  /** Path to the file being commented on */
-  path: string;
-  /** Line number in the diff */
-  line?: number;
-  /** Original line number */
-  original_line?: number;
-  /** Side of the diff (LEFT or RIGHT) */
-  side?: "LEFT" | "RIGHT";
-  /** Start line for multi-line comments */
-  start_line?: number | null;
-  /** Start side for multi-line comments */
-  start_side?: "LEFT" | "RIGHT" | null;
+  html_url: string;
+  id: number;
   /**
    * The ID of the comment this is a reply to.
    * If present, this is a reply in an existing thread.
    * If absent, this is the root of a new thread.
    */
   in_reply_to_id?: number;
+  /** Line number in the diff */
+  line?: number;
+  /** The original commit SHA (for outdated comments) */
+  original_commit_id: string;
+  /** Original line number */
+  original_line?: number;
+  /** Path to the file being commented on */
+  path: string;
   /** Reactions summary */
   reactions?: GitHubIssueComment["reactions"];
+  /** Side of the diff (LEFT or RIGHT) */
+  side?: "LEFT" | "RIGHT";
+  /** Start line for multi-line comments */
+  start_line?: number | null;
+  /** Start side for multi-line comments */
+  start_side?: "LEFT" | "RIGHT" | null;
+  updated_at: string;
+  user: GitHubUser;
 }
 
 /**
@@ -221,6 +221,8 @@ export interface GitHubInstallation {
 export interface IssueCommentWebhookPayload {
   action: "created" | "edited" | "deleted";
   comment: GitHubIssueComment;
+  /** Present when webhook is from a GitHub App */
+  installation?: GitHubInstallation;
   issue: {
     number: number;
     title: string;
@@ -230,8 +232,6 @@ export interface IssueCommentWebhookPayload {
   };
   repository: GitHubRepository;
   sender: GitHubUser;
-  /** Present when webhook is from a GitHub App */
-  installation?: GitHubInstallation;
 }
 
 /**
@@ -240,11 +240,11 @@ export interface IssueCommentWebhookPayload {
 export interface PullRequestReviewCommentWebhookPayload {
   action: "created" | "edited" | "deleted";
   comment: GitHubReviewComment;
+  /** Present when webhook is from a GitHub App */
+  installation?: GitHubInstallation;
   pull_request: GitHubPullRequest;
   repository: GitHubRepository;
   sender: GitHubUser;
-  /** Present when webhook is from a GitHub App */
-  installation?: GitHubInstallation;
 }
 
 // =============================================================================

@@ -29,8 +29,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
+      - name: Check
+        run: pnpm check
 
       - name: Knip
         run: pnpm knip
@@ -103,9 +103,9 @@ jobs:
 
             To test this PR with real webhook traffic:
 
-            1. Go to [/settings](https://the-real-chat-sdk-nextjs-chat.labs.vercel.dev/settings) on the production deployment
+            1. Go to \`/settings\` on the production deployment
             2. Enter this PR's Vercel preview URL
-            3. Save - all webhook requests will now be proxied to this preview
+            3. Save — all webhook requests will now be proxied to this preview
 
             **To disable:** Clear the URL on the settings page.`;
 

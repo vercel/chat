@@ -18,7 +18,7 @@ import type {
   Text,
 } from "mdast";
 
-import { toString } from "mdast-util-to-string";
+import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
@@ -31,20 +31,20 @@ type PostableMessageInput = AdapterPostableMessage;
 
 // Re-export types for adapters
 export type {
-  Root,
-  Content,
-  Text,
-  Strong,
-  Emphasis,
-  Delete,
-  InlineCode,
-  Code,
-  Link,
   Blockquote,
+  Code,
+  Content,
+  Delete,
+  Emphasis,
+  InlineCode,
+  Link,
   List,
   ListItem,
   Paragraph,
-};
+  Root,
+  Strong,
+  Text,
+} from "mdast";
 
 // ============================================================================
 // Type Guards for mdast nodes
@@ -175,7 +175,7 @@ export function stringifyMarkdown(ast: Root): string {
  * Extract plain text from an AST (strips all formatting).
  */
 export function toPlainText(ast: Root): string {
-  return toString(ast);
+  return mdastToString(ast);
 }
 
 /**
@@ -183,7 +183,7 @@ export function toPlainText(ast: Root): string {
  */
 export function markdownToPlainText(markdown: string): string {
   const ast = parseMarkdown(markdown);
-  return toString(ast);
+  return mdastToString(ast);
 }
 
 /**
@@ -191,13 +191,15 @@ export function markdownToPlainText(markdown: string): string {
  */
 export function walkAst<T extends Content | Root>(
   node: T,
-  visitor: (node: Content) => Content | null,
+  visitor: (node: Content) => Content | null
 ): T {
   if ("children" in node && Array.isArray(node.children)) {
     node.children = node.children
       .map((child) => {
         const result = visitor(child as Content);
-        if (result === null) return null;
+        if (result === null) {
+          return null;
+        }
         return walkAst(result, visitor);
       })
       .filter((n): n is Content => n !== null);
@@ -288,6 +290,11 @@ export function root(children: Content[]): Root {
  */
 export interface FormatConverter {
   /**
+   * Extract plain text from platform format.
+   * Convenience method - default implementation uses toAst + toPlainText.
+   */
+  extractPlainText(platformText: string): string;
+  /**
    * Render an AST to the platform's native format.
    * This is the primary method used when sending messages.
    */
@@ -298,12 +305,6 @@ export interface FormatConverter {
    * This is the primary method used when receiving messages.
    */
   toAst(platformText: string): Root;
-
-  /**
-   * Extract plain text from platform format.
-   * Convenience method - default implementation uses toAst + toPlainText.
-   */
-  extractPlainText(platformText: string): string;
 }
 
 /**
@@ -334,7 +335,7 @@ export abstract class BaseFormatConverter implements FormatConverter {
    */
   protected fromAstWithNodeConverter(
     ast: Root,
-    nodeConverter: (node: Content) => string,
+    nodeConverter: (node: Content) => string
   ): string {
     const parts: string[] = [];
     for (const node of ast.children) {
@@ -435,7 +436,9 @@ export abstract class BaseFormatConverter implements FormatConverter {
           .map((f) => `**${f.label}**: ${f.value}`)
           .join("\n");
       case "actions":
-        return `[${child.children.map((b) => b.label).join("] [")}]`;
+        // Actions are interactive-only — exclude from fallback text.
+        // See: https://docs.slack.dev/reference/methods/chat.postMessage
+        return null;
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

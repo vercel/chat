@@ -6,7 +6,7 @@ export default function SettingsPage() {
   const [previewBranchUrl, setPreviewBranchUrl] = useState("");
   const [savedUrl, setSavedUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "saving" | "error">(
-    "loading",
+    "loading"
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -118,8 +118,6 @@ export default function SettingsPage() {
               </label>
               <input
                 id="preview-url"
-                type="url"
-                value={previewBranchUrl}
                 onChange={(e) => setPreviewBranchUrl(e.target.value)}
                 placeholder="https://your-preview-branch.vercel.app"
                 style={{
@@ -130,6 +128,8 @@ export default function SettingsPage() {
                   borderRadius: "4px",
                   boxSizing: "border-box",
                 }}
+                type="url"
+                value={previewBranchUrl}
               />
             </div>
 
@@ -139,9 +139,8 @@ export default function SettingsPage() {
 
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
-                type="button"
-                onClick={handleSave}
                 disabled={status === "saving"}
+                onClick={handleSave}
                 style={{
                   padding: "0.5rem 1rem",
                   fontSize: "1rem",
@@ -152,15 +151,15 @@ export default function SettingsPage() {
                   cursor: status === "saving" ? "not-allowed" : "pointer",
                   opacity: status === "saving" ? 0.7 : 1,
                 }}
+                type="button"
               >
                 {status === "saving" ? "Saving..." : "Save"}
               </button>
 
               {savedUrl && (
                 <button
-                  type="button"
-                  onClick={handleClear}
                   disabled={status === "saving"}
+                  onClick={handleClear}
                   style={{
                     padding: "0.5rem 1rem",
                     fontSize: "1rem",
@@ -171,6 +170,7 @@ export default function SettingsPage() {
                     cursor: status === "saving" ? "not-allowed" : "pointer",
                     opacity: status === "saving" ? 0.7 : 1,
                   }}
+                  type="button"
                 >
                   Clear
                 </button>

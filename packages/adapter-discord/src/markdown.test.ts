@@ -105,7 +105,7 @@ describe("DiscordFormatConverter", () => {
   describe("extractPlainText", () => {
     it("should remove bold markers", () => {
       expect(converter.extractPlainText("Hello **world**!")).toBe(
-        "Hello world!",
+        "Hello world!"
       );
     });
 
@@ -115,13 +115,13 @@ describe("DiscordFormatConverter", () => {
 
     it("should remove strikethrough markers", () => {
       expect(converter.extractPlainText("Hello ~~world~~!")).toBe(
-        "Hello world!",
+        "Hello world!"
       );
     });
 
     it("should extract link text", () => {
       expect(
-        converter.extractPlainText("Check [this](https://example.com)"),
+        converter.extractPlainText("Check [this](https://example.com)")
       ).toBe("Check this");
     });
 

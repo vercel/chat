@@ -1,0 +1,31 @@
+---
+title: Overview
+description: Pluggable state adapters for thread subscriptions, distributed locking, and caching.
+type: overview
+prerequisites:
+  - /docs/getting-started
+---
+
+State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance.
+
+## Comparison
+
+| Adapter | Package | Persistence | Multi-instance | Use case |
+|---------|---------|-------------|----------------|----------|
+| [Redis](/docs/state/redis) | `@chat-adapter/state-redis` | Yes | Yes | Production (recommended) |
+| [ioredis](/docs/state/ioredis) | `@chat-adapter/state-ioredis` | Yes | Yes | Production (Cluster/Sentinel) |
+| [Memory](/docs/state/memory) | `@chat-adapter/state-memory` | No | No | Development and testing |
+
+## What state adapters manage
+
+### Thread subscriptions
+
+When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On subsequent webhooks, the SDK checks subscriptions to route messages to `onSubscribedMessage` handlers. With Redis, subscriptions survive restarts and work across multiple instances.
+
+### Distributed locking
+
+When a webhook arrives, the SDK acquires a lock on the thread to prevent duplicate processing. This is critical for serverless deployments where multiple instances may receive the same event.
+
+### Caching
+
+State adapters provide key-value storage with TTL for thread state (`thread.setState()`), message deduplication, and other internal caching.

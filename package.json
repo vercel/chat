@@ -4,11 +4,11 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/chat.git"
+    "url": "git+https://github.com/vercel/chat.git"
   },
-  "homepage": "https://github.com/vercel-labs/chat#readme",
+  "homepage": "https://github.com/vercel/chat#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/chat/issues"
+    "url": "https://github.com/vercel/chat/issues"
   },
   "license": "MIT",
   "scripts": {
@@ -16,18 +16,23 @@
     "build:validate": "SLACK_BOT_TOKEN=xoxb-mock SLACK_SIGNING_SECRET=mock TEAMS_APP_ID=mock TEAMS_APP_PASSWORD=mock TEAMS_APP_TENANT_ID=mock GOOGLE_CHAT_CREDENTIALS='{\"type\":\"service_account\",\"project_id\":\"mock\",\"private_key\":\"-----BEGIN RSA PRIVATE KEY-----\\nMOCK\\n-----END RSA PRIVATE KEY-----\",\"client_email\":\"mock@mock.iam.gserviceaccount.com\"}' REDIS_URL=redis://localhost:6379 RECORDING_ENABLED=false turbo build",
     "dev": "turbo dev",
     "test": "turbo test --filter='!example-nextjs-chat'",
+    "test:workspace": "vitest run",
     "typecheck": "turbo typecheck",
-    "lint": "turbo lint",
     "knip": "knip",
-    "validate": "pnpm knip && turbo lint && turbo typecheck && turbo test && pnpm build:validate",
-    "clean": "turbo clean && rm -rf node_modules"
+    "validate": "pnpm knip && pnpm check && turbo typecheck && turbo test && pnpm build:validate",
+    "clean": "turbo clean && rm -rf node_modules",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.10",
+    "@biomejs/biome": "^2.4.0",
     "@changesets/cli": "^2.29.8",
+    "@vitest/coverage-v8": "^2.1.8",
     "knip": "^5.78.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "ultracite": "7.2.3",
+    "vitest": "^2.1.8"
   },
   "packageManager": "pnpm@9.15.0"
 }

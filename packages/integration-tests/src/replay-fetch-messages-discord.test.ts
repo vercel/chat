@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DISCORD_BOT_USER_ID,
@@ -29,11 +29,11 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     ctx = await createDiscordTestContext(
       { botName: "Chat SDK Demo", applicationId: DISCORD_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       // Discord returns newest first, so reverse the chronological order
       return [...DISCORD_RAW_MESSAGES].reverse();
     });
@@ -74,7 +74,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Extract just the numbered messages
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
 
     // Should have exactly 14 numbered messages
@@ -95,7 +95,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Extract numbered messages and verify order
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(EXPECTED_NUMBERED_TEXTS);
@@ -134,21 +134,21 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
     // Human messages should have display names from global_name
     const humanMessage = result.messages.find(
-      (m) => m.author.userId === DISCORD_HUMAN_USER_ID,
+      (m) => m.author.userId === DISCORD_HUMAN_USER_ID
     );
-    expect(humanMessage?.author.userName).toBe("malte2384");
-    expect(humanMessage?.author.fullName).toBe("Malte");
+    expect(humanMessage?.author.userName).toBe("testuser2384");
+    expect(humanMessage?.author.fullName).toBe("Test User");
 
     // Bot messages should have bot name
     const botMessage = result.messages.find(
-      (m) => m.author.userId === DISCORD_BOT_USER_ID,
+      (m) => m.author.userId === DISCORD_BOT_USER_ID
     );
     expect(botMessage?.author.userName).toBe("Chat SDK Demo");
   });
 
   it("should respect limit parameter", async () => {
     // Mock to return limited results
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       // Return only first 5 messages (newest first)
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 5);
     });
@@ -187,7 +187,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
   it("should return nextCursor when more messages are available", async () => {
     // Mock to return exactly limit messages (indicating more available)
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 10);
     });
 
@@ -202,7 +202,7 @@ describe("fetchMessages Replay Tests - Discord", () => {
 
   it("should not return nextCursor when fewer messages than limit", async () => {
     // Mock to return fewer than limit
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse().slice(0, 5);
     });
 
@@ -224,11 +224,11 @@ describe("allMessages Replay Tests - Discord", () => {
 
     ctx = await createDiscordTestContext(
       { botName: "Chat SDK Demo", applicationId: DISCORD_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock messages.list to return actual recorded messages
-    ctx.mockApi.messages.list.mockImplementation(async () => {
+    ctx.mockApi.messages.list.mockImplementation(() => {
       return [...DISCORD_RAW_MESSAGES].reverse();
     });
   });
@@ -248,7 +248,7 @@ describe("allMessages Replay Tests - Discord", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }
@@ -258,7 +258,7 @@ describe("allMessages Replay Tests - Discord", () => {
 
     // Extract numbered messages and verify chronological order
     const numberedMessages = messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(14);
 

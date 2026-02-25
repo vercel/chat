@@ -6,7 +6,7 @@ type Platform = keyof typeof bot.webhooks;
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ platform: string }> },
+  { params }: { params: Promise<{ platform: string }> }
 ): Promise<Response> {
   const { platform } = await params;
 
@@ -31,7 +31,7 @@ export async function POST(
 // Health check endpoint
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ platform: string }> },
+  { params }: { params: Promise<{ platform: string }> }
 ): Promise<Response> {
   const { platform } = await params;
 

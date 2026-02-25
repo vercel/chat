@@ -30,11 +30,11 @@ const convertEmoji = createEmojiConverter("teams");
 
 // Adaptive Card types (simplified)
 export interface AdaptiveCard {
-  type: "AdaptiveCard";
   $schema: string;
-  version: string;
-  body: AdaptiveCardElement[];
   actions?: AdaptiveCardAction[];
+  body: AdaptiveCardElement[];
+  type: "AdaptiveCard";
+  version: string;
 }
 
 export interface AdaptiveCardElement {
@@ -43,11 +43,11 @@ export interface AdaptiveCardElement {
 }
 
 export interface AdaptiveCardAction {
-  type: string;
-  title: string;
   data?: Record<string, unknown>;
-  url?: string;
   style?: string;
+  title: string;
+  type: string;
+  url?: string;
 }
 
 const ADAPTIVE_CARD_SCHEMA =
@@ -113,8 +113,8 @@ export function cardToAdaptiveCard(card: CardElement): AdaptiveCard {
 }
 
 interface ConvertResult {
-  elements: AdaptiveCardElement[];
   actions: AdaptiveCardAction[];
+  elements: AdaptiveCardElement[];
 }
 
 /**
@@ -165,7 +165,7 @@ function convertImageToElement(element: ImageElement): AdaptiveCardElement {
 }
 
 function convertDividerToElement(
-  _element: DividerElement,
+  _element: DividerElement
 ): AdaptiveCardElement {
   // Adaptive Cards don't have a native divider, use a separator container
   return {
@@ -177,12 +177,14 @@ function convertDividerToElement(
 
 function convertActionsToElements(element: ActionsElement): ConvertResult {
   // In Adaptive Cards, actions go at the card level, not inline
-  const actions: AdaptiveCardAction[] = element.children.map((button) => {
-    if (button.type === "link-button") {
-      return convertLinkButtonToAction(button);
-    }
-    return convertButtonToAction(button);
-  });
+  const actions: AdaptiveCardAction[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
+      if (button.type === "link-button") {
+        return convertLinkButtonToAction(button);
+      }
+      return convertButtonToAction(button);
+    });
 
   return { elements: [], actions };
 }
@@ -206,7 +208,7 @@ function convertButtonToAction(button: ButtonElement): AdaptiveCardAction {
 }
 
 function convertLinkButtonToAction(
-  button: LinkButtonElement,
+  button: LinkButtonElement
 ): AdaptiveCardAction {
   const action: AdaptiveCardAction = {
     type: "Action.OpenUrl",

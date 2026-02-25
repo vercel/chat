@@ -19,7 +19,9 @@ import type {
   FieldsElement,
   ImageElement,
   LinkButtonElement,
+  RadioSelectElement,
   SectionElement,
+  SelectElement,
   TextElement,
 } from "chat";
 
@@ -30,31 +32,52 @@ const convertEmoji = createEmojiConverter("slack");
 
 // Slack Block Kit types (simplified)
 export interface SlackBlock {
-  type: string;
   block_id?: string;
+  type: string;
   [key: string]: unknown;
 }
 
 interface SlackTextObject {
-  type: "plain_text" | "mrkdwn";
-  text: string;
   emoji?: boolean;
+  text: string;
+  type: "plain_text" | "mrkdwn";
 }
 
 interface SlackButtonElement {
-  type: "button";
-  text: SlackTextObject;
   action_id: string;
-  value?: string;
   style?: "primary" | "danger";
+  text: SlackTextObject;
+  type: "button";
+  value?: string;
 }
 
 interface SlackLinkButtonElement {
-  type: "button";
-  text: SlackTextObject;
   action_id: string;
-  url: string;
   style?: "primary" | "danger";
+  text: SlackTextObject;
+  type: "button";
+  url: string;
+}
+
+interface SlackOptionObject {
+  description?: SlackTextObject;
+  text: SlackTextObject;
+  value: string;
+}
+
+interface SlackSelectElement {
+  action_id: string;
+  initial_option?: SlackOptionObject;
+  options: SlackOptionObject[];
+  placeholder?: SlackTextObject;
+  type: "static_select";
+}
+
+interface SlackRadioSelectElement {
+  action_id: string;
+  initial_option?: SlackOptionObject;
+  options: SlackOptionObject[];
+  type: "radio_buttons";
 }
 
 /**
@@ -128,8 +151,14 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
   }
 }
 
+/** Convert standard Markdown formatting to Slack mrkdwn */
+function markdownToMrkdwn(text: string): string {
+  // **bold** → *bold*
+  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+}
+
 export function convertTextToBlock(element: TextElement): SlackBlock {
-  const text = convertEmoji(element.content);
+  const text = markdownToMrkdwn(convertEmoji(element.content));
   let formattedText = text;
 
   // Apply style
@@ -164,14 +193,25 @@ function convertDividerToBlock(_element: DividerElement): SlackBlock {
   return { type: "divider" };
 }
 
+type SlackActionElement =
+  | SlackButtonElement
+  | SlackLinkButtonElement
+  | SlackSelectElement
+  | SlackRadioSelectElement;
+
 function convertActionsToBlock(element: ActionsElement): SlackBlock {
-  const elements: (SlackButtonElement | SlackLinkButtonElement)[] =
-    element.children.map((button) => {
-      if (button.type === "link-button") {
-        return convertLinkButtonToElement(button);
-      }
-      return convertButtonToElement(button);
-    });
+  const elements: SlackActionElement[] = element.children.map((child) => {
+    if (child.type === "link-button") {
+      return convertLinkButtonToElement(child);
+    }
+    if (child.type === "select") {
+      return convertSelectToElement(child);
+    }
+    if (child.type === "radio_select") {
+      return convertRadioSelectToElement(child);
+    }
+    return convertButtonToElement(child);
+  });
 
   return {
     type: "actions",
@@ -203,7 +243,7 @@ function convertButtonToElement(button: ButtonElement): SlackButtonElement {
 }
 
 function convertLinkButtonToElement(
-  button: LinkButtonElement,
+  button: LinkButtonElement
 ): SlackLinkButtonElement {
   const element: SlackLinkButtonElement = {
     type: "button",
@@ -224,6 +264,74 @@ function convertLinkButtonToElement(
   return element;
 }
 
+function convertSelectToElement(select: SelectElement): SlackSelectElement {
+  const options: SlackOptionObject[] = select.options.map((opt) => {
+    const option: SlackOptionObject = {
+      text: { type: "plain_text" as const, text: convertEmoji(opt.label) },
+      value: opt.value,
+    };
+    if (opt.description) {
+      option.description = {
+        type: "plain_text",
+        text: convertEmoji(opt.description),
+      };
+    }
+    return option;
+  });
+  const element: SlackSelectElement = {
+    type: "static_select",
+    action_id: select.id,
+    options,
+  };
+  if (select.placeholder) {
+    element.placeholder = {
+      type: "plain_text",
+      text: convertEmoji(select.placeholder),
+    };
+  }
+  if (select.initialOption) {
+    const initialOpt = options.find((o) => o.value === select.initialOption);
+    if (initialOpt) {
+      element.initial_option = initialOpt;
+    }
+  }
+  return element;
+}
+
+function convertRadioSelectToElement(
+  radioSelect: RadioSelectElement
+): SlackRadioSelectElement {
+  const limitedOptions = radioSelect.options.slice(0, 10);
+  const options: SlackOptionObject[] = limitedOptions.map((opt) => {
+    const option: SlackOptionObject = {
+      text: { type: "mrkdwn" as const, text: convertEmoji(opt.label) },
+      value: opt.value,
+    };
+    if (opt.description) {
+      option.description = {
+        type: "mrkdwn",
+        text: convertEmoji(opt.description),
+      };
+    }
+    return option;
+  });
+
+  const element: SlackRadioSelectElement = {
+    type: "radio_buttons",
+    action_id: radioSelect.id,
+    options,
+  };
+  if (radioSelect.initialOption) {
+    const initialOpt = options.find(
+      (o) => o.value === radioSelect.initialOption
+    );
+    if (initialOpt) {
+      element.initial_option = initialOpt;
+    }
+  }
+  return element;
+}
+
 function convertSectionToBlocks(element: SectionElement): SlackBlock[] {
   // Flatten section children into blocks
   const blocks: SlackBlock[] = [];
@@ -240,7 +348,7 @@ export function convertFieldsToBlock(element: FieldsElement): SlackBlock {
     // Add label and value as separate field items
     fields.push({
       type: "mrkdwn",
-      text: `*${convertEmoji(field.label)}*\n${convertEmoji(field.value)}`,
+      text: `*${markdownToMrkdwn(convertEmoji(field.label))}*\n${markdownToMrkdwn(convertEmoji(field.value))}`,
     });
   }
 

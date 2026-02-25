@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": [],
-  "ignore": [],
+  "ignoreDependencies": ["@biomejs/biome"],
+  "ignore": ["apps/docs/**/*"],
   "rules": {
     "duplicates": "off"
   }

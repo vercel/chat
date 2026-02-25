@@ -34,7 +34,7 @@ import { isCardElement } from "chat";
  * ```
  */
 export function extractCard(
-  message: AdapterPostableMessage,
+  message: AdapterPostableMessage
 ): CardElement | null {
   if (isCardElement(message)) {
     return message;

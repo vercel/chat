@@ -35,7 +35,7 @@ function createDiscordSignature(
   body: string,
   _publicKey: string,
   privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"],
-  timestamp: string,
+  timestamp: string
 ): string {
   const message = timestamp + body;
   const signature = sign(null, Buffer.from(message), privateKey);
@@ -44,7 +44,7 @@ function createDiscordSignature(
 
 function createWebhookRequest(
   body: string,
-  options?: { timestamp?: string; signature?: string },
+  options?: { timestamp?: string; signature?: string }
 ): Request {
   const timestamp = options?.timestamp ?? String(Math.floor(Date.now() / 1000));
   const signature =
@@ -53,7 +53,7 @@ function createWebhookRequest(
       body,
       testPublicKey,
       testKeyPair.privateKey,
-      timestamp,
+      timestamp
     );
 
   return new Request("https://example.com/webhook", {
@@ -162,7 +162,7 @@ describe("decodeThreadId", () => {
 
   it("decodes thread ID with thread", () => {
     const result = adapter.decodeThreadId(
-      "discord:guild123:channel456:thread789",
+      "discord:guild123:channel456:thread789"
     );
     expect(result).toEqual({
       guildId: "guild123",
@@ -183,10 +183,10 @@ describe("decodeThreadId", () => {
   it("throws on invalid thread ID format", () => {
     expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
     expect(() => adapter.decodeThreadId("discord:channel")).toThrow(
-      ValidationError,
+      ValidationError
     );
     expect(() => adapter.decodeThreadId("slack:C12345:123")).toThrow(
-      ValidationError,
+      ValidationError
     );
   });
 });
@@ -567,7 +567,7 @@ describe("parseMessage", () => {
 
     expect(message.metadata?.edited).toBe(true);
     expect(message.metadata?.editedAt).toEqual(
-      new Date("2021-01-01T00:01:00.000Z"),
+      new Date("2021-01-01T00:01:00.000Z")
     );
   });
 
@@ -881,7 +881,7 @@ describe("date parsing", () => {
 
     const message = adapter.parseMessage(rawMessage);
     expect(message.metadata?.dateSent).toEqual(
-      new Date("2021-01-01T12:30:00.000Z"),
+      new Date("2021-01-01T12:30:00.000Z")
     );
   });
 });

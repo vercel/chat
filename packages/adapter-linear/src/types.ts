@@ -18,16 +18,16 @@ interface LinearAdapterBaseConfig {
   /** Logger instance for error reporting */
   logger: Logger;
   /**
-   * Webhook signing secret for HMAC-SHA256 verification.
-   * Found on the webhook detail page in Linear settings.
-   */
-  webhookSecret: string;
-  /**
    * Bot display name used for @-mention detection.
    * For API key auth, this is typically the user's display name.
    * For OAuth app auth with actor=app, this is the app name.
    */
   userName: string;
+  /**
+   * Webhook signing secret for HMAC-SHA256 verification.
+   * Found on the webhook detail page in Linear settings.
+   */
+  webhookSecret: string;
 }
 
 /**
@@ -37,9 +37,9 @@ interface LinearAdapterBaseConfig {
  * @see https://linear.app/docs/api-and-webhooks
  */
 export interface LinearAdapterAPIKeyConfig extends LinearAdapterBaseConfig {
+  accessToken?: never;
   /** Personal API key from Linear Settings > Security & Access */
   apiKey: string;
-  accessToken?: never;
 }
 
 /**
@@ -66,12 +66,12 @@ export interface LinearAdapterOAuthConfig extends LinearAdapterBaseConfig {
  * @see https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens
  */
 export interface LinearAdapterAppConfig extends LinearAdapterBaseConfig {
+  accessToken?: never;
+  apiKey?: never;
   /** OAuth application client ID */
   clientId: string;
   /** OAuth application client secret */
   clientSecret: string;
-  apiKey?: never;
-  accessToken?: never;
 }
 
 /**
@@ -94,14 +94,14 @@ export type LinearAdapterConfig =
  * - Comment thread: Replies nested under a specific root comment (has commentId)
  */
 export interface LinearThreadId {
-  /** Linear issue UUID */
-  issueId: string;
   /**
    * Root comment ID for comment-level threads.
    * If present, this is a comment thread (replies nest under this comment).
    * If absent, this is an issue-level thread (top-level comment).
    */
   commentId?: string;
+  /** Linear issue UUID */
+  issueId: string;
 }
 
 // =============================================================================
@@ -114,10 +114,10 @@ export interface LinearThreadId {
  * @see https://linear.app/developers/webhooks#data-change-events-payload
  */
 export interface LinearWebhookActor {
-  id: string;
-  type: "user" | "application" | "integration";
-  name: string;
   email?: string;
+  id: string;
+  name: string;
+  type: "user" | "application" | "integration";
   url?: string;
 }
 
@@ -129,22 +129,22 @@ export interface LinearWebhookActor {
 interface LinearWebhookBase {
   /** Action type: create, update, or remove */
   action: "create" | "update" | "remove";
-  /** Entity type that triggered the event */
-  type: string;
   /** Actor who triggered the action */
   actor: LinearWebhookActor;
   /** ISO 8601 date when the action took place */
   createdAt: string;
-  /** URL of the subject entity */
-  url: string;
-  /** UNIX timestamp (ms) when the webhook was sent */
-  webhookTimestamp: number;
-  /** UUID uniquely identifying this webhook */
-  webhookId: string;
   /** Organization ID */
   organizationId: string;
+  /** Entity type that triggered the event */
+  type: string;
   /** For update actions, previous values of changed properties */
   updatedFrom?: Record<string, unknown>;
+  /** URL of the subject entity */
+  url: string;
+  /** UUID uniquely identifying this webhook */
+  webhookId: string;
+  /** UNIX timestamp (ms) when the webhook was sent */
+  webhookTimestamp: number;
 }
 
 /**
@@ -156,22 +156,22 @@ interface LinearWebhookBase {
  * @see https://linear.app/developers/webhooks#webhook-payload
  */
 export interface LinearCommentData {
-  /** Comment UUID */
-  id: string;
   /** Comment body in markdown format */
   body: string;
-  /** Issue UUID the comment is associated with */
-  issueId: string;
-  /** User UUID who wrote the comment */
-  userId: string;
-  /** Parent comment UUID (for nested/threaded replies) */
-  parentId?: string;
   /** ISO 8601 creation date */
   createdAt: string;
+  /** Comment UUID */
+  id: string;
+  /** Issue UUID the comment is associated with */
+  issueId: string;
+  /** Parent comment UUID (for nested/threaded replies) */
+  parentId?: string;
   /** ISO 8601 last update date */
   updatedAt: string;
   /** Direct URL to the comment */
   url?: string;
+  /** User UUID who wrote the comment */
+  userId: string;
 }
 
 /**
@@ -180,20 +180,20 @@ export interface LinearCommentData {
  * @see https://linear.app/developers/webhooks#data-change-events-payload
  */
 export interface CommentWebhookPayload extends LinearWebhookBase {
-  type: "Comment";
   data: LinearCommentData;
+  type: "Comment";
 }
 
 /**
  * Reaction data from a webhook payload.
  */
 export interface LinearReactionData {
-  /** Reaction UUID */
-  id: string;
-  /** Emoji string */
-  emoji: string;
   /** Comment UUID the reaction is on */
   commentId?: string;
+  /** Emoji string */
+  emoji: string;
+  /** Reaction UUID */
+  id: string;
   /** User UUID who reacted */
   userId: string;
 }
@@ -202,8 +202,8 @@ export interface LinearReactionData {
  * Webhook payload for Reaction events.
  */
 export interface ReactionWebhookPayload extends LinearWebhookBase {
-  type: "Reaction";
   data: LinearReactionData;
+  type: "Reaction";
 }
 
 /**

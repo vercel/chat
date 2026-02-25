@@ -15,18 +15,18 @@ export const SLACK_BOT_USERNAME = "testbot";
  * Options for creating a Slack event
  */
 export interface SlackEventOptions {
-  type?: "app_mention" | "message";
-  text: string;
-  userId: string;
-  userName?: string;
-  messageTs: string;
-  threadTs: string;
-  channel: string;
-  botId?: string;
-  teamId?: string;
   apiAppId?: string;
+  botId?: string;
+  channel: string;
   eventId?: string;
   eventTime?: number;
+  messageTs: string;
+  teamId?: string;
+  text: string;
+  threadTs: string;
+  type?: "app_mention" | "message";
+  userId: string;
+  userName?: string;
 }
 
 /**
@@ -76,7 +76,7 @@ export function createSlackEvent(options: SlackEventOptions) {
  */
 export function createSlackWebhookRequest(
   payload: Record<string, unknown>,
-  signingSecret = SLACK_SIGNING_SECRET,
+  signingSecret = SLACK_SIGNING_SECRET
 ): Request {
   const body = JSON.stringify(payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -114,6 +114,10 @@ export function createMockSlackClient() {
         ts: "1234567890.123456",
         channel: "C123456",
         message: { ts: "1234567890.123456" },
+      }),
+      postEphemeral: vi.fn().mockResolvedValue({
+        ok: true,
+        message_ts: "1234567890.123457",
       }),
       update: vi.fn().mockResolvedValue({
         ok: true,
@@ -160,15 +164,28 @@ export function createMockSlackClient() {
         user: { id: "U123", name: "testuser", real_name: "Test User" },
       }),
     },
+    views: {
+      publish: vi.fn().mockResolvedValue({ ok: true }),
+      open: vi.fn().mockResolvedValue({ ok: true }),
+      update: vi.fn().mockResolvedValue({ ok: true }),
+    },
     files: {
       uploadV2: vi.fn().mockResolvedValue({
         ok: true,
         files: [{ id: "F123456" }],
       }),
     },
+    assistant: {
+      threads: {
+        setSuggestedPrompts: vi.fn().mockResolvedValue({ ok: true }),
+        setStatus: vi.fn().mockResolvedValue({ ok: true }),
+        setTitle: vi.fn().mockResolvedValue({ ok: true }),
+      },
+    },
     clearMocks: () => {
       client.auth.test.mockClear();
       client.chat.postMessage.mockClear();
+      client.chat.postEphemeral.mockClear();
       client.chat.update.mockClear();
       client.chat.delete.mockClear();
       client.chatStream.mockClear();
@@ -180,6 +197,12 @@ export function createMockSlackClient() {
       client.conversations.open.mockClear();
       client.users.info.mockClear();
       client.files.uploadV2.mockClear();
+      client.views.publish.mockClear();
+      client.views.open.mockClear();
+      client.views.update.mockClear();
+      client.assistant.threads.setSuggestedPrompts.mockClear();
+      client.assistant.threads.setStatus.mockClear();
+      client.assistant.threads.setTitle.mockClear();
     },
   };
   return client;
@@ -192,7 +215,7 @@ export type MockSlackClient = ReturnType<typeof createMockSlackClient>;
  */
 export function injectMockSlackClient(
   adapter: SlackAdapter,
-  mockClient: MockSlackClient,
+  mockClient: MockSlackClient
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
   (adapter as any).client = mockClient;
@@ -211,12 +234,12 @@ export function getSlackThreadId(channel: string, threadTs: string): string {
 export interface SlackBlockActionsOptions {
   actionId: string;
   actionValue?: string;
-  userId: string;
-  userName?: string;
+  channel: string;
   messageTs: string;
   threadTs?: string;
-  channel: string;
   triggerId?: string;
+  userId: string;
+  userName?: string;
 }
 
 /**
@@ -269,7 +292,7 @@ function createSlackBlockActionsPayload(options: SlackBlockActionsOptions) {
  */
 export function createSlackBlockActionsRequest(
   options: SlackBlockActionsOptions,
-  signingSecret = SLACK_SIGNING_SECRET,
+  signingSecret = SLACK_SIGNING_SECRET
 ): Request {
   const payload = createSlackBlockActionsPayload(options);
   const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;

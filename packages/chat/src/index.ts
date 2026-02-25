@@ -1,4 +1,10 @@
 // Main exports
+
+export {
+  ChannelImpl,
+  deriveChannelId,
+  type SerializedChannel,
+} from "./channel";
 export { Chat } from "./chat";
 export {
   Message,
@@ -26,16 +32,6 @@ import {
   isJSX as _isJSX,
   toCardElement as _toCardElement,
   toModalElement as _toModalElement,
-  type ButtonProps,
-  type CardJSXElement,
-  type CardJSXProps,
-  type CardProps,
-  type ContainerProps,
-  type DividerProps,
-  type FieldProps,
-  type ImageProps,
-  type LinkButtonProps,
-  type TextProps,
 } from "./jsx-runtime";
 export const Actions = _Actions;
 export const Button = _Button;
@@ -58,6 +54,7 @@ import {
   fromReactModalElement as _fromReactModalElement,
   isModalElement as _isModalElement,
   Modal as _Modal,
+  RadioSelect as _RadioSelect,
   Select as _Select,
   SelectOption as _SelectOption,
   TextInput as _TextInput,
@@ -65,6 +62,7 @@ import {
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
 export const Modal = _Modal;
+export const RadioSelect = _RadioSelect;
 export const Select = _Select;
 export const SelectOption = _SelectOption;
 export const TextInput = _TextInput;
@@ -88,17 +86,17 @@ export type {
   TextElement,
   TextStyle,
 } from "./cards";
-// Modal types
-export type {
-  ModalChild,
-  ModalElement,
-  ModalOptions,
-  SelectElement,
-  SelectOptionElement,
-  SelectOptions,
-  TextInputElement,
-  TextInputOptions,
-} from "./modals";
+// Emoji utilities
+export {
+  convertEmojiPlaceholders,
+  createEmoji,
+  DEFAULT_EMOJI_MAP,
+  defaultEmojiResolver,
+  EmojiResolver,
+  type EmojiValue,
+  emoji,
+  getEmoji,
+} from "./emoji";
 // JSX types
 export type {
   ButtonProps,
@@ -111,18 +109,7 @@ export type {
   ImageProps,
   LinkButtonProps,
   TextProps,
-};
-// Emoji utilities
-export {
-  convertEmojiPlaceholders,
-  createEmoji,
-  DEFAULT_EMOJI_MAP,
-  defaultEmojiResolver,
-  EmojiResolver,
-  type EmojiValue,
-  emoji,
-  getEmoji,
-} from "./emoji";
+} from "./jsx-runtime";
 // Re-export mdast types for adapters
 export type {
   Blockquote,
@@ -178,14 +165,35 @@ export {
   toPlainText,
   walkAst,
 } from "./markdown";
+// Modal types
+export type {
+  ModalChild,
+  ModalElement,
+  ModalOptions,
+  RadioSelectElement,
+  RadioSelectOptions,
+  SelectElement,
+  SelectOptionElement,
+  SelectOptions,
+  TextInputElement,
+  TextInputOptions,
+} from "./modals";
 // Types
 export type {
   ActionEvent,
   ActionHandler,
   Adapter,
   AdapterPostableMessage,
+  AppHomeOpenedEvent,
+  AppHomeOpenedHandler,
+  AssistantContextChangedEvent,
+  AssistantContextChangedHandler,
+  AssistantThreadStartedEvent,
+  AssistantThreadStartedHandler,
   Attachment,
   Author,
+  Channel,
+  ChannelInfo,
   ChatConfig,
   ChatInstance,
   CustomEmojiMap,
@@ -198,6 +206,8 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Lock,
   Logger,
   LogLevel,
@@ -213,6 +223,7 @@ export type {
   ModalSubmitEvent,
   ModalSubmitHandler,
   ModalUpdateResponse,
+  Postable,
   PostableAst,
   PostableCard,
   PostableMarkdown,
@@ -223,11 +234,14 @@ export type {
   ReactionEvent,
   ReactionHandler,
   SentMessage,
+  SlashCommandEvent,
+  SlashCommandHandler,
   StateAdapter,
   StreamOptions,
   SubscribedMessageHandler,
   Thread,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
   WellKnownEmoji,
 } from "./types";

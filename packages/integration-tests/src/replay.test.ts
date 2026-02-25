@@ -44,7 +44,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 
@@ -57,14 +57,14 @@ describe("Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "hello",
-        authorUserId: "users/117994873354375860089",
+        authorUserId: "users/100000000000000000001",
         adapterName: "gchat",
       });
 
       // Verify author details
       expect(ctx.captured.mentionMessage?.author).toMatchObject({
-        userName: "Malte Ubl",
-        fullName: "Malte Ubl",
+        userName: "Test User",
+        fullName: "Test User",
         isBot: false,
         isMe: false,
       });
@@ -95,7 +95,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 
@@ -116,11 +116,11 @@ describe("Replay Tests", () => {
                 space: { name: "spaces/AAQAJ9CXYcg" },
                 threadReply: true,
               },
-            }),
+            })
           ).toString("base64"),
         },
         subscription:
-          "projects/chat-sdk-demo-482018/subscriptions/chat-messages-push",
+          "projects/example-chat-project-123456/subscriptions/chat-messages-push",
       };
 
       // Send bot's own message - should be skipped
@@ -149,7 +149,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 
@@ -162,9 +162,9 @@ describe("Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "Hey",
-        authorUserId: "U03STHCA1JM",
+        authorUserId: "U00FAKEUSER1",
         adapterName: "slack",
-        threadIdContains: "C0A511MBCUW",
+        threadIdContains: "C00FAKECHAN1",
       });
 
       expectSentMessage(ctx.mockClient, "Thanks for mentioning me!");
@@ -206,7 +206,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 
@@ -236,7 +236,7 @@ describe("Replay Tests", () => {
             await msg.edit("Just a little bit...");
             await msg.edit("Thanks for your message");
           },
-        },
+        }
       );
     });
 
@@ -255,8 +255,8 @@ describe("Replay Tests", () => {
       // Verify Teams-specific author format
       expect(ctx.captured.mentionMessage?.author.userId).toContain("29:");
       expect(ctx.captured.mentionMessage?.author).toMatchObject({
-        userName: "Malte Ubl",
-        fullName: "Malte Ubl",
+        userName: "Test User",
+        fullName: "Test User",
         isMe: false,
       });
 
@@ -277,7 +277,7 @@ describe("Replay Tests", () => {
       });
 
       expect(ctx.captured.followUpMessage?.author).toMatchObject({
-        userName: "Malte Ubl",
+        userName: "Test User",
         isMe: false,
       });
 
@@ -301,7 +301,7 @@ describe("Replay Tests", () => {
 
       // Track if handler was called
       let botMessageHandlerCalled = false;
-      ctx.chat.onSubscribedMessage(async () => {
+      ctx.chat.onSubscribedMessage(() => {
         botMessageHandlerCalled = true;
       });
 

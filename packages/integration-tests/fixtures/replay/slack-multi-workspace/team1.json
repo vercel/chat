@@ -1,0 +1,50 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U0A9G5N5URZ",
+  "teamId": "T0A8YAUUGMU",
+  "teamName": "montovercelsandbox",
+  "mention": {
+    "token": "cwbDyEwNtuJ7kp947hNkYcO9",
+    "team_id": "T0A8YAUUGMU",
+    "enterprise_id": "E0A9D9SMZ0R",
+    "api_app_id": "A0A9LGGJSAJ",
+    "event": {
+      "type": "app_mention",
+      "user": "U0A8WUV28QM",
+      "ts": "1770676954.663639",
+      "client_msg_id": "ee68ff9b-df56-43d7-91c6-46587dfe2449",
+      "text": "<@U0A9G5N5URZ> testing",
+      "team": "T0A8YAUUGMU",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "Q1wHJ",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                { "type": "user", "user_id": "U0A9G5N5URZ" },
+                { "type": "text", "text": " testing" }
+              ]
+            }
+          ]
+        }
+      ],
+      "channel": "C0A9D9RTBMF",
+      "event_ts": "1770676954.663639"
+    },
+    "type": "event_callback",
+    "event_id": "Ev0ADTDDMR9R",
+    "event_time": 1770676954,
+    "authorizations": [
+      {
+        "enterprise_id": "E0A9D9SMZ0R",
+        "team_id": "T0A8YAUUGMU",
+        "user_id": "U0A9G5N5URZ",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  }
+}

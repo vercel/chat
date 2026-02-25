@@ -55,7 +55,10 @@ import {
   Modal,
   type ModalChild,
   type ModalElement,
+  RadioSelect,
+  type RadioSelectElement,
   Select,
+  type SelectElement,
   SelectOption,
   type SelectOptionElement,
   TextInput,
@@ -70,39 +73,39 @@ const JSX_ELEMENT = Symbol.for("chat.jsx.element");
 
 /** Props for Card component in JSX */
 export interface CardProps {
-  title?: string;
-  subtitle?: string;
-  imageUrl?: string;
   children?: unknown;
+  imageUrl?: string;
+  subtitle?: string;
+  title?: string;
 }
 
 /** Props for Text component in JSX */
 export interface TextProps {
-  style?: TextStyle;
   children?: string | number;
+  style?: TextStyle;
 }
 
 /** Props for Button component in JSX */
 export interface ButtonProps {
+  children?: string | number;
   id: string;
   label?: string;
   style?: ButtonStyle;
   value?: string;
-  children?: string | number;
 }
 
 /** Props for LinkButton component in JSX */
 export interface LinkButtonProps {
-  url: string;
+  children?: string | number;
   label?: string;
   style?: ButtonStyle;
-  children?: string | number;
+  url: string;
 }
 
 /** Props for Image component in JSX */
 export interface ImageProps {
-  url: string;
   alt?: string;
+  url: string;
 }
 
 /** Props for Field component in JSX */
@@ -122,36 +125,38 @@ export type DividerProps = Record<string, never>;
 /** Props for Modal component in JSX */
 export interface ModalProps {
   callbackId: string;
-  title: string;
-  submitLabel?: string;
+  children?: unknown;
   closeLabel?: string;
   notifyOnClose?: boolean;
-  children?: unknown;
+  privateMetadata?: string;
+  submitLabel?: string;
+  title: string;
 }
 
 /** Props for TextInput component in JSX */
 export interface TextInputProps {
   id: string;
-  label: string;
-  placeholder?: string;
   initialValue?: string;
+  label: string;
+  maxLength?: number;
   multiline?: boolean;
   optional?: boolean;
-  maxLength?: number;
+  placeholder?: string;
 }
 
 /** Props for Select component in JSX */
 export interface SelectProps {
-  id: string;
-  label: string;
-  placeholder?: string;
-  initialOption?: string;
-  optional?: boolean;
   children?: unknown;
+  id: string;
+  initialOption?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
 }
 
 /** Props for SelectOption component in JSX */
 export interface SelectOptionProps {
+  description?: string;
   label: string;
   value: string;
 }
@@ -186,6 +191,7 @@ type CardComponentFunction =
   | typeof Modal
   | typeof TextInput
   | typeof Select
+  | typeof RadioSelect
   | typeof SelectOption;
 
 /**
@@ -194,9 +200,9 @@ type CardComponentFunction =
  */
 export interface CardJSXElement<P extends CardJSXProps = CardJSXProps> {
   $$typeof: typeof JSX_ELEMENT;
-  type: CardComponentFunction;
-  props: P;
   children: unknown[];
+  props: P;
+  type: CardComponentFunction;
 }
 
 // Internal alias for backwards compatibility
@@ -218,7 +224,10 @@ type CardChildOrNested =
   | CardChild
   | ButtonElement
   | LinkButtonElement
-  | FieldElement;
+  | FieldElement
+  | SelectElement
+  | SelectOptionElement
+  | RadioSelectElement;
 
 /**
  * Process children, converting JSX elements to card elements.
@@ -271,7 +280,7 @@ type AnyCardElement =
  * Type guard to check if props match TextProps
  */
 function isTextProps(props: CardJSXProps): props is TextProps {
-  return !("id" in props) && !("url" in props) && !("label" in props);
+  return !("id" in props || "url" in props || "label" in props);
 }
 
 /**
@@ -312,9 +321,7 @@ function isFieldProps(props: CardJSXProps): props is FieldProps {
  */
 function isCardProps(props: CardJSXProps): props is CardProps {
   return (
-    !("id" in props) &&
-    !("url" in props) &&
-    !("callbackId" in props) &&
+    !("id" in props || "url" in props || "callbackId" in props) &&
     ("title" in props || "subtitle" in props || "imageUrl" in props)
   );
 }
@@ -370,7 +377,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     const textProps = isTextProps(props) ? props : { style: undefined };
     const content =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : String(textProps.children ?? "");
     return Text(content, { style: textProps.style });
   }
@@ -381,8 +388,15 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
   }
 
   if (type === Actions) {
-    // Actions takes array of ButtonElements and LinkButtonElements
-    return Actions(processedChildren as (ButtonElement | LinkButtonElement)[]);
+    // Actions takes array of ButtonElements, LinkButtonElements, SelectElements, and RadioSelectElements
+    return Actions(
+      processedChildren as (
+        | ButtonElement
+        | LinkButtonElement
+        | SelectElement
+        | RadioSelectElement
+      )[]
+    );
   }
 
   if (type === Fields) {
@@ -398,7 +412,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return Button({
       id: props.id,
@@ -416,7 +430,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return LinkButton({
       url: props.url,
@@ -460,6 +474,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       submitLabel: props.submitLabel,
       closeLabel: props.closeLabel,
       notifyOnClose: props.notifyOnClose,
+      privateMetadata: props.privateMetadata,
       children: filterModalChildren(processedChildren),
     });
   }
@@ -493,6 +508,19 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     });
   }
 
+  if (type === RadioSelect) {
+    if (!isSelectProps(props)) {
+      throw new Error("RadioSelect requires 'id' and 'label' props");
+    }
+    return RadioSelect({
+      id: props.id,
+      label: props.label,
+      initialOption: props.initialOption,
+      optional: props.optional,
+      options: processedChildren as SelectOptionElement[],
+    });
+  }
+
   if (type === SelectOption) {
     if (!isSelectOptionProps(props)) {
       throw new Error("SelectOption requires 'label' and 'value' props");
@@ -500,6 +528,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     return SelectOption({
       label: props.label,
       value: props.value,
+      description: props.description,
     });
   }
 
@@ -520,7 +549,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
 export function jsx<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
   return {
@@ -537,18 +566,22 @@ export function jsx<P extends CardJSXProps>(
 export function jsxs<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
+  let resolvedChildren: unknown[];
+  if (Array.isArray(children)) {
+    resolvedChildren = children;
+  } else if (children != null) {
+    resolvedChildren = [children];
+  } else {
+    resolvedChildren = [];
+  }
   return {
     $$typeof: JSX_ELEMENT,
     type,
     props: restProps as P,
-    children: Array.isArray(children)
-      ? children
-      : children != null
-        ? [children]
-        : [],
+    children: resolvedChildren,
   };
 }
 
@@ -635,7 +668,7 @@ export function isJSX(value: unknown): boolean {
   return false;
 }
 
-// Re-export for JSX namespace
+// biome-ignore lint/style/noNamespace: JSX namespace required by TypeScript JSX transform
 export namespace JSX {
   export interface Element extends JSXElement {}
   // biome-ignore lint/complexity/noBannedTypes: Required for JSX namespace

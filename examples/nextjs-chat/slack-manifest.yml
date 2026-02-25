@@ -30,7 +30,7 @@ oauth_config:
 settings:
   event_subscriptions:
     # Set this to your deployed webhook URL
-    request_url: https://the-real-chat-sdk-nextjs-chat.labs.vercel.dev/api/webhooks/slack?x-vercel-protection-bypass=TOKEN_HERE
+    request_url: https://your-deployment.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=TOKEN_HERE
     bot_events:
       - app_mention
       - message.channels
