@@ -27,7 +27,7 @@ const bot = new Chat({
     }),
   },
   state: createRedisState({ url: process.env.REDIS_URL! }),
-  dedupeTtlMs: 300_000, // 5 minutes (default: 60s)
+  dedupeTtlMs: 600_000, // 10 minutes (default: 5 min)
 });
 
 bot.onNewMention(async (thread) => {
