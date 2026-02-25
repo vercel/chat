@@ -9,6 +9,7 @@ export default defineWorkspace([
   "packages/adapter-shared",
   "packages/adapter-slack",
   "packages/adapter-teams",
+  "packages/adapter-whatsapp",
   "packages/state-ioredis",
   "packages/state-memory",
   "packages/state-redis",
