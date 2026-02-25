@@ -9,11 +9,11 @@ import {
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
+import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
-import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -26,8 +26,8 @@ export interface Adapters {
   github?: GitHubAdapter;
   linear?: LinearAdapter;
   slack?: SlackAdapter;
-  telegram?: TelegramAdapter;
   teams?: TeamsAdapter;
+  telegram?: TelegramAdapter;
 }
 
 // Methods to record for each adapter (outgoing API calls)

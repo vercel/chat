@@ -28,7 +28,9 @@
       "@chat-adapter/discord": ["../../packages/adapter-discord/src/index.ts"],
       "@chat-adapter/github": ["../../packages/adapter-github/src/index.ts"],
       "@chat-adapter/linear": ["../../packages/adapter-linear/src/index.ts"],
-      "@chat-adapter/telegram": ["../../packages/adapter-telegram/src/index.ts"],
+      "@chat-adapter/telegram": [
+        "../../packages/adapter-telegram/src/index.ts"
+      ],
       "@chat-adapter/state-redis": ["../../packages/state-redis/src/index.ts"],
       "@chat-adapter/state-memory": ["../../packages/state-memory/src/index.ts"]
     }
