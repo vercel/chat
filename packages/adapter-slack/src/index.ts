@@ -201,9 +201,9 @@ interface SlackWebhookPayload {
     | SlackAppHomeOpenedEvent;
   event_id?: string;
   event_time?: number;
-  team_id?: string;
   /** Whether this event occurred in an externally shared channel (Slack Connect) */
   is_ext_shared_channel?: boolean;
+  team_id?: string;
   type: string;
 }
 
@@ -306,7 +306,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Cache of channel IDs known to be external/shared (Slack Connect).
    * Populated from `is_ext_shared_channel` in incoming webhook payloads.
    */
-  private _externalChannels = new Set<string>();
+  private readonly _externalChannels = new Set<string>();
 
   // Multi-workspace support
   private readonly clientId: string | undefined;
@@ -753,12 +753,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
       // Track external/shared channel status from payload-level flag
       if (payload.is_ext_shared_channel) {
-        const channelId =
-          "channel" in event
-            ? (event as SlackEvent).channel
-            : "item" in event
-              ? (event as SlackReactionEvent).item.channel
-              : undefined;
+        let channelId: string | undefined;
+        if ("channel" in event) {
+          channelId = (event as SlackEvent).channel;
+        } else if ("item" in event) {
+          channelId = (event as SlackReactionEvent).item.channel;
+        }
         if (channelId) {
           this._externalChannels.add(channelId);
         }
@@ -2395,10 +2395,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.conversations.info(
         this.withToken({ channel })
       );
-      const channelInfo = result.channel as {
-        name?: string;
-        is_ext_shared?: boolean;
-      } | undefined;
+      const channelInfo = result.channel as
+        | {
+            name?: string;
+            is_ext_shared?: boolean;
+          }
+        | undefined;
 
       // Update external channel cache from API response
       if (channelInfo?.is_ext_shared) {

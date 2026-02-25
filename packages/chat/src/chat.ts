@@ -1577,8 +1577,7 @@ export class Chat<
     const isDM = adapter.isDM?.(threadId) ?? false;
 
     // Check if this is an external/shared channel (e.g., Slack Connect)
-    const isExternalChannel =
-      adapter.isExternalChannel?.(threadId) ?? false;
+    const isExternalChannel = adapter.isExternalChannel?.(threadId) ?? false;
 
     return new ThreadImpl<TState>({
       id: threadId,

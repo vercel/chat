@@ -196,6 +196,17 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   isDM?(threadId: string): boolean;
 
   /**
+   * Check if a thread is in an external/shared channel (e.g., Slack Connect).
+   *
+   * External channels are shared between different organizations. Bots should
+   * be careful about what information they expose in external channels.
+   *
+   * @param threadId - The thread ID to check
+   * @returns True if the thread is in an external channel, false otherwise
+   */
+  isExternalChannel?(threadId: string): boolean;
+
+  /**
    * List threads in a channel.
    */
   listThreads?(
@@ -273,31 +284,6 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TRawMessage>>;
-
-  /**
-   * Check if a thread is in an external/shared channel (e.g., Slack Connect).
-   *
-   * External channels are shared between different organizations. Bots should
-   * be careful about what information they expose in external channels.
-   *
-   * @param threadId - The thread ID to check
-   * @returns True if the thread is in an external channel, false otherwise
-   */
-  isExternalChannel?(threadId: string): boolean;
-
-  /**
-   * Open a modal/dialog form.
-   *
-   * @param triggerId - Platform-specific trigger ID from the action event
-   * @param modal - The modal element to display
-   * @param contextId - Optional context ID for server-side stored thread/message context
-   * @returns The view/dialog ID
-   */
-  openModal?(
-    triggerId: string,
-    modal: ModalElement,
-    contextId?: string,
-  ): Promise<{ viewId: string }>;
 
   /** Remove a reaction from a message */
   removeReaction(
