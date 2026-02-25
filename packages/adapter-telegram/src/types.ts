@@ -148,19 +148,15 @@ export interface TelegramCallbackQuery {
 /**
  * Telegram reaction types.
  */
-export interface TelegramReactionTypeEmoji {
-  emoji: string;
-  type: "emoji";
-}
-
-export interface TelegramReactionTypeCustomEmoji {
-  custom_emoji_id: string;
-  type: "custom_emoji";
-}
-
 export type TelegramReactionType =
-  | TelegramReactionTypeEmoji
-  | TelegramReactionTypeCustomEmoji;
+  | {
+      emoji: string;
+      type: "emoji";
+    }
+  | {
+      custom_emoji_id: string;
+      type: "custom_emoji";
+    };
 
 /**
  * Telegram message reaction update.

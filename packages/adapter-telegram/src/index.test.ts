@@ -101,7 +101,7 @@ function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
 
 describe("createTelegramAdapter", () => {
   it("throws when bot token is missing", () => {
-    process.env.TELEGRAM_BOT_TOKEN = undefined;
+    process.env.TELEGRAM_BOT_TOKEN = "";
 
     expect(() => createTelegramAdapter({ logger: mockLogger })).toThrow(
       ValidationError
