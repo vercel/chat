@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -296,5 +297,22 @@ describe("cardToFallbackText", () => {
     const card = Card({ title: "Simple Card" });
     const text = cardToFallbackText(card);
     expect(text).toBe("**Simple Card**");
+  });
+});
+
+describe("cardToAdaptiveCard with CardLink", () => {
+  it("converts CardLink to a TextBlock with markdown link", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const adaptive = cardToAdaptiveCard(card);
+
+    expect(adaptive.body).toHaveLength(1);
+    expect(adaptive.body[0]).toEqual({
+      type: "TextBlock",
+      text: "[Click here](https://example.com)",
+      wrap: true,
+    });
   });
 });

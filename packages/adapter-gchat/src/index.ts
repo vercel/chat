@@ -1546,7 +1546,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
   }
 
-  async startTyping(_threadId: string): Promise<void> {
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
     // Google Chat doesn't have a typing indicator API for bots
   }
 

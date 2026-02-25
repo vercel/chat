@@ -1033,7 +1033,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     );
   }
 
-  async startTyping(threadId: string): Promise<void> {
+  async startTyping(threadId: string, _status?: string): Promise<void> {
     const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
 
     const conversationReference = {

@@ -27,6 +27,7 @@ const bot = new Chat({
     }),
   },
   state: createRedisState({ url: process.env.REDIS_URL! }),
+  dedupeTtlMs: 600_000, // 10 minutes (default: 5 min)
 });
 
 bot.onNewMention(async (thread) => {
@@ -38,6 +39,17 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.post(`You said: ${message.text}`);
 });
 ```
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `userName` | `string` | **required** | Default bot username across all adapters |
+| `adapters` | `Record<string, Adapter>` | **required** | Map of adapter name to adapter instance |
+| `state` | `StateAdapter` | **required** | State adapter for subscriptions, locking, and dedup |
+| `logger` | `Logger \| LogLevel` | `"info"` | Logger instance or log level (`"silent"` to disable) |
+| `streamingUpdateIntervalMs` | `number` | `500` | Update interval for fallback streaming (post + edit) in ms |
+| `dedupeTtlMs` | `number` | `300000` | TTL for message deduplication entries in ms. Increase if webhook cold starts cause platform retries (e.g., Slack's `http_timeout` retry) that arrive after the default window |
 
 ## AI coding agent support
 

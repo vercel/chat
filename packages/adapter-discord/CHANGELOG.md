@@ -1,5 +1,17 @@
 # @chat-adapter/discord
 
+## 4.14.0
+
+### Minor Changes
+
+- 90dc325: Add typing indicators for Slack adapter using Slack assistants API
+
+### Patch Changes
+
+- Updated dependencies [90dc325]
+  - chat@4.14.0
+  - @chat-adapter/shared@4.14.0
+
 ## 4.13.4
 
 ### Patch Changes

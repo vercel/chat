@@ -122,6 +122,15 @@ export interface SectionElement {
   type: "section";
 }
 
+/** Inline hyperlink element */
+export interface LinkElement {
+  /** Link label text */
+  label: string;
+  type: "link";
+  /** URL to link to */
+  url: string;
+}
+
 /** Field for key-value display */
 export interface FieldElement {
   /** Field label */
@@ -145,7 +154,8 @@ export type CardChild =
   | DividerElement
   | ActionsElement
   | SectionElement
-  | FieldsElement;
+  | FieldsElement
+  | LinkElement;
 
 /** Union of all element types (including nested children) */
 type AnyCardElement =
@@ -153,6 +163,7 @@ type AnyCardElement =
   | CardElement
   | ButtonElement
   | LinkButtonElement
+  | LinkElement
   | FieldElement
   | SelectElement
   | RadioSelectElement;
@@ -412,6 +423,22 @@ export function Fields(children: FieldElement[]): FieldsElement {
   };
 }
 
+/**
+ * Create a CardLink element for inline hyperlinks.
+ *
+ * @example
+ * ```ts
+ * CardLink({ url: "https://example.com", label: "Visit Site" })
+ * ```
+ */
+export function CardLink(options: { url: string; label: string }): LinkElement {
+  return {
+    type: "link",
+    url: options.url,
+    label: options.label,
+  };
+}
+
 // ============================================================================
 // React Element Support
 // ============================================================================
@@ -453,6 +480,7 @@ const componentMap = new Map<unknown, string>([
   [Actions, "Actions"],
   [Button, "Button"],
   [LinkButton, "LinkButton"],
+  [CardLink, "CardLink"],
   [Field, "Field"],
   [Fields, "Fields"],
 ]);
@@ -587,6 +615,14 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
       });
     }
 
+    case "CardLink": {
+      const label = extractTextContent(props.children);
+      return CardLink({
+        url: props.url as string,
+        label: (props.label as string | undefined) ?? label,
+      });
+    }
+
     case "Field":
       return Field({
         label: props.label as string,
@@ -680,6 +716,8 @@ function childToFallbackText(child: CardChild): string | null {
   switch (child.type) {
     case "text":
       return child.content;
+    case "link":
+      return `${child.label} (${child.url})`;
     case "fields":
       return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
     case "actions":

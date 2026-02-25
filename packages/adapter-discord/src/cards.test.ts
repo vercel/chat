@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -332,5 +333,20 @@ describe("cardToFallbackText", () => {
     expect(text).toContain("**A**: 1");
     expect(text).toContain("**B**: 2");
     expect(text).toContain("**C**: 3");
+  });
+});
+
+describe("cardToDiscordPayload with CardLink", () => {
+  it("appends markdown link to embed description", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const payload = cardToDiscordPayload(card);
+
+    expect(payload.embeds).toHaveLength(1);
+    expect(payload.embeds[0].description).toBe(
+      "[Click here](https://example.com)"
+    );
   });
 });

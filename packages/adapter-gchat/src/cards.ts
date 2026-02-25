@@ -194,6 +194,14 @@ function convertChildToWidgets(
       return convertSectionToWidgets(child, endpointUrl);
     case "fields":
       return convertFieldsToWidgets(child);
+    case "link":
+      return [
+        {
+          textParagraph: {
+            text: `<a href="${child.url}">${convertEmoji(child.label)}</a>`,
+          },
+        },
+      ];
     default:
       return [];
   }

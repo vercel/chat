@@ -7,6 +7,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   Divider,
   Field,
   Fields,
@@ -47,6 +48,19 @@ describe("jsx factory", () => {
   it("handles undefined children", () => {
     const element = jsx(Divider, {});
     expect(element.children).toEqual([]);
+  });
+
+  it("creates a CardLink JSX element", () => {
+    const element = jsx(CardLink, {
+      url: "https://example.com",
+      label: "Example",
+    });
+    expect(element.$$typeof).toBe(Symbol.for("chat.jsx.element"));
+    expect(element.type).toBe(CardLink);
+    expect(element.props).toEqual({
+      url: "https://example.com",
+      label: "Example",
+    });
   });
 });
 
@@ -206,6 +220,35 @@ describe("toCardElement", () => {
 
     expect(card?.children).toHaveLength(1);
     expect(card?.children[0].type).toBe("divider");
+  });
+
+  it("converts CardLink elements", () => {
+    const link = jsx(CardLink, {
+      url: "https://example.com",
+      label: "Visit",
+    });
+    const cardElement = jsxs(Card, { children: [link] });
+    const card = toCardElement(cardElement);
+
+    expect(card?.children).toHaveLength(1);
+    expect(card?.children[0].type).toBe("link");
+    if (card?.children[0].type === "link") {
+      expect(card.children[0].url).toBe("https://example.com");
+      expect(card.children[0].label).toBe("Visit");
+    }
+  });
+
+  it("converts CardLink with children as label", () => {
+    const link = jsx(CardLink, {
+      url: "https://example.com",
+      children: "Label from children",
+    });
+    const cardElement = jsxs(Card, { children: [link] });
+    const card = toCardElement(cardElement);
+
+    if (card?.children[0]?.type === "link") {
+      expect(card.children[0].label).toBe("Label from children");
+    }
   });
 
   it("converts Section elements", () => {

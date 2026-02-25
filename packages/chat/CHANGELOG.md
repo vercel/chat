@@ -1,5 +1,11 @@
 # chat
 
+## 4.14.0
+
+### Minor Changes
+
+- 90dc325: Add typing indicators for Slack adapter using Slack assistants API
+
 ## 4.13.4
 
 ### Patch Changes

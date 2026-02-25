@@ -579,7 +579,7 @@ export class LinearAdapter
   /**
    * Start typing indicator. Not supported by Linear.
    */
-  async startTyping(_threadId: string): Promise<void> {
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
     // Linear doesn't support typing indicators
   }
 

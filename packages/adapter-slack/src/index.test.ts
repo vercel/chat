@@ -1170,6 +1170,45 @@ describe("multi-workspace mode with encryption", () => {
 });
 
 // ============================================================================
+// Installation Key Prefix Tests
+// ============================================================================
+
+describe("installationKeyPrefix", () => {
+  const secret = "test-signing-secret";
+
+  it("uses custom installationKeyPrefix for storage key", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationKeyPrefix: "myapp:workspaces",
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    await adapter.setInstallation("T_CUSTOM_1", { botToken: "xoxb-token" });
+
+    expect(state.cache.has("myapp:workspaces:T_CUSTOM_1")).toBe(true);
+    expect(state.cache.has("slack:installation:T_CUSTOM_1")).toBe(false);
+
+    const retrieved = await adapter.getInstallation("T_CUSTOM_1");
+    expect(retrieved?.botToken).toBe("xoxb-token");
+  });
+
+  it("uses default slack:installation prefix when installationKeyPrefix is omitted", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance(state));
+
+    await adapter.setInstallation("T_DEFAULT_1", { botToken: "xoxb-token" });
+
+    expect(state.cache.has("slack:installation:T_DEFAULT_1")).toBe(true);
+  });
+});
+
+// ============================================================================
 // handleOAuthCallback Tests
 // ============================================================================
 

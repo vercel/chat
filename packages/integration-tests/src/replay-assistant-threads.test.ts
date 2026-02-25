@@ -490,4 +490,27 @@ describe("Slack Assistant Status and Title", () => {
       })
     );
   });
+
+  it("should call assistant.threads.setStatus via adapter.startTyping(status)", async () => {
+    ctx = createSlackTestContext(
+      { botName: BOT_NAME, botUserId: BOT_USER_ID },
+      {
+        onAssistantThreadStarted: async (event) => {
+          await event.adapter.startTyping(
+            event.threadId,
+            "Analyzing your request..."
+          );
+        },
+      }
+    );
+    await ctx.sendWebhook(createAssistantThreadStartedPayload());
+    expect(ctx.mockClient.assistant.threads.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel_id: DM_CHANNEL,
+        thread_ts: THREAD_TS,
+        status: "Analyzing your request...",
+        loading_messages: ["Analyzing your request..."],
+      })
+    );
+  });
 });

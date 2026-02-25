@@ -37,6 +37,7 @@ import {
   Card,
   type CardChild,
   type CardElement,
+  CardLink,
   Divider,
   Field,
   type FieldElement,
@@ -44,6 +45,7 @@ import {
   Image,
   LinkButton,
   type LinkButtonElement,
+  type LinkElement,
   Section,
   Text,
   type TextStyle,
@@ -99,6 +101,13 @@ export interface LinkButtonProps {
   children?: string | number;
   label?: string;
   style?: ButtonStyle;
+  url: string;
+}
+
+/** Props for CardLink component in JSX */
+export interface CardLinkProps {
+  children?: string | number;
+  label?: string;
   url: string;
 }
 
@@ -167,6 +176,7 @@ export type CardJSXProps =
   | TextProps
   | ButtonProps
   | LinkButtonProps
+  | CardLinkProps
   | ImageProps
   | FieldProps
   | ContainerProps
@@ -182,6 +192,7 @@ type CardComponentFunction =
   | typeof Text
   | typeof Button
   | typeof LinkButton
+  | typeof CardLink
   | typeof Image
   | typeof Field
   | typeof Divider
@@ -224,6 +235,7 @@ type CardChildOrNested =
   | CardChild
   | ButtonElement
   | LinkButtonElement
+  | LinkElement
   | FieldElement
   | SelectElement
   | SelectOptionElement
@@ -295,6 +307,19 @@ function isButtonProps(props: CardJSXProps): props is ButtonProps {
  */
 function isLinkButtonProps(props: CardJSXProps): props is LinkButtonProps {
   return "url" in props && typeof props.url === "string" && !("id" in props);
+}
+
+/**
+ * Type guard to check if props match CardLinkProps
+ */
+export function isCardLinkProps(props: CardJSXProps): props is CardLinkProps {
+  return (
+    "url" in props &&
+    typeof props.url === "string" &&
+    !("id" in props) &&
+    !("alt" in props) &&
+    !("style" in props)
+  );
 }
 
 /**
@@ -436,6 +461,22 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       url: props.url,
       label,
       style: props.style,
+    });
+  }
+
+  if (type === CardLink) {
+    // CardLink({ url, label })
+    // JSX children become the label
+    if (!isCardLinkProps(props)) {
+      throw new Error("CardLink requires a 'url' prop");
+    }
+    const label =
+      processedChildren.length > 0
+        ? processedChildren.map(String).join("")
+        : (props.label ?? "");
+    return CardLink({
+      url: props.url,
+      label,
     });
   }
 

@@ -115,6 +115,9 @@ function processChild(
     case "fields":
       convertFieldsElement(child, fields);
       break;
+    case "link":
+      textParts.push(`[${convertEmoji(child.label)}](${child.url})`);
+      break;
     default:
       break;
   }

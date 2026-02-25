@@ -118,6 +118,9 @@ function renderChild(child: CardChild): string[] {
       }
       return [`![](${child.url})`];
 
+    case "link":
+      return [`[${escapeMarkdown(child.label)}](${child.url})`];
+
     case "divider":
       return ["---"];
 

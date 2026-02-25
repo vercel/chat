@@ -443,8 +443,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return this.fallbackStream(textStream, options);
   }
 
-  async startTyping(): Promise<void> {
-    await this.adapter.startTyping(this.id);
+  async startTyping(status?: string): Promise<void> {
+    await this.adapter.startTyping(this.id, status);
   }
 
   /**

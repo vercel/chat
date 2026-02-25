@@ -134,6 +134,17 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
       return convertSectionToElements(child);
     case "fields":
       return { elements: [convertFieldsToElement(child)], actions: [] };
+    case "link":
+      return {
+        elements: [
+          {
+            type: "TextBlock",
+            text: `[${convertEmoji(child.label)}](${child.url})`,
+            wrap: true,
+          },
+        ],
+        actions: [],
+      };
     default:
       return { elements: [], actions: [] };
   }

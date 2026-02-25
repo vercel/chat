@@ -135,6 +135,8 @@ function childToFallbackText(
   switch (child.type) {
     case "text":
       return convertText(child.content);
+    case "link":
+      return `${convertText(child.label)} (${child.url})`;
     case "fields":
       return child.children
         .map((f) => `${convertText(f.label)}: ${convertText(f.value)}`)

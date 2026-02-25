@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -698,5 +699,46 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
     const blocks = cardToBlockKit(card);
 
     expect(blocks[0].text.text).toBe("*Start* and *end*");
+  });
+});
+
+describe("cardToBlockKit with CardLink", () => {
+  it("converts CardLink to a mrkdwn section block with Slack link syntax", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const blocks = cardToBlockKit(card);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "<https://example.com|Click here>",
+      },
+    });
+  });
+
+  it("converts CardLink alongside other children", () => {
+    const card = Card({
+      title: "Test",
+      children: [
+        CardText("Hello"),
+        CardLink({ url: "https://example.com", label: "Link" }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+
+    // header + text section + link section
+    expect(blocks).toHaveLength(3);
+    expect(blocks[2]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "<https://example.com|Link>",
+      },
+    });
   });
 });

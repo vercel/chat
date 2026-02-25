@@ -95,7 +95,7 @@ const textGridSection = [
 const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
     <Hero
-      badge="Chat SDK is now open source"
+      badge="Chat SDK is now open source and in beta"
       description={description}
       title={title}
     >

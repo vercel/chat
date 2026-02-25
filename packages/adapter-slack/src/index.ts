@@ -74,6 +74,11 @@ export interface SlackAdapterConfig {
    * If provided, bot tokens stored via setInstallation() will be encrypted at rest.
    */
   encryptionKey?: string;
+  /**
+   * Prefix for the state key used to store workspace installations.
+   * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.
+   */
+  installationKeyPrefix?: string;
   /** Logger instance for error reporting */
   logger: Logger;
   /** Signing secret for webhook verification */
@@ -299,6 +304,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly clientId: string | undefined;
   private readonly clientSecret: string | undefined;
   private readonly encryptionKey: Buffer | undefined;
+  private readonly installationKeyPrefix: string;
   private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
@@ -323,6 +329,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
+    this.installationKeyPrefix =
+      config.installationKeyPrefix ?? "slack:installation";
 
     if (config.encryptionKey) {
       this.encryptionKey = decodeKey(config.encryptionKey);
@@ -389,7 +397,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // ===========================================================================
 
   private installationKey(teamId: string): string {
-    return `slack:installation:${teamId}`;
+    return `${this.installationKeyPrefix}:${teamId}`;
   }
 
   /**
@@ -2065,8 +2073,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  async startTyping(_threadId: string): Promise<void> {
-    // Slack doesn't have a direct typing indicator API for bots
+  /**
+   * Show typing indicator with optional custom status.
+   *
+   * When status is provided, uses Slack's assistant.threads.setStatus API
+   * to show custom loading text (requires Agents & AI Apps feature and assistant:write scope).
+   * The status auto-clears when a message is posted to the thread.
+   *
+   * When status is not provided, defaults to "Typing..." with default loading messages.
+   *
+   * @param threadId - The thread to show the indicator in
+   * @param status - Optional custom status message (e.g., "Searching documents...")
+   */
+  async startTyping(threadId: string, status?: string): Promise<void> {
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    if (!threadTs) {
+      this.logger.debug("Slack: startTyping skipped - no thread context");
+      return;
+    }
+    this.logger.debug("Slack API: assistant.threads.setStatus", {
+      channel,
+      threadTs,
+      status,
+    });
+    try {
+      await this.client.assistant.threads.setStatus(
+        this.withToken({
+          channel_id: channel,
+          thread_ts: threadTs,
+          status: status ?? "Typing...",
+          loading_messages: [status ?? "Typing..."],
+        })
+      );
+    } catch (error) {
+      this.logger.warn("Slack API: assistant.threads.setStatus failed", {
+        channel,
+        threadTs,
+        error,
+      });
+    }
   }
 
   /**
@@ -2947,6 +2992,7 @@ export function createSlackAdapter(
       config?.clientSecret ??
       (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
+    installationKeyPrefix: config?.installationKeyPrefix,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
     userName: config?.userName,
     botUserId: config?.botUserId,

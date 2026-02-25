@@ -115,6 +115,77 @@ describe("Chat", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  describe("message deduplication", () => {
+    it("should skip duplicate messages with the same id", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message1 = createTestMessage("msg-1", "Hey @slack-bot help");
+      const message2 = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message1
+      );
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message2
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should use default dedupe TTL of 5 minutes", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.set).toHaveBeenCalledWith(
+        "dedupe:slack:msg-1",
+        true,
+        300_000
+      );
+    });
+
+    it("should use custom dedupeTtlMs when configured", async () => {
+      const customChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        dedupeTtlMs: 300_000,
+      });
+
+      await customChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      customChat.onNewMention(handler);
+
+      const message = createTestMessage("msg-2", "Hey @slack-bot help");
+      await customChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.set).toHaveBeenCalledWith(
+        "dedupe:slack:msg-2",
+        true,
+        300_000
+      );
+    });
+  });
+
   it("should match message patterns", async () => {
     const helpHandler = vi.fn().mockResolvedValue(undefined);
     chat.onNewMessage(HELP_REGEX, helpHandler);

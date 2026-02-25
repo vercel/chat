@@ -7,7 +7,7 @@ type: reference
 Card components render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Embeds on Discord, and Google Chat Cards.
 
 ```typescript
-import { Card, Text, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton } from "chat";
+import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton } from "chat";
 ```
 
 All components support both function-call and JSX syntax. Function-call syntax is recommended for better type inference.
@@ -93,6 +93,27 @@ Button({ id: "delete", label: "Delete", style: "danger", value: "item-123" })
     },
     value: {
       description: 'Optional payload sent with the action callback.',
+      type: 'string',
+    },
+  }}
+/>
+
+## CardLink
+
+Inline hyperlink rendered as text. Can be placed directly in a card alongside other content, unlike `LinkButton` which must live inside `Actions`.
+
+```typescript
+CardLink({ url: "https://example.com", label: "Visit Site" })
+```
+
+<TypeTable
+  type={{
+    url: {
+      description: 'URL to link to.',
+      type: 'string',
+    },
+    label: {
+      description: 'Link label text.',
       type: 'string',
     },
   }}
@@ -210,6 +231,7 @@ The `children` array in `Card` and `Section` accepts these element types:
 | Type | Created by |
 |------|-----------|
 | `TextElement` | `Text()` |
+| `LinkElement` | `CardLink()` |
 | `ImageElement` | `Image()` |
 | `DividerElement` | `Divider()` |
 | `ActionsElement` | `Actions()` |

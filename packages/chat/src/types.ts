@@ -36,6 +36,12 @@ export interface ChatConfig<
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
   /**
+   * TTL for message deduplication entries in milliseconds.
+   * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
+   * cause platform retries that arrive after the default TTL expires.
+   */
+  dedupeTtlMs?: number;
+  /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
@@ -285,7 +291,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   renderFormatted(content: FormattedContent): string;
 
   /** Show typing indicator */
-  startTyping(threadId: string): Promise<void>;
+  startTyping(threadId: string, status?: string): Promise<void>;
 
   /**
    * Stream a message using platform-native streaming APIs.
@@ -543,7 +549,7 @@ export interface Postable<
   ): Promise<void>;
 
   /** Show typing indicator */
-  startTyping(): Promise<void>;
+  startTyping(status?: string): Promise<void>;
 
   /**
    * Get the current state.
@@ -763,8 +769,9 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Show typing indicator in the thread.
    *
    * Some platforms support persistent typing indicators, others just send once.
+   * Optional status (e.g. "Typing...", "Searching documents...") is shown where supported.
    */
-  startTyping(): Promise<void>;
+  startTyping(status?: string): Promise<void>;
 
   /**
    * Subscribe to future messages in this thread.

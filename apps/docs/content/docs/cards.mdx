@@ -109,6 +109,24 @@ The `id` maps to your `onAction` handler. Optional `value` passes extra data:
 <Button id="report" value="bug">Report Bug</Button>
 ```
 
+### CardLink
+
+Inline hyperlink rendered as text. Unlike `LinkButton` (which must be inside `Actions`), `CardLink` can be placed directly in a card alongside other content.
+
+```tsx title="lib/bot.tsx"
+<CardLink url="https://example.com/order/1234" label="View order details" />
+```
+
+Or with children as the label:
+
+```tsx title="lib/bot.tsx"
+<CardLink url="https://example.com/docs">Read the docs</CardLink>
+```
+
+<Callout type="info">
+`CardLink` renders as a platform-native link: `<url|label>` on Slack, `[label](url)` on Teams/Discord/GitHub/Linear, and `<a href>` on Google Chat.
+</Callout>
+
 ### LinkButton
 
 Opens an external URL. No `onAction` handler needed.
@@ -181,7 +199,7 @@ A visual separator between sections.
 
 ```tsx title="lib/bot.tsx" lineNumbers
 import {
-  Card, CardText, Button, LinkButton, Actions,
+  Card, CardText, CardLink, Button, LinkButton, Actions,
   Section, Fields, Field, Divider, Image,
   Select, SelectOption, RadioSelect,
 } from "chat";
@@ -194,6 +212,7 @@ await thread.post(
       <Field label="Role" value="Engineer" />
       <Field label="Team" value="Platform" />
     </Fields>
+    <CardLink url="https://example.com/profile/123">View full profile</CardLink>
     <Divider />
     <Section>
       <CardText>Select an action below to manage this profile.</CardText>

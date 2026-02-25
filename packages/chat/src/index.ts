@@ -18,6 +18,7 @@ import {
   Actions as _Actions,
   Button as _Button,
   Card as _Card,
+  CardLink as _CardLink,
   CardText as _CardText,
   Divider as _Divider,
   Field as _Field,
@@ -36,6 +37,7 @@ import {
 export const Actions = _Actions;
 export const Button = _Button;
 export const Card = _Card;
+export const CardLink = _CardLink;
 export const CardText = _CardText;
 export const Divider = _Divider;
 export const Field = _Field;
@@ -82,6 +84,7 @@ export type {
   ImageElement,
   LinkButtonElement,
   LinkButtonOptions,
+  LinkElement,
   SectionElement,
   TextElement,
   TextStyle,
@@ -102,6 +105,7 @@ export type {
   ButtonProps,
   CardJSXElement,
   CardJSXProps,
+  CardLinkProps,
   CardProps,
   ContainerProps,
   DividerProps,

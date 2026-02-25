@@ -19,6 +19,7 @@ import type {
   FieldsElement,
   ImageElement,
   LinkButtonElement,
+  LinkElement,
   RadioSelectElement,
   SectionElement,
   SelectElement,
@@ -146,6 +147,8 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
       return convertSectionToBlocks(child);
     case "fields":
       return [convertFieldsToBlock(child)];
+    case "link":
+      return [convertLinkToBlock(child)];
     default:
       return [];
   }
@@ -177,6 +180,16 @@ export function convertTextToBlock(element: TextElement): SlackBlock {
     text: {
       type: "mrkdwn",
       text: formattedText,
+    },
+  };
+}
+
+function convertLinkToBlock(element: LinkElement): SlackBlock {
+  return {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `<${element.url}|${convertEmoji(element.label)}>`,
     },
   };
 }

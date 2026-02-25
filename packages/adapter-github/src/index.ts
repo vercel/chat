@@ -858,7 +858,7 @@ export class GitHubAdapter
   /**
    * Show typing indicator (no-op for GitHub).
    */
-  async startTyping(_threadId: string): Promise<void> {
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
     // GitHub doesn't support typing indicators
   }
 

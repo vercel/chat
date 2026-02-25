@@ -3,6 +3,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   Divider,
   Field,
   Fields,
@@ -136,6 +137,18 @@ describe("Card Builder Functions", () => {
     });
   });
 
+  describe("CardLink", () => {
+    it("creates a link element", () => {
+      const link = CardLink({
+        url: "https://example.com",
+        label: "Visit Site",
+      });
+      expect(link.type).toBe("link");
+      expect(link.url).toBe("https://example.com");
+      expect(link.label).toBe("Visit Site");
+    });
+  });
+
   describe("Actions", () => {
     it("creates an actions container", () => {
       const actions = Actions([
@@ -220,6 +233,10 @@ describe("Card Composition", () => {
       imageUrl: "https://example.com/order.png",
       children: [
         Text("Thank you for your order!"),
+        CardLink({
+          url: "https://example.com/order/1234",
+          label: "View order details",
+        }),
         Divider(),
         Fields([
           Field({ label: "Order ID", value: "#1234" }),
@@ -244,23 +261,24 @@ describe("Card Composition", () => {
 
     expect(card.type).toBe("card");
     expect(card.title).toBe("Order #1234");
-    expect(card.children).toHaveLength(6);
+    expect(card.children).toHaveLength(7);
 
     // Verify structure
     expect(card.children[0].type).toBe("text");
-    expect(card.children[1].type).toBe("divider");
-    expect(card.children[2].type).toBe("fields");
-    expect(card.children[3].type).toBe("section");
-    expect(card.children[4].type).toBe("divider");
-    expect(card.children[5].type).toBe("actions");
+    expect(card.children[1].type).toBe("link");
+    expect(card.children[2].type).toBe("divider");
+    expect(card.children[3].type).toBe("fields");
+    expect(card.children[4].type).toBe("section");
+    expect(card.children[5].type).toBe("divider");
+    expect(card.children[6].type).toBe("actions");
 
     // Verify nested content
-    const fields = card.children[2];
+    const fields = card.children[3];
     if (fields.type === "fields") {
       expect(fields.children).toHaveLength(2);
     }
 
-    const actions = card.children[5];
+    const actions = card.children[6];
     if (actions.type === "actions") {
       expect(actions.children).toHaveLength(2);
       const firstBtn = actions.children[0];

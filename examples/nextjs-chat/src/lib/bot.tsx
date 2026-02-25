@@ -6,6 +6,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   Chat,
   Divider,
   emoji,
@@ -76,6 +77,7 @@ bot.onNewMention(async (thread, message) => {
     );
 
     // Also respond to the initial message with AI
+    await thread.startTyping("Thinking...");
     const result = await agent.stream({ prompt: message.text });
     await thread.post(result.textStream);
     return;
@@ -92,6 +94,9 @@ bot.onNewMention(async (thread, message) => {
       <Text>
         {`${emoji.sparkles} **Mention me with "AI"** to enable AI assistant mode`}
       </Text>
+      <CardLink url="https://chat-sdk.dev/docs/cards">
+        View documentation
+      </CardLink>
       <Divider />
       <Fields>
         <Field label="DM Support" value={thread.isDM ? "Yes" : "No"} />
@@ -601,6 +606,8 @@ bot.onSubscribedMessage(async (thread, message) => {
         role: msg.author.isMe ? ("assistant" as const) : ("user" as const),
         content: msg.text,
       }));
+    console.log("history", history);
+    await thread.startTyping("Thinking...");
     const result = await agent.stream({ prompt: history });
     await thread.post(result.textStream);
     return;

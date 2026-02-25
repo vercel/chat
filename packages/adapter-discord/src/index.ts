@@ -923,7 +923,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Start typing indicator in a Discord channel or thread.
    */
-  async startTyping(threadId: string): Promise<void> {
+  async startTyping(threadId: string, _status?: string): Promise<void> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
     // Use thread channel ID if in a thread, otherwise use channel ID
