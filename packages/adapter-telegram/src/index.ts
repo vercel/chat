@@ -597,7 +597,8 @@ export function createTelegramAdapter(
 ): TelegramAdapter {
   const botToken = config?.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
-    throw new Error(
+    throw new ValidationError(
+      "telegram",
       "Telegram bot token is required. Set TELEGRAM_BOT_TOKEN env var or pass botToken in config."
     );
   }
