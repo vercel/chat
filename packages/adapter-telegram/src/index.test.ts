@@ -89,9 +89,7 @@ describe("TelegramAdapter", () => {
       const originalEnv = process.env.TELEGRAM_BOT_TOKEN;
       process.env.TELEGRAM_BOT_TOKEN = "";
 
-      expect(() => createTelegramAdapter({})).toThrow(
-        "Telegram bot token is required"
-      );
+      expect(() => createTelegramAdapter({})).toThrow(ValidationError);
 
       if (originalEnv) {
         process.env.TELEGRAM_BOT_TOKEN = originalEnv;
