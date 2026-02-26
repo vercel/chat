@@ -493,6 +493,9 @@ importers:
       '@chat-adapter/teams':
         specifier: workspace:*
         version: link:../adapter-teams
+      '@chat-adapter/telegram':
+        specifier: workspace:*
+        version: link:../adapter-telegram
       chat:
         specifier: workspace:*
         version: link:../chat
