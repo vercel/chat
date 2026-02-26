@@ -4,18 +4,18 @@
   "mention": {
     "message": {
       "chat": {
-        "first_name": "Tobias",
+        "first_name": "Test User",
         "id": 7527593,
         "type": "private",
-        "username": "tobiaslins"
+        "username": "telegram_test_user"
       },
       "date": 1767224888,
       "entities": [{ "length": 17, "offset": 0, "type": "mention" }],
       "from": {
-        "first_name": "Tobias",
+        "first_name": "Test User",
         "id": 7527593,
         "is_bot": false,
-        "username": "tobiaslins"
+        "username": "telegram_test_user"
       },
       "message_id": 133,
       "text": "@vercelchatsdkbot hi"
@@ -25,17 +25,17 @@
   "followUp": {
     "message": {
       "chat": {
-        "first_name": "Tobias",
+        "first_name": "Test User",
         "id": 7527593,
         "type": "private",
-        "username": "tobiaslins"
+        "username": "telegram_test_user"
       },
       "date": 1767224901,
       "from": {
-        "first_name": "Tobias",
+        "first_name": "Test User",
         "id": 7527593,
         "is_bot": false,
-        "username": "tobiaslins"
+        "username": "telegram_test_user"
       },
       "message_id": 134,
       "text": "how are you"
