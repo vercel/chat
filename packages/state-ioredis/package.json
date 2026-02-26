@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "chat": "workspace:*",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.9.3"
   },
   "repository": {
     "type": "git",
