@@ -171,6 +171,7 @@ export {
 } from "./markdown";
 // MCP types
 export type {
+  McpCallToolOptions,
   McpContentBlock,
   McpHeaders,
   McpManager,

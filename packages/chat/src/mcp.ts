@@ -5,6 +5,7 @@
 import { ChatError } from "./errors";
 import type { Logger } from "./logger";
 import type {
+  McpCallToolOptions,
   McpContentBlock,
   McpHeaders,
   McpManager,
@@ -19,6 +20,7 @@ interface ConnectedServer {
   name: string;
   tools: McpTool[];
   transport: McpTransport;
+  transportConfig: McpTransportConfig;
 }
 
 // Minimal interfaces for the MCP SDK types we use, to avoid importing at module level.
@@ -156,6 +158,7 @@ async function createTransport(
 export class McpClientManager implements McpManager {
   private readonly configs: McpServerConfig[];
   private readonly logger: Logger;
+  private sdk: McpSdk | null = null;
   private servers: ConnectedServer[] = [];
 
   constructor(configs: McpServerConfig[], logger: Logger) {
@@ -165,6 +168,7 @@ export class McpClientManager implements McpManager {
 
   async initialize(): Promise<void> {
     const sdk = await loadMcpSdk();
+    this.sdk = sdk;
 
     const results = await Promise.allSettled(
       this.configs.map(async (config) => {
@@ -188,6 +192,7 @@ export class McpClientManager implements McpManager {
           name: config.name,
           client,
           transport,
+          transportConfig: config.transport,
           tools: mappedTools,
         } as ConnectedServer;
       })
@@ -218,7 +223,8 @@ export class McpClientManager implements McpManager {
 
   async callTool(
     name: string,
-    args?: Record<string, unknown>
+    args?: Record<string, unknown>,
+    options?: McpCallToolOptions
   ): Promise<McpToolResult> {
     const server = this.servers.find((s) =>
       s.tools.some((t) => t.name === name)
@@ -230,11 +236,40 @@ export class McpClientManager implements McpManager {
       );
     }
 
+    if (options?.headers) {
+      return this.callToolWithHeaders(server, name, args, options.headers);
+    }
+
     const result = await server.client.callTool({ name, arguments: args });
     return {
       content: result.content as McpContentBlock[],
       isError: result.isError,
     };
+  }
+
+  private async callToolWithHeaders(
+    server: ConnectedServer,
+    name: string,
+    args: Record<string, unknown> | undefined,
+    headers: Record<string, string>
+  ): Promise<McpToolResult> {
+    const sdk = this.sdk ?? (await loadMcpSdk());
+    const transportConfig: McpTransportConfig = {
+      ...server.transportConfig,
+      headers,
+    };
+    const transport = await createTransport(transportConfig, sdk);
+    const client = new sdk.Client({ name: "chat-sdk", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      const result = await client.callTool({ name, arguments: args });
+      return {
+        content: result.content as McpContentBlock[],
+        isError: result.isError,
+      };
+    } finally {
+      await client.close().catch(() => {});
+    }
   }
 
   async refresh(): Promise<void> {
@@ -284,7 +319,11 @@ export class NoopMcpManager implements McpManager {
     return [];
   }
 
-  async callTool(name: string): Promise<McpToolResult> {
+  async callTool(
+    name: string,
+    _args?: Record<string, unknown>,
+    _options?: McpCallToolOptions
+  ): Promise<McpToolResult> {
     throw new ChatError(
       `MCP is not configured. Cannot call tool "${name}"`,
       "MCP_NOT_CONFIGURED"

@@ -45,6 +45,11 @@ const bot = new Chat(config);
       type: 'number',
       default: '500',
     },
+    mcpServers: {
+      description: 'MCP server configurations for tool discovery and invocation. Requires @modelcontextprotocol/sdk.',
+      type: 'McpServerConfig[]',
+      default: 'undefined',
+    },
   }}
 />
 
@@ -408,6 +413,45 @@ bot.onAppHomeOpened(async (event) => {
     'event.adapter': {
       description: 'The platform adapter.',
       type: 'Adapter',
+    },
+  }}
+/>
+
+## mcp
+
+The `McpManager` instance for interacting with connected MCP servers. Returns a `NoopMcpManager` if no `mcpServers` were configured.
+
+```typescript
+// List all available tools
+const tools = await bot.mcp.listTools();
+
+// Call a tool
+const result = await bot.mcp.callTool("search_issues", { query: "error" });
+
+// Call a tool with per-call auth headers
+const result = await bot.mcp.callTool(
+  "search_issues",
+  { query: "error" },
+  { headers: { Authorization: `Bearer ${userToken}` } }
+);
+
+// Refresh tool lists from all servers
+await bot.mcp.refresh();
+```
+
+<TypeTable
+  type={{
+    'listTools()': {
+      description: 'Returns all tools from connected MCP servers.',
+      type: 'Promise<McpTool[]>',
+    },
+    'callTool(name, args?, options?)': {
+      description: 'Invoke a tool by name. Pass options.headers to override auth for this call.',
+      type: 'Promise<McpToolResult>',
+    },
+    'refresh()': {
+      description: 'Re-fetch tool lists from all connected servers.',
+      type: 'Promise<void>',
     },
   }}
 />

@@ -59,13 +59,23 @@ export interface McpToolResult {
 }
 
 /**
+ * Options for a single `callTool` invocation.
+ * Pass `headers` to override the server's default auth for this call
+ * (e.g. per-user or per-tenant tokens).
+ */
+export interface McpCallToolOptions {
+  headers?: Record<string, string>;
+}
+
+/**
  * Manager interface for interacting with MCP servers.
  */
 export interface McpManager {
-  /** Call a tool by name with optional arguments. */
+  /** Call a tool by name with optional arguments and per-call options. */
   callTool(
     name: string,
-    args?: Record<string, unknown>
+    args?: Record<string, unknown>,
+    options?: McpCallToolOptions
   ): Promise<McpToolResult>;
   /** List all tools available across connected MCP servers. */
   listTools(): Promise<McpTool[]>;

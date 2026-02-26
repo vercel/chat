@@ -209,6 +209,79 @@ describe("McpClientManager", () => {
     expect(MockHTTPTransport).toHaveBeenCalled();
   });
 
+  it("should use cached client when callTool is called without headers", async () => {
+    const manager = new McpClientManager(serverConfigs, mockLogger);
+    await manager.initialize();
+
+    await manager.callTool("search_issues", { query: "slow" });
+
+    // Should use the client created during initialize, not create a new one
+    // MockClient is called once during initialize
+    expect(MockClient).toHaveBeenCalledTimes(1);
+    expect(mockCallTool).toHaveBeenCalledWith({
+      name: "search_issues",
+      arguments: { query: "slow" },
+    });
+  });
+
+  it("should create a temporary client with per-call headers", async () => {
+    const manager = new McpClientManager(serverConfigs, mockLogger);
+    await manager.initialize();
+
+    // Reset mocks after initialize
+    MockClient.mockClear();
+    MockHTTPTransport.mockClear();
+    mockConnect.mockClear();
+    mockCallTool.mockClear();
+    mockClientClose.mockClear();
+
+    await manager.callTool(
+      "search_issues",
+      { query: "test" },
+      {
+        headers: { Authorization: "Bearer user-token-123" },
+      }
+    );
+
+    // Should create a new transport with the override headers
+    expect(MockHTTPTransport).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        requestInit: { headers: { Authorization: "Bearer user-token-123" } },
+      })
+    );
+
+    // Should create a new client, connect, call, and close
+    expect(MockClient).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    expect(mockCallTool).toHaveBeenCalledWith({
+      name: "search_issues",
+      arguments: { query: "test" },
+    });
+    expect(mockClientClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should close temporary client even if callTool throws", async () => {
+    const manager = new McpClientManager(serverConfigs, mockLogger);
+    await manager.initialize();
+
+    mockClientClose.mockClear();
+    mockCallTool.mockRejectedValueOnce(new Error("tool error"));
+
+    await expect(
+      manager.callTool(
+        "search_issues",
+        {},
+        {
+          headers: { Authorization: "Bearer fail-token" },
+        }
+      )
+    ).rejects.toThrow("tool error");
+
+    // Temporary client should still be closed
+    expect(mockClientClose).toHaveBeenCalled();
+  });
+
   it("should pass static headers to transport", async () => {
     const configWithHeaders: McpServerConfig[] = [
       {
