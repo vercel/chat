@@ -12,16 +12,40 @@ import type {
 } from "chat";
 import { type Message, NotImplementedError } from "chat";
 
-export interface IMessageAdapterConfig {
+export type { AdvancedIMessageKit } from "@photon-ai/advanced-imessage-kit";
+export type { IMessageSDK } from "@photon-ai/imessage-kit";
+
+export interface iMessageAdapterLocalConfig {
+  apiKey?: string;
+  local: true;
+  serverUrl?: string;
   userName?: string;
 }
 
-export class IMessageAdapter implements Adapter {
+export interface iMessageAdapterRemoteConfig {
+  apiKey: string;
+  local: false;
+  serverUrl: string;
+  userName?: string;
+}
+
+export type iMessageAdapterConfig =
+  | iMessageAdapterLocalConfig
+  | iMessageAdapterRemoteConfig;
+
+export class iMessageAdapter implements Adapter {
   readonly name = "imessage";
   readonly userName: string;
+  readonly local: boolean;
+  readonly serverUrl?: string;
+  readonly apiKey?: string;
 
-  constructor(config: IMessageAdapterConfig = {}) {
+  constructor(config: iMessageAdapterConfig) {
     this.userName = config.userName ?? "iMessage Bot";
+    this.local = config.local;
+
+    this.serverUrl = config.serverUrl;
+    this.apiKey = config.apiKey;
   }
 
   async initialize(_chat: ChatInstance): Promise<void> {
@@ -142,4 +166,40 @@ export class IMessageAdapter implements Adapter {
       "decodeThreadId"
     );
   }
+}
+
+export function createiMessageAdapter(
+  config?: Partial<iMessageAdapterConfig>
+): iMessageAdapter {
+  const local = config?.local ?? process.env.IMESSAGE_LOCAL !== "false";
+
+  if (local) {
+    return new iMessageAdapter({
+      local: true,
+      serverUrl: config?.serverUrl ?? process.env.IMESSAGE_SERVER_URL,
+      apiKey: config?.apiKey ?? process.env.IMESSAGE_API_KEY,
+      userName: config?.userName,
+    });
+  }
+
+  const serverUrl = config?.serverUrl ?? process.env.IMESSAGE_SERVER_URL;
+  if (!serverUrl) {
+    throw new Error(
+      "serverUrl is required when local is false. Set IMESSAGE_SERVER_URL or provide it in config."
+    );
+  }
+
+  const apiKey = config?.apiKey ?? process.env.IMESSAGE_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "apiKey is required when local is false. Set IMESSAGE_API_KEY or provide it in config."
+    );
+  }
+
+  return new iMessageAdapter({
+    local: false,
+    serverUrl,
+    apiKey,
+    userName: config?.userName,
+  });
 }

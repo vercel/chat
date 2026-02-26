@@ -24,6 +24,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@photon-ai/advanced-imessage-kit": "^1.14.3",
+    "@photon-ai/imessage-kit": "^2.1.2",
     "chat": "workspace:*"
   },
   "devDependencies": {
