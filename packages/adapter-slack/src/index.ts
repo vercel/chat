@@ -1835,56 +1835,51 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     channel: string,
     threadTs?: string
   ): Promise<string[]> {
-    const fileIds: string[] = [];
-
-    for (const file of files) {
-      try {
-        // Convert data to Buffer using shared utility
-        const fileBuffer = await toBuffer(file.data, { platform: "slack" });
-        if (!fileBuffer) {
-          continue;
-        }
-
-        this.logger.debug("Slack API: files.uploadV2", {
-          filename: file.filename,
-          size: fileBuffer.length,
-          mimeType: file.mimeType,
-        });
-
-        // biome-ignore lint/suspicious/noExplicitAny: Slack API types don't match actual usage
-        const uploadArgs: any = {
-          channel_id: channel,
-          filename: file.filename,
-          file: fileBuffer,
-        };
-        if (threadTs) {
-          uploadArgs.thread_ts = threadTs;
-        }
-
-        uploadArgs.token = this.getToken();
-        const result = (await this.client.files.uploadV2(uploadArgs)) as {
-          ok: boolean;
-          files?: Array<{ id?: string }>;
-        };
-
-        this.logger.debug("Slack API: files.uploadV2 response", {
-          ok: result.ok,
-        });
-
-        // Extract file IDs from the response
-        if (result.files && Array.isArray(result.files)) {
-          for (const uploadedFile of result.files) {
-            if (uploadedFile.id) {
-              fileIds.push(uploadedFile.id);
-            }
+    const bufferResults = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const fileBuffer = await toBuffer(file.data, { platform: "slack" });
+          if (!fileBuffer) {
+            return null;
           }
+          return { file: fileBuffer, filename: file.filename };
+        } catch (error) {
+          this.logger.error("Failed to convert file to buffer", {
+            filename: file.filename,
+            error,
+          });
+          return null;
         }
-      } catch (error) {
-        this.logger.error("Failed to upload file", {
-          filename: file.filename,
-          error,
-        });
-        throw error;
+      })
+    );
+    const fileUploads = bufferResults.filter(
+      (result): result is NonNullable<typeof result> => result !== null
+    );
+    if (fileUploads.length === 0) {
+      return [];
+    }
+    this.logger.debug("Slack API: files.uploadV2 (batch)", {
+      fileCount: fileUploads.length,
+      filenames: fileUploads.map((f) => f.filename),
+    });
+
+    // biome-ignore lint/suspicious/noExplicitAny: Slack API types don't match actual usage
+    const uploadArgs: any = { channel_id: channel, file_uploads: fileUploads };
+    if (threadTs) {
+      uploadArgs.thread_ts = threadTs;
+    }
+    uploadArgs.token = this.getToken();
+    const result = (await this.client.files.uploadV2(uploadArgs)) as {
+      ok: boolean;
+      files?: Array<{ files?: Array<{ id?: string }> }>;
+    };
+    this.logger.debug("Slack API: files.uploadV2 response", { ok: result.ok });
+    const fileIds: string[] = [];
+    if (result.files?.[0]?.files) {
+      for (const uploadedFile of result.files[0].files) {
+        if (uploadedFile.id) {
+          fileIds.push(uploadedFile.id);
+        }
       }
     }
 

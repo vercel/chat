@@ -716,7 +716,7 @@ describe("Slack Integration", () => {
       expect(mockClient.files.uploadV2).toHaveBeenCalledWith(
         expect.objectContaining({
           channel_id: TEST_CHANNEL,
-          filename: "test.txt",
+          file_uploads: [expect.objectContaining({ filename: "test.txt" })],
         })
       );
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
@@ -751,7 +751,16 @@ describe("Slack Integration", () => {
       });
       await tracker.waitForAll();
 
-      expect(mockClient.files.uploadV2).toHaveBeenCalledTimes(2);
+      expect(mockClient.files.uploadV2).toHaveBeenCalledTimes(1);
+      expect(mockClient.files.uploadV2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel_id: TEST_CHANNEL,
+          file_uploads: [
+            expect.objectContaining({ filename: "file1.txt" }),
+            expect.objectContaining({ filename: "file2.txt" }),
+          ],
+        })
+      );
     });
 
     it("should handle files-only messages (no text)", async () => {
