@@ -5,6 +5,8 @@ import {
   setChatSingleton,
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
+import { McpClientManager, NoopMcpManager } from "./mcp";
+import type { McpManager } from "./mcp-types";
 import { Message, type SerializedMessage } from "./message";
 import type { ModalElement } from "./modals";
 import { type SerializedThread, ThreadImpl } from "./thread";
@@ -182,6 +184,7 @@ export class Chat<
   private readonly _streamingUpdateIntervalMs: number;
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
+  private readonly mcpManager: McpManager;
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
@@ -208,6 +211,11 @@ export class Chat<
    * chat.webhooks.slack(request, { backgroundTask: waitUntil });
    */
   readonly webhooks: Webhooks<TAdapters>;
+
+  /** MCP manager for tool discovery and invocation. */
+  get mcp(): McpManager {
+    return this.mcpManager;
+  }
 
   constructor(config: ChatConfig<TAdapters>) {
     this.userName = config.userName;
@@ -236,6 +244,11 @@ export class Chat<
         this.handleWebhook(name, request, options);
     }
     this.webhooks = webhooks as Webhooks<TAdapters>;
+
+    // Initialize MCP manager
+    this.mcpManager = config.mcpServers?.length
+      ? new McpClientManager(config.mcpServers, this.logger)
+      : new NoopMcpManager();
 
     this.logger.debug("Chat instance created", {
       adapters: Object.keys(config.adapters),
@@ -294,6 +307,11 @@ export class Chat<
     );
     await Promise.all(initPromises);
 
+    // Initialize MCP servers (if configured)
+    if (this.mcpManager instanceof McpClientManager) {
+      await this.mcpManager.initialize();
+    }
+
     this.initialized = true;
     this.logger.info("Chat instance initialized", {
       adapters: Array.from(this.adapters.keys()),
@@ -305,6 +323,9 @@ export class Chat<
    */
   async shutdown(): Promise<void> {
     this.logger.info("Shutting down chat instance...");
+    if (this.mcpManager instanceof McpClientManager) {
+      await this.mcpManager.close();
+    }
     await this._stateAdapter.disconnect();
     this.initialized = false;
     this.initPromise = null;
