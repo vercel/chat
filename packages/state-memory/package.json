@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-memory",
-  "version": "4.14.0",
+  "version": "4.15.0",
   "description": "In-memory state adapter for chat (development/testing)",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,5 +1,19 @@
 # @chat-adapter/teams
 
+## 4.15.0
+
+### Minor Changes
+
+- 5b3090a: Add CardLink element
+
+### Patch Changes
+
+- 39888ce: Fix teams bundlijng under strict esm
+- Updated dependencies [0f85031]
+- Updated dependencies [5b3090a]
+  - chat@4.15.0
+  - @chat-adapter/shared@4.15.0
+
 ## 4.14.0
 
 ### Minor Changes

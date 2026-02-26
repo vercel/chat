@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/telegram",
-  "version": "4.13.4",
+  "version": "4.15.0",
   "description": "Telegram adapter for chat",
   "type": "module",
   "main": "./dist/index.js",

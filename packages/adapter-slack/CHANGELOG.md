@@ -1,5 +1,19 @@
 # @chat-adapter/slack
 
+## 4.15.0
+
+### Minor Changes
+
+- 5b3090a: Add CardLink element
+
+### Patch Changes
+
+- f0cfcfa: Can now attach multiple files to the same Slack message, as opposed to breaking by file.
+- Updated dependencies [0f85031]
+- Updated dependencies [5b3090a]
+  - chat@4.15.0
+  - @chat-adapter/shared@4.15.0
+
 ## 4.14.0
 
 ### Minor Changes

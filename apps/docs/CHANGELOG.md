@@ -1,5 +1,11 @@
 # docs
 
+## 0.3.0
+
+### Minor Changes
+
+- 5b3090a: Add CardLink element
+
 ## 0.2.0
 
 ### Minor Changes
