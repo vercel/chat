@@ -43,6 +43,8 @@ export class iMessageAdapter implements Adapter {
   readonly apiKey?: string;
   readonly sdk: IMessageSDK | AdvancedIMessageKit;
 
+  private chat: ChatInstance | null = null;
+
   constructor(config: iMessageAdapterConfig) {
     this.local = config.local;
     this.serverUrl = config.serverUrl;
@@ -59,6 +61,7 @@ export class iMessageAdapter implements Adapter {
   }
 
   async initialize(_chat: ChatInstance): Promise<void> {
+    this.chat = _chat
     throw new NotImplementedError(
       "initialize is not implemented",
       "initialize"
