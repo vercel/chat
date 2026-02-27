@@ -4,7 +4,7 @@
 
 import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
-import type { Logger } from "chat";
+import type { ChatInstance, Logger, StateAdapter } from "chat";
 import { InteractionType } from "discord-api-types/v10";
 import { describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
@@ -65,6 +65,47 @@ function createWebhookRequest(
     },
     body,
   });
+}
+
+function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
+  const cache = new Map<string, unknown>();
+  return {
+    cache,
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+    isSubscribed: vi.fn().mockResolvedValue(false),
+    acquireLock: vi.fn().mockResolvedValue(null),
+    releaseLock: vi.fn().mockResolvedValue(undefined),
+    extendLock: vi.fn().mockResolvedValue(true),
+    get: vi.fn().mockImplementation((key: string) => {
+      return Promise.resolve(cache.get(key) ?? null);
+    }),
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
+      cache.set(key, value);
+      return Promise.resolve();
+    }),
+    delete: vi.fn().mockImplementation((key: string) => {
+      cache.delete(key);
+      return Promise.resolve();
+    }),
+  };
+}
+
+function createMockChatInstance(state: StateAdapter): ChatInstance {
+  return {
+    processMessage: vi.fn(),
+    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
+    processReaction: vi.fn(),
+    processAction: vi.fn(),
+    processModalSubmit: vi.fn().mockResolvedValue(undefined),
+    processModalClose: vi.fn(),
+    processSlashCommand: vi.fn(),
+    getState: () => state,
+    getUserName: () => "test-bot",
+    getLogger: () => mockLogger,
+  };
 }
 
 // ============================================================================
@@ -405,6 +446,55 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
 
     const responseBody = await response.json();
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
+  });
+
+  it("dispatches slash command to chat.processSlashCommand", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+          global_name: "Test User",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        id: "cmd123",
+        name: "ask",
+        type: 1,
+        options: [{ type: 3, name: "prompt", value: "hello world" }],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(chatInstance.processSlashCommand).toHaveBeenCalledTimes(1);
+
+    const call = (
+      chatInstance.processSlashCommand as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    const event = call[0];
+
+    expect(event.command).toBe("/ask");
+    expect(event.text).toBe("hello world");
+    expect(event.channelId).toBe("discord:guild123:channel456");
+    expect(event.user.userId).toBe("user789");
+    expect(event.user.userName).toBe("testuser");
+    expect(event.adapter).toBe(adapter);
   });
 });
 

@@ -58,6 +58,7 @@ import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
   type DiscordAdapterConfig,
+  type DiscordCommandOption,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
   type DiscordGatewayMessageData,
@@ -207,7 +208,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle APPLICATION_COMMAND (slash commands - not implemented yet)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      // For now, just ACK
+      this.handleSlashCommandInteraction(interaction, options);
       return this.respondToInteraction({
         type: InteractionResponseType.DeferredChannelMessageWithSource,
       });
@@ -363,6 +364,90 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  private handleSlashCommandInteraction(
+    interaction: DiscordInteraction,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring interaction");
+      return;
+    }
+
+    const commandName = interaction.data?.name?.trim();
+    if (!commandName) {
+      this.logger.warn("No command name in slash command interaction");
+      return;
+    }
+
+    const user = interaction.member?.user || interaction.user;
+    if (!user) {
+      this.logger.warn("No user in slash command interaction");
+      return;
+    }
+
+    const interactionChannelId = interaction.channel_id;
+    if (!interactionChannelId) {
+      this.logger.warn("Missing channel_id in slash command interaction");
+      return;
+    }
+
+    const guildId = interaction.guild_id || "@me";
+    const channel = interaction.channel;
+    const isThread = channel?.type === 11 || channel?.type === 12;
+    const parentChannelId =
+      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+
+    const threadId = isThread
+      ? this.encodeThreadId({
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
+      : this.encodeThreadId({
+          guildId,
+          channelId: interactionChannelId,
+        });
+
+    this.chat.processSlashCommand(
+      {
+        adapter: this,
+        channelId: threadId,
+        command: commandName.startsWith("/") ? commandName : `/${commandName}`,
+        text: this.extractCommandText(interaction.data?.options),
+        user: {
+          userId: user.id,
+          userName: user.username,
+          fullName: user.global_name || user.username,
+          isBot: user.bot ?? false,
+          isMe: false,
+        },
+        raw: interaction,
+      },
+      options
+    );
+  }
+
+  private extractCommandText(options?: DiscordCommandOption[]): string {
+    const queue: DiscordCommandOption[] = [...(options || [])];
+    const values: string[] = [];
+
+    while (queue.length > 0) {
+      const option = queue.shift();
+      if (!option) {
+        continue;
+      }
+
+      if (Array.isArray(option.options)) {
+        queue.push(...option.options);
+      }
+      if (option.value != null) {
+        values.push(`${option.value}`);
+      }
+    }
+
+    return values.join(" ").trim();
   }
 
   /**
