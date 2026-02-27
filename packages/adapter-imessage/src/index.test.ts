@@ -1,20 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const LOCAL_ID_PATTERN = /^local-\d+$/;
 const mockStartWatching = vi.fn();
 const mockStopWatching = vi.fn();
 const mockLocalClose = vi.fn();
+const mockSend = vi.fn();
 
 vi.mock("@photon-ai/imessage-kit", () => ({
   IMessageSDK: vi.fn(() => ({
     startWatching: mockStartWatching,
     stopWatching: mockStopWatching,
     close: mockLocalClose,
+    send: mockSend,
   })),
 }));
 
 const mockConnect = vi.fn();
 const mockClose = vi.fn();
 const mockOn = vi.fn();
+const mockSendMessage = vi.fn();
 
 vi.mock("@photon-ai/advanced-imessage-kit", () => ({
   AdvancedIMessageKit: {
@@ -23,6 +27,7 @@ vi.mock("@photon-ai/advanced-imessage-kit", () => ({
       connect: mockConnect,
       close: mockClose,
       on: mockOn,
+      messages: { sendMessage: mockSendMessage },
     })),
   },
 }));
@@ -480,6 +485,101 @@ describe("startGatewayListener", () => {
     controller.abort();
     const listenerPromise = waitUntil.mock.calls[0][0] as Promise<void>;
     await listenerPromise;
+  });
+});
+
+describe("postMessage", () => {
+  afterEach(() => {
+    mockSend.mockReset();
+    mockSendMessage.mockReset();
+  });
+
+  it("should send via local SDK with DM chatGuid", async () => {
+    const adapter = new iMessageAdapter({ local: true });
+    await adapter.initialize(createMockChat() as never);
+
+    mockSend.mockResolvedValue({
+      sentAt: new Date(),
+      message: { guid: "sent-msg-001" },
+    });
+
+    const result = await adapter.postMessage(
+      "imessage:iMessage;-;+1234567890",
+      "Hello!"
+    );
+
+    expect(mockSend).toHaveBeenCalledWith("+1234567890", "Hello!");
+    expect(result.id).toBe("sent-msg-001");
+    expect(result.threadId).toBe("imessage:iMessage;-;+1234567890");
+    expect(result.raw).toEqual({
+      sentAt: expect.any(Date),
+      message: { guid: "sent-msg-001" },
+    });
+  });
+
+  it("should send via local SDK with group chatGuid", async () => {
+    const adapter = new iMessageAdapter({ local: true });
+    await adapter.initialize(createMockChat() as never);
+
+    mockSend.mockResolvedValue({
+      sentAt: new Date(),
+      message: { guid: "sent-msg-002" },
+    });
+
+    const result = await adapter.postMessage(
+      "imessage:iMessage;+;chat493787071395575843",
+      "Hello group!"
+    );
+
+    expect(mockSend).toHaveBeenCalledWith(
+      "chat493787071395575843",
+      "Hello group!"
+    );
+    expect(result.id).toBe("sent-msg-002");
+  });
+
+  it("should fallback to generated ID when local SDK has no message guid", async () => {
+    const adapter = new iMessageAdapter({ local: true });
+    await adapter.initialize(createMockChat() as never);
+
+    mockSend.mockResolvedValue({ sentAt: new Date() });
+
+    const result = await adapter.postMessage(
+      "imessage:iMessage;-;+1234567890",
+      "Hi"
+    );
+
+    expect(result.id).toMatch(LOCAL_ID_PATTERN);
+  });
+
+  it("should send via remote SDK", async () => {
+    const adapter = new iMessageAdapter({
+      local: false,
+      serverUrl: "https://example.com",
+      apiKey: "test-key",
+    });
+    await adapter.initialize(createMockChat() as never);
+
+    mockSendMessage.mockResolvedValue({
+      guid: "remote-msg-001",
+      text: "Hello!",
+    });
+
+    const result = await adapter.postMessage(
+      "imessage:iMessage;-;+1234567890",
+      "Hello!"
+    );
+
+    expect(mockSendMessage).toHaveBeenCalledWith({
+      chatGuid: "iMessage;-;+1234567890",
+      message: "Hello!",
+    });
+    expect(result.id).toBe("remote-msg-001");
+    expect(result.threadId).toBe("imessage:iMessage;-;+1234567890");
+    expect(result.raw).toEqual({
+      guid: "remote-msg-001",
+      text: "Hello!",
+    });
   });
 });
 

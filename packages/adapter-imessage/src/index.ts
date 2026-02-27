@@ -143,13 +143,37 @@ export class iMessageAdapter implements Adapter {
   }
 
   async postMessage(
-    _threadId: string,
-    _message: AdapterPostableMessage
+    threadId: string,
+    message: AdapterPostableMessage
   ): Promise<RawMessage> {
-    throw new NotImplementedError(
-      "postMessage is not implemented",
-      "postMessage"
-    );
+    const { chatGuid } = this.decodeThreadId(threadId);
+    const text = typeof message === "string" ? message : String(message);
+
+    if (this.local) {
+      const sdk = this.sdk as IMessageSDK;
+      // sdk.send() expects the core identifier (phone/email/chatId), not the full GUID.
+      // chatGuid format: "iMessage;-;+1234567890" or "iMessage;+;chat123..."
+      // Extract last part after final semicolon.
+      const recipient = chatGuid.split(";").pop() ?? chatGuid;
+      const result = await sdk.send(recipient, text);
+      return {
+        id: result.message?.guid ?? `local-${Date.now()}`,
+        threadId,
+        raw: result,
+      };
+    }
+
+    // Remote: sdk.messages.sendMessage() takes the full chatGuid directly
+    const sdk = this.sdk as AdvancedIMessageKit;
+    const result = await sdk.messages.sendMessage({
+      chatGuid,
+      message: text,
+    });
+    return {
+      id: result.guid,
+      threadId,
+      raw: result,
+    };
   }
 
   async editMessage(
