@@ -27,7 +27,7 @@
     "redis": "^4.7.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "dotenv": "^17.2.3",
