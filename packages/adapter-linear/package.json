@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@linear/sdk": "^37.0.0",
+    "@linear/sdk": "^76.0.0",
     "chat": "workspace:*"
   },
   "devDependencies": {
