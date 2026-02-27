@@ -22,6 +22,6 @@
     "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
     "chat": "workspace:*",
-    "discord-api-types": "^0.37.119"
+    "discord-api-types": "^0.38.40"
   }
 }
