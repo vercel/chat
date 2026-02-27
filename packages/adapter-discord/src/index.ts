@@ -845,15 +845,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Delete a Discord message.
    */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
 
     this.logger.debug("Discord API: DELETE message", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}`,
+      `/channels/${targetChannelId}/messages/${messageId}`,
       "DELETE"
     );
 
@@ -868,17 +870,19 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
     const emojiEncoded = this.encodeEmoji(emoji);
 
     this.logger.debug("Discord API: PUT reaction", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
       emoji: emojiEncoded,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
+      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
       "PUT"
     );
 
@@ -893,17 +897,19 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
     const emojiEncoded = this.encodeEmoji(emoji);
 
     this.logger.debug("Discord API: DELETE reaction", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
       emoji: emojiEncoded,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
+      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
       "DELETE"
     );
 
