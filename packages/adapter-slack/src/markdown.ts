@@ -33,25 +33,41 @@ import {
 
 export class SlackFormatConverter extends BaseFormatConverter {
   /**
-   * Convert @mentions to Slack format in plain text.
-   * @name → <@name>
+   * Convert Slack-style links embedded in markdown/text to standard markdown
+   * links before AST parsing. LLMs frequently output `<url|text>` or
+   * HTML-encoded `&lt;url|text&gt;` even when instructed to use markdown.
+   * Only matches http(s) URLs so Slack user mentions (<@U...>) and
+   * channel mentions (<#C...>) are preserved.
    */
-  private convertMentionsToSlack(text: string): string {
-    return text.replace(/(?<!<)@(\w+)/g, "<@$1>");
+  private preprocessSlackLinks(text: string): string {
+    let result = text;
+    // HTML-encoded Slack links: &lt;url|text&gt; → [text](url)
+    result = result.replace(
+      /&lt;(https?:\/\/[^|&]+)\|([^&]+)&gt;/g,
+      "[$2]($1)"
+    );
+    // Raw Slack links: <url|text> → [text](url)
+    result = result.replace(
+      /<(https?:\/\/[^|>]+)\|([^>]+)>/g,
+      "[$2]($1)"
+    );
+    return result;
   }
 
   /**
-   * Override renderPostable to convert @mentions in plain strings.
+   * Override renderPostable to preprocess Slack-style links in all text inputs.
    */
   override renderPostable(message: AdapterPostableMessage): string {
     if (typeof message === "string") {
-      return this.convertMentionsToSlack(message);
+      return this.fromAst(parseMarkdown(this.preprocessSlackLinks(message)));
     }
     if ("raw" in message) {
-      return this.convertMentionsToSlack(message.raw);
+      return message.raw;
     }
     if ("markdown" in message) {
-      return this.fromAst(parseMarkdown(message.markdown));
+      return this.fromAst(
+        parseMarkdown(this.preprocessSlackLinks(message.markdown))
+      );
     }
     if ("ast" in message) {
       return this.fromAst(message.ast);
@@ -108,8 +124,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      // Convert @mentions to Slack format <@mention>
-      return node.value.replace(/(?<!<)@(\w+)/g, "<@$1>");
+      return node.value;
     }
 
     if (isStrongNode(node)) {

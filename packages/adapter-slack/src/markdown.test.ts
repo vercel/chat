@@ -76,33 +76,66 @@ describe("SlackMarkdownConverter", () => {
   });
 
   describe("mentions", () => {
-    it("should not double-wrap mentions already in <@user> format", () => {
-      // renderPostable with string containing existing Slack mention
+    it("should preserve mentions already in <@user> format", () => {
       expect(converter.renderPostable("Hey <@U12345>. Please select")).toBe(
         "Hey <@U12345>. Please select"
       );
     });
 
-    it("should not double-wrap mentions in markdown input", () => {
+    it("should preserve mentions in markdown input", () => {
       expect(
         converter.renderPostable({ markdown: "Hey <@U12345>. Please select" })
       ).toBe("Hey <@U12345>. Please select");
     });
 
-    it("should still convert bare @mentions to Slack format", () => {
+    it("should not auto-convert bare @mentions to Slack mentions", () => {
+      // Bare @handles (e.g. Twitter) should NOT become Slack mentions
       expect(converter.renderPostable("Hey @george. Please select")).toBe(
-        "Hey <@george>. Please select"
+        "Hey @george. Please select"
       );
     });
 
-    it("should convert bare @mentions in markdown", () => {
+    it("should not auto-convert bare @mentions in markdown", () => {
       expect(
         converter.renderPostable({ markdown: "Hey @george. Please select" })
-      ).toBe("Hey <@george>. Please select");
+      ).toBe("Hey @george. Please select");
     });
 
-    it("should not double-wrap mentions via fromMarkdown", () => {
+    it("should preserve mentions via fromMarkdown", () => {
       expect(converter.fromMarkdown("Hey <@U12345>")).toBe("Hey <@U12345>");
+    });
+  });
+
+  describe("Slack-style link preprocessing", () => {
+    it("should convert Slack-style <url|text> links in markdown input", () => {
+      expect(
+        converter.renderPostable({
+          markdown: "Check <https://example.com|this link>",
+        })
+      ).toBe("Check <https://example.com|this link>");
+    });
+
+    it("should convert HTML-encoded Slack links in markdown input", () => {
+      expect(
+        converter.renderPostable({
+          markdown:
+            "Source: &lt;https://x.com/user/status/123|@username&gt; said hi",
+        })
+      ).toBe("Source: <https://x.com/user/status/123|@username> said hi");
+    });
+
+    it("should not touch Slack user mentions when preprocessing links", () => {
+      expect(
+        converter.renderPostable({
+          markdown: "Hey <@U12345> check <https://example.com|this>",
+        })
+      ).toBe("Hey <@U12345> check <https://example.com|this>");
+    });
+
+    it("should convert Slack-style links in plain string input", () => {
+      expect(
+        converter.renderPostable("Visit <https://example.com|our site>")
+      ).toBe("Visit <https://example.com|our site>");
     });
   });
 
