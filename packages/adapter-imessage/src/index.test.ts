@@ -41,15 +41,18 @@ const {
   const mockGatewayOn = vi.fn();
   const mockPollCreate = vi.fn();
 
-  const MockAdvancedIMessageKit = vi.fn(() => ({
-    mocked: true,
-    connect: mockGatewayConnect,
-    close: mockGatewayClose,
-    on: mockGatewayOn,
-    once: vi.fn(),
-    messages: {},
-    chats: {},
-  }));
+  // biome-ignore lint/complexity/useArrowFunction: vitest 4 requires function expressions for constructor mocks
+  const MockAdvancedIMessageKit = vi.fn(function () {
+    return {
+      mocked: true,
+      connect: mockGatewayConnect,
+      close: mockGatewayClose,
+      on: mockGatewayOn,
+      once: vi.fn(),
+      messages: {},
+      chats: {},
+    };
+  });
   (MockAdvancedIMessageKit as unknown as Record<string, unknown>).getInstance =
     vi.fn(() => ({
       mocked: true,
@@ -96,12 +99,15 @@ const {
 });
 
 vi.mock("@photon-ai/imessage-kit", () => ({
-  IMessageSDK: vi.fn(() => ({
-    startWatching: mockStartWatching,
-    stopWatching: mockStopWatching,
-    close: mockLocalClose,
-    send: mockSend,
-  })),
+  // biome-ignore lint/complexity/useArrowFunction: vitest 4 requires function expressions for constructor mocks
+  IMessageSDK: vi.fn(function () {
+    return {
+      startWatching: mockStartWatching,
+      stopWatching: mockStopWatching,
+      close: mockLocalClose,
+      send: mockSend,
+    };
+  }),
 }));
 
 vi.mock("@photon-ai/advanced-imessage-kit", () => ({
