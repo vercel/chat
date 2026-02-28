@@ -55,6 +55,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+| iMessage | `@chat-adapter/imessage` | Yes | Yes | No | No | No | Yes |
 
 ## Features
 
@@ -82,6 +83,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/docs/adapters/linear) |
 | `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
 | `@chat-adapter/state-ioredis` | [ioredis state adapter](https://chat-sdk.dev/docs/state/ioredis) (alternative) |
+| `@chat-adapter/imessage` | [iMessage adapter](https://chat-sdk.dev/docs/adapters/imessage) |
 | `@chat-adapter/state-memory` | [In-memory state adapter](https://chat-sdk.dev/docs/state/memory) (development) |
 
 ## AI coding agent support
