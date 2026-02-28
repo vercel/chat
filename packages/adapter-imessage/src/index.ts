@@ -278,13 +278,14 @@ export class iMessageAdapter implements Adapter {
     const { chatGuid } = this.decodeThreadId(threadId);
     const sdk = this.sdk as AdvancedIMessageKit;
     const chat = await sdk.chats.getChat(chatGuid);
-    const isGroupChat = chat.style > 43;
+    // Chat guid ";-;" = DM, ";+;" = group (style alone is unreliable)
+    const isDM = chatGuid.includes(";-;");
 
     return {
       id: threadId,
       channelId: chatGuid,
       channelName: chat.displayName || undefined,
-      isDM: !isGroupChat,
+      isDM,
       metadata: {
         chatIdentifier: chat.chatIdentifier,
         style: chat.style,
@@ -677,9 +678,13 @@ export class iMessageAdapter implements Adapter {
     messageResponse: MessageResponse
   ): iMessageGatewayMessageData {
     const chatGuid = messageResponse.chats?.[0]?.guid ?? "";
-    const chatStyle = messageResponse.chats?.[0]?.style ?? 0;
-    // style 43 = DM (one-on-one), style 45+ = group chat
-    const isGroupChat = chatStyle > 43;
+    // Chat guid format: "{service};{type};{identifier}"
+    // type "-" = DM (one-on-one), type "+" = group chat
+    // e.g. "iMessage;-;+1234567890" or "any;-;+1234567890" = DM
+    //      "iMessage;+;chat123..." = group
+    // Style alone is unreliable — some servers report style=45 for DMs
+    // with the "any;-;" prefix.
+    const isGroupChat = !chatGuid.includes(";-;");
 
     return {
       guid: messageResponse.guid,
