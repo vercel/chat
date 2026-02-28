@@ -1,0 +1,184 @@
+---
+title: iMessage
+description: Configure the iMessage adapter with local (on-device) or remote (server-based) integration.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/imessage
+```
+
+## Usage
+
+The adapter supports two modes: **local** (running directly on a Mac with iMessage) and **remote** (connecting to a [Photon](https://photon.codes) iMessage server). The mode is auto-detected from the `IMESSAGE_LOCAL` environment variable.
+
+### Remote mode
+
+Recommended for production. Connects to [Photon](https://photon.codes)'s managed iMessage service over HTTP and Socket.IO, so your bot can run on any platform.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createiMessageAdapter } from "@chat-adapter/imessage";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    imessage: createiMessageAdapter({
+      local: false,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from iMessage!");
+});
+```
+
+### Local mode
+
+For development or self-hosted deployments using [imessage-kit](https://github.com/photon-hq/imessage-kit). Reads from the local iMessage database and sends via AppleScript. Must run on macOS with **Full Disk Access** granted.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createiMessageAdapter } from "@chat-adapter/imessage";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    imessage: createiMessageAdapter({
+      local: true,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from iMessage!");
+});
+```
+
+## Setup
+
+### Remote mode
+
+Remote mode connects to a [Photon](https://photon.codes) iMessage server, which handles the macOS-side integration on your behalf. You'll need an active Photon subscription to get your server credentials.
+
+1. [Request access](https://photon.codes) from Photon to get your server credentials
+2. Copy your **server URL** and **API key** from the Photon dashboard
+3. Set `IMESSAGE_SERVER_URL` and `IMESSAGE_API_KEY` environment variables
+4. Set `IMESSAGE_LOCAL=false`
+
+### Local mode
+
+Local mode requires the adapter to run directly on a macOS machine with iMessage. It uses `@photon-ai/imessage-kit` to read from the local `chat.db` database and send messages via AppleScript.
+
+1. Grant **Full Disk Access** to your terminal or application in **System Settings → Privacy & Security → Full Disk Access**
+2. Ensure iMessage is signed in and working on the Mac
+3. No additional environment variables are required — local mode is the default
+
+## Receiving messages
+
+The adapter supports multiple ways to receive incoming messages:
+
+### Gateway listener (recommended)
+
+Call `startGatewayListener()` to listen for new messages in real-time. In remote mode, this uses Socket.IO push events. In local mode, it polls the iMessage database.
+
+You can optionally provide a `webhookUrl` to forward events to your webhook endpoint:
+
+```typescript title="lib/bot.ts"
+const adapter = bot.getAdapter("imessage");
+await adapter.startGatewayListener({
+  handleMessage: async (message) => {
+    // Process message directly (no webhook needed)
+  },
+});
+```
+
+### Webhook
+
+The adapter handles two webhook formats:
+
+- **Forwarded gateway events**: Messages forwarded from `startGatewayListener()` with a `GATEWAY_` type prefix, authenticated via the `x-imessage-gateway-token` header
+- **iMessage Kit webhooks** (local mode only): Messages posted directly by `imessage-kit` when configured with a `webhook` URL
+
+Both formats are automatically detected and handled by `handleWebhook()`.
+
+## Configuration
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `local` | No | `true` for local mode, `false` for remote. Auto-detected from `IMESSAGE_LOCAL` (default: `true`) |
+| `serverUrl` | Remote only | URL of the remote iMessage server. Auto-detected from `IMESSAGE_SERVER_URL` |
+| `apiKey` | Remote only | API key for authentication. Auto-detected from `IMESSAGE_API_KEY` |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+## Environment variables
+
+```bash title=".env.local"
+IMESSAGE_LOCAL=false                 # Set to "false" for remote mode (default: true)
+IMESSAGE_SERVER_URL=http://...       # Required for remote mode
+IMESSAGE_API_KEY=...                 # Required for remote mode
+```
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Mentions | Yes |
+| Reactions (add/remove) | Remote only |
+| Cards | No |
+| Modals | No |
+| Streaming | No |
+| DMs | Yes |
+| Ephemeral messages | No |
+| File uploads | No |
+| Typing indicator | Remote only |
+| Message history | No |
+| Message editing | Remote only |
+
+## Tapback reactions
+
+iMessage uses tapbacks instead of emoji reactions. The adapter maps standard emoji names to iMessage tapbacks:
+
+| Emoji | Tapback |
+|-------|---------|
+| `love` / `heart` | ❤️ Love |
+| `like` / `thumbs_up` | 👍 Like |
+| `dislike` / `thumbs_down` | 👎 Dislike |
+| `laugh` | 😂 Laugh |
+| `emphasize` / `exclamation` | ‼️ Emphasize |
+| `question` | ❓ Question |
+
+## Limitations
+
+- **Local mode**: Only supports sending and receiving messages. Reactions, typing indicators, message editing, and thread fetching require remote mode.
+- **Formatting**: iMessage is plain-text only. Markdown formatting (bold, italic, etc.) is stripped when sending messages, preserving only the text content.
+- **Platform**: Local mode requires macOS. Remote mode can run on any platform — [Photon](https://photon.codes) manages the iMessage infrastructure for you.
+- **Cards and modals**: iMessage has no support for structured card layouts or interactive modals.
+
+## Troubleshooting
+
+### "serverUrl is required" error
+
+- Set `IMESSAGE_SERVER_URL` or pass `serverUrl` in config when using remote mode
+- This error occurs when `IMESSAGE_LOCAL=false` but no server URL is provided
+
+### "apiKey is required" error
+
+- Set `IMESSAGE_API_KEY` or pass `apiKey` in config when using remote mode
+
+### Local mode not receiving messages
+
+- Verify **Full Disk Access** is granted to your terminal or application
+- Check that iMessage is signed in and working
+- Messages are polled from the local database — there may be a short delay
+
+### Remote mode connection issues
+
+- Verify the server URL is correct and accessible
+- Check that the API key matches your Photon iMessage service credentials
+- Confirm your Photon subscription is active
