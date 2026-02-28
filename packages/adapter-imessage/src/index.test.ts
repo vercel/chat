@@ -212,6 +212,13 @@ describe("encodeThreadId / decodeThreadId", () => {
     const decoded = adapter.decodeThreadId(encoded);
     expect(decoded).toEqual(original);
   });
+
+  it("should throw on thread ID from another adapter", () => {
+    const adapter = new iMessageAdapter({ local: true, logger: mockLogger });
+    expect(() => adapter.decodeThreadId("slack:C123:1234567890.123")).toThrow(
+      "Invalid iMessage thread ID"
+    );
+  });
 });
 
 describe("isDM", () => {

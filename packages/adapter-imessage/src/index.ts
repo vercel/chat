@@ -374,8 +374,13 @@ export class iMessageAdapter implements Adapter {
   }
 
   decodeThreadId(threadId: string): iMessageThreadId {
-    const prefix = "imessage:";
-    return { chatGuid: threadId.slice(prefix.length) };
+    if (!threadId.startsWith("imessage:")) {
+      throw new ValidationError(
+        "imessage",
+        `Invalid iMessage thread ID: ${threadId}`
+      );
+    }
+    return { chatGuid: threadId.slice("imessage:".length) };
   }
 
   /**
