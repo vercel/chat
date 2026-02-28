@@ -77,43 +77,62 @@ Local mode requires the adapter to run directly on a macOS machine with iMessage
 
 1. Grant **Full Disk Access** to your terminal or application in **System Settings → Privacy & Security → Full Disk Access**
 2. Ensure iMessage is signed in and working on the Mac
-3. If using webhook mode, set `IMESSAGE_GATEWAY_TOKEN` (see [Webhook](#webhook) below)
+3. No additional environment variables are required — local mode is the default
 
 ## Receiving messages
 
-The adapter supports two ways to receive incoming messages:
+Call `startGatewayListener()` to listen for new messages in real-time. In remote mode, this uses Socket.IO push events. In local mode, it polls the iMessage database.
 
-### Gateway listener (recommended)
+- In serverless environments, use a cron job to maintain the connection
 
-Call `startGatewayListener()` to listen for new messages in real-time. The adapter connects directly to the message source — in remote mode via Socket.IO push events, in local mode by polling the iMessage database.
+## Gateway setup for serverless
 
-```typescript title="lib/bot.ts"
-const adapter = bot.getAdapter("imessage");
-await adapter.startGatewayListener({
-  handleMessage: async (message) => {
-    // Process each incoming message
-  },
-});
+### 1. Create Gateway route
+
+```typescript title="app/api/imessage/gateway/route.ts"
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return new Response("CRON_SECRET not configured", { status: 500 });
+  }
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const durationMs = 600 * 1000;
+
+  return bot.adapters.imessage.startGatewayListener(
+    { waitUntil: (task) => after(() => task) },
+    durationMs
+  );
+}
 ```
 
-### Webhook
+### 2. Configure Vercel Cron
 
-For setups where `imessage-kit` runs on a separate Mac, you can configure it to POST messages to your bot's webhook endpoint. The adapter's `handleWebhook()` method processes these native `imessage-kit` payloads.
-
-**Requirements:**
-
-- `token` must be configured on the adapter (via `IMESSAGE_GATEWAY_TOKEN` env var or the `token` config option)
-- The `imessage-kit` instance must send the `x-imessage-gateway-token` header with the same token value
-
-```typescript title="lib/bot.ts"
-// In your webhook route handler (e.g., Next.js API route)
-const adapter = bot.getAdapter("imessage");
-const response = await adapter.handleWebhook(request, {
-  handleMessage: async (message) => {
-    // Process each incoming message
-  },
-});
+```json title="vercel.json"
+{
+  "crons": [
+    {
+      "path": "/api/imessage/gateway",
+      "schedule": "*/9 * * * *"
+    }
+  ]
+}
 ```
+
+This runs every 9 minutes, ensuring overlap with the 10-minute listener duration.
+
+### 3. Add environment variables
+
+Add `CRON_SECRET` to your Vercel project settings.
 
 ## Configuration
 
@@ -122,7 +141,6 @@ const response = await adapter.handleWebhook(request, {
 | `local` | No | `true` for local mode, `false` for remote. Auto-detected from `IMESSAGE_LOCAL` (default: `true`) |
 | `serverUrl` | Remote only | URL of the remote iMessage server. Auto-detected from `IMESSAGE_SERVER_URL` |
 | `apiKey` | Remote only | API key for remote server authentication. Auto-detected from `IMESSAGE_API_KEY` |
-| `token` | Webhook mode | Token for authenticating incoming webhooks via the `x-imessage-gateway-token` header. Auto-detected from `IMESSAGE_GATEWAY_TOKEN` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 ## Environment variables
@@ -131,7 +149,6 @@ const response = await adapter.handleWebhook(request, {
 IMESSAGE_LOCAL=false                 # Set to "false" for remote mode (default: true)
 IMESSAGE_SERVER_URL=https://...       # Required for remote mode
 IMESSAGE_API_KEY=...                 # Required for remote mode
-IMESSAGE_GATEWAY_TOKEN=...          # Required for webhook mode
 ```
 
 ## Features

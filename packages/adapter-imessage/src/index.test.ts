@@ -294,12 +294,8 @@ describe("isDM", () => {
 });
 
 describe("handleWebhook", () => {
-  it("should return 400 for requests without gateway token header", async () => {
-    const adapter = new iMessageAdapter({
-      local: true,
-      logger: mockLogger,
-      token: "key",
-    });
+  it("should return 501 (not supported)", async () => {
+    const adapter = new iMessageAdapter({ local: true, logger: mockLogger });
     await adapter.initialize(createMockChat() as never);
 
     const request = new Request("https://example.com/webhook", {
@@ -308,150 +304,7 @@ describe("handleWebhook", () => {
     });
 
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(400);
-    const text = await response.text();
-    expect(text).toBe("Missing x-imessage-gateway-token header");
-  });
-
-  it("should return 401 when token is not configured", async () => {
-    const adapter = new iMessageAdapter({ local: true, logger: mockLogger });
-    await adapter.initialize(createMockChat() as never);
-
-    const request = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: {
-        "x-imessage-gateway-token": "some-token",
-      },
-      body: JSON.stringify({ guid: "msg-1", chatId: "iMessage;-;+1" }),
-    });
-
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    const text = await response.text();
-    expect(text).toBe("token must be configured to accept webhooks");
-  });
-
-  it("should reject invalid gateway token", async () => {
-    const adapter = new iMessageAdapter({
-      local: false,
-      logger: mockLogger,
-      serverUrl: "https://example.com",
-      apiKey: "correct-key",
-      token: "correct-token",
-    });
-    await adapter.initialize(createMockChat() as never);
-
-    const request = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-imessage-gateway-token": "wrong-key",
-      },
-      body: JSON.stringify({ guid: "msg-1", chatId: "iMessage;-;+1" }),
-    });
-
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-  });
-
-  it("should reject invalid JSON body", async () => {
-    const adapter = new iMessageAdapter({
-      local: true,
-      logger: mockLogger,
-      token: "key",
-    });
-    await adapter.initialize(createMockChat() as never);
-
-    const request = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: {
-        "x-imessage-gateway-token": "key",
-      },
-      body: "not json",
-    });
-
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(400);
-  });
-
-  it("should process native imessage-kit webhook payload", async () => {
-    const mockChat = createMockChat();
-    const adapter = new iMessageAdapter({
-      local: true,
-      logger: mockLogger,
-      token: "key",
-    });
-    await adapter.initialize(mockChat as never);
-
-    const nativePayload = {
-      guid: "native-msg-001",
-      text: "Hello from native webhook!",
-      sender: "+1987654321",
-      senderName: "Jane",
-      chatId: "iMessage;-;+1987654321",
-      isGroupChat: false,
-      isFromMe: false,
-      isReaction: false,
-      service: "iMessage",
-      date: new Date().toISOString(),
-      attachments: [
-        {
-          id: "att-1",
-          filename: "photo.jpg",
-          mimeType: "image/jpeg",
-          size: 12345,
-          path: "/tmp/photo.jpg",
-          isImage: true,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    };
-
-    const request = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-imessage-gateway-token": "key",
-      },
-      body: JSON.stringify(nativePayload),
-    });
-
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(200);
-    expect(mockChat.handleIncomingMessage).toHaveBeenCalledOnce();
-
-    const [, calledThreadId, calledMessage] =
-      mockChat.handleIncomingMessage.mock.calls[0];
-    expect(calledThreadId).toBe("imessage:iMessage;-;+1987654321");
-    expect(calledMessage.text).toBe("Hello from native webhook!");
-    expect(calledMessage.author.userId).toBe("+1987654321");
-    expect(calledMessage.author.userName).toBe("Jane");
-    expect(calledMessage.isMention).toBe(true);
-    expect(calledMessage.attachments).toHaveLength(1);
-    expect(calledMessage.attachments[0].type).toBe("image");
-    expect(calledMessage.attachments[0].name).toBe("photo.jpg");
-  });
-
-  it("should return 400 for unrecognized payload", async () => {
-    const adapter = new iMessageAdapter({
-      local: true,
-      logger: mockLogger,
-      token: "key",
-    });
-    await adapter.initialize(createMockChat() as never);
-
-    const request = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: {
-        "x-imessage-gateway-token": "key",
-      },
-      body: JSON.stringify({ something: "unknown" }),
-    });
-
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(400);
-    const text = await response.text();
-    expect(text).toBe("Unrecognized payload");
+    expect(response.status).toBe(501);
   });
 });
 
@@ -1174,17 +1027,4 @@ describe("createiMessageAdapter", () => {
     expect(adapter.apiKey).toBe("local-key");
   });
 
-  it("should read IMESSAGE_GATEWAY_TOKEN env var", () => {
-    vi.stubEnv("IMESSAGE_GATEWAY_TOKEN", "my-webhook-token");
-
-    const adapter = createiMessageAdapter({ local: true });
-    expect(adapter.token).toBe("my-webhook-token");
-  });
-
-  it("should prefer token config over IMESSAGE_GATEWAY_TOKEN env var", () => {
-    vi.stubEnv("IMESSAGE_GATEWAY_TOKEN", "env-token");
-
-    const adapter = createiMessageAdapter({ local: true, token: "config-token" });
-    expect(adapter.token).toBe("config-token");
-  });
 });

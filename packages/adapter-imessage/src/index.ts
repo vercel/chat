@@ -27,11 +27,7 @@ import {
   parseMarkdown,
 } from "chat";
 import { iMessageFormatConverter } from "./markdown";
-import type {
-  iMessageGatewayMessageData,
-  iMessageThreadId,
-  NativeWebhookPayload,
-} from "./types";
+import type { iMessageGatewayMessageData, iMessageThreadId } from "./types";
 
 export { iMessageFormatConverter } from "./markdown";
 export type {
@@ -45,8 +41,6 @@ export interface iMessageAdapterLocalConfig {
   local: true;
   logger: Logger;
   serverUrl?: string;
-  /** Token for authenticating incoming webhooks via the `x-imessage-gateway-token` header */
-  token?: string;
 }
 
 export interface iMessageAdapterRemoteConfig {
@@ -54,8 +48,6 @@ export interface iMessageAdapterRemoteConfig {
   local: false;
   logger: Logger;
   serverUrl: string;
-  /** Token for authenticating incoming webhooks via the `x-imessage-gateway-token` header */
-  token?: string;
 }
 
 export type iMessageAdapterConfig =
@@ -68,8 +60,6 @@ export class iMessageAdapter implements Adapter {
   readonly local: boolean;
   readonly serverUrl?: string;
   readonly apiKey?: string;
-  /** Token for authenticating incoming webhooks via the `x-imessage-gateway-token` header */
-  readonly token?: string;
   readonly sdk: IMessageSDK | AdvancedIMessageKit;
 
   private chat: ChatInstance | null = null;
@@ -88,7 +78,6 @@ export class iMessageAdapter implements Adapter {
     this.local = config.local;
     this.serverUrl = config.serverUrl;
     this.apiKey = config.apiKey;
-    this.token = config.token;
     this.logger = config.logger;
 
     if (config.local) {
@@ -116,57 +105,13 @@ export class iMessageAdapter implements Adapter {
   }
 
   async handleWebhook(
-    request: Request,
-    options?: WebhookOptions
+    _request: Request,
+    _options?: WebhookOptions
   ): Promise<Response> {
-    const gatewayToken = request.headers.get("x-imessage-gateway-token");
-    if (!gatewayToken) {
-      return new Response("Missing x-imessage-gateway-token header", {
-        status: 400,
-      });
-    }
-
-    if (!this.token) {
-      this.logger.warn(
-        "Webhook received but token is not configured — set IMESSAGE_GATEWAY_TOKEN or pass token in config"
-      );
-      return new Response(
-        "token must be configured to accept webhooks",
-        { status: 401 }
-      );
-    }
-
-    if (gatewayToken !== this.token) {
-      this.logger.warn("Invalid gateway token");
-      return new Response("Invalid gateway token", { status: 401 });
-    }
-
-    const body = await request.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      return new Response("Invalid JSON", { status: 400 });
-    }
-
-    // Native imessage-kit webhook: the SDK POSTs the Message object directly
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.guid === "string" && typeof obj.chatId === "string") {
-      this.logger.info("Native iMessage SDK webhook received", {
-        guid: obj.guid as string,
-      });
-      const data = this.normalizeNativeWebhookMessage(
-        obj as unknown as NativeWebhookPayload
-      );
-      this.handleGatewayMessage(data, options);
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    this.logger.warn("Unrecognized webhook payload");
-    return new Response("Unrecognized payload", { status: 400 });
+    return new Response(
+      "Webhook not supported — use startGatewayListener()",
+      { status: 501 }
+    );
   }
 
   async postMessage(
@@ -714,29 +659,6 @@ export class iMessageAdapter implements Adapter {
     };
   }
 
-  private normalizeNativeWebhookMessage(
-    payload: NativeWebhookPayload
-  ): iMessageGatewayMessageData {
-    return {
-      attachments: (payload.attachments ?? []).map((a) => ({
-        filename: a.filename,
-        id: a.id,
-        mimeType: a.mimeType,
-        size: a.size,
-      })),
-      chatId: payload.chatId,
-      date: payload.date,
-      guid: payload.guid,
-      isFromMe: payload.isFromMe,
-      isGroupChat: payload.isGroupChat,
-      raw: payload,
-      sender: payload.sender,
-      senderName: payload.senderName,
-      source: "local",
-      text: payload.text,
-    };
-  }
-
   private buildMessage(data: iMessageGatewayMessageData): Message {
     const threadId = this.encodeThreadId({ chatGuid: data.chatId });
     return new Message({
@@ -826,7 +748,6 @@ export function createiMessageAdapter(
 ): iMessageAdapter {
   const local = config?.local ?? process.env.IMESSAGE_LOCAL !== "false";
   const logger = config?.logger ?? new ConsoleLogger("info").child("imessage");
-  const token = config?.token ?? process.env.IMESSAGE_GATEWAY_TOKEN;
 
   if (local) {
     return new iMessageAdapter({
@@ -834,7 +755,6 @@ export function createiMessageAdapter(
       logger,
       serverUrl: config?.serverUrl ?? process.env.IMESSAGE_SERVER_URL,
       apiKey: config?.apiKey ?? process.env.IMESSAGE_API_KEY,
-      token,
     });
   }
 
@@ -859,6 +779,5 @@ export function createiMessageAdapter(
     logger,
     serverUrl,
     apiKey,
-    token,
   });
 }
