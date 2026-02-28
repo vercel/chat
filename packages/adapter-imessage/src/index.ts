@@ -232,11 +232,32 @@ export class iMessageAdapter implements Adapter {
     );
   }
 
-  async fetchThread(_threadId: string): Promise<ThreadInfo> {
-    throw new NotImplementedError(
-      "fetchThread is not implemented",
-      "fetchThread"
-    );
+  async fetchThread(threadId: string): Promise<ThreadInfo> {
+    if (this.local) {
+      throw new NotImplementedError(
+        "fetchThread is not supported in local mode",
+        "fetchThread"
+      );
+    }
+
+    const { chatGuid } = this.decodeThreadId(threadId);
+    const sdk = this.sdk as AdvancedIMessageKit;
+    const chat = await sdk.chats.getChat(chatGuid);
+    const isGroupChat = chat.style > 43;
+
+    return {
+      id: threadId,
+      channelId: chatGuid,
+      channelName: chat.displayName || undefined,
+      isDM: !isGroupChat,
+      metadata: {
+        chatIdentifier: chat.chatIdentifier,
+        style: chat.style,
+        participants: chat.participants,
+        isArchived: chat.isArchived,
+        raw: chat,
+      },
+    };
   }
 
   async addReaction(

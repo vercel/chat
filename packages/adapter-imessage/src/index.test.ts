@@ -21,6 +21,7 @@ const mockOn = vi.fn();
 const mockOnce = vi.fn((_event: string, cb: () => void) => cb());
 const mockSendMessage = vi.fn();
 const mockEditMessage = vi.fn();
+const mockGetChat = vi.fn();
 
 vi.mock("@photon-ai/advanced-imessage-kit", () => ({
   AdvancedIMessageKit: {
@@ -31,6 +32,7 @@ vi.mock("@photon-ai/advanced-imessage-kit", () => ({
       on: mockOn,
       once: mockOnce,
       messages: { sendMessage: mockSendMessage, editMessage: mockEditMessage },
+      chats: { getChat: mockGetChat },
     })),
   },
 }));
@@ -648,6 +650,76 @@ describe("editMessage", () => {
       text: "Updated text",
       dateEdited: 1234567890,
     });
+  });
+});
+
+describe("fetchThread", () => {
+  afterEach(() => {
+    mockGetChat.mockReset();
+  });
+
+  it("should throw NotImplementedError in local mode", async () => {
+    const adapter = new iMessageAdapter({ local: true });
+    await adapter.initialize(createMockChat() as never);
+
+    await expect(
+      adapter.fetchThread("imessage:iMessage;-;+1234567890")
+    ).rejects.toThrow("fetchThread is not supported in local mode");
+  });
+
+  it("should fetch DM thread via remote SDK", async () => {
+    const adapter = new iMessageAdapter({
+      local: false,
+      serverUrl: "https://example.com",
+      apiKey: "test-key",
+    });
+    await adapter.initialize(createMockChat() as never);
+
+    mockGetChat.mockResolvedValue({
+      originalROWID: 1,
+      guid: "iMessage;-;+1234567890",
+      style: 43,
+      chatIdentifier: "+1234567890",
+      isArchived: false,
+      displayName: "",
+      participants: [{ address: "+1234567890" }],
+    });
+
+    const result = await adapter.fetchThread("imessage:iMessage;-;+1234567890");
+
+    expect(mockGetChat).toHaveBeenCalledWith("iMessage;-;+1234567890");
+    expect(result.id).toBe("imessage:iMessage;-;+1234567890");
+    expect(result.channelId).toBe("iMessage;-;+1234567890");
+    expect(result.isDM).toBe(true);
+    expect(result.channelName).toBeUndefined();
+    expect(result.metadata.chatIdentifier).toBe("+1234567890");
+  });
+
+  it("should fetch group thread via remote SDK", async () => {
+    const adapter = new iMessageAdapter({
+      local: false,
+      serverUrl: "https://example.com",
+      apiKey: "test-key",
+    });
+    await adapter.initialize(createMockChat() as never);
+
+    mockGetChat.mockResolvedValue({
+      originalROWID: 2,
+      guid: "iMessage;+;chat493787071395575843",
+      style: 45,
+      chatIdentifier: "chat493787071395575843",
+      isArchived: false,
+      displayName: "Family Group",
+      participants: [{ address: "+1234567890" }, { address: "+1987654321" }],
+    });
+
+    const result = await adapter.fetchThread(
+      "imessage:iMessage;+;chat493787071395575843"
+    );
+
+    expect(result.isDM).toBe(false);
+    expect(result.channelName).toBe("Family Group");
+    expect(result.metadata.style).toBe(45);
   });
 });
 
