@@ -5,6 +5,7 @@
     "slack",
     "teams",
     "gchat",
+    "imessage",
     "discord",
     "github",
     "linear"

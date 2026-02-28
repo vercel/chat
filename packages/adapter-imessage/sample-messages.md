@@ -44,9 +44,9 @@ POST to webhook with `x-imessage-gateway-token` header.
 }
 ```
 
-## Native imessage-kit Webhook (DM with Attachment)
+## iMessage Kit (use local iMessage service)
 
-Sent directly by the SDK when `webhook` config is set. Uses the same
+Sent directly by the imessage-kit SDK when `webhook` config is set. Uses the same
 `x-imessage-gateway-token` header.
 
 ```json
@@ -75,7 +75,7 @@ Sent directly by the SDK when `webhook` config is set. Uses the same
 }
 ```
 
-## Remote SDK Message (MessageResponse)
+## Advanced iMessage Kit (use [Photon](https://photon.codes) iMessage service)
 
 Raw message from `AdvancedIMessageKit` `new-message` event:
 
