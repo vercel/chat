@@ -16,6 +16,7 @@
     "@chat-adapter/github": "workspace:*",
     "@chat-adapter/linear": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
+    "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
     "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",

@@ -186,6 +186,9 @@ importers:
       '@chat-adapter/slack':
         specifier: workspace:*
         version: link:../../packages/adapter-slack
+      '@chat-adapter/state-memory':
+        specifier: workspace:*
+        version: link:../../packages/state-memory
       '@chat-adapter/state-redis':
         specifier: workspace:*
         version: link:../../packages/state-redis
