@@ -177,11 +177,11 @@ import { Poll } from "chat";
 
 bot.onNewMention(async (thread, message) => {
   await thread.post(
-    Poll({
-      id: "fav-color",
-      question: "What is your favorite color?",
-      options: ["Red", "Blue", "Green"],
-    })
+    <Poll
+      id="fav-color"
+      question="What is your favorite color?"
+      options={["Red", "Blue", "Green"]}
+    />
   );
 });
 
