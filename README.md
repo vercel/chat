@@ -56,7 +56,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
-| iMessage | `@chat-adapter/imessage` | Yes | Yes | No | No | No | Yes |
+| iMessage | `@chat-adapter/imessage` | DM-only | Remote-only | No | No | No | Yes |
 
 ## Features
 
