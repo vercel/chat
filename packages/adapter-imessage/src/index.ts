@@ -467,9 +467,10 @@ export class iMessageAdapter implements Adapter {
       }
     };
 
-    // For local mode with webhookUrl, create a dedicated SDK instance
-    // with native webhook support so the SDK itself forwards messages.
+    // Create dedicated SDK instances for the gateway listener so we don't
+    // close the shared singleton (this.sdk) when the listener stops.
     let localWebhookSdk: IMessageSDK | null = null;
+    let remoteGatewaySdk: AdvancedIMessageKit | null = null;
 
     try {
       if (this.local) {
@@ -518,20 +519,28 @@ export class iMessageAdapter implements Adapter {
           },
         });
       } else {
-        const sdk = this.sdk as AdvancedIMessageKit;
-        await sdk.connect();
-
-        sdk.on("new-message", async (messageResponse: MessageResponse) => {
-          if (isShuttingDown) {
-            return;
-          }
-          if (messageResponse.isFromMe) {
-            return;
-          }
-
-          const data = this.normalizeRemoteMessage(messageResponse);
-          await handleMessage(data);
+        // Create a dedicated instance for this listener (not the singleton)
+        // so closing it doesn't affect the shared this.sdk used by other methods.
+        remoteGatewaySdk = new AdvancedIMessageKit({
+          serverUrl: this.serverUrl,
+          apiKey: this.apiKey,
         });
+        await remoteGatewaySdk.connect();
+
+        remoteGatewaySdk.on(
+          "new-message",
+          async (messageResponse: MessageResponse) => {
+            if (isShuttingDown) {
+              return;
+            }
+            if (messageResponse.isFromMe) {
+              return;
+            }
+
+            const data = this.normalizeRemoteMessage(messageResponse);
+            await handleMessage(data);
+          }
+        );
       }
 
       // Wait for duration or abort signal
@@ -575,8 +584,8 @@ export class iMessageAdapter implements Adapter {
         } else {
           (this.sdk as IMessageSDK).stopWatching();
         }
-      } else {
-        await (this.sdk as AdvancedIMessageKit).close();
+      } else if (remoteGatewaySdk) {
+        await remoteGatewaySdk.close();
       }
 
       this.logger.info("iMessage Gateway listener stopped");

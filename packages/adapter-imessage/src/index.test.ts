@@ -1,34 +1,55 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const LOCAL_ID_PATTERN = /^local-\d+$/;
-const mockStartWatching = vi.fn();
-const mockStopWatching = vi.fn();
-const mockLocalClose = vi.fn();
-const mockSend = vi.fn();
 
-vi.mock("@photon-ai/imessage-kit", () => ({
-  IMessageSDK: vi.fn(() => ({
-    startWatching: mockStartWatching,
-    stopWatching: mockStopWatching,
-    close: mockLocalClose,
-    send: mockSend,
-  })),
-}));
+const {
+  mockStartWatching,
+  mockStopWatching,
+  mockLocalClose,
+  mockSend,
+  mockConnect,
+  mockClose,
+  mockOnce,
+  mockSendMessage,
+  mockEditMessage,
+  mockGetChat,
+  mockSendReaction,
+  mockStartTyping,
+  mockStopTyping,
+  mockGatewayConnect,
+  mockGatewayClose,
+  mockGatewayOn,
+  MockAdvancedIMessageKit,
+} = vi.hoisted(() => {
+  const mockStartWatching = vi.fn();
+  const mockStopWatching = vi.fn();
+  const mockLocalClose = vi.fn();
+  const mockSend = vi.fn();
+  const mockConnect = vi.fn();
+  const mockClose = vi.fn();
+  const mockOn = vi.fn();
+  const mockOnce = vi.fn((_event: string, cb: () => void) => cb());
+  const mockSendMessage = vi.fn();
+  const mockEditMessage = vi.fn();
+  const mockGetChat = vi.fn();
+  const mockSendReaction = vi.fn();
+  const mockStartTyping = vi.fn();
+  const mockStopTyping = vi.fn();
+  const mockGatewayConnect = vi.fn();
+  const mockGatewayClose = vi.fn();
+  const mockGatewayOn = vi.fn();
 
-const mockConnect = vi.fn();
-const mockClose = vi.fn();
-const mockOn = vi.fn();
-const mockOnce = vi.fn((_event: string, cb: () => void) => cb());
-const mockSendMessage = vi.fn();
-const mockEditMessage = vi.fn();
-const mockGetChat = vi.fn();
-const mockSendReaction = vi.fn();
-const mockStartTyping = vi.fn();
-const mockStopTyping = vi.fn();
-
-vi.mock("@photon-ai/advanced-imessage-kit", () => ({
-  AdvancedIMessageKit: {
-    getInstance: vi.fn(() => ({
+  const MockAdvancedIMessageKit = vi.fn(() => ({
+    mocked: true,
+    connect: mockGatewayConnect,
+    close: mockGatewayClose,
+    on: mockGatewayOn,
+    once: vi.fn(),
+    messages: {},
+    chats: {},
+  }));
+  (MockAdvancedIMessageKit as unknown as Record<string, unknown>).getInstance =
+    vi.fn(() => ({
       mocked: true,
       connect: mockConnect,
       close: mockClose,
@@ -44,8 +65,41 @@ vi.mock("@photon-ai/advanced-imessage-kit", () => ({
         startTyping: mockStartTyping,
         stopTyping: mockStopTyping,
       },
-    })),
-  },
+    }));
+
+  return {
+    mockStartWatching,
+    mockStopWatching,
+    mockLocalClose,
+    mockSend,
+    mockConnect,
+    mockClose,
+    mockOn,
+    mockOnce,
+    mockSendMessage,
+    mockEditMessage,
+    mockGetChat,
+    mockSendReaction,
+    mockStartTyping,
+    mockStopTyping,
+    mockGatewayConnect,
+    mockGatewayClose,
+    mockGatewayOn,
+    MockAdvancedIMessageKit,
+  };
+});
+
+vi.mock("@photon-ai/imessage-kit", () => ({
+  IMessageSDK: vi.fn(() => ({
+    startWatching: mockStartWatching,
+    stopWatching: mockStopWatching,
+    close: mockLocalClose,
+    send: mockSend,
+  })),
+}));
+
+vi.mock("@photon-ai/advanced-imessage-kit", () => ({
+  AdvancedIMessageKit: MockAdvancedIMessageKit,
 }));
 
 vi.mock("chat", async (importOriginal) => {
@@ -475,6 +529,13 @@ describe("handleWebhook", () => {
 });
 
 describe("startGatewayListener", () => {
+  afterEach(() => {
+    mockGatewayConnect.mockReset();
+    mockGatewayClose.mockReset();
+    mockGatewayOn.mockReset();
+    mockClose.mockReset();
+  });
+
   it("should return 500 without chat instance", async () => {
     const adapter = new iMessageAdapter({ local: true, logger: mockLogger });
     const response = await adapter.startGatewayListener({
@@ -529,6 +590,52 @@ describe("startGatewayListener", () => {
     // The promise should resolve after abort
     await listenerPromise;
     expect(mockStopWatching).toHaveBeenCalled();
+  });
+
+  it("should create a dedicated SDK instance in remote mode and close only that", async () => {
+    const adapter = new iMessageAdapter({
+      local: false,
+      logger: mockLogger,
+      serverUrl: "https://example.com",
+      apiKey: "test-key",
+    });
+    await adapter.initialize(createMockChat() as never);
+
+    const controller = new AbortController();
+    const waitUntil = vi.fn();
+
+    // Track constructor calls before starting listener
+    const callCountBefore = MockAdvancedIMessageKit.mock.calls.length;
+
+    await adapter.startGatewayListener(
+      { waitUntil },
+      60000,
+      controller.signal
+    );
+
+    // A new AdvancedIMessageKit instance should have been created (not getInstance)
+    expect(MockAdvancedIMessageKit.mock.calls.length).toBe(
+      callCountBefore + 1
+    );
+    expect(MockAdvancedIMessageKit).toHaveBeenLastCalledWith({
+      serverUrl: "https://example.com",
+      apiKey: "test-key",
+    });
+
+    // The gateway SDK should have been connected and had listener attached
+    expect(mockGatewayConnect).toHaveBeenCalled();
+    expect(mockGatewayOn).toHaveBeenCalledWith(
+      "new-message",
+      expect.any(Function)
+    );
+
+    controller.abort();
+    const listenerPromise = waitUntil.mock.calls[0][0] as Promise<void>;
+    await listenerPromise;
+
+    // Only the gateway SDK should be closed, not the shared singleton
+    expect(mockGatewayClose).toHaveBeenCalled();
+    expect(mockClose).not.toHaveBeenCalled();
   });
 
   it("should create a new SDK instance with webhook config in local mode", async () => {
