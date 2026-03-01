@@ -1296,9 +1296,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.DirectMessageReactions,
       ],
-      partials: [
-        Partials.Channel,
-      ],
+      partials: [Partials.Channel],
     });
 
     let isShuttingDown = false;

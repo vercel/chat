@@ -16,7 +16,9 @@ const { MockClient, mockClientInstance } = vi.hoisted(() => {
     destroy: vi.fn(),
     user: { username: "testbot", id: "bot123" },
   };
-  const MockClient = vi.fn().mockImplementation(function (this: typeof mockClientInstance) {
+  const MockClient = vi.fn().mockImplementation(function (
+    this: typeof mockClientInstance
+  ) {
     Object.assign(this, mockClientInstance);
     return this;
   });
@@ -76,9 +78,13 @@ describe("Gateway client configuration", () => {
 
     let listenerPromise: Promise<unknown> | undefined;
     const response = await adapter.startGatewayListener(
-      { waitUntil: (p) => { listenerPromise = p as Promise<unknown>; } },
+      {
+        waitUntil: (p) => {
+          listenerPromise = p as Promise<unknown>;
+        },
+      },
       1000,
-      controller.signal,
+      controller.signal
     );
 
     expect(response.status).toBe(200);
