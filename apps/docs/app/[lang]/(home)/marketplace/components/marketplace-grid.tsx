@@ -5,17 +5,18 @@ import { AdapterCard } from "./adapter-card";
 import { MarketplaceSearch } from "./search";
 
 interface Adapter {
-  name: string;
+  beta?: boolean;
   description: string;
   href: string;
-  packageName: string;
+  icon?: string;
+  name: string;
   official?: boolean;
-  beta?: boolean;
+  packageName: string;
 }
 
 interface MarketplaceGridProps {
-  official: Adapter[];
   community: Adapter[];
+  official: Adapter[];
 }
 
 export const MarketplaceGrid = ({
@@ -49,9 +50,7 @@ export const MarketplaceGrid = ({
       {filteredOfficial.length > 0 ? (
         <section className="grid gap-6">
           <div className="grid gap-1">
-            <h2 className="font-semibold text-lg tracking-tight">
-              Official
-            </h2>
+            <h2 className="font-semibold text-lg tracking-tight">Official</h2>
             <p className="text-muted-foreground text-sm">
               Published under <code>@chat-adapter/*</code> and maintained by
               Vercel.
@@ -59,10 +58,7 @@ export const MarketplaceGrid = ({
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredOfficial.map((adapter) => (
-              <AdapterCard
-                key={adapter.packageName}
-                {...adapter}
-              />
+              <AdapterCard key={adapter.packageName} {...adapter} />
             ))}
           </div>
         </section>
@@ -71,9 +67,7 @@ export const MarketplaceGrid = ({
       {filteredCommunity.length > 0 ? (
         <section className="grid gap-6">
           <div className="grid gap-1">
-            <h2 className="font-semibold text-lg tracking-tight">
-              Community
-            </h2>
+            <h2 className="font-semibold text-lg tracking-tight">Community</h2>
             <p className="text-muted-foreground text-sm">
               Built by third-party developers and platform vendors.
             </p>

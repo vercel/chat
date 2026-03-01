@@ -80,15 +80,15 @@ const MarketplacePage = () => (
       <h1 className="text-balance font-semibold text-[40px] leading-[1.1] tracking-tight sm:text-5xl">
         Marketplace
       </h1>
-      <p className="max-w-2xl text-muted-foreground text-lg leading-relaxed">
+      <p className="max-w-2xl text-lg text-muted-foreground leading-relaxed">
         Browse official and community-built adapters to connect your bot to any
         platform.
       </p>
     </section>
     <div className="grid gap-10 px-4 pb-16">
       <MarketplaceGrid
-        official={officialAdapters}
         community={communityAdapters}
+        official={officialAdapters}
       />
     </div>
   </div>
