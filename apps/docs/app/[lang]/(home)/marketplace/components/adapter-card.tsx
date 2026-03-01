@@ -55,26 +55,28 @@ export const AdapterCard = ({
   return (
     <a className="no-underline" href={href}>
       <Card className="group h-full gap-0 overflow-hidden py-0 shadow-none transition-colors hover:bg-accent/50">
-        <CardHeader className="p-6!">
-          <div className="flex items-center gap-2.5">
-            {Icon ? <Icon className="size-5" /> : null}
-            <CardTitle>{name}</CardTitle>
+        <CardHeader className="flex flex-col gap-4 p-6!">
+          <div className="flex w-full items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              {Icon ? <Icon className="size-5" /> : null}
+              <CardTitle>{name}</CardTitle>
+            </div>
+            {badge ? (
+              <CardAction>
+                <Badge className="shrink-0" variant="secondary">
+                  <VerifiedIcon className="size-4 text-primary" />
+                  {badge === "official" ? "Official" : "Vendor official"}
+                </Badge>
+              </CardAction>
+            ) : null}
+            {beta ? (
+              <CardAction>
+                <Badge className="shrink-0" variant="secondary">
+                  Beta
+                </Badge>
+              </CardAction>
+            ) : null}
           </div>
-          {badge ? (
-            <CardAction>
-              <Badge className="shrink-0" variant="secondary">
-                <VerifiedIcon className="size-4 text-primary" />
-                {badge === "official" ? "Official" : "Vendor official"}
-              </Badge>
-            </CardAction>
-          ) : null}
-          {beta ? (
-            <CardAction>
-              <Badge className="shrink-0" variant="secondary">
-                Beta
-              </Badge>
-            </CardAction>
-          ) : null}
           <CardDescription className="col-span-2 line-clamp-2">
             {description}
           </CardDescription>
