@@ -59,7 +59,7 @@ export const AdapterCard = ({
           <div className="flex w-full items-center justify-between">
             <div className="flex items-center gap-2.5">
               {Icon ? <Icon className="size-5" /> : null}
-              <CardTitle>{name}</CardTitle>
+              <CardTitle className="font-medium">{name}</CardTitle>
             </div>
             {badge ? (
               <CardAction>
