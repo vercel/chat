@@ -180,7 +180,7 @@ describe("parseMessage", () => {
 
     const message = adapter.parseMessage(raw);
     expect(message.text).toBe("Hello world");
-    expect(message.author.id).toBe("@alice:matrix.org");
+    expect(message.author.userId).toBe("@alice:matrix.org");
     expect(message.author.isBot).toBe(false);
   });
 
@@ -251,28 +251,6 @@ describe("MatrixFormatConverter", () => {
   });
 });
 ```
-
-## Mock utilities
-
-The `chat` package exports test utilities that make it straightforward to test adapter behavior without real platform APIs.
-
-```typescript lineNumbers
-import {
-  createMockAdapter,
-  createMockState,
-  createTestMessage,
-  mockLogger,
-} from "chat/mock-adapter";
-```
-
-| Utility | Purpose |
-|---------|---------|
-| `createMockAdapter(name)` | Creates an `Adapter` with `vi.fn()` mocks for all methods |
-| `createMockState()` | Creates a `StateAdapter` with working in-memory subscriptions, locks, and cache |
-| `createTestMessage(id, text, overrides?)` | Creates a `Message` object with sensible defaults |
-| `mockLogger` | A `Logger` that captures all log calls via `vi.fn()` |
-
-Use `createMockState()` when you need a real state adapter without Redis. Use `createMockAdapter()` when testing the `Chat` class behavior and you need a fake adapter.
 
 ## Integration testing
 

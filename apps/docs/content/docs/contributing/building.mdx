@@ -236,7 +236,7 @@ async initialize(chat: ChatInstance): Promise<void> {
 
 ### Thread ID encode/decode
 
-All thread IDs follow the pattern `{adapter}:{segment1}:{segment2}`. The `encodeThreadId` and `decodeThreadId` methods must roundtrip consistently. Use `base64url` encoding for segments that contain special characters.
+Thread IDs typically follow the pattern `{adapter}:{segment1}:{segment2}`, though some adapters use more or fewer segments. The `encodeThreadId` and `decodeThreadId` methods must roundtrip consistently. Use `base64url` encoding for segments that contain special characters.
 
 ```typescript title="src/adapter.ts" lineNumbers
 encodeThreadId(data: MatrixThreadId): string {
@@ -266,7 +266,7 @@ decodeThreadId(threadId: string): MatrixThreadId {
 `handleWebhook` is the entry point for all incoming platform events. Always:
 1. Verify the request signature first (return 401 if invalid)
 2. Parse the platform payload
-3. Call `this.chat.processMessage()` via `options.waitUntil()` for async processing
+3. Call `this.chat.processMessage()` with positional args — it handles `waitUntil` internally
 4. Return a fast 200 response immediately
 
 ```typescript title="src/adapter.ts" lineNumbers
@@ -291,22 +291,23 @@ async handleWebhook(
 
   // 3. Process the message asynchronously
   if (this.chat && payload.type === "m.room.message") {
-    const message = this.parseMessage(payload);
     const threadId = this.encodeThreadId({
       roomId: payload.room_id,
       eventId: payload.thread_root_id,
     });
 
-    const task = this.chat.processMessage({
-      adapter: this,
-      message,
-      threadId,
-      isMention: this.checkMention(payload),
-      isDM: false,
-    });
+    // Use a factory function for lazy async parsing
+    const isMention = this.checkMention(payload);
+    const factory = async (): Promise<Message<unknown>> => {
+      const msg = this.parseMessage(payload);
+      if (isMention) {
+        msg.isMention = true;
+      }
+      return msg;
+    };
 
-    // Use waitUntil so the handler runs after the response is sent
-    options?.waitUntil?.(task);
+    // processMessage handles waitUntil registration internally
+    this.chat.processMessage(this, threadId, factory, options);
   }
 
   // 4. Return a fast 200 to acknowledge receipt
@@ -316,7 +317,7 @@ async handleWebhook(
 
 ### Message parsing
 
-Convert the raw platform message into a normalized `Message` instance. Set `author.isBot` correctly so the SDK can filter self-messages.
+Convert the raw platform message into a normalized `Message` instance. The `author` fields use `userId` and `userName`, and `isBot` accepts `boolean | "unknown"`. Include a `metadata` object with `dateSent` and `edited` instead of a top-level `createdAt`.
 
 ```typescript title="src/adapter.ts" lineNumbers
 parseMessage(raw: unknown): Message<unknown> {
@@ -332,12 +333,17 @@ parseMessage(raw: unknown): Message<unknown> {
     formatted: this.converter.toAst(payload.body as string),
     raw,
     author: {
-      id: payload.sender as string,
-      username: payload.sender as string,
-      fullName: payload.sender_display_name as string | undefined,
+      userId: payload.sender as string,
+      userName: payload.sender as string,
+      fullName: payload.sender_display_name as string ?? "",
       isBot: (payload.sender as string).startsWith("@bot"),
+      isMe: false,
     },
-    createdAt: new Date(payload.origin_server_ts as number),
+    metadata: {
+      dateSent: new Date(payload.origin_server_ts as number),
+      edited: false,
+    },
+    attachments: [],
   });
 }
 ```
@@ -390,7 +396,7 @@ async deleteMessage(threadId: string, messageId: string): Promise<void> {
 
 ### Reactions
 
-Handle both `EmojiValue` objects (with `unicode` and `name` fields) and plain strings.
+Handle both `EmojiValue` objects and plain strings. `EmojiValue` has a `name` property and `toString()` method — there is no `unicode` field.
 
 ```typescript title="src/adapter.ts" lineNumbers
 async addReaction(
@@ -399,7 +405,7 @@ async addReaction(
   emoji: EmojiValue | string
 ): Promise<void> {
   const { roomId } = this.decodeThreadId(threadId);
-  const emojiStr = typeof emoji === "string" ? emoji : emoji.unicode;
+  const emojiStr = typeof emoji === "string" ? emoji : emoji.name;
   await this.sendReaction(roomId, messageId, emojiStr);
 }
 
@@ -409,7 +415,7 @@ async removeReaction(
   emoji: EmojiValue | string
 ): Promise<void> {
   const { roomId } = this.decodeThreadId(threadId);
-  const emojiStr = typeof emoji === "string" ? emoji : emoji.unicode;
+  const emojiStr = typeof emoji === "string" ? emoji : emoji.name;
   await this.removeMatrixReaction(roomId, messageId, emojiStr);
 }
 ```
@@ -494,25 +500,17 @@ export class MatrixFormatConverter extends BaseFormatConverter {
   }
 
   /**
-   * Override renderPostable if you need to handle mentions,
-   * cards, or other platform-specific rendering.
+   * Override renderPostable only if your platform needs custom rendering
+   * (e.g., converting @mentions to platform-specific syntax).
+   * The base class already handles text/formatted/card fallback logic.
    */
   renderPostable(message: AdapterPostableMessage): string {
-    // Handle card fallback
-    if (message.card) {
-      return this.cardToFallbackText(message.card);
-    }
-
-    // Render text content
-    if (message.text) {
-      return message.text;
-    }
-
-    if (message.formatted) {
-      return this.fromAst(message.formatted);
-    }
-
-    return "";
+    // Example: convert @mention syntax to Matrix pill format
+    const rendered = super.renderPostable(message);
+    return rendered.replace(
+      /@(\w+)/g,
+      (_, name) => `<a href="https://matrix.to/#/@${name}:matrix.org">@${name}</a>`
+    );
   }
 }
 ```
