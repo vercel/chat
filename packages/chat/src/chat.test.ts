@@ -67,18 +67,22 @@ describe("Chat", () => {
       new Request("http://test.com", { method: "POST" })
     );
 
-    const thread = (customChat as any).createThread(
+    // Use a mention handler to exercise the full Chat → Thread pipeline
+    customChat.onNewMention(async (_thread, _message) => {
+      await _thread.post({
+        async *[Symbol.asyncIterator]() {
+          yield "H";
+          yield "i";
+        },
+      });
+    });
+
+    const message = createTestMessage("msg-1", "Hey @slack-bot help me");
+    await customChat.handleIncomingMessage(
       mockAdapter,
       "slack:C123:1234.5678",
-      createTestMessage("msg-1", "Hello")
+      message
     );
-
-    await thread.post({
-      async *[Symbol.asyncIterator]() {
-        yield "H";
-        yield "i";
-      },
-    });
 
     expect(mockAdapter.postMessage).not.toHaveBeenCalledWith(
       "slack:C123:1234.5678",
