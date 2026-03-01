@@ -2,7 +2,7 @@
   {
     "name": "Matrix",
     "description": "Matrix adapter for Chat SDK, built and maintained by Beeper.",
-    "author": "beeper",
+    "author": "Beeper",
     "href": "https://github.com/beeper/chat-adapter-matrix",
     "packageName": "@beeper/chat-adapter-matrix",
     "official": true

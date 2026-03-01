@@ -6,7 +6,7 @@ interface AdapterCardProps {
   description: string;
   href: string;
   packageName: string;
-  badge?: "vercel" | "verified";
+  badge?: "official" | "vendor-official";
   beta?: boolean;
 }
 
@@ -29,7 +29,7 @@ export const AdapterCard = ({
       {badge ? (
         <Badge variant="secondary" className="shrink-0">
           <VerifiedIcon className="size-4 text-primary" />
-          {badge === "vercel" ? "Vercel" : "Verified"}
+          {badge === "official" ? "Official" : "Vendor official"}
         </Badge>
       ) : null}
       {beta ? (
