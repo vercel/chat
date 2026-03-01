@@ -42,6 +42,14 @@ export interface ChatConfig<
    */
   dedupeTtlMs?: number;
   /**
+   * Placeholder text for fallback streaming (post + edit) adapters.
+   * Defaults to `"..."`.
+   *
+   * Set to `null` to avoid posting an initial placeholder message and instead
+   * wait until some real text has been streamed before creating the message.
+   */
+  fallbackStreamingPlaceholderText?: string | null;
+  /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
@@ -53,14 +61,6 @@ export interface ChatConfig<
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
-  /**
-   * Placeholder text for fallback streaming (post + edit) adapters.
-   * Defaults to `"..."`.
-   *
-   * Set to `null` to avoid posting an initial placeholder message and instead
-   * wait until some real text has been streamed before creating the message.
-   */
-  fallbackStreamingPlaceholderText?: string | null;
   /** Default bot username across all adapters */
   userName: string;
 }

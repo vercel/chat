@@ -47,13 +47,13 @@ interface ThreadImplConfigWithAdapter {
   adapter: Adapter;
   channelId: string;
   currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
   isSubscribedContext?: boolean;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
-  fallbackStreamingPlaceholderText?: string | null;
 }
 
 /**
@@ -64,12 +64,12 @@ interface ThreadImplConfigLazy {
   adapterName: string;
   channelId: string;
   currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
   isSubscribedContext?: boolean;
   streamingUpdateIntervalMs?: number;
-  fallbackStreamingPlaceholderText?: string | null;
 }
 
 type ThreadImplConfig = ThreadImplConfigWithAdapter | ThreadImplConfigLazy;
