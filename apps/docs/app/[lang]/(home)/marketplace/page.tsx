@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "Browse official and community adapters for Chat SDK. Connect your bot to Slack, Teams, Discord, and more.",
 };
 
-const vercelAdapters = [
+const officialAdapters = [
   {
     name: "Slack",
     description:
@@ -87,7 +87,7 @@ const MarketplacePage = () => (
     </section>
     <div className="grid gap-10 px-4 pb-16">
       <MarketplaceGrid
-        vercel={vercelAdapters}
+        official={officialAdapters}
         community={communityAdapters}
       />
     </div>

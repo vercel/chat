@@ -14,12 +14,12 @@ interface Adapter {
 }
 
 interface MarketplaceGridProps {
-  vercel: Adapter[];
+  official: Adapter[];
   community: Adapter[];
 }
 
 export const MarketplaceGrid = ({
-  vercel,
+  official,
   community,
 }: MarketplaceGridProps) => {
   const [query, setQuery] = useState("");
@@ -31,10 +31,10 @@ export const MarketplaceGrid = ({
     adapter.description.toLowerCase().includes(lowerQuery) ||
     adapter.packageName.toLowerCase().includes(lowerQuery);
 
-  const filteredVercel = vercel.filter(filter);
+  const filteredOfficial = official.filter(filter);
   const filteredCommunity = community.filter(filter);
   const noResults =
-    filteredVercel.length === 0 && filteredCommunity.length === 0;
+    filteredOfficial.length === 0 && filteredCommunity.length === 0;
 
   return (
     <>
@@ -46,11 +46,11 @@ export const MarketplaceGrid = ({
         </p>
       ) : null}
 
-      {filteredVercel.length > 0 ? (
+      {filteredOfficial.length > 0 ? (
         <section className="grid gap-6">
           <div className="grid gap-1">
             <h2 className="font-semibold text-lg tracking-tight">
-              Vercel-maintained
+              Official
             </h2>
             <p className="text-muted-foreground text-sm">
               Published under <code>@chat-adapter/*</code> and maintained by
@@ -58,7 +58,7 @@ export const MarketplaceGrid = ({
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredVercel.map((adapter) => (
+            {filteredOfficial.map((adapter) => (
               <AdapterCard
                 key={adapter.packageName}
                 {...adapter}
@@ -75,7 +75,7 @@ export const MarketplaceGrid = ({
               Community
             </h2>
             <p className="text-muted-foreground text-sm">
-              Built by third-party developers and platform companies.
+              Built by third-party developers and platform vendors.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -83,7 +83,7 @@ export const MarketplaceGrid = ({
               <AdapterCard
                 key={adapter.packageName}
                 {...adapter}
-                badge={adapter.official ? "verified" : undefined}
+                badge={adapter.official ? "vendor-official" : undefined}
               />
             ))}
           </div>
