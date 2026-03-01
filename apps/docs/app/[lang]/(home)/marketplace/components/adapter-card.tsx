@@ -1,6 +1,14 @@
 import { VerifiedIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
+  Card,
+  CardAction,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
   discord,
   gchat,
   github,
@@ -45,31 +53,36 @@ export const AdapterCard = ({
   const Icon = icon ? iconMap[icon] : undefined;
 
   return (
-    <a
-      className="group flex flex-col gap-3 rounded-lg border bg-background p-5 transition-colors hover:bg-accent/50"
-      href={href}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          {Icon ? <Icon className="size-5" /> : null}
-          <h3 className="font-medium tracking-tight">{name}</h3>
-        </div>
-        {badge ? (
-          <Badge className="shrink-0" variant="secondary">
-            <VerifiedIcon className="size-4 text-primary" />
-            {badge === "official" ? "Official" : "Vendor official"}
-          </Badge>
-        ) : null}
-        {beta ? (
-          <Badge className="shrink-0" variant="secondary">
-            Beta
-          </Badge>
-        ) : null}
-      </div>
-      <p className="line-clamp-2 text-muted-foreground text-sm">
-        {description}
-      </p>
-      <code className="text-muted-foreground text-xs">{packageName}</code>
+    <a className="no-underline" href={href}>
+      <Card className="group h-full gap-0 overflow-hidden py-0 shadow-none transition-colors hover:bg-accent/50">
+        <CardHeader className="p-6!">
+          <div className="flex items-center gap-2.5">
+            {Icon ? <Icon className="size-5" /> : null}
+            <CardTitle>{name}</CardTitle>
+          </div>
+          {badge ? (
+            <CardAction>
+              <Badge className="shrink-0" variant="secondary">
+                <VerifiedIcon className="size-4 text-primary" />
+                {badge === "official" ? "Official" : "Vendor official"}
+              </Badge>
+            </CardAction>
+          ) : null}
+          {beta ? (
+            <CardAction>
+              <Badge className="shrink-0" variant="secondary">
+                Beta
+              </Badge>
+            </CardAction>
+          ) : null}
+          <CardDescription className="col-span-2 line-clamp-2">
+            {description}
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="border-t bg-sidebar px-6! py-4! transition-colors group-hover:bg-secondary">
+          <code className="text-muted-foreground text-xs">{packageName}</code>
+        </CardFooter>
+      </Card>
     </a>
   );
 };
