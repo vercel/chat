@@ -53,12 +53,11 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   }'
 ```
 
-## Polling (no public webhook)
+## Polling (local development)
 
-Telegram also supports long polling via `getUpdates`.
-Polling starts automatically in `mode: "polling"` or when `mode: "auto"` selects polling.
-- Use `longPolling` to customize polling behavior (defaults apply when omitted).
-- Use `adapter.resetWebhook(dropPendingUpdates?)` to clear webhook registration manually.
+When developing locally you typically can't expose a public URL for Telegram to deliver webhooks to. Polling mode uses `getUpdates` to fetch messages directly from Telegram instead — no public endpoint needed.
+
+The `longPolling` option is entirely optional. Sensible defaults are applied when omitted.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -67,10 +66,8 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 
 const telegram = createTelegramAdapter({
   mode: "polling",
-  longPolling: {
-    timeout: 30,
-    dropPendingUpdates: false,
-  },
+  // Optional — fine-tune polling behavior:
+  // longPolling: { timeout: 30, dropPendingUpdates: false },
 });
 
 const bot = new Chat({
@@ -85,7 +82,9 @@ const bot = new Chat({
 // await telegram.stopPolling();
 ```
 
-### Auto mode: local polling, production webhooks
+### Auto mode
+
+With `mode: "auto"` (the default), the adapter picks the right strategy for you. When deployed to a serverless environment like Vercel it uses webhooks; everywhere else (e.g. local dev) it falls back to polling automatically.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -94,7 +93,6 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 
 const telegram = createTelegramAdapter({
   mode: "auto", // default
-  longPolling: { timeout: 30 }, // only used when auto mode picks polling
 });
 
 export const bot = new Chat({
@@ -103,7 +101,7 @@ export const bot = new Chat({
   state: createMemoryState(),
 });
 
-// Required for long-running local processes without incoming webhooks:
+// Call initialize() so polling can start in long-running local processes:
 void bot.initialize();
 
 console.log(telegram.runtimeMode); // "webhook" | "polling"
