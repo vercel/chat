@@ -21,12 +21,12 @@ const config: NextConfig = {
         permanent: true,
       },
       {
-        source: "/docs/adapters/gchat",
+        source: "/adapters/gchat",
         destination: "/adapters/google-chat",
         permanent: true,
       },
       {
-        source: "/docs/adapters/:slug",
+        source: "/adapters/:slug",
         destination: "/adapters/:slug",
         permanent: true,
       },
