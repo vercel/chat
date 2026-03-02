@@ -8,11 +8,13 @@ import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
   beta?: boolean;
+  comingSoon?: boolean;
   community?: boolean;
   description: string;
   icon?: string;
   name: string;
-  packageName: string;
+  packageName?: string;
+  prs?: string[];
   slug: string;
   type: string;
   vendorOfficial?: boolean;
@@ -33,7 +35,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
       !query ||
       adapter.name.toLowerCase().includes(lowerQuery) ||
       adapter.description.toLowerCase().includes(lowerQuery) ||
-      adapter.packageName.toLowerCase().includes(lowerQuery);
+      adapter.packageName?.toLowerCase().includes(lowerQuery);
     return matchesTab && matchesQuery;
   });
 
@@ -69,7 +71,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
             {official.map((adapter) => (
               <AdapterCard
                 href={`/adapters/${adapter.slug}`}
-                key={adapter.packageName}
+                key={adapter.slug}
                 {...adapter}
               />
             ))}
@@ -92,7 +94,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <AdapterCard
                 badge="vendor-official"
                 href={`/adapters/${adapter.slug}`}
-                key={adapter.packageName}
+                key={adapter.slug}
                 {...adapter}
               />
             ))}
@@ -113,7 +115,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
             {community.map((adapter) => (
               <AdapterCard
                 href={`/adapters/${adapter.slug}`}
-                key={adapter.packageName}
+                key={adapter.slug}
                 {...adapter}
               />
             ))}
