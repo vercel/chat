@@ -10,12 +10,17 @@ interface ReadmeContentProps {
   children: string;
 }
 
+const stripImages = (markdown: string): string =>
+  markdown
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/^\s*\[?\s*\]?\s*$/gm, "");
+
 export const ReadmeContent = ({ children }: ReadmeContentProps) => (
   <Streamdown
     linkSafety={{ enabled: false }}
     mode="static"
     plugins={{ cjk, code, math, mermaid }}
   >
-    {children}
+    {stripImages(children)}
   </Streamdown>
 );
