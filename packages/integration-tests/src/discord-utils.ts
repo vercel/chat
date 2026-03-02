@@ -544,6 +544,7 @@ export function createGatewayReactionEvent(options: {
   emojiId?: string;
   messageId?: string;
   channelId?: string;
+  channelType?: number;
   guildId?: string;
   userId: string;
   userUsername: string;
@@ -561,6 +562,7 @@ export function createGatewayReactionEvent(options: {
       },
       message_id: options.messageId || "msg_123",
       channel_id: options.channelId || "CHANNEL456",
+      channel_type: options.channelType,
       guild_id: options.guildId ?? "GUILD123",
       user_id: options.userId,
       user: {

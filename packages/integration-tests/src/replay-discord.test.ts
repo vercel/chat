@@ -879,6 +879,74 @@ describe("Discord Gateway Forwarded Events", () => {
     });
   });
 
+  describe("Thread Reaction Thread ID Resolution", () => {
+    it("should produce a 4-segment thread ID for forwarded reactions in a thread", async () => {
+      let capturedReaction: ReactionEvent | null = null;
+
+      ctx = await createDiscordTestContext(
+        { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
+        {
+          onReaction: (event) => {
+            capturedReaction = event;
+          },
+        }
+      );
+
+      // Mock the channels.get API to return parent_id for the thread channel
+      ctx.mockApi.channels.get.mockResolvedValue({
+        id: "THREAD789",
+        type: 11,
+        parent_id: "CHANNEL456",
+      });
+
+      // Send a reaction in a thread channel (channel_type 11 = public thread)
+      const gatewayEvent = createGatewayReactionEvent({
+        added: true,
+        emojiName: "👍",
+        channelId: "THREAD789",
+        channelType: 11,
+        userId: "USER123",
+        userUsername: "regularuser",
+        userBot: false,
+      });
+
+      await ctx.sendGatewayEvent(gatewayEvent);
+
+      const reaction = defined<ReactionEvent>(capturedReaction);
+      // Should be 4-segment: discord:GUILD123:CHANNEL456:THREAD789
+      expect(reaction.threadId).toBe("discord:GUILD123:CHANNEL456:THREAD789");
+    });
+
+    it("should produce a 3-segment thread ID for forwarded reactions in a regular channel", async () => {
+      let capturedReaction: ReactionEvent | null = null;
+
+      ctx = await createDiscordTestContext(
+        { botName: "TestBot", applicationId: DISCORD_APPLICATION_ID },
+        {
+          onReaction: (event) => {
+            capturedReaction = event;
+          },
+        }
+      );
+
+      // Send a reaction in a regular channel (no channel_type)
+      const gatewayEvent = createGatewayReactionEvent({
+        added: true,
+        emojiName: "👍",
+        channelId: "CHANNEL456",
+        userId: "USER123",
+        userUsername: "regularuser",
+        userBot: false,
+      });
+
+      await ctx.sendGatewayEvent(gatewayEvent);
+
+      const reaction = defined<ReactionEvent>(capturedReaction);
+      // Should be 3-segment: discord:GUILD123:CHANNEL456
+      expect(reaction.threadId).toBe("discord:GUILD123:CHANNEL456");
+    });
+  });
+
   describe("Gateway Message Processing", () => {
     it("should correctly identify mentioned messages", async () => {
       let capturedMessage: Message | null = null;
