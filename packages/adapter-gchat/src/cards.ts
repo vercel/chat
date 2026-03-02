@@ -64,6 +64,7 @@ export interface GoogleChatWidget {
 
 export interface GoogleChatButton {
   color?: { red: number; green: number; blue: number };
+  disabled?: boolean;
   onClick: {
     action: {
       function: string;
@@ -293,6 +294,10 @@ function convertButtonToGoogleButton(
   } else if (button.style === "danger") {
     // Red color for danger
     googleButton.color = { red: 0.9, green: 0.2, blue: 0.2 };
+  }
+
+  if (button.disabled) {
+    googleButton.disabled = true;
   }
 
   return googleButton;

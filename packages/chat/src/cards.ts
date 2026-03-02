@@ -67,6 +67,8 @@ export interface ButtonElement {
   type: "button";
   /** Optional payload value sent with action callback */
   value?: string;
+  /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
+  disabled?: boolean;
 }
 
 /** Link button element that opens a URL */
@@ -340,6 +342,8 @@ export interface ButtonOptions {
   style?: ButtonStyle;
   /** Optional payload value sent with action callback */
   value?: string;
+  /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
+  disabled?: boolean;
 }
 
 /**
@@ -358,6 +362,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     label: options.label,
     style: options.style,
     value: options.value,
+    disabled: options.disabled,
   };
 }
 
