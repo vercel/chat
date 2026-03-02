@@ -1313,9 +1313,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Route a socket mode event to the appropriate handler.
    */
-  private routeSocketEvent(
-    body: Record<string, unknown>
-  ): void {
+  private routeSocketEvent(body: Record<string, unknown>): void {
     const type = body.type as string;
 
     switch (type) {
