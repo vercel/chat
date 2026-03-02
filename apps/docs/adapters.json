@@ -97,5 +97,13 @@
     "author": "Beeper",
     "readme": "https://github.com/beeper/chat-adapter-matrix",
     "vendorOfficial": true
+  {
+    "name": "iMessage",
+    "slug": "imessage",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
+    "packageName": "chat-adapter-imessage",
+    "author": "Photon",
   }
 ]
