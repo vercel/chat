@@ -30,8 +30,8 @@ Key docs to read based on task:
 - `docs/cards.mdx` — JSX interactive cards
 - `docs/actions.mdx` — button/dropdown handlers
 - `docs/modals.mdx` — form dialogs (Slack only)
-- `docs/adapters/*.mdx` — platform-specific adapter setup
-- `docs/state/*.mdx` — state adapter config (Redis, ioredis, PostgreSQL, memory)
+- `docs/adapters.mdx` — platform-specific adapter setup
+- `docs/state.mdx` — state adapter config (Redis, ioredis, PostgreSQL, memory)
 
 Also read the TypeScript types from `node_modules/chat/dist/` to understand the full API surface.
 
