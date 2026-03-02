@@ -36,9 +36,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
     return matchesTab && matchesQuery;
   });
 
-  const official = filtered.filter(
-    (a) => !a.community && !a.vendorOfficial
-  );
+  const official = filtered.filter((a) => !(a.community || a.vendorOfficial));
   const vendorOfficial = filtered.filter((a) => a.vendorOfficial);
   const community = filtered.filter((a) => a.community && !a.vendorOfficial);
 

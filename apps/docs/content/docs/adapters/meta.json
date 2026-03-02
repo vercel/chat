@@ -1,13 +1,4 @@
 {
   "title": "Adapters",
-  "pages": [
-    "index",
-    "slack",
-    "teams",
-    "gchat",
-    "discord",
-    "telegram",
-    "github",
-    "linear"
-  ]
+  "pages": ["index"]
 }
