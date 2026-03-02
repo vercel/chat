@@ -110,7 +110,7 @@
     "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do"
   },
   {
-    "name": "Matrix",
+    "name": "Beeper Matrix",
     "slug": "matrix",
     "type": "platform",
     "community": true,
@@ -121,7 +121,7 @@
     "vendorOfficial": true
   },
   {
-    "name": "iMessage",
+    "name": "Photon iMessage",
     "slug": "imessage",
     "type": "platform",
     "community": true,
