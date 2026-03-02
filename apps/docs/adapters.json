@@ -100,6 +100,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-memory"
   },
   {
+    "name": "Cloudflare Durable Objects",
+    "slug": "cloudflare-do",
+    "type": "state",
+    "community": true,
+    "description": "Cloudflare Durable Objects state adapter with SQLite-backed persistence, distributed locking, and caching.",
+    "packageName": "chat-state-cloudflare-do",
+    "author": "dcartertwo",
+    "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do"
+  },
+  {
     "name": "Matrix",
     "slug": "matrix",
     "type": "platform",
