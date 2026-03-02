@@ -2,21 +2,34 @@
  * Tests for the JSX runtime - custom JSX support for chat cards.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   Actions,
+  type ActionsElement,
   Button,
+  type ButtonElement,
   Card,
+  type CardElement,
   CardLink,
   Divider,
+  type DividerElement,
   Field,
+  type FieldElement,
   Fields,
+  type FieldsElement,
   Image,
+  type ImageElement,
   LinkButton,
+  type LinkButtonElement,
+  type LinkElement,
   Section,
+  type SectionElement,
   Text,
+  type TextElement,
 } from "./cards";
 import {
+  type CardJSXElement,
+  type ChatElement,
   Fragment,
   isJSX,
   jsx,
@@ -24,7 +37,18 @@ import {
   toCardElement,
   toModalElement,
 } from "./jsx-runtime";
-import { Modal, RadioSelect, Select, SelectOption, TextInput } from "./modals";
+import {
+  Modal,
+  type ModalElement,
+  RadioSelect,
+  type RadioSelectElement,
+  Select,
+  type SelectElement,
+  SelectOption,
+  type SelectOptionElement,
+  TextInput,
+  type TextInputElement,
+} from "./modals";
 
 // ============================================================================
 // jsx() and jsxs() Factory Tests
@@ -868,5 +892,79 @@ describe("toCardElement with Select elements", () => {
     expect(() => toCardElement(card)).toThrow(
       "RadioSelect requires at least one option"
     );
+  });
+});
+
+// ============================================================================
+// ChatElement Type Compatibility Tests
+// ============================================================================
+
+describe("ChatElement type compatibility", () => {
+  it("CardJSXElement is assignable to ChatElement", () => {
+    expectTypeOf<CardJSXElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("CardElement is assignable to ChatElement", () => {
+    expectTypeOf<CardElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("TextElement is assignable to ChatElement", () => {
+    expectTypeOf<TextElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("ButtonElement is assignable to ChatElement", () => {
+    expectTypeOf<ButtonElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("LinkButtonElement is assignable to ChatElement", () => {
+    expectTypeOf<LinkButtonElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("LinkElement is assignable to ChatElement", () => {
+    expectTypeOf<LinkElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("ImageElement is assignable to ChatElement", () => {
+    expectTypeOf<ImageElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("DividerElement is assignable to ChatElement", () => {
+    expectTypeOf<DividerElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("ActionsElement is assignable to ChatElement", () => {
+    expectTypeOf<ActionsElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("SectionElement is assignable to ChatElement", () => {
+    expectTypeOf<SectionElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("FieldsElement is assignable to ChatElement", () => {
+    expectTypeOf<FieldsElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("FieldElement is assignable to ChatElement", () => {
+    expectTypeOf<FieldElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("ModalElement is assignable to ChatElement", () => {
+    expectTypeOf<ModalElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("TextInputElement is assignable to ChatElement", () => {
+    expectTypeOf<TextInputElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("SelectElement is assignable to ChatElement", () => {
+    expectTypeOf<SelectElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("SelectOptionElement is assignable to ChatElement", () => {
+    expectTypeOf<SelectOptionElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("RadioSelectElement is assignable to ChatElement", () => {
+    expectTypeOf<RadioSelectElement>().toMatchTypeOf<ChatElement>();
   });
 });
