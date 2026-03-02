@@ -1,0 +1,288 @@
+---
+title: MCP (Model Context Protocol)
+description: Discover and invoke tools from remote MCP servers directly from your chat bot handlers.
+type: guide
+prerequisites:
+  - /docs/usage
+---
+
+Chat SDK can connect to remote [MCP](https://modelcontextprotocol.io/) servers to discover and invoke tools. This lets your bot call APIs like Sentry, Linear, Notion, and Figma through a standard protocol.
+
+## Installation
+
+The MCP SDK is an optional peer dependency:
+
+```bash
+pnpm add @modelcontextprotocol/sdk
+```
+
+## Configuration
+
+Pass `mcpServers` when creating your `Chat` instance:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { slack },
+  state,
+  mcpServers: [
+    {
+      name: "sentry",
+      transport: {
+        type: "http",
+        url: "https://mcp.sentry.dev/mcp",
+        headers: {
+          Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
+        },
+      },
+    },
+  ],
+});
+```
+
+MCP servers are connected lazily on the first webhook request.
+
+## Listing tools
+
+Discover all tools available across connected servers:
+
+```typescript title="lib/bot.ts" lineNumbers
+const tools = await bot.mcp.listTools();
+
+for (const tool of tools) {
+  console.log(`${tool.serverName}/${tool.name}: ${tool.description}`);
+}
+```
+
+Each tool includes `name`, `description`, `inputSchema` (JSON Schema), and `serverName`.
+
+## Calling tools
+
+Invoke a tool by name from any handler:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  const result = await bot.mcp.callTool("search_issues", {
+    query: message.text,
+  });
+
+  const text = result.content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text)
+    .join("\n");
+
+  await thread.post(text);
+});
+```
+
+## Using with AI SDK
+
+If you're building an AI-powered bot with [AI SDK](https://ai-sdk.dev), use [`@ai-sdk/mcp`](https://ai-sdk.dev/docs/ai-sdk-core/mcp-tools) to let the model decide which MCP tools to call. This is complementary to the built-in `bot.mcp` client — use `@ai-sdk/mcp` when an LLM should choose tools, and `bot.mcp` when your code should call tools directly.
+
+```bash
+pnpm add @ai-sdk/mcp ai
+```
+
+Create an MCP client and pass its tools to a `ToolLoopAgent`:
+
+<CodeBlockTabs defaultValue="gateway">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="gateway">AI Gateway</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="anthropic">Anthropic</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="openai">OpenAI</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+
+  <CodeBlockTab value="gateway">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: gateway("anthropic/claude-sonnet-4-5"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+
+  <CodeBlockTab value="anthropic">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: anthropic("claude-sonnet-4-5"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+
+  <CodeBlockTab value="openai">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: openai("gpt-4o"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+<Callout type="info">
+**When to use which approach:**
+- **`bot.mcp`** (this page) — Your code decides which tools to call. Good for deterministic workflows, slash commands, and when you need per-call auth headers or Chat SDK lifecycle management.
+- **`@ai-sdk/mcp`** (above) — The LLM decides which tools to call. Good for AI agents that need to reason about which tools to use based on the user's message.
+
+Both approaches can be used together in the same bot.
+</Callout>
+
+## Transport types
+
+| Type | Config value | Description |
+|------|-------------|-------------|
+| Streamable HTTP | `"http"` | Default. Modern bidirectional transport over HTTP. |
+| Server-Sent Events | `"sse"` | Legacy SSE-based transport. Use if the server doesn't support Streamable HTTP. |
+
+## Authentication
+
+### Service-level (static headers)
+
+The bot uses a shared API key for all requests. Configure headers directly in the transport:
+
+```typescript
+mcpServers: [
+  {
+    name: "sentry",
+    transport: {
+      type: "http",
+      url: "https://mcp.sentry.dev/mcp",
+      headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+    },
+  },
+];
+```
+
+### Per-tenant
+
+Look up the tenant's token at call time and pass it via the `headers` option. A temporary connection is created with those headers for the duration of the call:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  const tenantToken = await lookupTenantToken(thread.id);
+
+  const result = await bot.mcp.callTool(
+    "search_issues",
+    { query: message.text },
+    { headers: { Authorization: `Bearer ${tenantToken}` } }
+  );
+
+  await thread.post(result.content[0].text);
+});
+```
+
+### Per-user
+
+Same pattern — resolve the user's OAuth token and pass it per-call:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  const userToken = await getUserOAuthToken(message.author.id);
+
+  const result = await bot.mcp.callTool(
+    "create_issue",
+    { title: message.text },
+    { headers: { Authorization: `Bearer ${userToken}` } }
+  );
+
+  await thread.post(`Created: ${result.content[0].text}`);
+});
+```
+
+## Multiple servers
+
+Tools from all configured servers are merged. The SDK routes each `callTool` to the correct server automatically:
+
+```typescript
+mcpServers: [
+  {
+    name: "sentry",
+    transport: { type: "http", url: "https://mcp.sentry.dev/mcp" },
+  },
+  {
+    name: "linear",
+    transport: {
+      type: "http",
+      url: "https://mcp.linear.app/mcp",
+      headers: { Authorization: `Bearer ${process.env.LINEAR_API_KEY}` },
+    },
+  },
+];
+```
+
+## Refreshing tools
+
+If a server's tool list changes at runtime, re-fetch it:
+
+```typescript
+await bot.mcp.refresh();
+```
+
+## Graceful degradation
+
+If a server fails to connect during initialization, a warning is logged and the remaining servers continue normally. Your bot won't crash because one MCP server is down.
+
+## Error codes
+
+| Code | When |
+|------|------|
+| `MCP_TOOL_NOT_FOUND` | `callTool` is called with a tool name that doesn't exist on any connected server. |
+| `MCP_NOT_CONFIGURED` | `callTool` is called but no `mcpServers` were configured. |
+| `MCP_SDK_NOT_INSTALLED` | `@modelcontextprotocol/sdk` is not installed. |

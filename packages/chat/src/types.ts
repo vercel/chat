@@ -6,6 +6,7 @@ import type { Root } from "mdast";
 import type { CardElement } from "./cards";
 import type { CardJSXElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
+import type { McpServerConfig } from "./mcp-types";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
 
@@ -54,6 +55,8 @@ export interface ChatConfig<
    * Pass "silent" to disable all logging.
    */
   logger?: Logger | LogLevel;
+  /** MCP servers to connect to for tool discovery and invocation */
+  mcpServers?: McpServerConfig[];
   /** State adapter for subscriptions and locking */
   state: StateAdapter;
   /**

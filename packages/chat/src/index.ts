@@ -169,6 +169,17 @@ export {
   toPlainText,
   walkAst,
 } from "./markdown";
+// MCP types
+export type {
+  McpCallToolOptions,
+  McpContentBlock,
+  McpHeaders,
+  McpManager,
+  McpServerConfig,
+  McpTool,
+  McpToolResult,
+  McpTransportConfig,
+} from "./mcp-types";
 // Modal types
 export type {
   ModalChild,
