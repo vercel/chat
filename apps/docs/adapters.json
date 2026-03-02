@@ -1,0 +1,101 @@
+[
+  {
+    "name": "Slack",
+    "slug": "slack",
+    "type": "platform",
+    "description": "Build bots for Slack workspaces with full support for threads, reactions, and interactive messages.",
+    "packageName": "@chat-adapter/slack",
+    "icon": "slack",
+    "beta": true
+  },
+  {
+    "name": "Microsoft Teams",
+    "slug": "teams",
+    "type": "platform",
+    "description": "Deploy bots to Microsoft Teams with adaptive cards, mentions, and conversation threading.",
+    "packageName": "@chat-adapter/teams",
+    "icon": "teams",
+    "beta": true
+  },
+  {
+    "name": "Google Chat",
+    "slug": "google-chat",
+    "type": "platform",
+    "description": "Integrate with Google Chat spaces for team collaboration and automated workflows.",
+    "packageName": "@chat-adapter/gchat",
+    "icon": "google-chat",
+    "sourceSlug": "gchat",
+    "beta": true
+  },
+  {
+    "name": "Discord",
+    "slug": "discord",
+    "type": "platform",
+    "description": "Create Discord bots with slash commands, threads, and rich embeds.",
+    "packageName": "@chat-adapter/discord",
+    "icon": "discord",
+    "beta": true
+  },
+  {
+    "name": "GitHub",
+    "slug": "github",
+    "type": "platform",
+    "description": "Build bots that respond to pull request and issue comment threads.",
+    "packageName": "@chat-adapter/github",
+    "icon": "github",
+    "beta": true
+  },
+  {
+    "name": "Linear",
+    "slug": "linear",
+    "type": "platform",
+    "description": "Automate Linear issue comment threads with bot responses and workflows.",
+    "packageName": "@chat-adapter/linear",
+    "icon": "linear",
+    "beta": true
+  },
+  {
+    "name": "Telegram",
+    "slug": "telegram",
+    "type": "platform",
+    "description": "Connect to Telegram with support for groups, channels, and inline keyboards.",
+    "packageName": "@chat-adapter/telegram",
+    "icon": "telegram",
+    "beta": true
+  },
+  {
+    "name": "Redis",
+    "slug": "redis",
+    "type": "state",
+    "description": "Production-ready state adapter using Redis for persistence and distributed locking.",
+    "packageName": "@chat-adapter/state-redis",
+    "beta": true
+  },
+  {
+    "name": "ioredis",
+    "slug": "ioredis",
+    "type": "state",
+    "description": "Redis state adapter using ioredis with cluster and sentinel support.",
+    "packageName": "@chat-adapter/state-ioredis",
+    "beta": true
+  },
+  {
+    "name": "Memory",
+    "slug": "memory",
+    "type": "state",
+    "description": "In-memory state adapter for development and testing environments.",
+    "packageName": "@chat-adapter/state-memory",
+    "beta": true
+  },
+  {
+    "name": "Matrix",
+    "slug": "matrix",
+    "type": "platform",
+    "community": true,
+    "description": "Matrix adapter for Chat SDK, built and maintained by Beeper.",
+    "packageName": "@beeper/chat-adapter-matrix",
+    "author": "Beeper",
+    "readme": "https://github.com/beeper/chat-adapter-matrix",
+    "vendorOfficial": true
+  }
+]
