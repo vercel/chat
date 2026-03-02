@@ -16,6 +16,25 @@ import { createSlackAdapter, SlackAdapter } from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
 
+// Mock @slack/socket-mode
+const mockSocketStart = vi.fn().mockResolvedValue({});
+const mockSocketDisconnect = vi.fn().mockResolvedValue(undefined);
+const mockSocketOn = vi.fn();
+
+vi.mock("@slack/socket-mode", () => {
+  return {
+    SocketModeClient: class MockSocketModeClient {
+      start = mockSocketStart;
+      disconnect = mockSocketDisconnect;
+      on = mockSocketOn;
+      constructor(_opts: Record<string, unknown>) {
+        MockSocketModeClient.lastOpts = _opts;
+      }
+      static lastOpts: Record<string, unknown> = {};
+    },
+  };
+});
+
 const mockLogger: Logger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -4980,5 +4999,291 @@ describe("reverse user lookup", () => {
       const cached = await state.get("slack:user:U_DOM_123");
       expect(cached).toBeNull();
     });
+  });
+});
+
+// ============================================================================
+// Socket Mode Tests
+// ============================================================================
+
+describe("socket mode - factory validation", () => {
+  it("throws without appToken in socket mode", () => {
+    expect(() =>
+      createSlackAdapter({
+        mode: "socket",
+        botToken: "xoxb-test-token",
+        logger: mockLogger,
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it("creates adapter with appToken in socket mode", () => {
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+    expect(adapter.isSocketMode).toBe(true);
+  });
+
+  it("does not require signingSecret in socket mode", () => {
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("rejects multi-workspace config in socket mode", () => {
+    expect(() =>
+      createSlackAdapter({
+        mode: "socket",
+        appToken: "xapp-test-token",
+        botToken: "xoxb-test-token",
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        logger: mockLogger,
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it("isSocketMode returns false for webhook mode", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    expect(adapter.isSocketMode).toBe(false);
+  });
+});
+
+describe("socket mode - handleWebhook", () => {
+  it("returns 405 in socket mode", async () => {
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: "{}",
+    });
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(405);
+  });
+});
+
+describe("socket mode - initialize", () => {
+  it("creates SocketModeClient and starts on initialize", async () => {
+    const { SocketModeClient: MockedClient } = await import(
+      "@slack/socket-mode"
+    );
+
+    mockSocketStart.mockClear();
+    mockSocketOn.mockClear();
+
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize(createMockChatInstance(state));
+
+    expect(
+      (MockedClient as unknown as { lastOpts: Record<string, unknown> })
+        .lastOpts
+    ).toEqual({
+      appToken: "xapp-test-token",
+    });
+    expect(mockSocketOn).toHaveBeenCalledWith(
+      "slack_event",
+      expect.any(Function)
+    );
+    expect(mockSocketStart).toHaveBeenCalled();
+  });
+});
+
+describe("socket mode - routeSocketEvent", () => {
+  async function createSocketAdapter() {
+    mockSocketStart.mockClear();
+    mockSocketOn.mockClear();
+    mockSocketDisconnect.mockClear();
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize(chatInstance);
+
+    // Extract the slack_event handler registered via on()
+    const slackEventHandler = mockSocketOn.mock.calls.find(
+      (call: unknown[]) => call[0] === "slack_event"
+    )?.[1] as (args: {
+      ack: () => Promise<void>;
+      body: Record<string, unknown>;
+      retry_num?: number;
+    }) => Promise<void>;
+
+    return { adapter, chatInstance, slackEventHandler };
+  }
+
+  it("dispatches event_callback to processMessage", async () => {
+    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        type: "event_callback",
+        event: {
+          type: "message",
+          channel: "C123",
+          ts: "1234567890.123456",
+          text: "hello from socket",
+          user: "U_USER",
+        },
+      },
+    });
+
+    expect(chatInstance.processMessage).toHaveBeenCalled();
+  });
+
+  it("dispatches slash_commands to processSlashCommand", async () => {
+    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        type: "slash_commands",
+        command: "/test",
+        text: "arg1",
+        user_id: "U_USER",
+        channel_id: "C123",
+      },
+    });
+
+    // handleSlashCommand is async (user lookup), wait for it to complete
+    await vi.waitFor(() => {
+      expect(chatInstance.processSlashCommand).toHaveBeenCalled();
+    });
+  });
+
+  it("dispatches interactive payloads to processAction", async () => {
+    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        type: "interactive",
+        payload: {
+          type: "block_actions",
+          actions: [
+            {
+              type: "button",
+              action_id: "test_action",
+              value: "clicked",
+            },
+          ],
+          channel: { id: "C123", name: "test" },
+          container: {
+            type: "message",
+            message_ts: "1234567890.123456",
+            channel_id: "C123",
+          },
+          message: { ts: "1234567890.123456" },
+          trigger_id: "trigger123",
+          user: { id: "U_USER", username: "testuser" },
+        },
+      },
+    });
+
+    expect(chatInstance.processAction).toHaveBeenCalled();
+  });
+
+  it("skips retries", async () => {
+    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        type: "event_callback",
+        event: {
+          type: "message",
+          channel: "C123",
+          ts: "1234567890.123456",
+          text: "retried",
+          user: "U_USER",
+        },
+      },
+      retry_num: 1,
+    });
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("acks immediately", async () => {
+    const { slackEventHandler } = await createSocketAdapter();
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      body: {
+        type: "event_callback",
+        event: {
+          type: "message",
+          channel: "C123",
+          ts: "1234567890.123456",
+          text: "test",
+          user: "U_USER",
+        },
+      },
+    });
+
+    expect(ack).toHaveBeenCalled();
+  });
+});
+
+describe("socket mode - disconnect", () => {
+  it("calls socketClient.disconnect()", async () => {
+    mockSocketStart.mockClear();
+    mockSocketOn.mockClear();
+    mockSocketDisconnect.mockClear();
+
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      mode: "socket",
+      appToken: "xapp-test-token",
+      botToken: "xoxb-test-token",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize(createMockChatInstance(state));
+    await adapter.disconnect();
+
+    expect(mockSocketDisconnect).toHaveBeenCalled();
+  });
+
+  it("is a no-op when not connected", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+
+    // Should not throw
+    await adapter.disconnect();
   });
 });
