@@ -271,6 +271,8 @@ export interface DiscordGatewayMessageData {
 export interface DiscordGatewayReactionData {
   /** Channel containing the message */
   channel_id: string;
+  /** Channel type (11 = public thread, 12 = private thread) */
+  channel_type?: number;
   /** Emoji used for the reaction */
   emoji: {
     name: string | null;

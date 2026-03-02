@@ -684,9 +684,33 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = data.guild_id || "@me";
     const channelId = data.channel_id;
 
+    // Check if reaction is in a thread channel
+    let discordThreadId: string | undefined;
+    let parentChannelId = channelId;
+
+    if (data.channel_type === 11 || data.channel_type === 12) {
+      try {
+        const response = await this.discordFetch(
+          `/channels/${channelId}`,
+          "GET"
+        );
+        const channel = (await response.json()) as { parent_id?: string };
+        if (channel.parent_id) {
+          discordThreadId = channelId;
+          parentChannelId = channel.parent_id;
+        }
+      } catch (error) {
+        this.logger.error("Failed to fetch thread parent for reaction", {
+          error: String(error),
+          channelId,
+        });
+      }
+    }
+
     const threadId = this.encodeThreadId({
       guildId,
-      channelId,
+      channelId: parentChannelId,
+      threadId: discordThreadId,
     });
 
     // Normalize emoji
@@ -1953,7 +1977,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async handleGatewayReaction(
     reaction: {
       emoji: { name: string | null; id: string | null };
-      message: { id: string; channelId: string; guildId: string | null };
+      message: {
+        id: string;
+        channelId: string;
+        guildId: string | null;
+        channel?: { isThread?: () => boolean; parentId?: string | null };
+      };
     },
     user: { id: string; username: string; bot: boolean },
     added: boolean
@@ -1965,12 +1994,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = reaction.message.guildId || "@me";
     const channelId = reaction.message.channelId;
 
-    // For reactions, we don't know if the message is in a thread without fetching it
-    // Use the channel ID directly for now
+    // Check if reaction is in a thread channel
+    const isInThread = reaction.message.channel?.isThread?.();
+    let parentChannelId = channelId;
+    let discordThreadId: string | undefined;
+
+    if (
+      isInThread &&
+      reaction.message.channel &&
+      "parentId" in reaction.message.channel &&
+      reaction.message.channel.parentId
+    ) {
+      discordThreadId = channelId;
+      parentChannelId = reaction.message.channel.parentId;
+    }
+
     const threadId = this.encodeThreadId({
       guildId,
-      channelId,
-      threadId: undefined,
+      channelId: parentChannelId,
+      threadId: discordThreadId,
     });
 
     // Normalize emoji
