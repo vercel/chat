@@ -659,7 +659,7 @@ describe("TelegramAdapter", () => {
       if (typeof previousVercel === "string") {
         process.env.VERCEL = previousVercel;
       } else {
-        delete process.env.VERCEL;
+        Reflect.deleteProperty(process.env, "VERCEL");
       }
     }
   });
