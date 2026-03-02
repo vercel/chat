@@ -32,6 +32,44 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+## Socket mode
+
+For environments behind firewalls that can't expose public HTTP endpoints, Socket Mode connects to Slack via WebSocket. This is useful for corporate networks, local development, or self-hosted deployments.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      mode: "socket",
+      appToken: process.env.SLACK_APP_TOKEN,
+      botToken: process.env.SLACK_BOT_TOKEN,
+    }),
+  },
+});
+```
+
+### Enable Socket Mode in your Slack app
+
+1. Go to your app settings at [api.slack.com/apps](https://api.slack.com/apps)
+2. Navigate to **Socket Mode** and toggle it on
+3. Generate an **App-Level Token** with the `connections:write` scope
+4. Copy the token (`xapp-...`) as `SLACK_APP_TOKEN`
+
+Socket Mode is not compatible with multi-workspace OAuth (`clientId`/`clientSecret`), since it uses a single app-level token.
+
+### Disconnecting
+
+Call `disconnect()` to close the WebSocket connection:
+
+```typescript title="lib/bot.ts"
+const slackAdapter = bot.getAdapter("slack") as SlackAdapter;
+await slackAdapter.disconnect();
+```
+
 ## Multi-workspace mode
 
 For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks.
@@ -182,21 +220,22 @@ All options are auto-detected from environment variables when not provided. You 
 
 | Option | Required | Description |
 |--------|----------|-------------|
+| `mode` | No | Connection mode: `"webhook"` (default) or `"socket"` |
+| `appToken` | Socket | App-level token (`xapp-...`). Auto-detected from `SLACK_APP_TOKEN`. Required for socket mode |
 | `botToken` | No | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN` |
-| `signingSecret` | No* | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET` |
+| `signingSecret` | Webhook | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET`. Required for webhook mode |
 | `clientId` | No | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID` |
 | `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`signingSecret` is required — either via config or `SLACK_SIGNING_SECRET` env var.
-
 ## Environment variables
 
 ```bash title=".env.local"
 SLACK_BOT_TOKEN=xoxb-...             # Single-workspace only
-SLACK_SIGNING_SECRET=...
+SLACK_SIGNING_SECRET=...             # Webhook mode only
+SLACK_APP_TOKEN=xapp-...             # Socket mode only
 SLACK_CLIENT_ID=...                  # Multi-workspace only
 SLACK_CLIENT_SECRET=...              # Multi-workspace only
 SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
@@ -219,6 +258,7 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 | Message history | Yes |
 | Assistants API | Yes |
 | App Home tab | Yes |
+| Socket Mode | Yes |
 
 ## Slack Assistants API
 
