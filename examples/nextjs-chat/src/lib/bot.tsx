@@ -457,14 +457,14 @@ bot.onAction("messages", async (event) => {
     const formatMessages = (msgs: typeof recentResult.messages) =>
       msgs.length > 0
         ? msgs
-          .map((m, i) => {
-            const displayText = getDisplayText(
-              m.text,
-              m.attachments && m.attachments.length > 0
-            );
-            return `Msg ${i + 1}: ${m.author.userName} - ${displayText}`;
-          })
-          .join("\n\n")
+            .map((m, i) => {
+              const displayText = getDisplayText(
+                m.text,
+                m.attachments && m.attachments.length > 0
+              );
+              return `Msg ${i + 1}: ${m.author.userName} - ${displayText}`;
+            })
+            .join("\n\n")
         : "(no messages)";
 
     await thread.post(
@@ -473,16 +473,18 @@ bot.onAction("messages", async (event) => {
           <Text>**fetchMessages (backward, limit: 5)**</Text>
           <Text>Gets most recent messages, cursor points to older</Text>
           <Text>{formatMessages(recentResult.messages)}</Text>
-          <Text>{`Next cursor: ${recentResult.nextCursor ? "yes" : "none"
-            }`}</Text>
+          <Text>{`Next cursor: ${
+            recentResult.nextCursor ? "yes" : "none"
+          }`}</Text>
         </Section>
         <Divider />
         <Section>
           <Text>**fetchMessages (forward, limit: 5)**</Text>
           <Text>Gets oldest messages first, cursor points to newer</Text>
           <Text>{formatMessages(oldestResult.messages)}</Text>
-          <Text>{`Next cursor: ${oldestResult.nextCursor ? "yes" : "none"
-            }`}</Text>
+          <Text>{`Next cursor: ${
+            oldestResult.nextCursor ? "yes" : "none"
+          }`}</Text>
         </Section>
         <Divider />
         <Section>
@@ -498,7 +500,8 @@ bot.onAction("messages", async (event) => {
     );
   } catch (err) {
     await thread.post(
-      `${emoji.warning} Error fetching messages: ${err instanceof Error ? err.message : "Unknown error"
+      `${emoji.warning} Error fetching messages: ${
+        err instanceof Error ? err.message : "Unknown error"
       }`
     );
   }
@@ -540,7 +543,8 @@ bot.onAction("channel-post", async (event) => {
     );
   } catch (err) {
     await thread.post(
-      `${emoji.warning} Error reading channel: ${err instanceof Error ? err.message : "Unknown error"
+      `${emoji.warning} Error reading channel: ${
+        err instanceof Error ? err.message : "Unknown error"
       }`
     );
   }
@@ -629,7 +633,8 @@ bot.onSubscribedMessage(async (thread, message) => {
       await thread.post(`${emoji.check} I've sent you a DM!`);
     } catch (err) {
       await thread.post(
-        `${emoji.warning} Sorry, I couldn't send you a DM. Error: ${err instanceof Error ? err.message : "Unknown error"
+        `${emoji.warning} Sorry, I couldn't send you a DM. Error: ${
+          err instanceof Error ? err.message : "Unknown error"
         }`
       );
     }
