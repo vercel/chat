@@ -1,8 +1,8 @@
+import { SiGithub } from "@icons-pack/react-simple-icons";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import adapters from "@/adapters.json";
+import { ReadmeContent } from "../components/readme-content";
 
 const GITHUB_TREE_PATTERN = /github\.com\/([^/]+)\/([^/]+)\/tree\/[^/]+\/(.+)/;
 const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
@@ -48,29 +48,17 @@ const AdapterPage = async ({
 
   return (
     <div className="container mx-auto max-w-3xl">
-      <section className="mt-(--fd-nav-height) space-y-4 px-4 pt-16 pb-8 sm:pt-24">
-        <h1 className="text-balance font-semibold text-[40px] leading-[1.1] tracking-tight sm:text-5xl">
-          {adapter.name}
-        </h1>
-        <p className="text-lg text-muted-foreground leading-relaxed">
-          {adapter.description}
-        </p>
-        <div className="flex items-center gap-3 text-muted-foreground text-sm">
-          <code>{adapter.packageName}</code>
-          <span>&middot;</span>
+      {readme ? (
+        <article className="relative max-w-none px-4 py-16">
           <a
-            className="text-primary underline"
+            className="absolute top-18 right-4"
             href={adapter.readme}
             rel="noopener noreferrer"
             target="_blank"
           >
-            View on GitHub
+            <SiGithub className="size-6" />
           </a>
-        </div>
-      </section>
-      {readme ? (
-        <article className="prose dark:prose-invert max-w-none px-4 pb-16">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme}</ReactMarkdown>
+          <ReadmeContent>{readme}</ReadmeContent>
         </article>
       ) : (
         <p className="px-4 pb-16 text-muted-foreground">
