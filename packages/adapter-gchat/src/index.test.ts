@@ -2267,7 +2267,22 @@ describe("GoogleChatAdapter", () => {
 
   describe("createGoogleChatAdapter factory", () => {
     it("should throw when no auth method is provided", () => {
-      expect(() => createGoogleChatAdapter({})).toThrow();
+      const originalCreds = process.env.GOOGLE_CHAT_CREDENTIALS;
+      const originalAdc = process.env.GOOGLE_CHAT_USE_ADC;
+      try {
+        // biome-ignore lint/performance/noDelete: env var removal requires delete
+        delete process.env.GOOGLE_CHAT_CREDENTIALS;
+        // biome-ignore lint/performance/noDelete: env var removal requires delete
+        delete process.env.GOOGLE_CHAT_USE_ADC;
+        expect(() => createGoogleChatAdapter({})).toThrow();
+      } finally {
+        if (originalCreds !== undefined) {
+          process.env.GOOGLE_CHAT_CREDENTIALS = originalCreds;
+        }
+        if (originalAdc !== undefined) {
+          process.env.GOOGLE_CHAT_USE_ADC = originalAdc;
+        }
+      }
     });
 
     it("should create with custom auth", () => {
