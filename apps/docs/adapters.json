@@ -142,6 +142,17 @@
     "readme": "https://github.com/SebastianBodza/chat-adapter-webex"
   },
   {
+    "name": "Resend",
+    "slug": "resend",
+    "type": "platform",
+    "community": true,
+    "description": "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
+    "packageName": "@resend/chat-sdk-adapter",
+    "author": "Resend",
+    "readme": "https://github.com/resend/resend-chat-sdk",
+    "vendorOfficial": true
+  },
+  {
     "name": "WhatsApp",
     "slug": "whatsapp",
     "type": "platform",
