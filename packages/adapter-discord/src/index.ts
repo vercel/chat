@@ -74,6 +74,11 @@ const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_CONTENT_LENGTH = 2000;
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
 const HEX_PATTERN = /^[0-9a-f]+$/;
+/** Discord interaction tokens are valid for 15 minutes.
+ * @see https://docs.discord.com/developers/interactions/receiving-and-responding#interaction-callback
+ */
+const INTERACTION_TOKEN_TTL_MS = 15 * 60 * 1000;
+const INTERACTION_TOKEN_KEY_PREFIX = "discord:interaction-token:";
 
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
@@ -206,9 +211,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       });
     }
 
-    // Handle APPLICATION_COMMAND (slash commands - not implemented yet)
+    // Handle APPLICATION_COMMAND (slash commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      // For now, just ACK
+      await this.handleSlashCommandInteraction(interaction, options);
       return this.respondToInteraction({
         type: InteractionResponseType.DeferredChannelMessageWithSource,
       });
@@ -364,6 +369,102 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  /**
+   * Handle APPLICATION_COMMAND interactions (slash commands).
+   */
+  private async handleSlashCommandInteraction(
+    interaction: DiscordInteraction,
+    options?: WebhookOptions
+  ): Promise<void> {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring slash command");
+      return;
+    }
+
+    const commandName = interaction.data?.name;
+    if (!commandName) {
+      this.logger.warn("No command name in slash command interaction");
+      return;
+    }
+
+    const user = interaction.member?.user || interaction.user;
+    if (!user) {
+      this.logger.warn("No user in slash command interaction");
+      return;
+    }
+
+    const interactionChannelId = interaction.channel_id;
+    if (!interactionChannelId) {
+      this.logger.warn("No channel_id in slash command interaction");
+      return;
+    }
+
+    const guildId = interaction.guild_id || "@me";
+
+    // Detect if the command was invoked inside a thread channel
+    // Discord channel types: 11 = public thread, 12 = private thread
+    const channel = interaction.channel;
+    const isThread = channel?.type === 11 || channel?.type === 12;
+    const parentChannelId =
+      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+
+    const channelId = isThread
+      ? this.encodeThreadId({
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
+      : this.encodeThreadId({ guildId, channelId: interactionChannelId });
+
+    // Join top-level option values into a text string (simple v1 approach)
+    const text =
+      interaction.data?.options
+        ?.map((opt) => String(opt.value ?? ""))
+        .join(" ") ?? "";
+
+    this.logger.debug("Processing Discord slash command", {
+      command: `/${commandName}`,
+      channelId,
+      triggerId: interaction.token,
+    });
+
+    // Store the interaction token in central state so postChannelMessage can resolve
+    // the deferred "thinking" response, even across serverless invocations.
+    try {
+      await this.chat
+        .getState()
+        .set(
+          `${INTERACTION_TOKEN_KEY_PREFIX}${channelId}`,
+          interaction.token,
+          INTERACTION_TOKEN_TTL_MS
+        );
+    } catch (error) {
+      this.logger.warn("Failed to store interaction token", {
+        error: String(error),
+        channelId,
+      });
+      // Continue processing — postChannelMessage will fall back to a regular channel message
+    }
+
+    const event = {
+      command: `/${commandName}`,
+      text,
+      user: {
+        userId: user.id,
+        userName: user.username,
+        fullName: user.global_name || user.username,
+        isBot: user.bot ?? false,
+        isMe: false,
+      },
+      adapter: this,
+      raw: interaction,
+      triggerId: interaction.token,
+      channelId,
+    };
+
+    this.chat.processSlashCommand(event, options);
   }
 
   /**
@@ -2018,6 +2119,38 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         payload,
         files
       );
+    }
+
+    // If there is a pending slash command interaction for this channel, resolve the
+    // deferred "thinking" message by PATCHing the original response via the interaction
+    // webhook instead of posting a new channel message.
+    const { chat } = this;
+    if (chat) {
+      const stateKey = `${INTERACTION_TOKEN_KEY_PREFIX}${channelId}`;
+      const interactionToken = await chat.getState().get<string>(stateKey);
+      if (interactionToken) {
+        this.logger.debug("Discord API: PATCH interaction original message", {
+          channelId: discordChannelId,
+          contentLength: payload.content?.length || 0,
+        });
+        try {
+          const response = await this.discordFetch(
+            `/webhooks/${this.applicationId}/${interactionToken}/messages/@original`,
+            "PATCH",
+            payload
+          );
+          const result = (await response.json()) as APIMessage;
+          await chat.getState().delete(stateKey);
+          return { id: result.id, threadId: channelId, raw: result };
+        } catch (error) {
+          this.logger.warn(
+            "Failed to PATCH interaction response, falling back to channel message",
+            { error: String(error), channelId: discordChannelId }
+          );
+          await chat.getState().delete(stateKey);
+          // Fall through to post a regular channel message
+        }
+      }
     }
 
     this.logger.debug("Discord API: POST channel message", {
