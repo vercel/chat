@@ -65,9 +65,9 @@ import {
   type DiscordGatewayMessageData,
   type DiscordGatewayReactionData,
   type DiscordInteraction,
-  type DiscordRequestContext,
   type DiscordInteractionResponse,
   type DiscordMessagePayload,
+  type DiscordRequestContext,
   type DiscordSlashCommandContext,
   type DiscordThreadId,
   InteractionResponseType,
@@ -90,7 +90,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private readonly formatConverter = new DiscordFormatConverter();
-  private readonly requestContext = new AsyncLocalStorage<DiscordRequestContext>();
+  private readonly requestContext =
+    new AsyncLocalStorage<DiscordRequestContext>();
 
   constructor(
     config: DiscordAdapterConfig & { logger: Logger; userName?: string }
@@ -334,14 +335,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const threadId = isThread
       ? this.encodeThreadId({
-        guildId,
-        channelId: parentChannelId,
-        threadId: interactionChannelId,
-      })
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
       : this.encodeThreadId({
-        guildId,
-        channelId: interactionChannelId,
-      });
+          guildId,
+          channelId: interactionChannelId,
+        });
 
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
@@ -408,14 +409,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const channelId = isThread
       ? this.encodeThreadId({
-        guildId,
-        channelId: parentChannelId,
-        threadId: interactionChannelId,
-      })
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
       : this.encodeThreadId({
-        guildId,
-        channelId: interactionChannelId,
-      });
+          guildId,
+          channelId: interactionChannelId,
+        });
 
     const { command, text } = this.parseSlashCommand(
       commandName,
@@ -843,15 +844,23 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       : `/webhooks/${this.applicationId}/${slashContext.interactionToken}?wait=true`;
     const method = isInitialResponse ? "PATCH" : "POST";
 
-    this.logger.debug("Discord interaction webhook: responding to slash command", {
-      threadId,
-      isInitialResponse,
-      hasFiles: files.length > 0,
-    });
+    this.logger.debug(
+      "Discord interaction webhook: responding to slash command",
+      {
+        threadId,
+        isInitialResponse,
+        hasFiles: files.length > 0,
+      }
+    );
 
     const response =
       files.length > 0
-        ? await this.discordInteractionFetchWithFiles(path, method, payload, files)
+        ? await this.discordInteractionFetchWithFiles(
+            path,
+            method,
+            payload,
+            files
+          )
         : await this.discordInteractionFetch(path, method, payload);
 
     const result = (await response.json()) as APIMessage;
@@ -1019,7 +1028,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         continue;
       }
       const buffer = await toBuffer(file.data, {
-        platform: "discord"
+        platform: "discord",
       });
       if (!buffer) {
         continue;
