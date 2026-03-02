@@ -529,7 +529,11 @@ describe("postChannelMessage - interaction token resolution", () => {
     await adapter.postChannelMessage(channelId, {
       raw: "Here is a file",
       files: [
-        { filename: "test.txt", data: Buffer.from("hello"), mimeType: "text/plain" },
+        {
+          filename: "test.txt",
+          data: Buffer.from("hello"),
+          mimeType: "text/plain",
+        },
       ],
     });
 

@@ -38,6 +38,13 @@ import {
   Message,
 } from "chat";
 import {
+  Client,
+  type Message as DiscordJsMessage,
+  Events,
+  GatewayIntentBits,
+  Partials,
+} from "discord.js";
+import {
   type APIEmbed,
   type APIMessage,
   ChannelType,
@@ -47,13 +54,6 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import {
-  Client,
-  type Message as DiscordJsMessage,
-  Events,
-  GatewayIntentBits,
-  Partials,
-} from "discord.js";
 import { cardToDiscordPayload, cardToFallbackText } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
