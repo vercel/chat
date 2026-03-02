@@ -128,6 +128,17 @@
     "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
     "packageName": "chat-adapter-imessage",
     "author": "Photon",
-    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage"
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Webex",
+    "slug": "webex",
+    "type": "platform",
+    "community": true,
+    "description": "Community Webex adapter for Chat SDK with support for spaces, threads, and adaptive cards.",
+    "packageName": "@bitbasti/chat-adapter-webex",
+    "author": "SebastianBodza",
+    "readme": "https://github.com/SebastianBodza/chat-adapter-webex"
   }
 ]
