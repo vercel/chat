@@ -2122,7 +2122,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const stateKey = `${INTERACTION_TOKEN_KEY_PREFIX}${channelId}`;
       const interactionToken = await chat.getState().get<string>(stateKey);
       if (interactionToken) {
-        const patchUrl = `${DISCORD_API_BASE}/webhooks/${this.applicationId}/${interactionToken}/messages/@original`;
+        const patchPath = `/webhooks/${this.applicationId}/${interactionToken}/messages/@original`;
         this.logger.debug("Discord API: PATCH interaction original message", {
           channelId: discordChannelId,
           contentLength: payload.content?.length || 0,
@@ -2152,7 +2152,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
                 file.filename
               );
             }
-            const response = await fetch(patchUrl, {
+            const response = await fetch(`${DISCORD_API_BASE}${patchPath}`, {
               method: "PATCH",
               headers: { Authorization: `Bot ${this.botToken}` },
               body: formData,
@@ -2167,7 +2167,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
             result = (await response.json()) as APIMessage;
           } else {
             const response = await this.discordFetch(
-              patchUrl,
+              patchPath,
               "PATCH",
               payload
             );
