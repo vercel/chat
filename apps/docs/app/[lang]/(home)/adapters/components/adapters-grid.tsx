@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AdapterCard } from "./adapter-card";
 import { AdaptersSearch } from "./adapters-search";
+import { BuildYourOwnCard } from "./build-your-own-card";
 import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
@@ -95,6 +96,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                 {...adapter}
               />
             ))}
+            <BuildYourOwnCard />
           </div>
         </section>
       ) : null}
@@ -115,6 +117,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                 {...adapter}
               />
             ))}
+            <BuildYourOwnCard />
           </div>
         </section>
       ) : null}
