@@ -16,6 +16,7 @@ import type {
   TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText } from "chat";
 
 /**
  * Convert a CardElement to Linear-compatible markdown.
@@ -128,8 +129,13 @@ function renderChild(child: CardChild): string[] {
     case "table":
       return renderTable(child);
 
-    default:
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [text];
+      }
       return [];
+    }
   }
 }
 
@@ -240,6 +246,6 @@ function childToPlainText(child: CardChild): string | null {
     case "section":
       return child.children.map(childToPlainText).filter(Boolean).join("\n");
     default:
-      return null;
+      return cardChildToFallbackText(child);
   }
 }

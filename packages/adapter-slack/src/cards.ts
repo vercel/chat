@@ -26,7 +26,7 @@ import type {
   TableElement,
   TextElement,
 } from "chat";
-import { tableElementToAscii } from "chat";
+import { cardChildToFallbackText, tableElementToAscii } from "chat";
 
 /**
  * Convert emoji placeholders in text to Slack format.
@@ -153,8 +153,13 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
       return [convertLinkToBlock(child)];
     case "table":
       return convertTableToBlocks(child);
-    default:
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [{ type: "section", text: { type: "mrkdwn", text } }];
+      }
       return [];
+    }
   }
 }
 

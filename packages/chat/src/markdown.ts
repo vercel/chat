@@ -452,6 +452,22 @@ export abstract class BaseFormatConverter implements FormatConverter {
   abstract toAst(platformText: string): Root;
 
   /**
+   * Default fallback for converting an unknown mdast node to text.
+   * Recursively converts children if present, otherwise extracts the node value.
+   * Adapters should call this in their nodeToX() default case.
+   */
+  protected defaultNodeToText(
+    node: Content,
+    nodeConverter: (node: Content) => string
+  ): string {
+    const children = getNodeChildren(node);
+    if (children.length > 0) {
+      return children.map(nodeConverter).join("");
+    }
+    return getNodeValue(node);
+  }
+
+  /**
    * Template method for implementing fromAst with a node converter.
    * Iterates through AST children and converts each using the provided function.
    * Joins results with double newlines (standard paragraph separation).

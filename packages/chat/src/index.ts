@@ -20,6 +20,7 @@ import {
   Card as _Card,
   CardLink as _CardLink,
   CardText as _CardText,
+  cardChildToFallbackText as _cardChildToFallbackText,
   Divider as _Divider,
   Field as _Field,
   Fields as _Fields,
@@ -38,6 +39,7 @@ import {
 export const Actions = _Actions;
 export const Button = _Button;
 export const Card = _Card;
+export const cardChildToFallbackText = _cardChildToFallbackText;
 export const CardLink = _CardLink;
 export const CardText = _CardText;
 export const Divider = _Divider;

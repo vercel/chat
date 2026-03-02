@@ -761,7 +761,7 @@ export function cardToFallbackText(card: CardElement): string {
   }
 
   for (const child of card.children) {
-    const text = childToFallbackText(child);
+    const text = cardChildToFallbackText(child);
     if (text) {
       parts.push(text);
     }
@@ -772,8 +772,9 @@ export function cardToFallbackText(card: CardElement): string {
 
 /**
  * Generate fallback text from a card child element.
+ * Exported so adapter card converters can call it for unknown types.
  */
-function childToFallbackText(child: CardChild): string | null {
+export function cardChildToFallbackText(child: CardChild): string | null {
   switch (child.type) {
     case "text":
       return child.content;
@@ -789,7 +790,7 @@ function childToFallbackText(child: CardChild): string | null {
       return tableElementToAsciiText(child.headers, child.rows);
     case "section":
       return child.children
-        .map((c) => childToFallbackText(c))
+        .map((c) => cardChildToFallbackText(c))
         .filter(Boolean)
         .join("\n");
     default:

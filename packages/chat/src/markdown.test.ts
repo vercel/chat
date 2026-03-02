@@ -582,6 +582,112 @@ describe("BaseFormatConverter", () => {
       expect(result).toContain("30");
     });
   });
+
+  describe("deprecated toPlainText method", () => {
+    it("extracts plain text from platform format", () => {
+      const result = converter.toPlainText("**bold** text");
+      expect(result).toBe("bold text");
+    });
+  });
+
+  describe("fromAstWithNodeConverter", () => {
+    class NodeConverterTestConverter extends BaseFormatConverter {
+      fromAst(ast: Root): string {
+        return this.fromAstWithNodeConverter(ast, (node) => {
+          if (node.type === "paragraph") {
+            return `[para:${toPlainText({ type: "root", children: [node] })}]`;
+          }
+          return toPlainText({ type: "root", children: [node] });
+        });
+      }
+
+      toAst(inputText: string): Root {
+        return parseMarkdown(inputText);
+      }
+    }
+
+    const nodeConverter = new NodeConverterTestConverter();
+
+    it("joins multiple paragraphs with double newlines", () => {
+      const ast = root([
+        paragraph([text("First")]),
+        paragraph([text("Second")]),
+      ]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("[para:First]\n\n[para:Second]");
+    });
+
+    it("handles single paragraph", () => {
+      const ast = root([paragraph([text("Only")])]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("[para:Only]");
+    });
+
+    it("handles empty AST", () => {
+      const ast = root([]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("");
+    });
+  });
+
+  describe("cardToFallbackText via renderPostable", () => {
+    it("handles card with section children", () => {
+      const card = Card({
+        children: [
+          Section([CardText("Section content"), CardText("More content")]),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Section content");
+      expect(result).toContain("More content");
+    });
+
+    it("handles card with only title (no children)", () => {
+      const card = Card({ title: "Title Only" });
+      const result = converter.renderPostable({ card });
+      expect(result).toBe("**Title Only**");
+    });
+
+    it("handles card with divider child (returns null for divider)", () => {
+      const card = Card({
+        title: "With Divider",
+        children: [Divider()],
+      });
+      const result = converter.renderPostable({ card });
+      // Divider falls to default case and returns null, so only title
+      expect(result).toBe("**With Divider**");
+    });
+
+    it("handles card with mixed children including actions (excluded)", () => {
+      const card = Card({
+        title: "Mixed",
+        children: [
+          CardText("Visible text"),
+          Actions([Button({ id: "ok", label: "OK" })]),
+          Fields([Field({ label: "Key", value: "Val" })]),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Visible text");
+      expect(result).not.toContain("OK");
+      expect(result).toContain("**Key**: Val");
+    });
+  });
+
+  describe("fromAstWithNodeConverter", () => {
+    it("joins multiple paragraphs with double newlines", () => {
+      const ast = root([
+        paragraph([text("First")]),
+        paragraph([text("Second")]),
+        paragraph([text("Third")]),
+      ]);
+      const result = converter.fromAst(ast);
+      // TestConverter uses toPlainText which concatenates
+      expect(result).toContain("First");
+      expect(result).toContain("Second");
+      expect(result).toContain("Third");
+    });
+  });
 });
 
 // ============================================================================
@@ -696,112 +802,6 @@ describe("tableElementToAscii", () => {
     expect(lines[0]).toBe("Name  | Age | Role");
     expect(lines[2]).toBe("Alice | 30  | Engineer");
     expect(lines[3]).toBe("Bob   | 25  | Designer");
-  });
-
-  describe("deprecated toPlainText method", () => {
-    it("extracts plain text from platform format", () => {
-      const result = converter.toPlainText("**bold** text");
-      expect(result).toBe("bold text");
-    });
-  });
-
-  describe("fromAstWithNodeConverter", () => {
-    class NodeConverterTestConverter extends BaseFormatConverter {
-      fromAst(ast: Root): string {
-        return this.fromAstWithNodeConverter(ast, (node) => {
-          if (node.type === "paragraph") {
-            return `[para:${toPlainText({ type: "root", children: [node] })}]`;
-          }
-          return toPlainText({ type: "root", children: [node] });
-        });
-      }
-
-      toAst(inputText: string): Root {
-        return parseMarkdown(inputText);
-      }
-    }
-
-    const nodeConverter = new NodeConverterTestConverter();
-
-    it("joins multiple paragraphs with double newlines", () => {
-      const ast = root([
-        paragraph([text("First")]),
-        paragraph([text("Second")]),
-      ]);
-      const result = nodeConverter.fromAst(ast);
-      expect(result).toBe("[para:First]\n\n[para:Second]");
-    });
-
-    it("handles single paragraph", () => {
-      const ast = root([paragraph([text("Only")])]);
-      const result = nodeConverter.fromAst(ast);
-      expect(result).toBe("[para:Only]");
-    });
-
-    it("handles empty AST", () => {
-      const ast = root([]);
-      const result = nodeConverter.fromAst(ast);
-      expect(result).toBe("");
-    });
-  });
-
-  describe("cardToFallbackText via renderPostable", () => {
-    it("handles card with section children", () => {
-      const card = Card({
-        children: [
-          Section([CardText("Section content"), CardText("More content")]),
-        ],
-      });
-      const result = converter.renderPostable({ card });
-      expect(result).toContain("Section content");
-      expect(result).toContain("More content");
-    });
-
-    it("handles card with only title (no children)", () => {
-      const card = Card({ title: "Title Only" });
-      const result = converter.renderPostable({ card });
-      expect(result).toBe("**Title Only**");
-    });
-
-    it("handles card with divider child (returns null for divider)", () => {
-      const card = Card({
-        title: "With Divider",
-        children: [Divider()],
-      });
-      const result = converter.renderPostable({ card });
-      // Divider falls to default case and returns null, so only title
-      expect(result).toBe("**With Divider**");
-    });
-
-    it("handles card with mixed children including actions (excluded)", () => {
-      const card = Card({
-        title: "Mixed",
-        children: [
-          CardText("Visible text"),
-          Actions([Button({ id: "ok", label: "OK" })]),
-          Fields([Field({ label: "Key", value: "Val" })]),
-        ],
-      });
-      const result = converter.renderPostable({ card });
-      expect(result).toContain("Visible text");
-      expect(result).not.toContain("OK");
-      expect(result).toContain("**Key**: Val");
-    });
-  });
-
-  describe("fromAstWithNodeConverter", () => {
-    it("joins multiple paragraphs with double newlines", () => {
-      const ast = root([
-        paragraph([text("First")]),
-        paragraph([text("Second")]),
-        paragraph([text("Third")]),
-      ]);
-      const result = converter.fromAst(ast);
-      // TestConverter uses toPlainText which concatenates
-      expect(result).toContain("First");
-      expect(result).toContain("Second");
-      expect(result).toContain("Third");
-    });
   });
 });
 

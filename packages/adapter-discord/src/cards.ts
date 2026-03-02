@@ -16,7 +16,11 @@ import type {
   SectionElement,
   TextElement,
 } from "chat";
-import { convertEmojiPlaceholders, tableElementToAscii } from "chat";
+import {
+  cardChildToFallbackText,
+  convertEmojiPlaceholders,
+  tableElementToAscii,
+} from "chat";
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
 import type { DiscordActionRow, DiscordButton } from "./types";
@@ -129,8 +133,13 @@ function processChild(
       textParts.push(lines.join("\n"));
       break;
     }
-    default:
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        textParts.push(text);
+      }
       break;
+    }
   }
 }
 
@@ -300,6 +309,6 @@ function childToFallbackText(child: CardChild): string | null {
     case "divider":
       return "---";
     default:
-      return null;
+      return cardChildToFallbackText(child);
   }
 }

@@ -23,6 +23,7 @@ import type {
   TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText } from "chat";
 
 /**
  * Convert emoji placeholders in text to Teams format.
@@ -148,8 +149,16 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
       };
     case "table":
       return { elements: [convertTableToElement(child)], actions: [] };
-    default:
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return {
+          elements: [{ type: "TextBlock", text, wrap: true }],
+          actions: [],
+        };
+      }
       return { elements: [], actions: [] };
+    }
   }
 }
 

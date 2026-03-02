@@ -18,7 +18,6 @@ import {
   BaseFormatConverter,
   type Content,
   getNodeChildren,
-  getNodeValue,
   isBlockquoteNode,
   isCodeNode,
   isDeleteNode,
@@ -188,13 +187,8 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       return `\`\`\`\n${tableToAscii(node)}\n\`\`\``;
     }
 
-    // For unsupported nodes, try to extract text
-    const children = getNodeChildren(node);
-    if (children.length > 0) {
-      return children
-        .map((child) => this.nodeToDiscordMarkdown(child))
-        .join("");
-    }
-    return getNodeValue(node);
+    return this.defaultNodeToText(node, (child) =>
+      this.nodeToDiscordMarkdown(child)
+    );
   }
 }

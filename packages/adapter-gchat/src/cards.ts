@@ -22,7 +22,7 @@ import type {
   TableElement,
   TextElement,
 } from "chat";
-import { tableElementToAscii } from "chat";
+import { cardChildToFallbackText, tableElementToAscii } from "chat";
 
 /**
  * Convert emoji placeholders in text to GChat format (Unicode).
@@ -207,8 +207,13 @@ function convertChildToWidgets(
       ];
     case "table":
       return [convertTableToWidget(child)];
-    default:
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [{ textParagraph: { text } }];
+      }
       return [];
+    }
   }
 }
 
