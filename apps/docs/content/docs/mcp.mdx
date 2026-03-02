@@ -77,6 +77,113 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+## Using with AI SDK
+
+If you're building an AI-powered bot with [AI SDK](https://ai-sdk.dev), use [`@ai-sdk/mcp`](https://ai-sdk.dev/docs/ai-sdk-core/mcp-clients) to let the model decide which MCP tools to call. This is complementary to the built-in `bot.mcp` client — use `@ai-sdk/mcp` when an LLM should choose tools, and `bot.mcp` when your code should call tools directly.
+
+```bash
+pnpm add @ai-sdk/mcp ai
+```
+
+Create an MCP client and pass its tools to a `ToolLoopAgent`:
+
+<CodeBlockTabs>
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="gateway">AI Gateway</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="anthropic">Anthropic</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="openai">OpenAI</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+
+  <CodeBlockTab value="gateway">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: gateway("anthropic/claude-sonnet-4-5"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+
+  <CodeBlockTab value="anthropic">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: anthropic("claude-sonnet-4-5"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+
+  <CodeBlockTab value="openai">
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const sentry = await createMCPClient({
+  transport: {
+    type: "sse",
+    url: "https://mcp.sentry.dev/sse",
+    headers: { Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}` },
+  },
+});
+
+const agent = new ToolLoopAgent({
+  model: openai("gpt-4o"),
+  tools: await sentry.tools(),
+  instructions: "You are a helpful assistant that can look up Sentry issues.",
+});
+
+bot.onNewMention(async (thread, message) => {
+  const result = await agent.stream({ prompt: message.text });
+  await thread.post(result.textStream);
+});
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+<Callout type="info">
+**When to use which approach:**
+- **`bot.mcp`** (this page) — Your code decides which tools to call. Good for deterministic workflows, slash commands, and when you need per-call auth headers or Chat SDK lifecycle management.
+- **`@ai-sdk/mcp`** (above) — The LLM decides which tools to call. Good for AI agents that need to reason about which tools to use based on the user's message.
+
+Both approaches can be used together in the same bot.
+</Callout>
+
 ## Transport types
 
 | Type | Config value | Description |
