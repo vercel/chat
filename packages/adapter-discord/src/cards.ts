@@ -176,6 +176,10 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
     custom_id: button.id,
   };
 
+  if (button.disabled) {
+    discordButton.disabled = true;
+  }
+
   return discordButton;
 }
 
