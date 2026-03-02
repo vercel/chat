@@ -3,7 +3,7 @@ import { Client } from "@microsoft/microsoft-graph-client";
 import {
   TokenCredentialAuthenticationProvider,
   type TokenCredentialAuthenticationProviderOptions,
-} from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials";
+} from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import type { Activity, ConversationReference } from "botbuilder";
 import {
   ActivityTypes,

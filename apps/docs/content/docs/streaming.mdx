@@ -58,6 +58,26 @@ const bot = new Chat({
 });
 ```
 
+### Disabling the placeholder message
+
+By default, post+edit adapters send an initial `"..."` placeholder message before the first chunk arrives. You can disable this to wait for real content before posting:
+
+```typescript title="lib/bot.ts" lineNumbers
+const bot = new Chat({
+  // ...
+  fallbackStreamingPlaceholderText: null,
+});
+```
+
+You can also customize the placeholder text:
+
+```typescript title="lib/bot.ts"
+const bot = new Chat({
+  // ...
+  fallbackStreamingPlaceholderText: "Thinking...",
+});
+```
+
 ## Stop blocks (Slack only)
 
 When streaming in Slack, you can attach Block Kit elements to the final message using `stopBlocks`. This is useful for adding action buttons after a streamed response completes:

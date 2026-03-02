@@ -47,6 +47,7 @@ interface ThreadImplConfigWithAdapter {
   adapter: Adapter;
   channelId: string;
   currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
@@ -63,6 +64,7 @@ interface ThreadImplConfigLazy {
   adapterName: string;
   channelId: string;
   currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
@@ -109,6 +111,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private readonly _currentMessage?: Message;
   /** Update interval for fallback streaming */
   private readonly _streamingUpdateIntervalMs: number;
+  /** Placeholder text for fallback streaming (post + edit) */
+  private readonly _fallbackStreamingPlaceholderText: string | null;
   /** Cached channel instance */
   private _channel?: Channel<TState>;
 
@@ -119,6 +123,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
+    this._fallbackStreamingPlaceholderText =
+      config.fallbackStreamingPlaceholderText !== undefined
+        ? config.fallbackStreamingPlaceholderText
+        : "...";
 
     if (isLazyConfig(config)) {
       // Lazy resolution mode - store adapter name for later lookup
@@ -459,19 +467,31 @@ export class ThreadImpl<TState = Record<string, unknown>>
   ): Promise<SentMessage> {
     const intervalMs =
       options?.updateIntervalMs ?? this._streamingUpdateIntervalMs;
-    const msg = await this.adapter.postMessage(this.id, "...");
-
-    // Use the threadId from postMessage for edits (may differ if adapter created a thread)
-    const threadIdForEdits = msg.threadId || this.id;
-
+    const placeholderText = this._fallbackStreamingPlaceholderText;
+    let msg: { id: string; threadId: string; raw: unknown } | null =
+      placeholderText === null
+        ? null
+        : await this.adapter.postMessage(this.id, placeholderText);
+    let threadIdForEdits = this.id;
     let accumulated = "";
-    let lastEditContent = "..."; // Track that we posted "..." initially
+    let lastEditContent = "";
     let stopped = false;
     let pendingEdit: Promise<void> | null = null;
     let timerId: ReturnType<typeof setTimeout> | null = null;
 
+    if (msg) {
+      threadIdForEdits = msg.threadId || this.id;
+      lastEditContent = placeholderText ?? "";
+    }
+
+    const scheduleNextEdit = (): void => {
+      timerId = setTimeout(() => {
+        pendingEdit = doEditAndReschedule();
+      }, intervalMs);
+    };
+
     const doEditAndReschedule = async (): Promise<void> => {
-      if (stopped) {
+      if (stopped || !msg) {
         return;
       }
 
@@ -487,20 +507,23 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
       // Schedule next check after intervalMs (only after edit completes)
       if (!stopped) {
-        timerId = setTimeout(() => {
-          pendingEdit = doEditAndReschedule();
-        }, intervalMs);
+        scheduleNextEdit();
       }
     };
 
-    // Start the first timeout
-    timerId = setTimeout(() => {
-      pendingEdit = doEditAndReschedule();
-    }, intervalMs);
+    if (msg) {
+      scheduleNextEdit();
+    }
 
     try {
       for await (const chunk of textStream) {
         accumulated += chunk;
+        if (!msg) {
+          msg = await this.adapter.postMessage(this.id, accumulated);
+          threadIdForEdits = msg.threadId || this.id;
+          lastEditContent = accumulated;
+          scheduleNextEdit();
+        }
       }
     } finally {
       stopped = true;
@@ -515,7 +538,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
       await pendingEdit;
     }
 
-    // Final edit to ensure all content is shown (including empty stream replacing "...")
+    if (!msg) {
+      msg = await this.adapter.postMessage(this.id, accumulated);
+      threadIdForEdits = msg.threadId || this.id;
+      lastEditContent = accumulated;
+    }
+
     if (accumulated !== lastEditContent) {
       await this.adapter.editMessage(threadIdForEdits, msg.id, accumulated);
     }

@@ -87,8 +87,7 @@ const CodeBlock = async ({ code }: { code: string }) => {
                         "text-[var(--sdm-c,inherit)]",
                         "dark:text-[var(--shiki-dark,var(--sdm-c,inherit))]",
                         hasBg && "bg-[var(--sdm-tbg)]",
-                        hasBg &&
-                          "dark:bg-[var(--shiki-dark-bg,var(--sdm-tbg))]"
+                        hasBg && "dark:bg-[var(--shiki-dark-bg,var(--sdm-tbg))]"
                       )}
                       // biome-ignore lint/suspicious/noArrayIndexKey: static token array from shiki
                       key={tokenIndex}
@@ -129,7 +128,7 @@ export const Templates = ({ title, description, data }: TemplatesProps) => (
           </p>
           <div
             className={cn(
-              "mt-4 -mb-8 ml-4 -mr-8 -rotate-3 aspect-video overflow-hidden rounded-md border",
+              "mt-4 -mr-8 -mb-8 ml-4 aspect-video -rotate-3 overflow-hidden rounded-md border",
               "transition-transform duration-300 group-hover:-rotate-1 group-hover:scale-105"
             )}
           >

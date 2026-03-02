@@ -1,5 +1,6 @@
 /** @jsxImportSource chat */
 // @ts-nocheck - TypeScript doesn't understand custom JSX runtimes with per-file pragmas
+import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
 import {
@@ -28,10 +29,12 @@ const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
 
-const state = createRedisState({
-  url: process.env.REDIS_URL || "",
-  keyPrefix: "chat-sdk-webhooks",
-});
+const state = process.env.REDIS_URL
+  ? createRedisState({
+      url: process.env.REDIS_URL,
+      keyPrefix: "chat-sdk-webhooks",
+    })
+  : createMemoryState();
 const adapters = buildAdapters();
 
 // Define thread state type

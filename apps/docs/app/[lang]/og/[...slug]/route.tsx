@@ -3,6 +3,22 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 import { getPageImage, source } from "@/lib/geistdocs/source";
+import * as logos from "@/lib/logos";
+
+const logoSize = 160;
+
+const adapterLogos: Record<
+  string,
+  { component: (typeof logos)[keyof typeof logos]; width: number; height: number }
+> = {
+  github: { component: logos.github, width: logoSize, height: logoSize }, // 1024x1024
+  slack: { component: logos.slack, width: logoSize, height: logoSize }, // 126x126
+  teams: { component: logos.teams, width: logoSize, height: Math.round(logoSize * (2074 / 2229)) }, // 2229x2074
+  linear: { component: logos.linear, width: logoSize, height: logoSize }, // 200x200
+  gchat: { component: logos.gchat, width: Math.round(logoSize * (311 / 320)), height: logoSize }, // 311x320
+  discord: { component: logos.discord, width: logoSize, height: Math.round(logoSize * (620 / 800)) }, // 800x620
+  telegram: { component: logos.telegram, width: logoSize, height: logoSize }, // 240x240
+};
 
 export const GET = async (
   _request: NextRequest,
@@ -34,6 +50,10 @@ export const GET = async (
     backgroundImage.byteOffset + backgroundImage.byteLength
   );
 
+  const isAdapterPage =
+    slug.length >= 3 && slug[0] === "adapters" && slug[1] in adapterLogos;
+  const adapterLogo = isAdapterPage ? adapterLogos[slug[1]] : null;
+
   return new ImageResponse(
     <div style={{ fontFamily: "Geist" }} tw="flex h-full w-full bg-black">
       {/** biome-ignore lint/performance/noImgElement: "Required for Satori" */}
@@ -63,6 +83,17 @@ export const GET = async (
           {description}
         </div>
       </div>
+      {adapterLogo ? (
+        <div
+          tw="absolute right-[80px] top-0 bottom-0 flex items-center justify-center"
+          style={{ width: logoSize, height: 628 }}
+        >
+          <adapterLogo.component
+            width={adapterLogo.width}
+            height={adapterLogo.height}
+          />
+        </div>
+      ) : null}
     </div>,
     {
       width: 1200,

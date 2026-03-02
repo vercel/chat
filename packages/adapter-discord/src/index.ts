@@ -43,6 +43,7 @@ import {
   type Message as DiscordJsMessage,
   Events,
   GatewayIntentBits,
+  Partials,
 } from "discord.js";
 import {
   type APIEmbed,
@@ -1591,6 +1592,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.DirectMessageReactions,
       ],
+      partials: [Partials.Channel],
     });
 
     let isShuttingDown = false;

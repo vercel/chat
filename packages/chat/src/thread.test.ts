@@ -258,6 +258,54 @@ describe("ThreadImpl", () => {
       );
     });
 
+    it("should support disabling the placeholder for fallback streaming", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      const textStream = createTextStream(["H", "i"]);
+      await threadNoPlaceholder.post(textStream);
+
+      expect(mockAdapter.postMessage).not.toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        "Hi"
+      );
+    });
+
+    it("should handle empty stream with disabled placeholder", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      const textStream = createTextStream([]);
+      await threadNoPlaceholder.post(textStream);
+
+      // Should still post a message (empty) even with no chunks
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        ""
+      );
+      // No edit needed since post content matches accumulated
+      expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+    });
+
     it("should pass stream options from current message context", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",

@@ -52,6 +52,49 @@ describe("Chat", () => {
     expect(typeof chat.webhooks.slack).toBe("function");
   });
 
+  it("should preserve null fallback streaming placeholder config", async () => {
+    mockAdapter.stream = undefined;
+
+    const customChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: mockAdapter },
+      state: mockState,
+      logger: mockLogger,
+      fallbackStreamingPlaceholderText: null,
+    });
+
+    await customChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    // Use a mention handler to exercise the full Chat → Thread pipeline
+    customChat.onNewMention(async (_thread, _message) => {
+      await _thread.post({
+        async *[Symbol.asyncIterator]() {
+          yield "H";
+          yield "i";
+        },
+      });
+    });
+
+    const message = createTestMessage("msg-1", "Hey @slack-bot help me");
+    await customChat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      message
+    );
+
+    expect(mockAdapter.postMessage).not.toHaveBeenCalledWith(
+      "slack:C123:1234.5678",
+      "..."
+    );
+    expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+      "slack:C123:1234.5678",
+      "msg-1",
+      "Hi"
+    );
+  });
+
   it("should call onNewMention handler when bot is mentioned", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     chat.onNewMention(handler);

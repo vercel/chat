@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreBinaries": ["vercel"],
   "ignoreDependencies": ["@biomejs/biome"],
   "ignore": ["apps/docs/**/*"],
   "rules": {

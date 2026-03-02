@@ -71,6 +71,20 @@ Adapters handle webhook verification, message parsing, and API calls for each pl
 | [GitHub](/docs/adapters/github) | `@chat-adapter/github` |
 | [Linear](/docs/adapters/linear) | `@chat-adapter/linear` |
 
+## Community adapters
+
+Beyond the Vercel-maintained adapters listed above, you can build adapters for any messaging platform. Community adapters use the same `Adapter` interface and get full access to Chat SDK features like cards, actions, streaming, and state management.
+
+| Tier | Description |
+|------|-------------|
+| Vercel-maintained | Published under `@chat-adapter/*` by Vercel |
+| Community official | Built and maintained by the platform company itself (e.g., Resend building a Resend adapter) |
+| Community | Built by third-party developers |
+
+Community adapters are expected to meet the same testing bar as first-party adapters — unit tests for all public methods, integration tests for end-to-end message flows.
+
+Ready to build one? Follow the [building](/docs/contributing/building) guide.
+
 ## How adapters work
 
 Each adapter implements a standard interface that the `Chat` class uses to route events and send messages. When a webhook arrives:

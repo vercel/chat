@@ -58,6 +58,8 @@ export type TextStyle = "plain" | "bold" | "muted";
 
 /** Button element for interactive actions */
 export interface ButtonElement {
+  /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
+  disabled?: boolean;
   /** Unique action ID for callback routing */
   id: string;
   /** Button label text */
@@ -332,6 +334,8 @@ export function Actions(
 
 /** Options for Button */
 export interface ButtonOptions {
+  /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
+  disabled?: boolean;
   /** Unique action ID for callback routing */
   id: string;
   /** Button label text */
@@ -358,6 +362,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     label: options.label,
     style: options.style,
     value: options.value,
+    disabled: options.disabled,
   };
 }
 
