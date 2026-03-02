@@ -38,13 +38,6 @@ import {
   Message,
 } from "chat";
 import {
-  Client,
-  type Message as DiscordJsMessage,
-  Events,
-  GatewayIntentBits,
-  Partials,
-} from "discord.js";
-import {
   type APIEmbed,
   type APIMessage,
   ChannelType,
@@ -54,6 +47,13 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
+import {
+  Client,
+  type Message as DiscordJsMessage,
+  Events,
+  GatewayIntentBits,
+  Partials,
+} from "discord.js";
 import { cardToDiscordPayload, cardToFallbackText } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
@@ -835,7 +835,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         continue;
       }
       const buffer = await toBuffer(file.data, {
-        platform: "discord" as "slack",
+        platform: "discord",
       });
       if (!buffer) {
         continue;
@@ -2112,34 +2112,67 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
 
     const files = extractFiles(message);
-    if (files.length > 0) {
-      return this.postMessageWithFiles(
-        discordChannelId,
-        channelId,
-        payload,
-        files
-      );
-    }
 
     // If there is a pending slash command interaction for this channel, resolve the
     // deferred "thinking" message by PATCHing the original response via the interaction
-    // webhook instead of posting a new channel message.
+    // webhook instead of posting a new channel message. This check must come before the
+    // files branch — otherwise file responses exit early and the token is never consumed.
     const { chat } = this;
     if (chat) {
       const stateKey = `${INTERACTION_TOKEN_KEY_PREFIX}${channelId}`;
       const interactionToken = await chat.getState().get<string>(stateKey);
       if (interactionToken) {
+        const patchUrl = `${DISCORD_API_BASE}/webhooks/${this.applicationId}/${interactionToken}/messages/@original`;
         this.logger.debug("Discord API: PATCH interaction original message", {
           channelId: discordChannelId,
           contentLength: payload.content?.length || 0,
+          hasFiles: files.length > 0,
         });
         try {
-          const response = await this.discordFetch(
-            `/webhooks/${this.applicationId}/${interactionToken}/messages/@original`,
-            "PATCH",
-            payload
-          );
-          const result = (await response.json()) as APIMessage;
+          let result: APIMessage;
+          if (files.length > 0) {
+            const formData = new FormData();
+            formData.append("payload_json", JSON.stringify(payload));
+            for (let i = 0; i < files.length; i++) {
+              const file = files[i];
+              if (!file) {
+                continue;
+              }
+              const buffer = await toBuffer(file.data, {
+                platform: "discord",
+              });
+              if (!buffer) {
+                continue;
+              }
+              formData.append(
+                `files[${i}]`,
+                new Blob([new Uint8Array(buffer)], {
+                  type: file.mimeType || "application/octet-stream",
+                }),
+                file.filename
+              );
+            }
+            const response = await fetch(patchUrl, {
+              method: "PATCH",
+              headers: { Authorization: `Bot ${this.botToken}` },
+              body: formData,
+            });
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(
+                "discord",
+                `Failed to PATCH interaction: ${response.status} ${errorText}`
+              );
+            }
+            result = (await response.json()) as APIMessage;
+          } else {
+            const response = await this.discordFetch(
+              patchUrl,
+              "PATCH",
+              payload
+            );
+            result = (await response.json()) as APIMessage;
+          }
           await chat.getState().delete(stateKey);
           return { id: result.id, threadId: channelId, raw: result };
         } catch (error) {
@@ -2151,6 +2184,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           // Fall through to post a regular channel message
         }
       }
+    }
+
+    // No pending interaction token (or PATCH failed above) — post directly to the
+    // channel. Files require multipart; plain messages use JSON.
+    if (files.length > 0) {
+      return this.postMessageWithFiles(
+        discordChannelId,
+        channelId,
+        payload,
+        files
+      );
     }
 
     this.logger.debug("Discord API: POST channel message", {

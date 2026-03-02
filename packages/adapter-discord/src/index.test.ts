@@ -6,7 +6,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger, StateAdapter } from "chat";
 import { InteractionType } from "discord-api-types/v10";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -474,6 +474,87 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     expect(event.triggerId).toBe("interaction-token");
     expect((event.user as { userId: string }).userId).toBe("user789");
     expect(event.raw).toMatchObject({ id: "interaction123" });
+  });
+});
+
+// ============================================================================
+// postChannelMessage - Interaction Token Resolution Tests
+// ============================================================================
+
+describe("postChannelMessage - interaction token resolution", () => {
+  const channelId = "discord:guild123:channel456";
+  const stateKey = `discord:interaction-token:${channelId}`;
+  const msgResponse = { id: "msg-1", channel_id: "channel456" };
+
+  let adapter: InstanceType<typeof DiscordAdapter>;
+  let mockState: ReturnType<typeof createMockState>;
+
+  beforeEach(() => {
+    adapter = createDiscordAdapter({
+      botToken: "test-bot-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    mockState = createMockState();
+    adapter.initialize(createMockChatInstance(mockState));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("PATCHes @original with JSON when token is in state", async () => {
+    await mockState.set(stateKey, "my-token");
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(msgResponse), { status: 200 })
+    );
+
+    const result = await adapter.postChannelMessage(channelId, "Hello!");
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/webhooks/test-app-id/my-token/messages/@original");
+    expect(init.method).toBe("PATCH");
+    expect(init.body).not.toBeInstanceOf(FormData);
+    expect(result.id).toBe("msg-1");
+    expect(await mockState.get(stateKey)).toBeNull();
+  });
+
+  it("PATCHes @original with multipart when token is in state and files are present", async () => {
+    await mockState.set(stateKey, "my-token");
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(msgResponse), { status: 200 })
+    );
+
+    await adapter.postChannelMessage(channelId, {
+      raw: "Here is a file",
+      files: [
+        { filename: "test.txt", data: Buffer.from("hello"), mimeType: "text/plain" },
+      ],
+    });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/webhooks/test-app-id/my-token/messages/@original");
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(await mockState.get(stateKey)).toBeNull();
+  });
+
+  it("deletes token and falls back to channel POST when PATCH fails", async () => {
+    await mockState.set(stateKey, "bad-token");
+    vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response("Server Error", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(msgResponse), { status: 200 })
+      );
+
+    const result = await adapter.postChannelMessage(channelId, "Hello!");
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    const [secondUrl] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    expect(secondUrl).toContain("/channels/channel456/messages");
+    expect(result.id).toBe("msg-1");
+    expect(await mockState.get(stateKey)).toBeNull();
   });
 });
 
