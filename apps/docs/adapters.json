@@ -6,7 +6,8 @@
     "description": "Build bots for Slack workspaces with full support for threads, reactions, and interactive messages.",
     "packageName": "@chat-adapter/slack",
     "icon": "slack",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-slack"
   },
   {
     "name": "Microsoft Teams",
@@ -15,7 +16,8 @@
     "description": "Deploy bots to Microsoft Teams with adaptive cards, mentions, and conversation threading.",
     "packageName": "@chat-adapter/teams",
     "icon": "teams",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-teams"
   },
   {
     "name": "Google Chat",
@@ -24,8 +26,8 @@
     "description": "Integrate with Google Chat spaces for team collaboration and automated workflows.",
     "packageName": "@chat-adapter/gchat",
     "icon": "google-chat",
-    "sourceSlug": "gchat",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gchat"
   },
   {
     "name": "Discord",
@@ -34,7 +36,8 @@
     "description": "Create Discord bots with slash commands, threads, and rich embeds.",
     "packageName": "@chat-adapter/discord",
     "icon": "discord",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-discord"
   },
   {
     "name": "GitHub",
@@ -43,7 +46,8 @@
     "description": "Build bots that respond to pull request and issue comment threads.",
     "packageName": "@chat-adapter/github",
     "icon": "github",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-github"
   },
   {
     "name": "Linear",
@@ -52,7 +56,8 @@
     "description": "Automate Linear issue comment threads with bot responses and workflows.",
     "packageName": "@chat-adapter/linear",
     "icon": "linear",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-linear"
   },
   {
     "name": "Telegram",
@@ -61,7 +66,8 @@
     "description": "Connect to Telegram with support for groups, channels, and inline keyboards.",
     "packageName": "@chat-adapter/telegram",
     "icon": "telegram",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-telegram"
   },
   {
     "name": "Redis",
@@ -69,7 +75,8 @@
     "type": "state",
     "description": "Production-ready state adapter using Redis for persistence and distributed locking.",
     "packageName": "@chat-adapter/state-redis",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-redis"
   },
   {
     "name": "ioredis",
@@ -77,7 +84,8 @@
     "type": "state",
     "description": "Redis state adapter using ioredis with cluster and sentinel support.",
     "packageName": "@chat-adapter/state-ioredis",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-ioredis"
   },
   {
     "name": "Memory",
@@ -85,7 +93,8 @@
     "type": "state",
     "description": "In-memory state adapter for development and testing environments.",
     "packageName": "@chat-adapter/state-memory",
-    "beta": true
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-memory"
   },
   {
     "name": "Matrix",
@@ -97,6 +106,7 @@
     "author": "Beeper",
     "readme": "https://github.com/beeper/chat-adapter-matrix",
     "vendorOfficial": true
+  },
   {
     "name": "iMessage",
     "slug": "imessage",
@@ -105,5 +115,6 @@
     "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
     "packageName": "chat-adapter-imessage",
     "author": "Photon",
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage"
   }
 ]
