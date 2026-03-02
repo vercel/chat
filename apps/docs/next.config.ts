@@ -8,16 +8,6 @@ const config: NextConfig = {
     turbopackFileSystemCacheForDev: true,
   },
 
-  async redirects() {
-    return [
-    {
-      source: "/docs/contributing",
-      destination: "/docs/contributing/building",
-        permanent: true,
-      },
-    ];
-  },
-
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
