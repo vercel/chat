@@ -36,8 +36,11 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
     return matchesTab && matchesQuery;
   });
 
-  const official = filtered.filter((a) => !a.community);
-  const community = filtered.filter((a) => a.community);
+  const official = filtered.filter(
+    (a) => !a.community && !a.vendorOfficial
+  );
+  const vendorOfficial = filtered.filter((a) => a.vendorOfficial);
+  const community = filtered.filter((a) => a.community && !a.vendorOfficial);
 
   return (
     <>
@@ -75,18 +78,40 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
         </section>
       ) : null}
 
+      {vendorOfficial.length > 0 ? (
+        <section className="grid gap-6">
+          <div className="grid gap-1">
+            <h2 className="font-semibold text-lg tracking-tight">
+              Vendor Official
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              Built and maintained by the platform vendor.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {vendorOfficial.map((adapter) => (
+              <AdapterCard
+                badge="vendor-official"
+                href={`/adapters/${adapter.slug}`}
+                key={adapter.packageName}
+                {...adapter}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {community.length > 0 ? (
         <section className="grid gap-6">
           <div className="grid gap-1">
             <h2 className="font-semibold text-lg tracking-tight">Community</h2>
             <p className="text-muted-foreground text-sm">
-              Built by third-party developers and platform vendors.
+              Built by third-party developers.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {community.map((adapter) => (
               <AdapterCard
-                badge={adapter.vendorOfficial ? "vendor-official" : undefined}
                 href={`/adapters/${adapter.slug}`}
                 key={adapter.packageName}
                 {...adapter}
