@@ -1,0 +1,100 @@
+"use client";
+
+import { useState } from "react";
+import { AdapterCard } from "./adapter-card";
+import { AdaptersSearch } from "./adapters-search";
+import { type FilterTab, FilterTabs } from "./filter-tabs";
+
+interface Adapter {
+  beta?: boolean;
+  community?: boolean;
+  description: string;
+  icon?: string;
+  name: string;
+  packageName: string;
+  slug: string;
+  type: string;
+  vendorOfficial?: boolean;
+}
+
+interface AdaptersGridProps {
+  adapters: Adapter[];
+}
+
+export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
+  const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<FilterTab>("all");
+  const lowerQuery = query.toLowerCase();
+
+  const filtered = adapters.filter((adapter) => {
+    const matchesTab = activeTab === "all" || adapter.type === activeTab;
+    const matchesQuery =
+      !query ||
+      adapter.name.toLowerCase().includes(lowerQuery) ||
+      adapter.description.toLowerCase().includes(lowerQuery) ||
+      adapter.packageName.toLowerCase().includes(lowerQuery);
+    return matchesTab && matchesQuery;
+  });
+
+  const official = filtered.filter((a) => !a.community);
+  const community = filtered.filter((a) => a.community);
+
+  return (
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <FilterTabs activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="flex-1">
+          <AdaptersSearch onSearch={setQuery} />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="py-12 text-center text-muted-foreground">
+          No adapters found matching &ldquo;{query}&rdquo;
+        </p>
+      ) : null}
+
+      {official.length > 0 ? (
+        <section className="grid gap-6">
+          <div className="grid gap-1">
+            <h2 className="font-semibold text-lg tracking-tight">Official</h2>
+            <p className="text-muted-foreground text-sm">
+              Published under <code>@chat-adapter/*</code> and maintained by
+              Vercel.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {official.map((adapter) => (
+              <AdapterCard
+                href={`/adapters/${adapter.slug}`}
+                key={adapter.packageName}
+                {...adapter}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {community.length > 0 ? (
+        <section className="grid gap-6">
+          <div className="grid gap-1">
+            <h2 className="font-semibold text-lg tracking-tight">Community</h2>
+            <p className="text-muted-foreground text-sm">
+              Built by third-party developers and platform vendors.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {community.map((adapter) => (
+              <AdapterCard
+                badge={adapter.vendorOfficial ? "vendor-official" : undefined}
+                href={`/adapters/${adapter.slug}`}
+                key={adapter.packageName}
+                {...adapter}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+};

@@ -16,7 +16,7 @@ export const nav = [
   },
   {
     label: "Adapters",
-    href: "/docs/adapters",
+    href: "/adapters",
   },
   {
     label: "Guides",
@@ -25,10 +25,6 @@ export const nav = [
   {
     label: "API",
     href: "/docs/api",
-  },
-  {
-    label: "Marketplace",
-    href: "/marketplace",
   },
   {
     label: "Source",

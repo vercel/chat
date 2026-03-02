@@ -3,11 +3,11 @@
 import { SearchIcon } from "lucide-react";
 import { useState } from "react";
 
-interface MarketplaceSearchProps {
+interface AdaptersSearchProps {
   onSearch: (query: string) => void;
 }
 
-export const MarketplaceSearch = ({ onSearch }: MarketplaceSearchProps) => {
+export const AdaptersSearch = ({ onSearch }: AdaptersSearchProps) => {
   const [query, setQuery] = useState("");
 
   return (
