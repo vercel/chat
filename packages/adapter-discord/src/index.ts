@@ -93,6 +93,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private readonly formatConverter = new DiscordFormatConverter();
   private readonly requestContext =
     new AsyncLocalStorage<DiscordRequestContext>();
+  private readonly threadParentCache = new Map<
+    string,
+    { parentId: string; expiresAt: number }
+  >();
+  private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
   constructor(
     config: DiscordAdapterConfig & { logger: Logger; userName?: string }
@@ -688,22 +693,35 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     let discordThreadId: string | undefined;
     let parentChannelId = channelId;
 
-    if (data.channel_type === 11 || data.channel_type === 12) {
-      try {
-        const response = await this.discordFetch(
-          `/channels/${channelId}`,
-          "GET"
-        );
-        const channel = (await response.json()) as { parent_id?: string };
-        if (channel.parent_id) {
-          discordThreadId = channelId;
-          parentChannelId = channel.parent_id;
+    if (
+      data.channel_type === ChannelType.GuildPublicThread ||
+      data.channel_type === ChannelType.GuildPrivateThread
+    ) {
+      const cached = this.threadParentCache.get(channelId);
+      if (cached && cached.expiresAt > Date.now()) {
+        discordThreadId = channelId;
+        parentChannelId = cached.parentId;
+      } else {
+        try {
+          const response = await this.discordFetch(
+            `/channels/${channelId}`,
+            "GET"
+          );
+          const channel = (await response.json()) as { parent_id?: string };
+          if (channel.parent_id) {
+            discordThreadId = channelId;
+            parentChannelId = channel.parent_id;
+            this.threadParentCache.set(channelId, {
+              parentId: channel.parent_id,
+              expiresAt: Date.now() + DiscordAdapter.THREAD_PARENT_CACHE_TTL,
+            });
+          }
+        } catch (error) {
+          this.logger.error("Failed to fetch thread parent for reaction", {
+            error: String(error),
+            channelId,
+          });
         }
-      } catch (error) {
-        this.logger.error("Failed to fetch thread parent for reaction", {
-          error: String(error),
-          channelId,
-        });
       }
     }
 
@@ -1999,12 +2017,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     let parentChannelId = channelId;
     let discordThreadId: string | undefined;
 
-    if (
-      isInThread &&
-      reaction.message.channel &&
-      "parentId" in reaction.message.channel &&
-      reaction.message.channel.parentId
-    ) {
+    if (isInThread && reaction.message.channel?.parentId) {
       discordThreadId = channelId;
       parentChannelId = reaction.message.channel.parentId;
     }
