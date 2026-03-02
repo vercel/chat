@@ -201,4 +201,21 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("const x = 1");
     });
   });
+
+  describe("table rendering", () => {
+    it("should render markdown tables as GFM tables", () => {
+      const result = converter.fromMarkdown(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      expect(result).toContain("| Name | Age |");
+      expect(result).toContain("| --- | --- |");
+      expect(result).toContain("| Alice | 30 |");
+    });
+
+    it("should render tables with pipe syntax", () => {
+      const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+      expect(result).toContain("|");
+      expect(result).not.toContain("```");
+    });
+  });
 });

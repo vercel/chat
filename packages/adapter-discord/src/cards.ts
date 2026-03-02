@@ -16,7 +16,7 @@ import type {
   SectionElement,
   TextElement,
 } from "chat";
-import { convertEmojiPlaceholders } from "chat";
+import { convertEmojiPlaceholders, tableElementToAscii } from "chat";
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
 import type { DiscordActionRow, DiscordButton } from "./types";
@@ -118,6 +118,17 @@ function processChild(
     case "link":
       textParts.push(`[${convertEmoji(child.label)}](${child.url})`);
       break;
+    case "table": {
+      // Render as GFM markdown table in embed description
+      const lines: string[] = [];
+      lines.push(`| ${child.headers.join(" | ")} |`);
+      lines.push(`| ${child.headers.map(() => "---").join(" | ")} |`);
+      for (const row of child.rows) {
+        lines.push(`| ${row.join(" | ")} |`);
+      }
+      textParts.push(lines.join("\n"));
+      break;
+    }
     default:
       break;
   }
@@ -284,6 +295,8 @@ function childToFallbackText(child: CardChild): string | null {
         .map((c) => childToFallbackText(c))
         .filter(Boolean)
         .join("\n");
+    case "table":
+      return `\`\`\`\n${tableElementToAscii(child.headers, child.rows)}\n\`\`\``;
     case "divider":
       return "---";
     default:

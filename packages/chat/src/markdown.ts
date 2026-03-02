@@ -15,6 +15,9 @@ import type {
   Paragraph,
   Root,
   Strong,
+  Table,
+  TableCell,
+  TableRow,
   Text,
 } from "mdast";
 
@@ -43,6 +46,9 @@ export type {
   Paragraph,
   Root,
   Strong,
+  Table,
+  TableCell,
+  TableRow,
   Text,
 } from "mdast";
 
@@ -125,6 +131,127 @@ export function isListNode(node: Content): node is List {
  */
 export function isListItemNode(node: Content): node is ListItem {
   return node.type === "listItem";
+}
+
+/**
+ * Type guard for table nodes.
+ */
+export function isTableNode(node: Content): node is Table {
+  return node.type === "table";
+}
+
+/**
+ * Type guard for table row nodes.
+ */
+export function isTableRowNode(node: Content): node is TableRow {
+  return node.type === "tableRow";
+}
+
+/**
+ * Type guard for table cell nodes.
+ */
+export function isTableCellNode(node: Content): node is TableCell {
+  return node.type === "tableCell";
+}
+
+/**
+ * Render an mdast table node as a padded ASCII table string.
+ *
+ * Produces output like:
+ * ```
+ * Name  | Age | Role
+ * ------|-----|--------
+ * Alice | 30  | Engineer
+ * Bob   | 25  | Designer
+ * ```
+ *
+ * Shared by adapters that lack native table support (Slack, GChat, Discord, Telegram).
+ */
+export function tableToAscii(node: Table): string {
+  const rows: string[][] = [];
+
+  for (const row of node.children) {
+    const cells: string[] = [];
+    for (const cell of row.children) {
+      cells.push(mdastToString(cell));
+    }
+    rows.push(cells);
+  }
+
+  if (rows.length === 0) {
+    return "";
+  }
+
+  // Determine max column count and column widths
+  const colCount = Math.max(...rows.map((r) => r.length));
+  const colWidths: number[] = Array.from({ length: colCount }, () => 0);
+
+  for (const row of rows) {
+    for (let i = 0; i < colCount; i++) {
+      const cellLen = (row[i] || "").length;
+      if (cellLen > colWidths[i]) {
+        colWidths[i] = cellLen;
+      }
+    }
+  }
+
+  const formatRow = (cells: string[]): string =>
+    cells
+      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
+      .join(" | ")
+      .trimEnd();
+
+  const lines: string[] = [];
+
+  // Header row
+  lines.push(formatRow(rows[0]));
+
+  // Separator
+  const separator = colWidths.map((w) => "-".repeat(w)).join("-|-");
+  lines.push(separator);
+
+  // Data rows
+  for (let i = 1; i < rows.length; i++) {
+    lines.push(formatRow(rows[i]));
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Render a table from headers and string rows as a padded ASCII table.
+ * Used for card TableElement fallback rendering.
+ */
+export function tableElementToAscii(
+  headers: string[],
+  rows: string[][]
+): string {
+  const allRows = [headers, ...rows];
+  const colCount = Math.max(...allRows.map((r) => r.length));
+  const colWidths: number[] = Array.from({ length: colCount }, () => 0);
+
+  for (const row of allRows) {
+    for (let i = 0; i < colCount; i++) {
+      const cellLen = (row[i] || "").length;
+      if (cellLen > colWidths[i]) {
+        colWidths[i] = cellLen;
+      }
+    }
+  }
+
+  const formatRow = (cells: string[]): string =>
+    cells
+      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
+      .join(" | ")
+      .trimEnd();
+
+  const lines: string[] = [];
+  lines.push(formatRow(headers));
+  lines.push(colWidths.map((w) => "-".repeat(w)).join("-|-"));
+  for (const row of rows) {
+    lines.push(formatRow(row));
+  }
+  return lines.join("\n");
 }
 
 // ============================================================================
@@ -439,6 +566,8 @@ export abstract class BaseFormatConverter implements FormatConverter {
         // Actions are interactive-only — exclude from fallback text.
         // See: https://docs.slack.dev/reference/methods/chat.postMessage
         return null;
+      case "table":
+        return tableElementToAscii(child.headers, child.rows);
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

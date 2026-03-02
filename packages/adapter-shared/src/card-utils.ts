@@ -6,7 +6,7 @@
  */
 
 import type { ButtonElement, CardChild, CardElement } from "chat";
-import { convertEmojiPlaceholders } from "chat";
+import { convertEmojiPlaceholders, tableElementToAscii } from "chat";
 
 /**
  * Supported platform names for adapter utilities.
@@ -151,6 +151,8 @@ function childToFallbackText(
         .map((c) => childToFallbackText(c, convertText))
         .filter(Boolean)
         .join("\n");
+    case "table":
+      return tableElementToAscii(child.headers, child.rows);
     case "divider":
       return "---";
     default:

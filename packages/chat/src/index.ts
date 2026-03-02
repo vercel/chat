@@ -28,6 +28,7 @@ import {
   isCardElement as _isCardElement,
   LinkButton as _LinkButton,
   Section as _Section,
+  Table as _Table,
 } from "./cards";
 import {
   isJSX as _isJSX,
@@ -48,6 +49,7 @@ export const isCardElement = _isCardElement;
 export const isJSX = _isJSX;
 export const LinkButton = _LinkButton;
 export const Section = _Section;
+export const Table = _Table;
 export const toCardElement = _toCardElement;
 export const toModalElement = _toModalElement;
 
@@ -86,6 +88,9 @@ export type {
   LinkButtonOptions,
   LinkElement,
   SectionElement,
+  TableAlignment,
+  TableElement,
+  TableOptions,
   TextElement,
   TextStyle,
 } from "./cards";
@@ -128,6 +133,9 @@ export type {
   Paragraph,
   Root,
   Strong,
+  Table as MdastTable,
+  TableCell,
+  TableRow,
   Text,
 } from "./markdown";
 // Markdown/AST utilities
@@ -153,6 +161,9 @@ export {
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableCellNode,
+  isTableNode,
+  isTableRowNode,
   isTextNode,
   link,
   type MarkdownConverter,
@@ -164,6 +175,8 @@ export {
   strikethrough,
   stringifyMarkdown,
   strong,
+  tableElementToAscii,
+  tableToAscii,
   // AST node builders
   text,
   toPlainText,

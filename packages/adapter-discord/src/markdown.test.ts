@@ -224,4 +224,15 @@ describe("DiscordFormatConverter", () => {
       expect(result).toContain("---");
     });
   });
+
+  describe("table rendering", () => {
+    it("should render markdown tables as code blocks", () => {
+      const result = converter.fromMarkdown(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      expect(result).toContain("```");
+      expect(result).toContain("Name");
+      expect(result).toContain("Alice");
+    });
+  });
 });

@@ -27,9 +27,11 @@ import {
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
   parseMarkdown,
   type Root,
+  tableToAscii,
 } from "chat";
 
 export class GoogleChatFormatConverter extends BaseFormatConverter {
@@ -149,6 +151,10 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
 
     if (node.type === "thematicBreak") {
       return "---";
+    }
+
+    if (isTableNode(node)) {
+      return `\`\`\`\n${tableToAscii(node)}\n\`\`\``;
     }
 
     // For unsupported nodes, try to extract text

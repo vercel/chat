@@ -27,6 +27,7 @@ import {
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
   parseMarkdown,
   type Root,
@@ -206,11 +207,49 @@ export class TeamsFormatConverter extends BaseFormatConverter {
       return "---";
     }
 
+    if (isTableNode(node)) {
+      return this.tableToGfm(node);
+    }
+
     // For unsupported nodes, try to extract text
     const children = getNodeChildren(node);
     if (children.length > 0) {
       return children.map((child) => this.nodeToTeams(child)).join("");
     }
     return getNodeValue(node);
+  }
+
+  /**
+   * Render an mdast table node as a GFM markdown table.
+   * Teams renders markdown tables natively.
+   */
+  private tableToGfm(node: import("chat").MdastTable): string {
+    const rows: string[][] = [];
+    for (const row of node.children) {
+      const cells: string[] = [];
+      for (const cell of row.children) {
+        const cellContent = getNodeChildren(cell)
+          .map((child) => this.nodeToTeams(child))
+          .join("");
+        cells.push(cellContent);
+      }
+      rows.push(cells);
+    }
+
+    if (rows.length === 0) {
+      return "";
+    }
+
+    const lines: string[] = [];
+    // Header row
+    lines.push(`| ${rows[0].join(" | ")} |`);
+    // Separator
+    const separators = rows[0].map(() => "---");
+    lines.push(`| ${separators.join(" | ")} |`);
+    // Data rows
+    for (let i = 1; i < rows.length; i++) {
+      lines.push(`| ${rows[i].join(" | ")} |`);
+    }
+    return lines.join("\n");
   }
 }

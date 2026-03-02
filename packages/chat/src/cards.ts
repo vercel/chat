@@ -149,6 +149,20 @@ export interface FieldsElement {
   type: "fields";
 }
 
+/** Column alignment for table elements */
+export type TableAlignment = "left" | "center" | "right";
+
+/** Table element for structured data display */
+export interface TableElement {
+  /** Column alignment */
+  align?: TableAlignment[];
+  /** Column header labels */
+  headers: string[];
+  /** Data rows (each row is an array of cell strings) */
+  rows: string[][];
+  type: "table";
+}
+
 /** Union of all card child element types */
 export type CardChild =
   | TextElement
@@ -157,7 +171,8 @@ export type CardChild =
   | ActionsElement
   | SectionElement
   | FieldsElement
-  | LinkElement;
+  | LinkElement
+  | TableElement;
 
 /** Union of all element types (including nested children) */
 type AnyCardElement =
@@ -428,6 +443,39 @@ export function Fields(children: FieldElement[]): FieldsElement {
   };
 }
 
+/** Options for Table */
+export interface TableOptions {
+  /** Column alignment */
+  align?: TableAlignment[];
+  /** Column header labels */
+  headers: string[];
+  /** Data rows */
+  rows: string[][];
+}
+
+/**
+ * Create a Table element for structured data display.
+ *
+ * @example
+ * ```ts
+ * Table({
+ *   headers: ["Name", "Age", "Role"],
+ *   rows: [
+ *     ["Alice", "30", "Engineer"],
+ *     ["Bob", "25", "Designer"],
+ *   ],
+ * })
+ * ```
+ */
+export function Table(options: TableOptions): TableElement {
+  return {
+    type: "table",
+    headers: options.headers,
+    rows: options.rows,
+    align: options.align,
+  };
+}
+
 /**
  * Create a CardLink element for inline hyperlinks.
  *
@@ -488,6 +536,7 @@ const componentMap = new Map<unknown, string>([
   [CardLink, "CardLink"],
   [Field, "Field"],
   [Fields, "Fields"],
+  [Table, "Table"],
 ]);
 
 /**
@@ -639,6 +688,13 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         convertedChildren.filter((c): c is FieldElement => c.type === "field")
       );
 
+    case "Table":
+      return Table({
+        headers: props.headers as string[],
+        rows: props.rows as string[][],
+        align: props.align as TableAlignment[] | undefined,
+      });
+
     default:
       return null;
   }
@@ -729,6 +785,8 @@ function childToFallbackText(child: CardChild): string | null {
       // Actions are interactive-only — exclude from fallback text.
       // See: https://docs.slack.dev/reference/methods/chat.postMessage
       return null;
+    case "table":
+      return tableElementToAsciiText(child.headers, child.rows);
     case "section":
       return child.children
         .map((c) => childToFallbackText(c))
@@ -737,4 +795,37 @@ function childToFallbackText(child: CardChild): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * Render a table from headers and string rows as a padded ASCII table.
+ * Inline helper for card fallback text (avoids circular import with markdown.ts).
+ */
+function tableElementToAsciiText(headers: string[], rows: string[][]): string {
+  const allRows = [headers, ...rows];
+  const colCount = Math.max(...allRows.map((r) => r.length));
+  const colWidths: number[] = Array.from({ length: colCount }, () => 0);
+
+  for (const row of allRows) {
+    for (let i = 0; i < colCount; i++) {
+      const cellLen = (row[i] || "").length;
+      if (cellLen > colWidths[i]) {
+        colWidths[i] = cellLen;
+      }
+    }
+  }
+
+  const formatRow = (cells: string[]): string =>
+    cells
+      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
+      .join(" | ")
+      .trimEnd();
+
+  const lines: string[] = [];
+  lines.push(formatRow(headers));
+  lines.push(colWidths.map((w) => "-".repeat(w)).join("-|-"));
+  for (const row of rows) {
+    lines.push(formatRow(row));
+  }
+  return lines.join("\n");
 }

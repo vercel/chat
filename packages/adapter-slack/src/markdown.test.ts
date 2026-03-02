@@ -139,4 +139,24 @@ describe("SlackMarkdownConverter", () => {
       expect(result).not.toContain("<");
     });
   });
+
+  describe("table rendering", () => {
+    it("should render markdown tables as code blocks", () => {
+      const result = converter.fromMarkdown(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      expect(result).toContain("```");
+      expect(result).toContain("Name");
+      expect(result).toContain("Age");
+      expect(result).toContain("Alice");
+      expect(result).toContain("30");
+    });
+
+    it("should preserve table structure in code block", () => {
+      const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+      // Should be wrapped in code fences
+      expect(result.startsWith("```\n")).toBe(true);
+      expect(result.endsWith("\n```")).toBe(true);
+    });
+  });
 });

@@ -10,6 +10,7 @@ import type {
   CardChild,
   CardElement,
   FieldsElement,
+  TableElement,
   TextElement,
 } from "chat";
 
@@ -121,6 +122,9 @@ function renderChild(child: CardChild): string[] {
     case "divider":
       return ["---"];
 
+    case "table":
+      return renderTable(child);
+
     default:
       return [];
   }
@@ -151,6 +155,19 @@ function renderFields(fields: FieldsElement): string[] {
     (field) =>
       `**${escapeMarkdown(field.label)}:** ${escapeMarkdown(field.value)}`
   );
+}
+
+/**
+ * Render table as GFM markdown table.
+ */
+function renderTable(table: TableElement): string[] {
+  const lines: string[] = [];
+  lines.push(`| ${table.headers.join(" | ")} |`);
+  lines.push(`| ${table.headers.map(() => "---").join(" | ")} |`);
+  for (const row of table.rows) {
+    lines.push(`| ${row.join(" | ")} |`);
+  }
+  return lines;
 }
 
 /**
@@ -222,6 +239,8 @@ function childToPlainText(child: CardChild): string | null {
       // Actions are interactive-only — exclude from fallback text.
       // See: https://docs.slack.dev/reference/methods/chat.postMessage
       return null;
+    case "table":
+      return renderTable(child).join("\n");
     case "section":
       return child.children.map(childToPlainText).filter(Boolean).join("\n");
     default:
