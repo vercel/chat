@@ -12,7 +12,10 @@ import {
   discord,
   gchat,
   github,
+  ioredis,
   linear,
+  memory,
+  redis,
   slack,
   teams,
   telegram,
@@ -29,6 +32,9 @@ const iconMap: Record<
   github,
   linear,
   telegram,
+  redis,
+  ioredis,
+  memory,
 };
 
 interface AdapterCardProps {

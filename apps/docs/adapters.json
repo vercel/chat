@@ -75,6 +75,7 @@
     "type": "state",
     "description": "Production-ready state adapter using Redis for persistence and distributed locking.",
     "packageName": "@chat-adapter/state-redis",
+    "icon": "redis",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-redis"
   },
@@ -84,6 +85,7 @@
     "type": "state",
     "description": "Redis state adapter using ioredis with cluster and sentinel support.",
     "packageName": "@chat-adapter/state-ioredis",
+    "icon": "ioredis",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-ioredis"
   },
@@ -93,6 +95,7 @@
     "type": "state",
     "description": "In-memory state adapter for development and testing environments.",
     "packageName": "@chat-adapter/state-memory",
+    "icon": "memory",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-memory"
   },
