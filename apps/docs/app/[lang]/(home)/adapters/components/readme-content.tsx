@@ -11,7 +11,11 @@ interface ReadmeContentProps {
 }
 
 export const ReadmeContent = ({ children }: ReadmeContentProps) => (
-  <Streamdown mode="static" plugins={{ cjk, code, math, mermaid }}>
+  <Streamdown
+    linkSafety={{ enabled: false }}
+    mode="static"
+    plugins={{ cjk, code, math, mermaid }}
+  >
     {children}
   </Streamdown>
 );

@@ -1,24 +1,26 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { SiGithub } from "@icons-pack/react-simple-icons";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import adapters from "@/adapters.json";
 import { ReadmeContent } from "../components/readme-content";
 
-const GITHUB_TREE_PATTERN = /github\.com\/([^/]+)\/([^/]+)\/tree\/[^/]+\/(.+)/;
+const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
 const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
 
 const getAdapter = (slug: string) => adapters.find((a) => a.slug === slug);
 
-const fetchReadme = async (repoUrl: string): Promise<string | undefined> => {
-  const treeMatch = repoUrl.match(GITHUB_TREE_PATTERN);
-  if (treeMatch) {
-    const [, owner, repo, path] = treeMatch;
-    const url = `https://raw.githubusercontent.com/${owner}/${repo}/main/${path}/README.md`;
-    const response = await fetch(url, { next: { revalidate: 3600 } });
-    if (response.ok) {
-      return response.text();
+const getReadme = async (repoUrl: string): Promise<string | undefined> => {
+  const localMatch = repoUrl.match(LOCAL_PACKAGE_PATTERN);
+  if (localMatch) {
+    const [, pkgPath] = localMatch;
+    const filePath = join(process.cwd(), "..", "..", pkgPath, "README.md");
+    try {
+      return await readFile(filePath, "utf-8");
+    } catch {
+      return undefined;
     }
-    return undefined;
   }
 
   const repoMatch = repoUrl.match(GITHUB_REPO_PATTERN);
@@ -44,7 +46,7 @@ const AdapterPage = async ({
     notFound();
   }
 
-  const readme = await fetchReadme(adapter.readme);
+  const readme = await getReadme(adapter.readme);
 
   return (
     <div className="container mx-auto max-w-3xl">
