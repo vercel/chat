@@ -140,5 +140,52 @@
     "packageName": "@bitbasti/chat-adapter-webex",
     "author": "SebastianBodza",
     "readme": "https://github.com/SebastianBodza/chat-adapter-webex"
+  },
+  {
+    "name": "WhatsApp",
+    "slug": "whatsapp",
+    "type": "platform",
+    "icon": "whatsapp",
+    "description": "Connect to WhatsApp Business for customer messaging and automated conversations.",
+    "comingSoon": true,
+    "prs": [
+      "https://github.com/vercel/chat/pull/102",
+      "https://github.com/vercel/chat/pull/104"
+    ]
+  },
+  {
+    "name": "Instagram",
+    "slug": "instagram",
+    "type": "platform",
+    "icon": "instagram",
+    "description": "Build bots for Instagram direct messages and automated customer interactions.",
+    "comingSoon": true
+  },
+  {
+    "name": "Signal",
+    "slug": "signal",
+    "type": "platform",
+    "icon": "signal",
+    "description": "Integrate with Signal for private, encrypted bot messaging.",
+    "comingSoon": true
+  },
+  {
+    "name": "X",
+    "slug": "x",
+    "type": "platform",
+    "icon": "x",
+    "description": "Build bots for X direct messages and automated interactions.",
+    "comingSoon": true
+  },
+  {
+    "name": "Messenger",
+    "slug": "messenger",
+    "type": "platform",
+    "icon": "messenger",
+    "description": "Build bots for Facebook Messenger with rich messages and automated customer interactions.",
+    "comingSoon": true,
+    "prs": [
+      "https://github.com/vercel/chat/pull/156"
+    ]
   }
 ]

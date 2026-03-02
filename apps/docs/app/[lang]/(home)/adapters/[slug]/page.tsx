@@ -81,7 +81,9 @@ const AdapterPage = async ({
 };
 
 export const generateStaticParams = () =>
-  adapters.map((adapter) => ({ slug: adapter.slug }));
+  adapters
+    .filter((adapter) => "readme" in adapter)
+    .map((adapter) => ({ slug: adapter.slug }));
 
 export const generateMetadata = async ({
   params,
