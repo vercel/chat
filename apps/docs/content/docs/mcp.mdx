@@ -79,7 +79,7 @@ bot.onNewMention(async (thread, message) => {
 
 ## Using with AI SDK
 
-If you're building an AI-powered bot with [AI SDK](https://ai-sdk.dev), use [`@ai-sdk/mcp`](https://ai-sdk.dev/docs/ai-sdk-core/mcp-clients) to let the model decide which MCP tools to call. This is complementary to the built-in `bot.mcp` client — use `@ai-sdk/mcp` when an LLM should choose tools, and `bot.mcp` when your code should call tools directly.
+If you're building an AI-powered bot with [AI SDK](https://ai-sdk.dev), use [`@ai-sdk/mcp`](https://ai-sdk.dev/docs/ai-sdk-core/mcp-tools) to let the model decide which MCP tools to call. This is complementary to the built-in `bot.mcp` client — use `@ai-sdk/mcp` when an LLM should choose tools, and `bot.mcp` when your code should call tools directly.
 
 ```bash
 pnpm add @ai-sdk/mcp ai
@@ -87,7 +87,7 @@ pnpm add @ai-sdk/mcp ai
 
 Create an MCP client and pass its tools to a `ToolLoopAgent`:
 
-<CodeBlockTabs>
+<CodeBlockTabs defaultValue="gateway">
   <CodeBlockTabsList>
     <CodeBlockTabsTrigger value="gateway">AI Gateway</CodeBlockTabsTrigger>
     <CodeBlockTabsTrigger value="anthropic">Anthropic</CodeBlockTabsTrigger>
