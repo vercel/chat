@@ -834,6 +834,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }>
   ): Promise<RawMessage<unknown>> {
     const isInitialResponse = !slashContext.initialResponseSent;
+    // Set flag before awaiting to prevent concurrent post() calls from both
+    // trying to PATCH @original instead of the second being a followup POST.
+    slashContext.initialResponseSent = true;
+
     const path = isInitialResponse
       ? `/webhooks/${this.applicationId}/${slashContext.interactionToken}/messages/@original`
       : `/webhooks/${this.applicationId}/${slashContext.interactionToken}?wait=true`;
@@ -851,7 +855,6 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         : await this.discordInteractionFetch(path, method, payload);
 
     const result = (await response.json()) as APIMessage;
-    slashContext.initialResponseSent = true;
 
     return {
       id: result.id,
