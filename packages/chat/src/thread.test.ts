@@ -222,11 +222,11 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
-      // Should edit with final content
+      // Should edit with final content wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "Hello World"
+        { markdown: "Hello World" }
       );
     });
 
@@ -242,11 +242,11 @@ describe("ThreadImpl", () => {
       ]);
       const result = await thread.post(textStream);
 
-      // Final edit should have all accumulated text
+      // Final edit should have all accumulated text wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "This is a test message."
+        { markdown: "This is a test message." }
       );
       expect(result.text).toBe("This is a test message.");
     });
@@ -282,11 +282,11 @@ describe("ThreadImpl", () => {
       await vi.advanceTimersByTimeAsync(2000);
       await postPromise;
 
-      // Should have final edit
+      // Should have final edit wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "ABCDE"
+        { markdown: "ABCDE" }
       );
 
       vi.useRealTimers();
@@ -316,11 +316,11 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
-      // Should edit with empty string (final content)
+      // Should edit with empty string wrapped as markdown (final content)
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        ""
+        { markdown: "" }
       );
     });
 
@@ -345,7 +345,7 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "Hi"
+        { markdown: "Hi" }
       );
     });
 
@@ -363,10 +363,10 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream([]);
       await threadNoPlaceholder.post(textStream);
 
-      // Should still post a message (empty) even with no chunks
+      // Should still post a message (empty) even with no chunks, wrapped as markdown
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        ""
+        { markdown: "" }
       );
       // No edit needed since post content matches accumulated
       expect(mockAdapter.editMessage).not.toHaveBeenCalled();
@@ -438,7 +438,9 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream(["hello.", "\n\n", "how are you?"]);
       const result = await thread.post(textStream);
 
-      expect(result.text).toBe("hello.\n\nhow are you?");
+      // Plain text extraction from parsed markdown joins paragraphs without separator
+      // (mdast-util-to-string behavior). The formatted AST preserves paragraph structure.
+      expect(result.text).toBe("hello.how are you?");
       expect(capturedChunks).toEqual(["hello.", "\n\n", "how are you?"]);
     });
 
@@ -483,11 +485,11 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream(["hello.", "\n", "how are you?"]);
       const result = await thread.post(textStream);
 
-      // Final edit should have all accumulated text with newline preserved
+      // Final edit should have all accumulated text with newline preserved, wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "hello.\nhow are you?"
+        { markdown: "hello.\nhow are you?" }
       );
       expect(result.text).toBe("hello.\nhow are you?");
     });
@@ -509,14 +511,19 @@ describe("ThreadImpl", () => {
 
       const result = await threadWithInterval.post(textStream);
 
-      // Final result should have the raw complete text
-      expect(result.text).toBe("Hello **world** done");
+      // Final result text is plain text (markdown formatting stripped)
+      expect(result.text).toBe("Hello world done");
 
       // Check that intermediate edits used remend to close the bold marker
       const editCalls = vi.mocked(mockAdapter.editMessage).mock.calls;
       for (const [, , content] of editCalls) {
+        // Content should be wrapped as { markdown: string }
+        const markdownContent =
+          typeof content === "string"
+            ? content
+            : (content as { markdown: string }).markdown;
         // Every intermediate edit should have balanced markdown (no dangling **)
-        const openCount = (content.match(/\*\*/g) || []).length;
+        const openCount = (markdownContent.match(/\*\*/g) || []).length;
         expect(openCount % 2).toBe(0);
       }
     });
@@ -1506,11 +1513,11 @@ describe("ThreadImpl", () => {
       await vi.advanceTimersByTimeAsync(5000);
       await postPromise;
 
-      // Final text should be accumulated
+      // Final text should be accumulated, wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "ABC"
+        { markdown: "ABC" }
       );
 
       vi.useRealTimers();
@@ -1553,7 +1560,7 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "X"
+        { markdown: "X" }
       );
 
       vi.useRealTimers();
