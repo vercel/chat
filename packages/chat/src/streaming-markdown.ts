@@ -62,12 +62,27 @@ export class StreamingMarkdownRenderer {
    */
   getCommittableText(): string {
     if (this.finished) {
-      return this.accumulated;
+      if (isInsideCodeFence(this.accumulated)) {
+        return this.accumulated;
+      }
+      // After finish, wrap tables with closing fences so delta computation
+      // stays in the same coordinate space as the streaming output.
+      return wrapTablesForAppend(this.accumulated, true);
     }
     if (isInsideCodeFence(this.accumulated)) {
       return this.accumulated;
     }
-    const committed = getCommittablePrefix(this.accumulated);
+
+    // Strip incomplete last line (no trailing newline) to prevent committing
+    // content that might change semantics when completed — e.g. "| A" could
+    // become "| A | B |" which is a table row that should be held back.
+    let text = this.accumulated;
+    if (text.length > 0 && !text.endsWith("\n")) {
+      const lastNewline = text.lastIndexOf("\n");
+      text = lastNewline >= 0 ? text.slice(0, lastNewline + 1) : "";
+    }
+
+    const committed = getCommittablePrefix(text);
     const wrapped = wrapTablesForAppend(committed);
 
     // If text ends inside an open code fence (ongoing table),
@@ -234,12 +249,12 @@ function getCommittablePrefix(text: string): string {
  * so that output remains monotonic — each new row just extends the block.
  * The fence is closed when a non-table line follows.
  */
-function wrapTablesForAppend(text: string): string {
+function wrapTablesForAppend(text: string, closeFences = false): string {
+  const hadTrailingNewline = text.endsWith("\n");
   const lines = text.split("\n");
 
   // Remove trailing empty string from split (artifact of trailing newline)
-  const hadTrailingNewline = lines.length > 0 && lines.at(-1) === "";
-  if (hadTrailingNewline) {
+  if (hadTrailingNewline && lines.length > 0 && lines.at(-1) === "") {
     lines.pop();
   }
 
@@ -277,9 +292,12 @@ function wrapTablesForAppend(text: string): string {
     result.push(lines[i]);
   }
 
-  // If inTable is true, the code fence is intentionally left OPEN
-  // for monotonic appending — it'll be closed when the table ends
-  // or in the final editMessage.
+  // Close the fence if requested (e.g. after stream finishes)
+  if (inTable && closeFences) {
+    result.push("```");
+  }
+  // Otherwise if inTable is true, the code fence is intentionally left OPEN
+  // for monotonic appending — it'll be closed when the table ends.
 
   let output = result.join("\n");
   if (hadTrailingNewline) {

@@ -2158,10 +2158,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         await streamer.append({ markdown_text: delta });
       }
     }
-    // Flush any remaining buffered content (e.g. table header at end of stream)
+    // Flush any remaining buffered content (e.g. held table rows at end of stream).
+    // Use getCommittableText (not raw getText) so the delta stays in the same
+    // coordinate space as lastAppended — both include code fence wrapping.
     renderer.finish();
     const accumulated = renderer.getText();
-    const finalDelta = accumulated.slice(lastAppended.length);
+    const finalCommittable = renderer.getCommittableText();
+    const finalDelta = finalCommittable.slice(lastAppended.length);
     if (finalDelta.length > 0) {
       if (first) {
         // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token

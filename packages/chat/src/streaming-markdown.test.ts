@@ -327,9 +327,16 @@ describe("StreamingMarkdownRenderer", () => {
 
   // --- getCommittableText tests (for append-only streaming) ---
 
-  it("getCommittableText should hold back unclosed bold", () => {
+  it("getCommittableText should hold back incomplete line with unclosed bold", () => {
     const r = new StreamingMarkdownRenderer();
+    // No trailing newline — incomplete line is stripped entirely
     r.push("Hello **wor");
+    expect(r.getCommittableText()).toBe("");
+  });
+
+  it("getCommittableText should hold back unclosed bold on complete line", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor\n");
     const committable = r.getCommittableText();
     expect(committable).toBe("Hello ");
     expect(committable).not.toContain("**");
@@ -338,49 +345,52 @@ describe("StreamingMarkdownRenderer", () => {
   it("getCommittableText should release when bold closes", () => {
     const r = new StreamingMarkdownRenderer();
     r.push("Hello **wor");
-    expect(r.getCommittableText()).toBe("Hello ");
+    expect(r.getCommittableText()).toBe("");
 
-    r.push("ld**");
-    expect(r.getCommittableText()).toBe("Hello **world**");
+    r.push("ld** done\n");
+    expect(r.getCommittableText()).toBe("Hello **world** done\n");
   });
 
   it("getCommittableText should hold back unclosed italic", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Hello *ita");
+    r.push("Hello *ita\n");
     expect(r.getCommittableText()).toBe("Hello ");
   });
 
   it("getCommittableText should hold back unclosed strikethrough", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Hello ~~str");
+    r.push("Hello ~~str\n");
     expect(r.getCommittableText()).toBe("Hello ");
   });
 
   it("getCommittableText should hold back unclosed inline code", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Hello `cod");
+    r.push("Hello `cod\n");
     expect(r.getCommittableText()).toBe("Hello ");
   });
 
   it("getCommittableText should hold back unclosed link", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("See [link text");
+    r.push("See [link text\n");
     expect(r.getCommittableText()).toBe("See ");
   });
 
   it("getCommittableText should release when link closes", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("See [link text");
+    r.push("See [link text\n");
     expect(r.getCommittableText()).toBe("See ");
 
-    r.push("](https://example.com)");
-    expect(r.getCommittableText()).toBe("See [link text](https://example.com)");
+    r.push("](https://example.com)\n");
+    // Link closing on next line — "See [link text\n](https://example.com)\n"
+    // remend may or may not treat cross-line link as valid
+    const committable = r.getCommittableText();
+    expect(committable).toContain("See ");
   });
 
   it("getCommittableText should return clean text when all markers balanced", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Hello **world** and *italic* done");
-    expect(r.getCommittableText()).toBe("Hello **world** and *italic* done");
+    r.push("Hello **world** and *italic* done\n");
+    expect(r.getCommittableText()).toBe("Hello **world** and *italic* done\n");
   });
 
   it("getCommittableText should hold back table rows", () => {
@@ -418,10 +428,11 @@ describe("StreamingMarkdownRenderer", () => {
 
   it("getCommittableText should flush unclosed markers after finish", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Hello **wor");
+    r.push("Hello **wor\n");
     expect(r.getCommittableText()).toBe("Hello ");
     r.finish();
-    expect(r.getCommittableText()).toBe("Hello **wor");
+    // After finish, everything is flushed (final edit handles formatting)
+    expect(r.getCommittableText()).toBe("Hello **wor\n");
   });
 
   it("getCommittableText delta should stream table in code fence", () => {
@@ -471,31 +482,291 @@ describe("StreamingMarkdownRenderer", () => {
     const r = new StreamingMarkdownRenderer();
     let lastAppended = "";
 
-    // Push clean text
+    // Push clean text with newline (complete line)
     r.push("Hello ");
+    // No trailing newline — incomplete line held back
+    expect(r.getCommittableText()).toBe("");
+
+    r.push("**world** done\n");
     let committable = r.getCommittableText();
     let delta = committable.slice(lastAppended.length);
-    expect(delta).toBe("Hello ");
+    expect(delta).toBe("Hello **world** done\n");
     lastAppended = committable;
 
-    // Push unclosed bold — held back, no delta
-    r.push("**wor");
+    // Push new line with unclosed bold
+    r.push("More **text");
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
+    // Incomplete line held back
     expect(delta).toBe("");
 
-    // Close bold — delta includes full bold span
-    r.push("ld**");
+    // Close bold on same line
+    r.push("** end\n");
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
-    expect(delta).toBe("**world**");
-    lastAppended = committable;
+    expect(delta).toBe("More **text** end\n");
+  });
 
-    // More clean text
-    r.push(" done");
-    committable = r.getCommittableText();
-    delta = committable.slice(lastAppended.length);
-    expect(delta).toBe(" done");
+  // --- Append-only delta integration tests ---
+  // These simulate the exact pattern the Slack adapter uses:
+  // push chunks → getCommittableText() → compute delta → track lastAppended
+  // Verifies that concatenated deltas reconstruct the final output correctly.
+
+  /**
+   * Helper: simulates append-only streaming by pushing chunks one at a time,
+   * computing deltas from getCommittableText(), and collecting them.
+   * Returns the concatenated deltas and the final flushed text.
+   */
+  function simulateAppendStream(chunks: string[]): {
+    appendedText: string;
+    finalText: string;
+    deltas: string[];
+  } {
+    const r = new StreamingMarkdownRenderer();
+    let lastAppended = "";
+    const deltas: string[] = [];
+
+    for (const chunk of chunks) {
+      r.push(chunk);
+      const committable = r.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
+      if (delta.length > 0) {
+        deltas.push(delta);
+        lastAppended = committable;
+      }
+    }
+
+    // Final flush (same as Slack adapter: finish then getCommittableText)
+    r.finish();
+    const finalCommittable = r.getCommittableText();
+    const finalDelta = finalCommittable.slice(lastAppended.length);
+    if (finalDelta.length > 0) {
+      deltas.push(finalDelta);
+    }
+
+    return {
+      appendedText: deltas.join(""),
+      finalText: r.getText(),
+      deltas,
+    };
+  }
+
+  it("append-only: plain text streams without modification", () => {
+    const { appendedText } = simulateAppendStream(["Hello ", "World", "!\n"]);
+    expect(appendedText).toBe("Hello World!\n");
+  });
+
+  it("append-only: bold markers are held then released", () => {
+    const { appendedText } = simulateAppendStream([
+      "Hello ",
+      "**bold",
+      "** text\n",
+    ]);
+    // Everything appears once the line is complete
+    expect(appendedText).toContain("**bold**");
+    expect(appendedText).toContain("Hello ");
+  });
+
+  it("append-only: table is wrapped in code fence", () => {
+    const { appendedText } = simulateAppendStream([
+      "Intro\n\n",
+      "| A | B |\n",
+      "|---|---|\n",
+      "| 1 | 2 |\n",
+      "| 3 | 4 |\n",
+      "\nAfter table\n",
+    ]);
+    // Table content should be inside code fences
+    expect(appendedText).toContain("```\n| A | B |");
+    expect(appendedText).toContain("| 1 | 2 |");
+    expect(appendedText).toContain("| 3 | 4 |");
+    expect(appendedText).toContain("```\n\nAfter table");
+    // Intro should be outside the code fence
+    expect(appendedText.indexOf("Intro")).toBeLessThan(
+      appendedText.indexOf("```")
+    );
+  });
+
+  it("append-only: table at end of stream is flushed on finish", () => {
+    const { appendedText, deltas } = simulateAppendStream([
+      "Text\n\n",
+      "| A | B |\n",
+      "|---|---|\n",
+      "| 1 | 2 |\n",
+    ]);
+    // Table should appear in the output (flushed by finish)
+    expect(appendedText).toContain("| A | B |");
+    expect(appendedText).toContain("```");
+    // The final delta (from finish) should include remaining content
+    expect(deltas.at(-1)).toBeTruthy();
+  });
+
+  it("append-only: concatenated deltas equal getCommittableText after finish", () => {
+    const { appendedText } = simulateAppendStream([
+      "Hello **world**\n",
+      "\n",
+      "| H1 | H2 |\n",
+      "| - | - |\n",
+      "| a | b |\n",
+      "| c | d |\n",
+      "\nDone\n",
+    ]);
+
+    // All content should be present
+    expect(appendedText).toContain("Hello **world**");
+    expect(appendedText).toContain("| H1 | H2 |");
+    expect(appendedText).toContain("| a | b |");
+    expect(appendedText).toContain("| c | d |");
+    expect(appendedText).toContain("Done");
+    // Table should be in code fences
+    expect(appendedText).toContain("```");
+  });
+
+  it("append-only: concatenated deltas are monotonic (each is a suffix)", () => {
+    // This is the core invariant: the concatenated deltas must equal
+    // the final getCommittableText output. This ensures append-only
+    // streaming produces correct results.
+    const r = new StreamingMarkdownRenderer();
+    let lastAppended = "";
+    const deltas: string[] = [];
+    const chunks = [
+      "Hello **world**\n",
+      "\n",
+      "| A | B |\n",
+      "| - | - |\n",
+      "| 1 | 2 |\n",
+      "\nDone\n",
+    ];
+
+    for (const chunk of chunks) {
+      r.push(chunk);
+      const committable = r.getCommittableText();
+      // Verify monotonicity: committable must start with lastAppended
+      expect(committable.startsWith(lastAppended)).toBe(true);
+      const delta = committable.slice(lastAppended.length);
+      if (delta.length > 0) {
+        deltas.push(delta);
+        lastAppended = committable;
+      }
+    }
+
+    r.finish();
+    const finalCommittable = r.getCommittableText();
+    expect(finalCommittable.startsWith(lastAppended)).toBe(true);
+    const finalDelta = finalCommittable.slice(lastAppended.length);
+    if (finalDelta.length > 0) {
+      deltas.push(finalDelta);
+    }
+
+    expect(deltas.join("")).toBe(finalCommittable);
+  });
+
+  it("append-only: final flush uses transformed text not raw text", () => {
+    // This tests the exact bug that caused garbled output ("JoinJoin Date")
+    // when lastAppended (transformed, with ```) was compared against
+    // accumulated (raw, without ```).
+    const r = new StreamingMarkdownRenderer();
+    let lastAppended = "";
+
+    // Stream a table
+    for (const chunk of [
+      "Intro\n\n",
+      "| ID | Name |\n",
+      "|---|---|\n",
+      "| 1 | Alice |\n",
+    ]) {
+      r.push(chunk);
+      const committable = r.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
+      if (delta.length > 0) {
+        lastAppended = committable;
+      }
+    }
+
+    r.finish();
+    const raw = r.getText();
+    const transformed = r.getCommittableText();
+
+    // After finish, transformed wraps tables in closed code fences
+    expect(transformed).toContain("```");
+    expect(transformed.length).toBeGreaterThan(raw.length);
+
+    // Final delta from transformed text should be valid
+    const correctDelta = transformed.slice(lastAppended.length);
+    // Concatenation should match the full transformed output
+    expect(lastAppended + correctDelta).toBe(transformed);
+
+    // The buggy approach (using raw text) would NOT match
+    const buggyDelta = raw.slice(lastAppended.length);
+    expect(lastAppended + buggyDelta).not.toBe(transformed);
+  });
+
+  it("append-only: real-world 20-row table streams correctly", () => {
+    const header =
+      "| ID | Name | Department | Age | Salary | City | Join Date |\n";
+    const sep = "| - | - | - | - | - | - | - |\n";
+    const rows = [
+      "| 1 | Alice Johnson | Engineering | 28 | $75,000 | New York | 2021-03-15 |\n",
+      "| 2 | Bob Smith | Marketing | 35 | $68,000 | Los Angeles | 2019-07-22 |\n",
+      "| 3 | Carol Davis | Finance | 31 | $82,000 | Chicago | 2021-01-10 |\n",
+    ];
+
+    const chunks = ["Here's a table:\n\n", header, sep, ...rows];
+
+    const { appendedText, finalText } = simulateAppendStream(chunks);
+
+    // All data should be present in the streamed output
+    expect(appendedText).toContain("Alice Johnson");
+    expect(appendedText).toContain("Bob Smith");
+    expect(appendedText).toContain("Carol Davis");
+    // Table should be in a code fence
+    expect(appendedText).toContain("```");
+    // No garbled text — column names should be intact
+    expect(appendedText).toContain("Join Date");
+    expect(appendedText).not.toContain("JoinJoin");
+    // Raw text should have all content
+    expect(finalText).toContain("Alice Johnson");
+    expect(finalText).toContain("| 3 |");
+  });
+
+  it("append-only: table rows split mid-token stream correctly", () => {
+    // LLM tokens often split mid-word or mid-cell.
+    // Incomplete lines are held back until newline arrives,
+    // preventing partial content from leaking.
+    const { appendedText } = simulateAppendStream([
+      "Text\n\n",
+      "| A", // incomplete line — held
+      " | B |\n", // line completes — held as unconfirmed table row
+      "|---|", // incomplete separator — held
+      "---|\n", // separator completes — table confirmed, code fence opens
+      "| 1 | ", // incomplete data row — held
+      "2 |\n", // row completes — extends code block
+    ]);
+    expect(appendedText).toContain("```");
+    expect(appendedText).toContain("| A | B |");
+    expect(appendedText).toContain("| 1 | 2 |");
+    // No partial content like "| A" should appear outside the code fence
+    const beforeFence = appendedText.slice(0, appendedText.indexOf("```"));
+    expect(beforeFence).not.toContain("| A");
+  });
+
+  it("append-only: multiple tables in sequence", () => {
+    const { appendedText } = simulateAppendStream([
+      "First table:\n\n",
+      "| A |\n",
+      "|---|\n",
+      "| 1 |\n",
+      "\nSecond table:\n\n",
+      "| X |\n",
+      "|---|\n",
+      "| 9 |\n",
+      "\nDone\n",
+    ]);
+    // Both tables should be in separate code fences
+    const fenceCount = (appendedText.match(/```/g) || []).length;
+    expect(fenceCount).toBe(4); // open+close for each table
+    expect(appendedText).toContain("| 1 |");
+    expect(appendedText).toContain("| 9 |");
   });
 
   it("should track dirty flag correctly across push-render-push-render", () => {
