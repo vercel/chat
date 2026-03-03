@@ -462,6 +462,9 @@ importers:
       remark-stringify:
         specifier: ^11.0.0
         version: 11.0.0
+      remend:
+        specifier: ^1.2.1
+        version: 1.2.1
       unified:
         specifier: ^11.0.5
         version: 11.0.5
@@ -5134,6 +5137,9 @@ packages:
 
   remend@1.2.0:
     resolution: {integrity: sha512-NbKrdWweTRuByPYErzQCNpNtsR9M1QQ0hK2UzmnmlSaEqHnkQ5Korlyi8KpdbOJ0rImJfRy4EAY0uDxYnL9Plw==}
+
+  remend@1.2.1:
+    resolution: {integrity: sha512-4wC12bgXsfKAjF1ewwkNIQz5sqewz/z1xgIgjEMb3r1pEytQ37F0Cm6i+OhbTWEvguJD7lhOUJhK5fSasw9f0w==}
 
   resolve-from@5.0.0:
     resolution: {integrity: sha512-qYg9KP24dD5qka9J47d0aVky0N+b4fTU89LN9iDnjB5waksiC49rvMB0PrUJQGoTmH50XPiqOvAjDfaijGxYZw==}
@@ -10939,6 +10945,8 @@ snapshots:
       - supports-color
 
   remend@1.2.0: {}
+
+  remend@1.2.1: {}
 
   resolve-from@5.0.0: {}
 

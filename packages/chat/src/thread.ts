@@ -1,5 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
+import remend from "remend";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
@@ -496,7 +497,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       }
 
       if (accumulated !== lastEditContent) {
-        const content = accumulated;
+        const content = remend(accumulated);
         try {
           await this.adapter.editMessage(threadIdForEdits, msg.id, content);
           lastEditContent = content;
@@ -519,7 +520,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       for await (const chunk of textStream) {
         accumulated += chunk;
         if (!msg) {
-          msg = await this.adapter.postMessage(this.id, accumulated);
+          msg = await this.adapter.postMessage(this.id, remend(accumulated));
           threadIdForEdits = msg.threadId || this.id;
           lastEditContent = accumulated;
           scheduleNextEdit();

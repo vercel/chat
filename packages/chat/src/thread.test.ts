@@ -492,6 +492,35 @@ describe("ThreadImpl", () => {
       expect(result.text).toBe("hello.\nhow are you?");
     });
 
+    it("should close incomplete markdown in intermediate fallback edits", async () => {
+      mockAdapter.stream = undefined;
+
+      // Simulate streaming where intermediate state has unclosed bold marker
+      const textStream = createTextStream(["Hello **wor", "ld** done"], 50);
+
+      // Use short interval so intermediate edit fires between chunks
+      const threadWithInterval = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        streamingUpdateIntervalMs: 10,
+      });
+
+      const result = await threadWithInterval.post(textStream);
+
+      // Final result should have the raw complete text
+      expect(result.text).toBe("Hello **world** done");
+
+      // Check that intermediate edits used remend to close the bold marker
+      const editCalls = vi.mocked(mockAdapter.editMessage).mock.calls;
+      for (const [, , content] of editCalls) {
+        // Every intermediate edit should have balanced markdown (no dangling **)
+        const openCount = (content.match(/\*\*/g) || []).length;
+        expect(openCount % 2).toBe(0);
+      }
+    });
+
     it("should pass stream options from current message context", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
