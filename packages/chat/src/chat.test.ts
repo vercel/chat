@@ -91,7 +91,7 @@ describe("Chat", () => {
     expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
       "slack:C123:1234.5678",
       "msg-1",
-      "Hi"
+      { markdown: "Hi" }
     );
   });
 

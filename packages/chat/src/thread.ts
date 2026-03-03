@@ -445,7 +445,11 @@ export class ThreadImpl<TState = Record<string, unknown>>
       };
 
       const raw = await this.adapter.stream(this.id, wrappedStream, options);
-      return this.createSentMessage(raw.id, accumulated, raw.threadId);
+      return this.createSentMessage(
+        raw.id,
+        { markdown: accumulated },
+        raw.threadId
+      );
     }
 
     // Fallback: post + edit with throttling
@@ -499,7 +503,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
       if (accumulated !== lastEditContent) {
         const content = remend(accumulated);
         try {
-          await this.adapter.editMessage(threadIdForEdits, msg.id, content);
+          await this.adapter.editMessage(threadIdForEdits, msg.id, {
+            markdown: content,
+          });
           lastEditContent = content;
         } catch {
           // Ignore errors, continue
@@ -520,7 +526,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
       for await (const chunk of textStream) {
         accumulated += chunk;
         if (!msg) {
-          msg = await this.adapter.postMessage(this.id, remend(accumulated));
+          msg = await this.adapter.postMessage(this.id, {
+            markdown: remend(accumulated),
+          });
           threadIdForEdits = msg.threadId || this.id;
           lastEditContent = accumulated;
           scheduleNextEdit();
@@ -540,16 +548,24 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     if (!msg) {
-      msg = await this.adapter.postMessage(this.id, accumulated);
+      msg = await this.adapter.postMessage(this.id, {
+        markdown: accumulated,
+      });
       threadIdForEdits = msg.threadId || this.id;
       lastEditContent = accumulated;
     }
 
     if (accumulated !== lastEditContent) {
-      await this.adapter.editMessage(threadIdForEdits, msg.id, accumulated);
+      await this.adapter.editMessage(threadIdForEdits, msg.id, {
+        markdown: accumulated,
+      });
     }
 
-    return this.createSentMessage(msg.id, accumulated, threadIdForEdits);
+    return this.createSentMessage(
+      msg.id,
+      { markdown: accumulated },
+      threadIdForEdits
+    );
   }
 
   async refresh(): Promise<void> {
