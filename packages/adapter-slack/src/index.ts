@@ -1194,18 +1194,29 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     switch (type) {
-      case "event_callback":
+      case "event_callback": {
+        if (!body.event || typeof body.event !== "object") {
+          this.logger.warn("Socket mode event_callback missing event field", {
+            body,
+          });
+          break;
+        }
+        const payload: SlackWebhookPayload = {
+          type: body.type as string,
+          event: body.event as SlackWebhookPayload["event"],
+          team_id: body.team_id as string | undefined,
+          event_id: body.event_id as string | undefined,
+          event_time: body.event_time as number | undefined,
+        };
         try {
-          this.processEventPayload(
-            body as unknown as SlackWebhookPayload,
-            options
-          );
+          this.processEventPayload(payload, options);
         } catch (error) {
           this.logger.error("Error processing socket mode event_callback", {
             error,
           });
         }
         break;
+      }
 
       case "slash_commands": {
         const params = new URLSearchParams();
