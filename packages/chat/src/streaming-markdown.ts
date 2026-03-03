@@ -26,7 +26,7 @@ export class StreamingMarkdownRenderer {
     // Incrementally track code fence state from completed lines
     this.incompleteLine += chunk;
     const parts = this.incompleteLine.split("\n");
-    this.incompleteLine = parts.pop()!;
+    this.incompleteLine = parts.pop() ?? "";
     for (const line of parts) {
       const trimmed = line.trimStart();
       if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
