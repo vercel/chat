@@ -44,6 +44,7 @@
  * ```
  */
 
+import { tableElementToAscii } from "./markdown";
 import type { RadioSelectElement, SelectElement } from "./modals";
 
 // ============================================================================
@@ -753,7 +754,7 @@ export function cardToFallbackText(card: CardElement): string {
   const parts: string[] = [];
 
   if (card.title) {
-    parts.push(card.title);
+    parts.push(`**${card.title}**`);
   }
 
   if (card.subtitle) {
@@ -787,7 +788,7 @@ export function cardChildToFallbackText(child: CardChild): string | null {
       // See: https://docs.slack.dev/reference/methods/chat.postMessage
       return null;
     case "table":
-      return tableElementToAsciiText(child.headers, child.rows);
+      return tableElementToAscii(child.headers, child.rows);
     case "section":
       return child.children
         .map((c) => cardChildToFallbackText(c))
@@ -796,37 +797,4 @@ export function cardChildToFallbackText(child: CardChild): string | null {
     default:
       return null;
   }
-}
-
-/**
- * Render a table from headers and string rows as a padded ASCII table.
- * Inline helper for card fallback text (avoids circular import with markdown.ts).
- */
-function tableElementToAsciiText(headers: string[], rows: string[][]): string {
-  const allRows = [headers, ...rows];
-  const colCount = Math.max(...allRows.map((r) => r.length));
-  const colWidths: number[] = Array.from({ length: colCount }, () => 0);
-
-  for (const row of allRows) {
-    for (let i = 0; i < colCount; i++) {
-      const cellLen = (row[i] || "").length;
-      if (cellLen > colWidths[i]) {
-        colWidths[i] = cellLen;
-      }
-    }
-  }
-
-  const formatRow = (cells: string[]): string =>
-    cells
-      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
-      .join(" | ")
-      .trimEnd();
-
-  const lines: string[] = [];
-  lines.push(formatRow(headers));
-  lines.push(colWidths.map((w) => "-".repeat(w)).join("-|-"));
-  for (const row of rows) {
-    lines.push(formatRow(row));
-  }
-  return lines.join("\n");
 }

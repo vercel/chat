@@ -228,7 +228,14 @@ export class TelegramAdapter
       return new Response("OK", { status: 200 });
     }
 
-    this.processUpdate(update, options);
+    try {
+      this.processUpdate(update, options);
+    } catch (error) {
+      this.logger.warn("Failed to process Telegram webhook update", {
+        error: String(error),
+        updateId: update.update_id,
+      });
+    }
 
     return new Response("OK", { status: 200 });
   }
@@ -1434,6 +1441,8 @@ export class TelegramAdapter
     config: ResolvedTelegramLongPollingConfig
   ): Promise<void> {
     let offset: number | undefined;
+    let consecutiveFailures = 0;
+    const MAX_BACKOFF_MS = 30_000;
 
     while (this.pollingActive) {
       this.pollingAbortController = new AbortController();
@@ -1449,6 +1458,8 @@ export class TelegramAdapter
           },
           { signal: this.pollingAbortController.signal }
         );
+
+        consecutiveFailures = 0;
 
         for (const update of updates) {
           offset = update.update_id + 1;
@@ -1467,16 +1478,23 @@ export class TelegramAdapter
           return;
         }
 
+        consecutiveFailures++;
+        const backoffMs = Math.min(
+          config.retryDelayMs * 2 ** (consecutiveFailures - 1),
+          MAX_BACKOFF_MS
+        );
+
         this.logger.warn("Telegram polling request failed", {
           error: String(error),
-          retryDelayMs: config.retryDelayMs,
+          retryDelayMs: backoffMs,
+          consecutiveFailures,
         });
 
         if (!this.pollingActive) {
           return;
         }
 
-        await this.sleep(config.retryDelayMs);
+        await this.sleep(backoffMs);
       } finally {
         this.pollingAbortController = null;
       }

@@ -13,11 +13,36 @@ export class StreamingMarkdownRenderer {
   private dirty = true;
   private cachedRender = "";
   private finished = false;
+  /** Number of code fence toggles from completed lines (odd = inside). */
+  private fenceToggles = 0;
+  /** Incomplete trailing line buffer for incremental fence tracking. */
+  private incompleteLine = "";
 
   /** Append a chunk from the LLM stream. */
   push(chunk: string): void {
     this.accumulated += chunk;
     this.dirty = true;
+
+    // Incrementally track code fence state from completed lines
+    this.incompleteLine += chunk;
+    const parts = this.incompleteLine.split("\n");
+    this.incompleteLine = parts.pop()!;
+    for (const line of parts) {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+        this.fenceToggles++;
+      }
+    }
+  }
+
+  /** O(1) check if accumulated text is inside an unclosed code fence. */
+  private isAccumulatedInsideFence(): boolean {
+    let inside = this.fenceToggles % 2 === 1;
+    const trimmed = this.incompleteLine.trimStart();
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inside = !inside;
+    }
+    return inside;
   }
 
   /**
@@ -40,7 +65,7 @@ export class StreamingMarkdownRenderer {
     }
 
     // If inside an unclosed code fence, don't buffer (pipes aren't tables)
-    if (isInsideCodeFence(this.accumulated)) {
+    if (this.isAccumulatedInsideFence()) {
       this.cachedRender = remend(this.accumulated);
       return this.cachedRender;
     }

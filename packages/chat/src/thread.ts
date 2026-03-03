@@ -526,11 +526,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
       for await (const chunk of textStream) {
         renderer.push(chunk);
         if (!msg) {
+          const content = renderer.render();
           msg = await this.adapter.postMessage(this.id, {
-            markdown: renderer.render(),
+            markdown: content,
           });
           threadIdForEdits = msg.threadId || this.id;
-          lastEditContent = renderer.render();
+          lastEditContent = content;
           scheduleNextEdit();
         }
       }
@@ -548,7 +549,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     const accumulated = renderer.getText();
-    renderer.finish();
+    const finalContent = renderer.finish();
 
     if (!msg) {
       msg = await this.adapter.postMessage(this.id, {
@@ -558,7 +559,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       lastEditContent = accumulated;
     }
 
-    if (accumulated !== lastEditContent) {
+    if (finalContent !== lastEditContent) {
       await this.adapter.editMessage(threadIdForEdits, msg.id, {
         markdown: accumulated,
       });

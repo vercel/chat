@@ -182,40 +182,9 @@ export function tableToAscii(node: Table): string {
     return "";
   }
 
-  // Determine max column count and column widths
-  const colCount = Math.max(...rows.map((r) => r.length));
-  const colWidths: number[] = Array.from({ length: colCount }, () => 0);
-
-  for (const row of rows) {
-    for (let i = 0; i < colCount; i++) {
-      const cellLen = (row[i] || "").length;
-      if (cellLen > colWidths[i]) {
-        colWidths[i] = cellLen;
-      }
-    }
-  }
-
-  const formatRow = (cells: string[]): string =>
-    cells
-      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
-      .join(" | ")
-      .trimEnd();
-
-  const lines: string[] = [];
-
-  // Header row
-  lines.push(formatRow(rows[0]));
-
-  // Separator
-  const separator = colWidths.map((w) => "-".repeat(w)).join("-|-");
-  lines.push(separator);
-
-  // Data rows
-  for (let i = 1; i < rows.length; i++) {
-    lines.push(formatRow(rows[i]));
-  }
-
-  return lines.join("\n");
+  const headers = rows[0];
+  const dataRows = rows.slice(1);
+  return tableElementToAscii(headers, dataRows);
 }
 
 /**
@@ -228,6 +197,9 @@ export function tableElementToAscii(
 ): string {
   const allRows = [headers, ...rows];
   const colCount = Math.max(...allRows.map((r) => r.length));
+  if (colCount === 0) {
+    return "";
+  }
   const colWidths: number[] = Array.from({ length: colCount }, () => 0);
 
   for (const row of allRows) {
@@ -240,8 +212,9 @@ export function tableElementToAscii(
   }
 
   const formatRow = (cells: string[]): string =>
-    cells
-      .map((cell, i) => (cell || "").padEnd(colWidths[i]))
+    Array.from({ length: colCount }, (_, i) =>
+      (cells[i] || "").padEnd(colWidths[i])
+    )
       .join(" | ")
       .trimEnd();
 

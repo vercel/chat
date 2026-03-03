@@ -5,6 +5,7 @@
  * as formatted markdown with bold text, dividers, and links.
  */
 
+import { renderGfmTable } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   CardChild,
@@ -167,13 +168,7 @@ function renderFields(fields: FieldsElement): string[] {
  * Render table as GFM markdown table.
  */
 function renderTable(table: TableElement): string[] {
-  const lines: string[] = [];
-  lines.push(`| ${table.headers.join(" | ")} |`);
-  lines.push(`| ${table.headers.map(() => "---").join(" | ")} |`);
-  for (const row of table.rows) {
-    lines.push(`| ${row.join(" | ")} |`);
-  }
-  return lines;
+  return renderGfmTable(table);
 }
 
 /**

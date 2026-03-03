@@ -11,6 +11,7 @@
  * Teams also accepts standard markdown in most cases.
  */
 
+import { escapeTableCell } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -28,6 +29,7 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
+  type MdastTable,
   parseMarkdown,
   type Root,
 } from "chat";
@@ -217,7 +219,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
    * Render an mdast table node as a GFM markdown table.
    * Teams renders markdown tables natively.
    */
-  private tableToGfm(node: import("chat").MdastTable): string {
+  private tableToGfm(node: MdastTable): string {
     const rows: string[][] = [];
     for (const row of node.children) {
       const cells: string[] = [];
@@ -236,13 +238,13 @@ export class TeamsFormatConverter extends BaseFormatConverter {
 
     const lines: string[] = [];
     // Header row
-    lines.push(`| ${rows[0].join(" | ")} |`);
+    lines.push(`| ${rows[0].map(escapeTableCell).join(" | ")} |`);
     // Separator
     const separators = rows[0].map(() => "---");
     lines.push(`| ${separators.join(" | ")} |`);
     // Data rows
     for (let i = 1; i < rows.length; i++) {
-      lines.push(`| ${rows[i].join(" | ")} |`);
+      lines.push(`| ${rows[i].map(escapeTableCell).join(" | ")} |`);
     }
     return lines.join("\n");
   }

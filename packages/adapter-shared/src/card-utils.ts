@@ -5,7 +5,7 @@
  * for card-to-platform-format conversions.
  */
 
-import type { ButtonElement, CardChild, CardElement } from "chat";
+import type { ButtonElement, CardChild, CardElement, TableElement } from "chat";
 import {
   convertEmojiPlaceholders,
   cardChildToFallbackText as coreCardChildToFallbackText,
@@ -162,4 +162,28 @@ function childToFallbackText(
     default:
       return coreCardChildToFallbackText(child);
   }
+}
+
+/**
+ * Escape a cell value for use in a GFM pipe table.
+ * Escapes `|` to `\|` and replaces newlines with spaces.
+ */
+export function escapeTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+/**
+ * Render a TableElement as a GFM markdown table with properly escaped cells.
+ * Shared by adapters that support native GFM table rendering (GitHub, Linear, Discord).
+ */
+export function renderGfmTable(table: TableElement): string[] {
+  const headers = table.headers.map(escapeTableCell);
+  const lines: string[] = [];
+  lines.push(`| ${headers.join(" | ")} |`);
+  lines.push(`| ${headers.map(() => "---").join(" | ")} |`);
+  for (const row of table.rows) {
+    const cells = row.map(escapeTableCell);
+    lines.push(`| ${cells.join(" | ")} |`);
+  }
+  return lines;
 }

@@ -6,6 +6,7 @@
  * @see https://discord.com/developers/docs/interactions/message-components
  */
 
+import { renderGfmTable } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -124,13 +125,7 @@ function processChild(
       break;
     case "table": {
       // Render as GFM markdown table in embed description
-      const lines: string[] = [];
-      lines.push(`| ${child.headers.join(" | ")} |`);
-      lines.push(`| ${child.headers.map(() => "---").join(" | ")} |`);
-      for (const row of child.rows) {
-        lines.push(`| ${row.join(" | ")} |`);
-      }
-      textParts.push(lines.join("\n"));
+      textParts.push(renderGfmTable(child).join("\n"));
       break;
     }
     default: {
