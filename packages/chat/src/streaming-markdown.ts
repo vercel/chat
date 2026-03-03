@@ -54,6 +54,11 @@ export class StreamingMarkdownRenderer {
    * Get the committable prefix without remend applied.
    * Use this for append-only streaming (e.g. Slack native streaming)
    * where you need the raw safe-to-show text to compute deltas.
+   *
+   * Applies both table buffering and inline marker buffering:
+   * holds back text from the last unclosed inline marker (**, *, ~~, `, [)
+   * so the returned text is always in a "clean" state where
+   * remend(text) === text.
    */
   getCommittableText(): string {
     if (this.finished) {
@@ -62,7 +67,8 @@ export class StreamingMarkdownRenderer {
     if (isInsideCodeFence(this.accumulated)) {
       return this.accumulated;
     }
-    return getCommittablePrefix(this.accumulated);
+    const tableBuffered = getCommittablePrefix(this.accumulated);
+    return findCleanPrefix(tableBuffered);
   }
 
   /** Raw accumulated text (no remend, no buffering). For the final edit. */
@@ -76,6 +82,51 @@ export class StreamingMarkdownRenderer {
     this.dirty = true;
     return this.render();
   }
+}
+
+/**
+ * Characters that can open an inline markdown construct.
+ * Used to find the cut point when text has unclosed markers.
+ */
+const INLINE_MARKER_CHARS = new Set(["*", "~", "`", "["]);
+
+/**
+ * Check if text is "clean" — remend doesn't add any closing markers.
+ * Uses length comparison because remend may trim trailing whitespace
+ * from otherwise clean text (which is harmless for streaming).
+ */
+function isClean(text: string): boolean {
+  return remend(text).length <= text.length;
+}
+
+/**
+ * Returns the longest prefix of `text` where all inline markers are balanced
+ * (i.e. remend would not add closing markers). Scans backward from the end
+ * for potential opening markers, grouping consecutive same characters to
+ * handle multi-char markers like ** and ~~.
+ *
+ * Typically resolves in 1-3 remend calls since unclosed markers are
+ * almost always near the end of the text.
+ */
+function findCleanPrefix(text: string): string {
+  if (text.length === 0 || isClean(text)) {
+    return text;
+  }
+
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (INLINE_MARKER_CHARS.has(text[i])) {
+      // Group consecutive same characters (e.g., ** or ~~)
+      while (i > 0 && text[i - 1] === text[i]) {
+        i--;
+      }
+      const candidate = text.slice(0, i);
+      if (isClean(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return "";
 }
 
 const TABLE_ROW_RE = /^\|.*\|$/;

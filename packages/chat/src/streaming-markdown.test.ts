@@ -327,11 +327,60 @@ describe("StreamingMarkdownRenderer", () => {
 
   // --- getCommittableText tests (for append-only streaming) ---
 
-  it("getCommittableText should return prefix without remend", () => {
+  it("getCommittableText should hold back unclosed bold", () => {
     const r = new StreamingMarkdownRenderer();
     r.push("Hello **wor");
-    // getCommittableText: no remend, no buffering of non-table content
-    expect(r.getCommittableText()).toBe("Hello **wor");
+    const committable = r.getCommittableText();
+    expect(committable).toBe("Hello ");
+    expect(committable).not.toContain("**");
+  });
+
+  it("getCommittableText should release when bold closes", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    expect(r.getCommittableText()).toBe("Hello ");
+
+    r.push("ld**");
+    expect(r.getCommittableText()).toBe("Hello **world**");
+  });
+
+  it("getCommittableText should hold back unclosed italic", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello *ita");
+    expect(r.getCommittableText()).toBe("Hello ");
+  });
+
+  it("getCommittableText should hold back unclosed strikethrough", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello ~~str");
+    expect(r.getCommittableText()).toBe("Hello ");
+  });
+
+  it("getCommittableText should hold back unclosed inline code", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello `cod");
+    expect(r.getCommittableText()).toBe("Hello ");
+  });
+
+  it("getCommittableText should hold back unclosed link", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("See [link text");
+    expect(r.getCommittableText()).toBe("See ");
+  });
+
+  it("getCommittableText should release when link closes", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("See [link text");
+    expect(r.getCommittableText()).toBe("See ");
+
+    r.push("](https://example.com)");
+    expect(r.getCommittableText()).toBe("See [link text](https://example.com)");
+  });
+
+  it("getCommittableText should return clean text when all markers balanced", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **world** and *italic* done");
+    expect(r.getCommittableText()).toBe("Hello **world** and *italic* done");
   });
 
   it("getCommittableText should hold back table rows", () => {
@@ -364,7 +413,15 @@ describe("StreamingMarkdownRenderer", () => {
     expect(r.getCommittableText()).toContain("| A | B |");
   });
 
-  it("getCommittableText delta should work for append-only streaming", () => {
+  it("getCommittableText should flush unclosed markers after finish", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    expect(r.getCommittableText()).toBe("Hello ");
+    r.finish();
+    expect(r.getCommittableText()).toBe("Hello **wor");
+  });
+
+  it("getCommittableText delta should work for tables in append-only streaming", () => {
     const r = new StreamingMarkdownRenderer();
     let lastAppended = "";
 
@@ -394,6 +451,37 @@ describe("StreamingMarkdownRenderer", () => {
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
     expect(delta).toContain("| 1 | 2 |");
+  });
+
+  it("getCommittableText delta should work for inline markers in append-only streaming", () => {
+    const r = new StreamingMarkdownRenderer();
+    let lastAppended = "";
+
+    // Push clean text
+    r.push("Hello ");
+    let committable = r.getCommittableText();
+    let delta = committable.slice(lastAppended.length);
+    expect(delta).toBe("Hello ");
+    lastAppended = committable;
+
+    // Push unclosed bold — held back, no delta
+    r.push("**wor");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toBe("");
+
+    // Close bold — delta includes full bold span
+    r.push("ld**");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toBe("**world**");
+    lastAppended = committable;
+
+    // More clean text
+    r.push(" done");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toBe(" done");
   });
 
   it("should track dirty flag correctly across push-render-push-render", () => {
