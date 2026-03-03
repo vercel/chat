@@ -169,7 +169,7 @@ function childToFallbackText(
  * Escapes `|` to `\|` and replaces newlines with spaces.
  */
 export function escapeTableCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
 /**
