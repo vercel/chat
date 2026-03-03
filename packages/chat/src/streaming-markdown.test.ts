@@ -391,12 +391,15 @@ describe("StreamingMarkdownRenderer", () => {
     expect(committable).toContain("Text");
   });
 
-  it("getCommittableText should release on separator", () => {
+  it("getCommittableText should wrap confirmed table in code fence", () => {
     const r = new StreamingMarkdownRenderer();
-    r.push("Text\n\n| A | B |\n|---|---|\n");
+    r.push("Text\n\n| A | B |\n|---|---|\n| 1 | 2 |\n");
     const committable = r.getCommittableText();
+    // Confirmed table is wrapped in a code fence for readable streaming
+    expect(committable).toContain("```");
     expect(committable).toContain("| A | B |");
-    expect(committable).toContain("|---|---|");
+    expect(committable).toContain("| 1 | 2 |");
+    expect(committable).toContain("Text");
   });
 
   it("getCommittableText should not buffer inside code fence", () => {
@@ -421,7 +424,7 @@ describe("StreamingMarkdownRenderer", () => {
     expect(r.getCommittableText()).toBe("Hello **wor");
   });
 
-  it("getCommittableText delta should work for tables in append-only streaming", () => {
+  it("getCommittableText delta should stream table in code fence", () => {
     const r = new StreamingMarkdownRenderer();
     let lastAppended = "";
 
@@ -432,25 +435,36 @@ describe("StreamingMarkdownRenderer", () => {
     expect(delta).toBe("Hello\n\n");
     lastAppended = committable;
 
-    // Push table header — held back, no new delta
+    // Push table header — held back (no separator yet)
     r.push("| A | B |\n");
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
     expect(delta).toBe("");
 
-    // Push separator — confirms table, delta includes header + separator
+    // Push separator — table confirmed, opens code fence
     r.push("|---|---|\n");
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
+    expect(delta).toContain("```");
     expect(delta).toContain("| A | B |");
     expect(delta).toContain("|---|---|");
     lastAppended = committable;
 
-    // Push data row — visible immediately
+    // Push data row — extends the open code block
     r.push("| 1 | 2 |\n");
     committable = r.getCommittableText();
     delta = committable.slice(lastAppended.length);
     expect(delta).toContain("| 1 | 2 |");
+    // Should NOT have a closing ``` (table still ongoing)
+    expect(delta).not.toContain("```");
+    lastAppended = committable;
+
+    // Blank line ends the table — closes code fence
+    r.push("\nMore text\n");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toContain("```");
+    expect(delta).toContain("More text");
   });
 
   it("getCommittableText delta should work for inline markers in append-only streaming", () => {

@@ -51,14 +51,14 @@ export class StreamingMarkdownRenderer {
   }
 
   /**
-   * Get the committable prefix without remend applied.
-   * Use this for append-only streaming (e.g. Slack native streaming)
-   * where you need the raw safe-to-show text to compute deltas.
+   * Get text safe for append-only streaming (e.g. Slack native streaming).
    *
-   * Applies both table buffering and inline marker buffering:
-   * holds back text from the last unclosed inline marker (**, *, ~~, `, [)
-   * so the returned text is always in a "clean" state where
-   * remend(text) === text.
+   * - Holds back unconfirmed table headers until separator arrives.
+   * - Wraps confirmed tables in code fences so pipes render as literal
+   *   text (not broken mrkdwn). The code fence is left OPEN while
+   *   the table is still streaming, keeping output monotonic for deltas.
+   * - Holds back unclosed inline markers (**, *, ~~, `, [).
+   * - The final editMessage replaces everything with properly formatted text.
    */
   getCommittableText(): string {
     if (this.finished) {
@@ -67,8 +67,16 @@ export class StreamingMarkdownRenderer {
     if (isInsideCodeFence(this.accumulated)) {
       return this.accumulated;
     }
-    const tableBuffered = getCommittablePrefix(this.accumulated);
-    return findCleanPrefix(tableBuffered);
+    const committed = getCommittablePrefix(this.accumulated);
+    const wrapped = wrapTablesForAppend(committed);
+
+    // If text ends inside an open code fence (ongoing table),
+    // skip inline marker buffering — markers in code blocks are literal
+    if (isInsideCodeFence(wrapped)) {
+      return wrapped;
+    }
+
+    return findCleanPrefix(wrapped);
   }
 
   /** Raw accumulated text (no remend, no buffering). For the final edit. */
@@ -214,4 +222,68 @@ function getCommittablePrefix(text: string): string {
   }
 
   return result;
+}
+
+/**
+ * Wraps confirmed GFM table blocks in code fences for append-only streaming.
+ *
+ * Append-only APIs (e.g. Slack streaming) can't render GFM tables natively.
+ * Wrapping in a code fence makes pipes display as readable literal text.
+ *
+ * The code fence is left OPEN if the table is ongoing (no closing ```)
+ * so that output remains monotonic — each new row just extends the block.
+ * The fence is closed when a non-table line follows.
+ */
+function wrapTablesForAppend(text: string): string {
+  const lines = text.split("\n");
+
+  // Remove trailing empty string from split (artifact of trailing newline)
+  const hadTrailingNewline = lines.length > 0 && lines.at(-1) === "";
+  if (hadTrailingNewline) {
+    lines.pop();
+  }
+
+  const result: string[] = [];
+  let inTable = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const isTableLine =
+      trimmed !== "" &&
+      (TABLE_ROW_RE.test(trimmed) || TABLE_SEPARATOR_RE.test(trimmed));
+
+    if (isTableLine && !inTable) {
+      // Only wrap if this block has a separator (confirmed table)
+      let hasSeparator = false;
+      for (let j = i; j < lines.length; j++) {
+        const t = lines[j].trim();
+        if (TABLE_SEPARATOR_RE.test(t)) {
+          hasSeparator = true;
+          break;
+        }
+        if (t === "" || !TABLE_ROW_RE.test(t)) {
+          break;
+        }
+      }
+      if (hasSeparator) {
+        result.push("```");
+        inTable = true;
+      }
+    } else if (!isTableLine && inTable) {
+      result.push("```");
+      inTable = false;
+    }
+
+    result.push(lines[i]);
+  }
+
+  // If inTable is true, the code fence is intentionally left OPEN
+  // for monotonic appending — it'll be closed when the table ends
+  // or in the final editMessage.
+
+  let output = result.join("\n");
+  if (hadTrailingNewline) {
+    output += "\n";
+  }
+  return output;
 }
