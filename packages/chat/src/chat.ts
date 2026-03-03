@@ -25,6 +25,8 @@ import type {
   EmojiValue,
   Logger,
   LogLevel,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
   MessageHandler,
   ModalCloseEvent,
@@ -197,6 +199,8 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
+    [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -616,6 +620,11 @@ export class Chat<
     this.logger.debug("Registered app home opened handler");
   }
 
+  onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
+    this.memberJoinedChannelHandlers.push(handler);
+    this.logger.debug("Registered member joined channel handler");
+  }
+
   /**
    * Get an adapter by name with type safety.
    */
@@ -881,6 +890,27 @@ export class Chat<
     })().catch((err) => {
       this.logger.error("App home opened handler error", {
         error: err,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.memberJoinedChannelHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Member joined channel handler error", {
+        error: err,
+        channelId: event.channelId,
         userId: event.userId,
       });
     });

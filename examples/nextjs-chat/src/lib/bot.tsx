@@ -133,6 +133,36 @@ bot.onNewMention(async (thread, message) => {
   );
 });
 
+// Post a welcome message when the bot is added to a channel
+bot.onMemberJoinedChannel(async (event) => {
+  // Only post when the bot itself joins
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+
+  await event.adapter.postMessage(
+    event.channelId,
+    "*Chat SDK Bot is available in this channel.* Tag @Chat SDK Bot to begin."
+  );
+});
+
+bot.onAction("show_channel_help", async (event) => {
+  const platforms = Object.keys(adapters).join(", ") || "none configured";
+  await event.thread.post(
+    <Card title={`${emoji.question} Help`}>
+      <Text>{`Here's how I can help:`}</Text>
+      <Divider />
+      <Section>
+        <Text>{`${emoji.star} **Mention me** to start a conversation`}</Text>
+        <Text>{`${emoji.sparkles} **Mention me with "AI"** to enable AI assistant mode`}</Text>
+        <Text>{`${emoji.eyes} I'll respond to messages in threads where I'm mentioned`}</Text>
+        <Text>{`${emoji.fire} React to my messages and I'll react back!`}</Text>
+        <Text>{`${emoji.rocket} Active platforms: ${platforms}`}</Text>
+      </Section>
+    </Card>
+  );
+});
+
 bot.onAction("ephemeral", async (event) => {
   await event.thread.postEphemeral(
     event.user,

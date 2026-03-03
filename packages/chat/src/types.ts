@@ -379,6 +379,11 @@ export interface ChatInstance {
     event: AssistantThreadStartedEvent,
     options?: WebhookOptions
   ): void;
+
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void;
   /**
    * Process an incoming message from an adapter.
    * Handles waitUntil registration and error catching internally.
@@ -1724,4 +1729,15 @@ export interface AppHomeOpenedEvent {
 
 export type AppHomeOpenedHandler = (
   event: AppHomeOpenedEvent
+) => void | Promise<void>;
+
+export interface MemberJoinedChannelEvent {
+  adapter: Adapter;
+  channelId: string;
+  inviterId?: string;
+  userId: string;
+}
+
+export type MemberJoinedChannelHandler = (
+  event: MemberJoinedChannelEvent
 ) => void | Promise<void>;
