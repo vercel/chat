@@ -1,5 +1,9 @@
+import remend from "remend";
 import { describe, expect, it } from "vitest";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
+
+const CODE_FENCE_SPLIT_RE = /```|~~~/;
+const TABLE_PIPE_RE = /^\|.*\|$/;
 
 describe("StreamingMarkdownRenderer", () => {
   it("should accumulate basic text", () => {
@@ -787,4 +791,222 @@ describe("StreamingMarkdownRenderer", () => {
     const count = (r2.match(/\*\*/g) || []).length;
     expect(count % 2).toBe(0);
   });
+
+  // --- Exhaustive prefix tests ---
+  // Feed a complex markdown document character-by-character and verify
+  // invariants hold at every single prefix.
+
+  describe("exhaustive prefix invariants", () => {
+    const COMPLEX_MARKDOWN = [
+      "# Heading\n",
+      "\n",
+      "Some **bold** and *italic* text with `inline code` here.\n",
+      "\n",
+      "A [link](https://example.com) and ~~deleted~~ stuff.\n",
+      "\n",
+      "## Table section\n",
+      "\n",
+      "| Name | Age | City |\n",
+      "| - | - | - |\n",
+      "| Alice | 30 | NYC |\n",
+      "| Bob | 25 | LA |\n",
+      "\n",
+      "Text after table with **bold again**.\n",
+      "\n",
+      "```\n",
+      "code block with | pipes | inside\n",
+      "and **markers** that are literal\n",
+      "```\n",
+      "\n",
+      "Final paragraph.\n",
+    ].join("");
+
+    it("render() output is always valid markdown (remend is idempotent)", () => {
+      const r = new StreamingMarkdownRenderer();
+      for (let i = 0; i < COMPLEX_MARKDOWN.length; i++) {
+        r.push(COMPLEX_MARKDOWN[i]);
+        const rendered = r.render();
+        // remend applied to render() output should be a no-op
+        // (render already applies remend)
+        const doubleRemended = remend(rendered);
+        expect(doubleRemended.length).toBeLessThanOrEqual(
+          rendered.length,
+          `render() at position ${i} ("${COMPLEX_MARKDOWN.slice(0, i + 1).slice(-20)}") produced text that remend would still modify`
+        );
+      }
+    });
+
+    it("getCommittableText() output is always monotonic (append-only safe)", () => {
+      const r = new StreamingMarkdownRenderer();
+      let prev = "";
+      for (let i = 0; i < COMPLEX_MARKDOWN.length; i++) {
+        r.push(COMPLEX_MARKDOWN[i]);
+        const committable = r.getCommittableText();
+        if (committable.startsWith(prev) === false) {
+          // Find exact divergence point for debugging
+          let diffAt = 0;
+          while (
+            diffAt < prev.length &&
+            diffAt < committable.length &&
+            prev[diffAt] === committable[diffAt]
+          ) {
+            diffAt++;
+          }
+          expect.fail(
+            `Monotonicity broke at char ${i} (${JSON.stringify(COMPLEX_MARKDOWN[i])})` +
+              `\n  prefix: ...${JSON.stringify(COMPLEX_MARKDOWN.slice(Math.max(0, i - 20), i + 1))}` +
+              `\n  prev[${prev.length}]: ...${JSON.stringify(prev.slice(Math.max(0, diffAt - 10), diffAt + 20))}` +
+              `\n  now [${committable.length}]: ...${JSON.stringify(committable.slice(Math.max(0, diffAt - 10), diffAt + 20))}` +
+              `\n  diverge at offset ${diffAt}`
+          );
+        }
+        prev = committable;
+      }
+    });
+
+    it("getCommittableText() never contains raw table pipes outside code fences", () => {
+      const r = new StreamingMarkdownRenderer();
+      for (let i = 0; i < COMPLEX_MARKDOWN.length; i++) {
+        r.push(COMPLEX_MARKDOWN[i]);
+        const committable = r.getCommittableText();
+
+        // Extract text outside ALL code fences (both user fences and our table fences)
+        const sections = committable.split(CODE_FENCE_SPLIT_RE);
+        for (let s = 0; s < sections.length; s += 2) {
+          const outside = sections[s];
+          if (outside === undefined) {
+            continue;
+          }
+          for (const line of outside.split("\n")) {
+            const trimmed = line.trim();
+            if (trimmed === "") {
+              continue;
+            }
+            const looksLikeTable =
+              TABLE_PIPE_RE.test(trimmed) &&
+              (trimmed.match(/\|/g) || []).length >= 3;
+            if (looksLikeTable) {
+              expect.fail(
+                `Table-like line outside code fence at char ${i}: "${trimmed}"` +
+                  `\n  prefix: ...${JSON.stringify(COMPLEX_MARKDOWN.slice(Math.max(0, i - 20), i + 1))}` +
+                  `\n  committable: ...${JSON.stringify(committable.slice(-80))}`
+              );
+            }
+          }
+        }
+      }
+    });
+
+    it("getCommittableText() is always clean (remend would not add markers)", () => {
+      const r = new StreamingMarkdownRenderer();
+      for (let i = 0; i < COMPLEX_MARKDOWN.length; i++) {
+        r.push(COMPLEX_MARKDOWN[i]);
+        const committable = r.getCommittableText();
+        if (committable.length === 0) {
+          continue;
+        }
+        // Skip check if we're inside a code fence (markers are literal there)
+        if (isInsideCodeFence(committable)) {
+          continue;
+        }
+        expect(remend(committable).length).toBeLessThanOrEqual(
+          committable.length,
+          `getCommittableText() at position ${i} ("${COMPLEX_MARKDOWN.slice(0, i + 1).slice(-20)}") has unclosed markers: "${committable.slice(-40)}"`
+        );
+      }
+    });
+
+    it("finish() always produces the full text", () => {
+      // Test at various cut points that finish() returns everything
+      const cutPoints = [0, 10, 50, 100, 150, COMPLEX_MARKDOWN.length];
+      for (const cut of cutPoints) {
+        if (cut > COMPLEX_MARKDOWN.length) {
+          continue;
+        }
+        const r = new StreamingMarkdownRenderer();
+        r.push(COMPLEX_MARKDOWN.slice(0, cut));
+        r.finish();
+        const finished = r.getText();
+        expect(finished).toBe(COMPLEX_MARKDOWN.slice(0, cut));
+      }
+    });
+
+    it("append-only delta reconstruction works for character-by-character streaming", () => {
+      const r = new StreamingMarkdownRenderer();
+      let lastAppended = "";
+      const deltas: string[] = [];
+
+      // Push character by character
+      for (let i = 0; i < COMPLEX_MARKDOWN.length; i++) {
+        r.push(COMPLEX_MARKDOWN[i]);
+        const committable = r.getCommittableText();
+        // Verify monotonicity at each step
+        if (committable.startsWith(lastAppended) === false) {
+          expect.fail(
+            `Delta broke monotonicity at char ${i} (${JSON.stringify(COMPLEX_MARKDOWN[i])})` +
+              `\n  lastAppended[${lastAppended.length}]: ...${JSON.stringify(lastAppended.slice(-40))}` +
+              `\n  committable [${committable.length}]: ...${JSON.stringify(committable.slice(-40))}`
+          );
+        }
+        const delta = committable.slice(lastAppended.length);
+        if (delta.length > 0) {
+          deltas.push(delta);
+          lastAppended = committable;
+        }
+      }
+
+      // Final flush
+      r.finish();
+      const finalCommittable = r.getCommittableText();
+      if (finalCommittable.startsWith(lastAppended) === false) {
+        expect.fail(
+          "Final flush broke monotonicity" +
+            `\n  lastAppended[${lastAppended.length}]: ...${JSON.stringify(lastAppended.slice(-40))}` +
+            `\n  final       [${finalCommittable.length}]: ...${JSON.stringify(finalCommittable.slice(-40))}`
+        );
+      }
+      const finalDelta = finalCommittable.slice(lastAppended.length);
+      if (finalDelta.length > 0) {
+        deltas.push(finalDelta);
+      }
+
+      // Concatenated deltas must equal the final output
+      const joined = deltas.join("");
+      if (joined !== finalCommittable) {
+        // Find where they diverge
+        let diffAt = 0;
+        while (
+          diffAt < joined.length &&
+          diffAt < finalCommittable.length &&
+          joined[diffAt] === finalCommittable[diffAt]
+        ) {
+          diffAt++;
+        }
+        expect.fail(
+          `Deltas (${joined.length} chars) != final (${finalCommittable.length} chars)` +
+            `\n  diverge at offset ${diffAt}` +
+            `\n  deltas: ...${JSON.stringify(joined.slice(Math.max(0, diffAt - 10), diffAt + 20))}` +
+            `\n  final:  ...${JSON.stringify(finalCommittable.slice(Math.max(0, diffAt - 10), diffAt + 20))}`
+        );
+      }
+
+      // All original content must be recoverable from getText()
+      expect(r.getText()).toBe(COMPLEX_MARKDOWN);
+    });
+  });
 });
+
+/**
+ * Re-export for use in exhaustive tests.
+ * Matches the function signature in streaming-markdown.ts.
+ */
+function isInsideCodeFence(text: string): boolean {
+  let inside = false;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}

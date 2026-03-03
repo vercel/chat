@@ -62,15 +62,7 @@ export class StreamingMarkdownRenderer {
    */
   getCommittableText(): string {
     if (this.finished) {
-      if (isInsideCodeFence(this.accumulated)) {
-        return this.accumulated;
-      }
-      // After finish, wrap tables with closing fences so delta computation
-      // stays in the same coordinate space as the streaming output.
       return wrapTablesForAppend(this.accumulated, true);
-    }
-    if (isInsideCodeFence(this.accumulated)) {
-      return this.accumulated;
     }
 
     // Strip incomplete last line (no trailing newline) to prevent committing
@@ -79,13 +71,30 @@ export class StreamingMarkdownRenderer {
     let text = this.accumulated;
     if (text.length > 0 && !text.endsWith("\n")) {
       const lastNewline = text.lastIndexOf("\n");
-      text = lastNewline >= 0 ? text.slice(0, lastNewline + 1) : "";
+      const withoutIncompleteLine =
+        lastNewline >= 0 ? text.slice(0, lastNewline + 1) : "";
+
+      // If stripping puts us inside a code fence, keep the incomplete line
+      // (it's likely the closing fence being typed — content is literal).
+      if (isInsideCodeFence(withoutIncompleteLine)) {
+        // Still wrap preceding tables for consistent coordinate space.
+        return wrapTablesForAppend(text);
+      }
+
+      text = withoutIncompleteLine;
+    }
+
+    // Inside a user code fence: skip table holding and inline marker buffering
+    // (pipes and markers are literal inside fences), but still wrap preceding
+    // confirmed tables for consistent coordinate space.
+    if (isInsideCodeFence(text)) {
+      return wrapTablesForAppend(text);
     }
 
     const committed = getCommittablePrefix(text);
     const wrapped = wrapTablesForAppend(committed);
 
-    // If text ends inside an open code fence (ongoing table),
+    // If text ends inside an open table code fence,
     // skip inline marker buffering — markers in code blocks are literal
     if (isInsideCodeFence(wrapped)) {
       return wrapped;
@@ -260,9 +269,24 @@ function wrapTablesForAppend(text: string, closeFences = false): string {
 
   const result: string[] = [];
   let inTable = false;
+  let inUserCodeFence = false;
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
+
+    // Track existing code fences in the source markdown.
+    // Don't detect tables inside user code fences.
+    if (!inTable && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) {
+      inUserCodeFence = !inUserCodeFence;
+      result.push(lines[i]);
+      continue;
+    }
+
+    if (inUserCodeFence) {
+      result.push(lines[i]);
+      continue;
+    }
+
     const isTableLine =
       trimmed !== "" &&
       (TABLE_ROW_RE.test(trimmed) || TABLE_SEPARATOR_RE.test(trimmed));
