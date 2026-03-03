@@ -1,4 +1,3 @@
-import { bot } from "./../../../../apps/docs/app/[lang]/(home)/components/usage";
 import {
   createDiscordAdapter,
   type DiscordAdapter,
