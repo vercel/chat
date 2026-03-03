@@ -4064,6 +4064,75 @@ describe("socket mode forwarding - handleWebhook", () => {
     expect(response.status).toBe(401);
   });
 
+  it("accepts forwarded event with dedicated socketForwardingSecret", async () => {
+    const forwardingSecret = "my-forwarding-secret";
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken,
+      socketForwardingSecret: forwardingSecret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "socket_event",
+      body: {
+        type: "event_callback",
+        event: {
+          type: "message",
+          user: "U123",
+          channel: "C456",
+          text: "forwarded with dedicated secret",
+          ts: "1234567890.123456",
+        },
+      },
+      timestamp: Date.now(),
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": forwardingSecret,
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects forwarded event with appToken when socketForwardingSecret is set", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken,
+      socketForwardingSecret: "my-forwarding-secret",
+      logger: mockLogger,
+    });
+
+    const body = JSON.stringify({
+      type: "socket_event",
+      body: { type: "event_callback" },
+      timestamp: Date.now(),
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": appToken,
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
   it("bypasses signature verification for forwarded events", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);

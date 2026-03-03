@@ -228,6 +228,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
+| `socketForwardingSecret` | No | Shared secret for authenticating forwarded socket mode events. Auto-detected from `SLACK_SOCKET_FORWARDING_SECRET`. Falls back to `appToken` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 ## Environment variables
@@ -236,6 +237,7 @@ All options are auto-detected from environment variables when not provided. You 
 SLACK_BOT_TOKEN=xoxb-...             # Single-workspace only
 SLACK_SIGNING_SECRET=...             # Webhook mode only
 SLACK_APP_TOKEN=xapp-...             # Socket mode only
+SLACK_SOCKET_FORWARDING_SECRET=...   # Optional, for socket event forwarding auth
 SLACK_CLIENT_ID=...                  # Multi-workspace only
 SLACK_CLIENT_SECRET=...              # Multi-workspace only
 SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption

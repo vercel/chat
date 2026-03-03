@@ -97,6 +97,8 @@ export interface SlackAdapterConfig {
   mode?: SlackAdapterMode;
   /** Signing secret for webhook verification. Required for webhook mode. */
   signingSecret?: string;
+  /** Shared secret for authenticating forwarded socket mode events. Auto-detected from SLACK_SOCKET_FORWARDING_SECRET. Falls back to appToken if not set. */
+  socketForwardingSecret?: string;
   /** Override bot username (optional) */
   userName?: string;
 }
@@ -317,6 +319,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Socket mode support
   private readonly appToken: string | undefined;
   private readonly mode: SlackAdapterMode;
+  private readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
 
   // Multi-workspace support
@@ -352,6 +355,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.appToken = config.appToken;
     this.mode = config.mode ?? "webhook";
+    this.socketForwardingSecret =
+      config.socketForwardingSecret ?? config.appToken;
 
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
@@ -689,7 +694,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Check for forwarded socket mode events (from external socket listener)
     const socketToken = request.headers.get("x-slack-socket-token");
     if (socketToken) {
-      if (!this.appToken || socketToken !== this.appToken) {
+      if (!this.socketForwardingSecret || socketToken !== this.socketForwardingSecret) {
         this.logger.warn("Invalid socket forwarding token");
         return new Response("Invalid socket token", { status: 401 });
       }
@@ -1377,7 +1382,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-slack-socket-token": this.appToken as string,
+          "x-slack-socket-token": this.socketForwardingSecret as string,
         },
         body: JSON.stringify(event),
       });
@@ -3355,6 +3360,9 @@ export function createSlackAdapter(
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
+    socketForwardingSecret:
+      config?.socketForwardingSecret ??
+      process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
     botUserId: config?.botUserId,
   };
