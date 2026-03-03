@@ -280,6 +280,122 @@ describe("StreamingMarkdownRenderer", () => {
     expect(result).toContain("| 1 | 2 |");
   });
 
+  it("should render real-world table with single-dash separators progressively", () => {
+    const r = new StreamingMarkdownRenderer();
+
+    // Intro text
+    r.push("Here's a table with 20 rows of sample data:\n\n");
+    expect(r.render()).toContain("Here's a table");
+
+    // Header row arrives
+    r.push(
+      "| ID | Name | Department | Age | Salary | City | Join Date | Status |\n"
+    );
+    let result = r.render();
+    // Header should be held back (no separator yet)
+    expect(result).not.toContain("| ID |");
+    expect(result).toContain("Here's a table");
+
+    // Separator with single dashes arrives
+    r.push("| - | - | - | - | - | - | - | - |\n");
+    result = r.render();
+    // Table confirmed! Header and separator should now be visible
+    expect(result).toContain("| ID |");
+    expect(result).toContain("| - |");
+
+    // First data row
+    r.push(
+      "| 1 | Sarah Johnson | Engineering | 32 | $95,000 | Seattle | 2019-03-15 | Active |\n"
+    );
+    result = r.render();
+    // Data row after confirmed separator should be visible
+    expect(result).toContain("Sarah Johnson");
+
+    // Partial second row (no trailing newline)
+    r.push("| 2 | Michael");
+    result = r.render();
+    // Complete rows still visible, partial line excluded from table detection
+    expect(result).toContain("Sarah Johnson");
+
+    // Complete second row
+    r.push(
+      " Chen | Marketing | 28 | $72,000 | Austin | 2020-07-22 | Active |\n"
+    );
+    result = r.render();
+    expect(result).toContain("Michael Chen");
+  });
+
+  // --- getCommittableText tests (for append-only streaming) ---
+
+  it("getCommittableText should return prefix without remend", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    // getCommittableText: no remend, no buffering of non-table content
+    expect(r.getCommittableText()).toBe("Hello **wor");
+  });
+
+  it("getCommittableText should hold back table rows", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    const committable = r.getCommittableText();
+    expect(committable).not.toContain("| A | B |");
+    expect(committable).toContain("Text");
+  });
+
+  it("getCommittableText should release on separator", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n|---|---|\n");
+    const committable = r.getCommittableText();
+    expect(committable).toContain("| A | B |");
+    expect(committable).toContain("|---|---|");
+  });
+
+  it("getCommittableText should not buffer inside code fence", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("```\n| A |\n");
+    expect(r.getCommittableText()).toContain("| A |");
+  });
+
+  it("getCommittableText should return full text after finish", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    expect(r.getCommittableText()).not.toContain("| A | B |");
+    r.finish();
+    expect(r.getCommittableText()).toContain("| A | B |");
+  });
+
+  it("getCommittableText delta should work for append-only streaming", () => {
+    const r = new StreamingMarkdownRenderer();
+    let lastAppended = "";
+
+    // Push intro
+    r.push("Hello\n\n");
+    let committable = r.getCommittableText();
+    let delta = committable.slice(lastAppended.length);
+    expect(delta).toBe("Hello\n\n");
+    lastAppended = committable;
+
+    // Push table header — held back, no new delta
+    r.push("| A | B |\n");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toBe("");
+
+    // Push separator — confirms table, delta includes header + separator
+    r.push("|---|---|\n");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toContain("| A | B |");
+    expect(delta).toContain("|---|---|");
+    lastAppended = committable;
+
+    // Push data row — visible immediately
+    r.push("| 1 | 2 |\n");
+    committable = r.getCommittableText();
+    delta = committable.slice(lastAppended.length);
+    expect(delta).toContain("| 1 | 2 |");
+  });
+
   it("should track dirty flag correctly across push-render-push-render", () => {
     const r = new StreamingMarkdownRenderer();
     r.push("Hello");

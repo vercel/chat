@@ -42,6 +42,7 @@ import {
   defaultEmojiResolver,
   isJSX,
   Message,
+  StreamingMarkdownRenderer,
   toModalElement,
 } from "chat";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
@@ -2138,16 +2139,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     let first = true;
-    let accumulated = "";
+    let lastAppended = "";
+    const renderer = new StreamingMarkdownRenderer();
     for await (const chunk of textStream) {
-      accumulated += chunk;
+      renderer.push(chunk);
+      const committable = renderer.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
+      if (delta.length === 0) {
+        continue;
+      }
+      lastAppended = committable;
       if (first) {
         // Pass token on first append so the streamer uses it for all subsequent calls
         // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
-        await streamer.append({ markdown_text: chunk, token } as any);
+        await streamer.append({ markdown_text: delta, token } as any);
         first = false;
       } else {
-        await streamer.append({ markdown_text: chunk });
+        await streamer.append({ markdown_text: delta });
+      }
+    }
+    // Flush any remaining buffered content (e.g. table header at end of stream)
+    renderer.finish();
+    const accumulated = renderer.getText();
+    const finalDelta = accumulated.slice(lastAppended.length);
+    if (finalDelta.length > 0) {
+      if (first) {
+        // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
+        await streamer.append({ markdown_text: finalDelta, token } as any);
+      } else {
+        await streamer.append({ markdown_text: finalDelta });
       }
     }
     const result = await streamer.stop(

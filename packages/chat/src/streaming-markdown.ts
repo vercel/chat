@@ -50,6 +50,21 @@ export class StreamingMarkdownRenderer {
     return this.cachedRender;
   }
 
+  /**
+   * Get the committable prefix without remend applied.
+   * Use this for append-only streaming (e.g. Slack native streaming)
+   * where you need the raw safe-to-show text to compute deltas.
+   */
+  getCommittableText(): string {
+    if (this.finished) {
+      return this.accumulated;
+    }
+    if (isInsideCodeFence(this.accumulated)) {
+      return this.accumulated;
+    }
+    return getCommittablePrefix(this.accumulated);
+  }
+
   /** Raw accumulated text (no remend, no buffering). For the final edit. */
   getText(): string {
     return this.accumulated;
