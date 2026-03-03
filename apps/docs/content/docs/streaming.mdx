@@ -10,7 +10,7 @@ Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time st
 
 ## AI SDK integration
 
-Pass an AI SDK `textStream` directly to `thread.post()`:
+Pass an AI SDK `fullStream` or `textStream` directly to `thread.post()`:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { ToolLoopAgent } from "ai";
@@ -22,8 +22,22 @@ const agent = new ToolLoopAgent({
 
 bot.onNewMention(async (thread, message) => {
   const result = await agent.stream({ prompt: message.text });
-  await thread.post(result.textStream);
+  await thread.post(result.fullStream);
 });
+```
+
+### Why `fullStream` over `textStream`?
+
+When AI SDK agents make tool calls between text steps, `textStream` concatenates all text without separators — `"hello.how are you?"` instead of `"hello.\n\nhow are you?"`. The `fullStream` contains explicit `step-finish` events that Chat SDK uses to inject paragraph breaks between steps automatically.
+
+Both stream types are auto-detected:
+
+```typescript
+// Recommended: fullStream preserves step boundaries
+await thread.post(result.fullStream);
+
+// Also works: textStream for single-step generation
+await thread.post(result.textStream);
 ```
 
 ## Custom streams
@@ -114,6 +128,6 @@ bot.onSubscribedMessage(async (thread, message) => {
     }));
 
   const response = await agent.stream({ prompt: history });
-  await thread.post(response.textStream);
+  await thread.post(response.fullStream);
 });
 ```
