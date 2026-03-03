@@ -141,7 +141,7 @@ export const AdapterCard = ({
         comingSoon ? "opacity-50" : "hover:bg-accent/50"
       }`}
     >
-      <CardHeader className="flex flex-col gap-4 p-6!">
+      <CardHeader className="flex h-full flex-col gap-4 p-6!">
         <div className="flex w-full items-center justify-between">
           <div className="flex items-center gap-2.5">
             {Icon ? <Icon className="size-5" /> : null}
