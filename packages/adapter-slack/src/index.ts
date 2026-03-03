@@ -2162,7 +2162,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Use getCommittableText (not raw getText) so the delta stays in the same
     // coordinate space as lastAppended — both include code fence wrapping.
     renderer.finish();
-    const accumulated = renderer.getText();
     const finalCommittable = renderer.getCommittableText();
     const finalDelta = finalCommittable.slice(lastAppended.length);
     if (finalDelta.length > 0) {
@@ -2180,11 +2179,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
-
-    // Re-render the final message through the format converter so that
-    // markdown features not supported by Slack's streaming API (e.g. GFM
-    // tables) are converted to mrkdwn properly.
-    await this.editMessage(threadId, messageTs, { markdown: accumulated });
 
     return {
       id: messageTs,
