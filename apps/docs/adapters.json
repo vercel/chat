@@ -178,7 +178,8 @@
     "type": "platform",
     "icon": "signal",
     "description": "Integrate with Signal for private, encrypted bot messaging.",
-    "comingSoon": true
+    "comingSoon": true,
+    "prs": ["https://github.com/vercel/chat/pull/169"]
   },
   {
     "name": "X",
@@ -195,8 +196,6 @@
     "icon": "messenger",
     "description": "Build bots for Facebook Messenger with rich messages and automated customer interactions.",
     "comingSoon": true,
-    "prs": [
-      "https://github.com/vercel/chat/pull/156"
-    ]
+    "prs": ["https://github.com/vercel/chat/pull/156"]
   }
 ]
