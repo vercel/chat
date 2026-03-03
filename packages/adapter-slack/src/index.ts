@@ -305,7 +305,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly userName: string;
 
   private readonly client: WebClient;
-  private readonly signingSecret: string;
+  private readonly signingSecret: string | undefined;
   private readonly defaultBotToken: string | undefined;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
@@ -344,7 +344,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   constructor(config: SlackAdapterConfig) {
     this.client = new WebClient(config.botToken);
-    this.signingSecret = config.signingSecret ?? "";
+    this.signingSecret = config.signingSecret;
     this.defaultBotToken = config.botToken;
     this.logger = config.logger;
     this.userName = config.userName || "bot";
@@ -1413,7 +1413,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     timestamp: string | null,
     signature: string | null
   ): boolean {
-    if (!(timestamp && signature)) {
+    if (!(timestamp && signature && this.signingSecret)) {
       return false;
     }
 
