@@ -29,6 +29,7 @@ import type {
   ModalResponse,
   RawMessage,
   ReactionEvent,
+  StreamChunk,
   StreamOptions,
   ThreadInfo,
   ThreadSummary,
@@ -660,6 +661,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const body = await request.text();
     this.logger.debug("Slack webhook raw body", { body });
 
+    // Handle URL verification challenge BEFORE signature check.
+    // Slack sends this during Event Subscription setup and manifest updates.
+    // If the signing secret is misconfigured, rejecting verification causes
+    // Slack to disable event delivery entirely with no visible indicator.
+    try {
+      const maybeVerification = JSON.parse(body);
+      if (
+        maybeVerification.type === "url_verification" &&
+        maybeVerification.challenge
+      ) {
+        return Response.json({ challenge: maybeVerification.challenge });
+      }
+    } catch {
+      // Not JSON — fall through to normal processing
+    }
+
     // Verify request signature
     const timestamp = request.headers.get("x-slack-request-timestamp");
     const signature = request.headers.get("x-slack-signature");
@@ -707,11 +724,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       payload = JSON.parse(body);
     } catch {
       return new Response("Invalid JSON", { status: 400 });
-    }
-
-    // Handle URL verification challenge (no token needed)
-    if (payload.type === "url_verification" && payload.challenge) {
-      return Response.json({ challenge: payload.challenge });
     }
 
     // In multi-workspace mode, resolve token from team_id before processing events
@@ -2113,12 +2125,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Stream a message using Slack's native streaming API.
    *
-   * Consumes an async iterable of text chunks and streams them to Slack.
+   * Consumes an async iterable of text chunks and/or structured StreamChunk
+   * objects (task_update, plan_update, markdown_text) and streams them to Slack.
+   *
+   * Plain strings are rendered through StreamingMarkdownRenderer for safe
+   * incremental markdown. StreamChunk objects are passed directly to Slack's
+   * streaming API as chunk payloads, enabling native task progress cards
+   * and plan displays in the Slack AI Assistant UI.
+   *
    * Requires `recipientUserId` and `recipientTeamId` in options.
    */
   async stream(
     threadId: string,
-    textStream: AsyncIterable<string>,
+    textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<unknown>> {
     if (!(options?.recipientUserId && options?.recipientTeamId)) {
@@ -2136,19 +2155,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       thread_ts: threadTs,
       recipient_user_id: options.recipientUserId,
       recipient_team_id: options.recipientTeamId,
+      ...(options.taskDisplayMode && {
+        task_display_mode: options.taskDisplayMode,
+      }),
     });
 
     let first = true;
     let lastAppended = "";
     const renderer = new StreamingMarkdownRenderer();
-    for await (const chunk of textStream) {
-      renderer.push(chunk);
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      if (delta.length === 0) {
-        continue;
-      }
-      lastAppended = committable;
+
+    /**
+     * Helper to flush markdown text delta to the stream.
+     * Handles first-append token passing and empty-delta skipping.
+     */
+    const flushMarkdownDelta = async (delta: string): Promise<void> => {
+      if (delta.length === 0) return;
       if (first) {
         // Pass token on first append so the streamer uses it for all subsequent calls
         // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
@@ -2157,21 +2178,81 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } else {
         await streamer.append({ markdown_text: delta });
       }
+    };
+
+    /**
+     * Helper to send a structured chunk (task_update, plan_update, etc.)
+     * directly to Slack's streaming API. Any buffered markdown text is
+     * flushed first to maintain correct ordering.
+     *
+     * If the Slack API rejects the chunk (e.g. missing assistant:write scope,
+     * older @slack/web-api version, or Assistant features not enabled in the
+     * app manifest), the error is logged and the chunk is silently skipped.
+     * Text streaming continues unaffected.
+     */
+    let structuredChunksSupported = true;
+    const sendStructuredChunk = async (
+      chunk: StreamChunk
+    ): Promise<void> => {
+      if (!structuredChunksSupported) return;
+
+      // Flush any buffered markdown before sending the structured chunk
+      const committable = renderer.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
+      await flushMarkdownDelta(delta);
+      lastAppended = committable;
+
+      try {
+        // Send the chunk directly — Slack's API accepts chunks array
+        if (first) {
+          // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token or chunks
+          await streamer.append({ chunks: [chunk], token } as any);
+          first = false;
+        } else {
+          // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+          await streamer.append({ chunks: [chunk] } as any);
+        }
+      } catch (error) {
+        // Structured chunks may fail if the app doesn't have the required
+        // Assistant scopes/features. Disable for the rest of this stream
+        // to avoid repeated failures and log once.
+        structuredChunksSupported = false;
+        this.logger.warn(
+          "Structured streaming chunk failed, falling back to text-only streaming. " +
+            "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
+            "and @slack/web-api >= 7.14.0",
+          { chunkType: chunk.type, error }
+        );
+      }
+    };
+
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        // Plain text — process through markdown renderer
+        renderer.push(chunk);
+        const committable = renderer.getCommittableText();
+        const delta = committable.slice(lastAppended.length);
+        await flushMarkdownDelta(delta);
+        lastAppended = committable;
+      } else if (chunk.type === "markdown_text" && typeof chunk.text === "string") {
+        // Markdown text chunk object — process through renderer like plain strings
+        renderer.push(chunk.text as string);
+        const committable = renderer.getCommittableText();
+        const delta = committable.slice(lastAppended.length);
+        await flushMarkdownDelta(delta);
+        lastAppended = committable;
+      } else {
+        // Structured chunk (task_update, plan_update) — send directly to Slack
+        await sendStructuredChunk(chunk);
+      }
     }
+
     // Flush any remaining buffered content (e.g. held table rows at end of stream).
-    // Use getCommittableText (not raw getText) so the delta stays in the same
-    // coordinate space as lastAppended — both include code fence wrapping.
     renderer.finish();
     const finalCommittable = renderer.getCommittableText();
     const finalDelta = finalCommittable.slice(lastAppended.length);
-    if (finalDelta.length > 0) {
-      if (first) {
-        // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
-        await streamer.append({ markdown_text: finalDelta, token } as any);
-      } else {
-        await streamer.append({ markdown_text: finalDelta });
-      }
-    }
+    await flushMarkdownDelta(finalDelta);
+
     const result = await streamer.stop(
       // biome-ignore lint/suspicious/noExplicitAny: stopBlocks are platform-specific Block Kit elements
       options?.stopBlocks ? { blocks: options.stopBlocks as any[] } : undefined

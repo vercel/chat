@@ -257,6 +257,7 @@ export type {
   SlashCommandEvent,
   SlashCommandHandler,
   StateAdapter,
+  StreamChunk,
   StreamOptions,
   SubscribedMessageHandler,
   Thread,

@@ -574,6 +574,139 @@ describe("ThreadImpl", () => {
     });
   });
 
+  describe("streaming with StreamChunk objects", () => {
+    let thread: ThreadImpl;
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+    });
+
+    it("should pass StreamChunk objects through to adapter.stream", async () => {
+      let capturedChunks: (string | { type: string; [key: string]: unknown })[] = [];
+      const mockStream = vi
+        .fn()
+        .mockImplementation(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | { type: string; [key: string]: unknown }>
+          ) => {
+            capturedChunks = [];
+            for await (const chunk of stream) {
+              capturedChunks.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
+          }
+        );
+      mockAdapter.stream = mockStream;
+
+      async function* mixedStream() {
+        yield "Hello ";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "in_progress",
+        };
+        yield "world";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "complete",
+          output: "Done",
+        };
+      }
+
+      const result = await thread.post(mixedStream() as AsyncIterable<string>);
+
+      // Should have been called with the mixed stream
+      expect(mockStream).toHaveBeenCalled();
+
+      // All chunks (strings and objects) should pass through
+      expect(capturedChunks).toHaveLength(4);
+      expect(capturedChunks[0]).toBe("Hello ");
+      expect(capturedChunks[1]).toEqual(
+        expect.objectContaining({ type: "task_update", status: "in_progress" })
+      );
+      expect(capturedChunks[2]).toBe("world");
+      expect(capturedChunks[3]).toEqual(
+        expect.objectContaining({ type: "task_update", status: "complete" })
+      );
+
+      // Accumulated text should only include strings, not task_update chunks
+      expect(result.text).toBe("Hello world");
+    });
+
+    it("should accumulate text from markdown_text StreamChunks", async () => {
+      let capturedChunks: (string | { type: string; [key: string]: unknown })[] = [];
+      const mockStream = vi
+        .fn()
+        .mockImplementation(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | { type: string; [key: string]: unknown }>
+          ) => {
+            capturedChunks = [];
+            for await (const chunk of stream) {
+              capturedChunks.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
+          }
+        );
+      mockAdapter.stream = mockStream;
+
+      async function* mdChunkStream() {
+        yield { type: "markdown_text" as const, text: "Hello " };
+        yield { type: "plan_update" as const, title: "Analyzing code" };
+        yield { type: "markdown_text" as const, text: "World" };
+      }
+
+      const result = await thread.post(mdChunkStream() as AsyncIterable<string>);
+
+      // markdown_text chunks contribute to accumulated text; plan_update does not
+      expect(result.text).toBe("Hello World");
+    });
+
+    it("should extract only text for fallback streaming when chunks are present", async () => {
+      // No native stream — falls back to post+edit
+      mockAdapter.stream = undefined;
+
+      async function* mixedStream() {
+        yield "Hello";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "in_progress",
+        };
+        yield " World";
+      }
+
+      await thread.post(mixedStream() as AsyncIterable<string>);
+
+      // Should post placeholder then edit with text-only content
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
+  });
+
   describe("allMessages iterator", () => {
     let thread: ThreadImpl;
     let mockAdapter: Adapter;
