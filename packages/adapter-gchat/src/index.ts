@@ -153,6 +153,7 @@ export interface GoogleChatMessage {
     contentName: string;
     contentType: string;
     downloadUri?: string;
+    attachmentDataRef?: { resourceName?: string | null } | null;
   }>;
   createTime: string;
   formattedText?: string;
@@ -1307,9 +1308,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     downloadUri?: string | null;
     contentName?: string | null;
     thumbnailUri?: string | null;
+    attachmentDataRef?: { resourceName?: string | null } | null;
   }): Attachment {
     const url = att.downloadUri || undefined;
-    const authClient = this.authClient;
+    const resourceName = att.attachmentDataRef?.resourceName || undefined;
+    const chatApi = this.chatApi;
 
     // Determine type based on contentType
     let type: Attachment["type"] = "file";
@@ -1321,49 +1324,59 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       type = "audio";
     }
 
-    // Capture auth client for use in fetchData closure
-    const auth = authClient;
+    // Capture auth client for use in fetchData closure (used for URL fallback)
+    const auth = this.authClient;
 
     return {
       type,
       url,
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
-      fetchData: url
-        ? async () => {
-            // Get access token for authenticated download
-            if (typeof auth === "string" || !auth) {
-              throw new AuthenticationError(
-                "gchat",
-                "Cannot fetch file: no auth client configured"
-              );
+      fetchData:
+        resourceName || url
+          ? async () => {
+              // Prefer media.download API (correct method for chat apps)
+              if (resourceName) {
+                const res = await chatApi.media.download(
+                  { resourceName },
+                  { responseType: "arraybuffer" }
+                );
+                return Buffer.from(res.data as ArrayBuffer);
+              }
+
+              // Fallback to direct URL fetch (downloadUri)
+              if (typeof auth === "string" || !auth) {
+                throw new AuthenticationError(
+                  "gchat",
+                  "Cannot fetch file: no auth client configured"
+                );
+              }
+              const tokenResult = await auth.getAccessToken();
+              const token =
+                typeof tokenResult === "string"
+                  ? tokenResult
+                  : tokenResult?.token;
+              if (!token) {
+                throw new AuthenticationError(
+                  "gchat",
+                  "Failed to get access token"
+                );
+              }
+              const response = await fetch(url as string, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+              if (!response.ok) {
+                throw new NetworkError(
+                  "gchat",
+                  `Failed to fetch file: ${response.status} ${response.statusText}`
+                );
+              }
+              const arrayBuffer = await response.arrayBuffer();
+              return Buffer.from(arrayBuffer);
             }
-            const tokenResult = await auth.getAccessToken();
-            const token =
-              typeof tokenResult === "string"
-                ? tokenResult
-                : tokenResult?.token;
-            if (!token) {
-              throw new AuthenticationError(
-                "gchat",
-                "Failed to get access token"
-              );
-            }
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-            if (!response.ok) {
-              throw new NetworkError(
-                "gchat",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          }
-        : undefined,
+          : undefined,
     };
   }
 

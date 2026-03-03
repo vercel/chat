@@ -417,6 +417,108 @@ describe("GoogleChatAdapter", () => {
       expect(msg.attachments[0].type).toBe("video");
       expect(msg.attachments[1].type).toBe("audio");
     });
+
+    it("should use media.download API when attachmentDataRef is present", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi.fn().mockResolvedValue({
+        data: new ArrayBuffer(4),
+      });
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            downloadUri: "https://example.com/photo.png",
+            attachmentDataRef: {
+              resourceName: "spaces/ABC123/attachments/att1",
+            },
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+
+      const data = await msg.attachments[0].fetchData?.();
+      expect(data).toBeInstanceOf(Buffer);
+      expect(mockDownload).toHaveBeenCalledWith(
+        { resourceName: "spaces/ABC123/attachments/att1" },
+        { responseType: "arraybuffer" }
+      );
+    });
+
+    it("should provide fetchData when only attachmentDataRef is present (no downloadUri)", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi.fn().mockResolvedValue({
+        data: new ArrayBuffer(4),
+      });
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            attachmentDataRef: {
+              resourceName: "spaces/ABC123/attachments/att1",
+            },
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+
+      const data = await msg.attachments[0].fetchData?.();
+      expect(data).toBeInstanceOf(Buffer);
+      expect(mockDownload).toHaveBeenCalledWith(
+        { resourceName: "spaces/ABC123/attachments/att1" },
+        { responseType: "arraybuffer" }
+      );
+    });
+
+    it("should fall back to direct URL fetch when no attachmentDataRef", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            downloadUri: "https://example.com/photo.png",
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+      // fetchData is present because downloadUri exists
+      expect(msg.attachments[0].url).toBe("https://example.com/photo.png");
+    });
+
+    it("should not provide fetchData when neither resourceName nor downloadUri exist", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "unknown.bin",
+            contentType: "application/octet-stream",
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeUndefined();
+    });
   });
 
   describe("normalizeBotMentions (via parseMessage)", () => {
