@@ -694,7 +694,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Check for forwarded socket mode events (from external socket listener)
     const socketToken = request.headers.get("x-slack-socket-token");
     if (socketToken) {
-      if (!this.socketForwardingSecret || socketToken !== this.socketForwardingSecret) {
+      if (
+        !this.socketForwardingSecret ||
+        socketToken !== this.socketForwardingSecret
+      ) {
         this.logger.warn("Invalid socket forwarding token");
         return new Response("Invalid socket token", { status: 401 });
       }
