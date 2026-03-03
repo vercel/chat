@@ -1128,33 +1128,36 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
         let message: Message | undefined;
-        if (isEphemeralMessage) {
-          const recentMessage = thread.recentMessages[0];
-          if (recentMessage && typeof recentMessage.toJSON === "function") {
-            message = recentMessage as Message;
-          }
-        } else if (event.messageId && event.adapter.fetchMessage) {
-          const fetched = await event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch(() => null);
-          if (fetched) {
-            message = new Message(fetched);
-          } else {
+        if (thread) {
+          const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+          if (isEphemeralMessage) {
             const recentMessage = thread.recentMessages[0];
             if (recentMessage && typeof recentMessage.toJSON === "function") {
               message = recentMessage as Message;
             }
+          } else if (event.messageId && event.adapter.fetchMessage) {
+            const fetched = await event.adapter
+              .fetchMessage(event.threadId, event.messageId)
+              .catch(() => null);
+            if (fetched) {
+              message = new Message(fetched);
+            } else {
+              const recentMessage = thread.recentMessages[0];
+              if (recentMessage && typeof recentMessage.toJSON === "function") {
+                message = recentMessage as Message;
+              }
+            }
           }
         }
         const contextId = crypto.randomUUID();
-        const channel = (thread as ThreadImpl<TState>)
-          .channel as ChannelImpl<TState>;
+        const channel = thread
+          ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
+          : undefined;
         this.storeModalContext(
           event.adapter.name,
           contextId,
-          thread as ThreadImpl<TState>,
+          thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
           channel
         );
