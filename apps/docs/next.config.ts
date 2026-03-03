@@ -26,7 +26,7 @@ const config: NextConfig = {
         permanent: true,
       },
       {
-        source: "/adapters/:slug",
+        source: "/docs/adapters/:slug",
         destination: "/adapters/:slug",
         permanent: true,
       },
