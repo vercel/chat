@@ -1,0 +1,301 @@
+import { describe, expect, it } from "vitest";
+import { StreamingMarkdownRenderer } from "./streaming-markdown";
+
+describe("StreamingMarkdownRenderer", () => {
+  it("should accumulate basic text", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello");
+    r.push(" World");
+    expect(r.render()).toBe("Hello World");
+  });
+
+  it("should heal inline markers with remend", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    const result = r.render();
+    // remend should close the bold marker
+    const openCount = (result.match(/\*\*/g) || []).length;
+    expect(openCount % 2).toBe(0);
+    expect(result).toContain("Hello **wor");
+  });
+
+  it("should hold back trailing table header lines", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    const result = r.render();
+    // The pipe line should be held back
+    expect(result).not.toContain("| A | B |");
+    expect(result).toContain("Text");
+  });
+
+  it("should confirm table when separator arrives", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    expect(r.render()).not.toContain("| A | B |");
+
+    r.push("|---|---|\n");
+    const result = r.render();
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("|---|---|");
+  });
+
+  it("should release held lines when next line is not a table row", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    expect(r.render()).not.toContain("| A | B |");
+
+    r.push("Not a table\n");
+    const result = r.render();
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("Not a table");
+  });
+
+  it("should not hold back pipe lines inside code fences", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("```\n| A |\n");
+    const result = r.render();
+    expect(result).toContain("| A |");
+  });
+
+  it("should flush held lines on finish()", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    expect(r.render()).not.toContain("| A | B |");
+
+    const final = r.finish();
+    expect(final).toContain("| A | B |");
+  });
+
+  it("should be idempotent when no push between renders", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    const first = r.render();
+    const second = r.render();
+    expect(first).toBe(second);
+  });
+
+  it("should return raw text from getText() without remend", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+    r.render(); // trigger render
+    expect(r.getText()).toBe("Hello **wor");
+  });
+
+  it("should handle table with data rows after separator", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("| A | B |\n|---|---|\n| 1 | 2 |\n");
+    const result = r.render();
+    // Separator confirms the table, so all rows should be visible
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("|---|---|");
+    expect(result).toContain("| 1 | 2 |");
+  });
+
+  it("should handle multiple consecutive table rows held back", () => {
+    const r = new StreamingMarkdownRenderer();
+    // Two potential table rows without a separator
+    r.push("Intro\n\n| A | B |\n| C | D |\n");
+    const result = r.render();
+    expect(result).not.toContain("| A | B |");
+    expect(result).not.toContain("| C | D |");
+  });
+
+  it("should not buffer lines that don't match table pattern", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Just normal text\n");
+    expect(r.render()).toContain("Just normal text");
+  });
+
+  it("should handle code fence with tilde syntax", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("~~~\n| A |\n");
+    const result = r.render();
+    expect(result).toContain("| A |");
+  });
+
+  it("should resume buffering after code fence closes", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("```\n| inside |\n```\n| A | B |\n");
+    const result = r.render();
+    // Code fence is closed, so the trailing pipe line should be held
+    expect(result).toContain("| inside |");
+    expect(result).not.toContain("| A | B |");
+  });
+
+  it("should handle empty input", () => {
+    const r = new StreamingMarkdownRenderer();
+    expect(r.render()).toBe("");
+    expect(r.getText()).toBe("");
+    expect(r.finish()).toBe("");
+  });
+
+  it("should handle text with no trailing newline", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello world");
+    expect(r.render()).toBe("Hello world");
+  });
+
+  it("should handle table header without trailing newline (incomplete line)", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |");
+    // Incomplete line (no trailing newline) — not yet a full line, should not buffer
+    const result = r.render();
+    expect(result).toContain("Text");
+  });
+
+  // --- Buffer state transition edge cases ---
+
+  it("should still work after push() following finish()", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello");
+    r.finish();
+    // push after finish — finished flag stays true, new content is flushed fully
+    r.push(" World");
+    const result = r.render();
+    expect(result).toContain("Hello World");
+  });
+
+  it("should be idempotent for render() after finish()", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A | B |\n");
+    r.finish();
+    const first = r.render();
+    const second = r.render();
+    expect(first).toBe(second);
+    expect(first).toContain("| A | B |");
+  });
+
+  it("should handle finish() with no held lines", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Just plain text\n");
+    const rendered = r.render();
+    const finished = r.finish();
+    // Both should contain the full text
+    expect(rendered).toContain("Just plain text");
+    expect(finished).toContain("Just plain text");
+  });
+
+  it("should handle table header split across chunks", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Text\n\n| A");
+    // Partial pipe line — no trailing newline, treated as incomplete
+    expect(r.render()).toContain("Text");
+    // The partial pipe is part of the incomplete line, not buffered as table
+
+    r.push(" | B |\n");
+    // Now it's a complete table row — should be held
+    expect(r.render()).not.toContain("| A | B |");
+
+    r.push("|---|---|\n");
+    // Separator confirms — everything released
+    expect(r.render()).toContain("| A | B |");
+  });
+
+  it("should break held block at empty line", () => {
+    const r = new StreamingMarkdownRenderer();
+    // Two pipe rows separated by empty line — only second should be held
+    r.push("| A | B |\n\n| C | D |\n");
+    const result = r.render();
+    // First pipe row is before the empty line, not held
+    expect(result).toContain("| A | B |");
+    // Second pipe row is after empty line and is the trailing held block
+    expect(result).not.toContain("| C | D |");
+  });
+
+  it("should hold table at very start of text (no preceding content)", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("| A | B |\n");
+    const result = r.render();
+    expect(result).not.toContain("| A | B |");
+  });
+
+  it("should hold second table after confirmed first table", () => {
+    const r = new StreamingMarkdownRenderer();
+    // First table: confirmed
+    r.push("| A | B |\n|---|---|\n| 1 | 2 |\n");
+    expect(r.render()).toContain("|---|---|");
+
+    // Blank line then new unconfirmed table
+    r.push("\n| X | Y |\n");
+    const result = r.render();
+    // First table still visible
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("| 1 | 2 |");
+    // Second table held back
+    expect(result).not.toContain("| X | Y |");
+  });
+
+  it("should handle held → released → new hold sequence", () => {
+    const r = new StreamingMarkdownRenderer();
+
+    // Phase 1: hold
+    r.push("| A | B |\n");
+    expect(r.render()).not.toContain("| A | B |");
+
+    // Phase 2: released (non-table line denies)
+    r.push("Normal text\n");
+    expect(r.render()).toContain("| A | B |");
+    expect(r.render()).toContain("Normal text");
+
+    // Phase 3: new hold
+    r.push("| X | Y |\n");
+    const result = r.render();
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("Normal text");
+    expect(result).not.toContain("| X | Y |");
+  });
+
+  it("should confirm table with alignment markers in separator", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("| Left | Center | Right |\n");
+    expect(r.render()).not.toContain("| Left |");
+
+    r.push("|:---|:---:|---:|\n");
+    const result = r.render();
+    expect(result).toContain("| Left | Center | Right |");
+    expect(result).toContain("|:---|:---:|---:|");
+  });
+
+  it("should not hold data rows after confirmed separator", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("| A | B |\n|---|---|\n");
+    expect(r.render()).toContain("|---|---|");
+
+    // New data row after confirmed table — backward walk hits separator, confirms
+    r.push("| 1 | 2 |\n");
+    const result = r.render();
+    expect(result).toContain("| 1 | 2 |");
+  });
+
+  it("should handle multiple push() calls before single render()", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("| A ");
+    r.push("| B |\n");
+    r.push("|---|---|\n");
+    r.push("| 1 | 2 |\n");
+    // Single render after all pushes — should see confirmed table
+    const result = r.render();
+    expect(result).toContain("| A | B |");
+    expect(result).toContain("|---|---|");
+    expect(result).toContain("| 1 | 2 |");
+  });
+
+  it("should track dirty flag correctly across push-render-push-render", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello");
+    const r1 = r.render();
+    expect(r1).toBe("Hello");
+
+    // No push — should return cached
+    expect(r.render()).toBe(r1);
+
+    r.push(" **bold");
+    const r2 = r.render();
+    // Should have changed (dirty was set by push)
+    expect(r2).not.toBe(r1);
+    expect(r2).toContain("Hello **bold");
+    // remend should close the marker
+    const count = (r2.match(/\*\*/g) || []).length;
+    expect(count % 2).toBe(0);
+  });
+});

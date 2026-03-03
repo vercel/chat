@@ -1,6 +1,5 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
-import remend from "remend";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
@@ -13,6 +12,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
+import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -478,7 +478,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         ? null
         : await this.adapter.postMessage(this.id, placeholderText);
     let threadIdForEdits = this.id;
-    let accumulated = "";
+    const renderer = new StreamingMarkdownRenderer();
     let lastEditContent = "";
     let stopped = false;
     let pendingEdit: Promise<void> | null = null;
@@ -500,8 +500,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
         return;
       }
 
-      if (accumulated !== lastEditContent) {
-        const content = remend(accumulated);
+      const content = renderer.render();
+      if (content !== lastEditContent) {
         try {
           await this.adapter.editMessage(threadIdForEdits, msg.id, {
             markdown: content,
@@ -524,13 +524,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     try {
       for await (const chunk of textStream) {
-        accumulated += chunk;
+        renderer.push(chunk);
         if (!msg) {
           msg = await this.adapter.postMessage(this.id, {
-            markdown: remend(accumulated),
+            markdown: renderer.render(),
           });
           threadIdForEdits = msg.threadId || this.id;
-          lastEditContent = accumulated;
+          lastEditContent = renderer.render();
           scheduleNextEdit();
         }
       }
@@ -546,6 +546,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
     if (pendingEdit) {
       await pendingEdit;
     }
+
+    const accumulated = renderer.getText();
+    renderer.finish();
 
     if (!msg) {
       msg = await this.adapter.postMessage(this.id, {

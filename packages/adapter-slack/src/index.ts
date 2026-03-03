@@ -2138,7 +2138,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     let first = true;
+    let accumulated = "";
     for await (const chunk of textStream) {
+      accumulated += chunk;
       if (first) {
         // Pass token on first append so the streamer uses it for all subsequent calls
         // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
@@ -2155,6 +2157,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
+
+    // Re-render the final message through the format converter so that
+    // markdown features not supported by Slack's streaming API (e.g. GFM
+    // tables) are converted to mrkdwn properly.
+    await this.editMessage(threadId, messageTs, { markdown: accumulated });
 
     return {
       id: messageTs,

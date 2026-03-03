@@ -11,6 +11,7 @@ export {
   type MessageData,
   type SerializedMessage,
 } from "./message";
+export { StreamingMarkdownRenderer } from "./streaming-markdown";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
 // Card builders - import then re-export to ensure values are properly exported
