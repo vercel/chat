@@ -1328,14 +1328,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             params.set(key, value);
           }
         }
-        this.handleSlashCommand(params);
+        this.handleSlashCommand(params).catch((error) => {
+          this.logger.error("Error handling slash command via socket mode", {
+            error,
+          });
+        });
         break;
       }
 
       case "interactive": {
         const payload = body.payload as SlackInteractivePayload | undefined;
         if (payload) {
-          this.dispatchInteractivePayload(payload);
+          const result = this.dispatchInteractivePayload(payload);
+          if (result instanceof Promise) {
+            result.catch((error) => {
+              this.logger.error(
+                "Error handling interactive payload via socket mode",
+                { error }
+              );
+            });
+          }
         }
         break;
       }
