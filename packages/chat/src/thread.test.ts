@@ -5,7 +5,7 @@ import {
   createTestMessage,
 } from "./mock-adapter";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message } from "./types";
+import type { Adapter, Message, StreamChunk } from "./types";
 
 describe("ThreadImpl", () => {
   describe("Per-thread state", () => {
@@ -592,13 +592,13 @@ describe("ThreadImpl", () => {
     });
 
     it("should pass StreamChunk objects through to adapter.stream", async () => {
-      let capturedChunks: (string | { type: string; [key: string]: unknown })[] = [];
+      let capturedChunks: (string | StreamChunk)[] = [];
       const mockStream = vi
         .fn()
         .mockImplementation(
           async (
             _threadId: string,
-            stream: AsyncIterable<string | { type: string; [key: string]: unknown }>
+            stream: AsyncIterable<string | StreamChunk>
           ) => {
             capturedChunks = [];
             for await (const chunk of stream) {
@@ -648,13 +648,13 @@ describe("ThreadImpl", () => {
     });
 
     it("should accumulate text from markdown_text StreamChunks", async () => {
-      let capturedChunks: (string | { type: string; [key: string]: unknown })[] = [];
+      let capturedChunks: (string | StreamChunk)[] = [];
       const mockStream = vi
         .fn()
         .mockImplementation(
           async (
             _threadId: string,
-            stream: AsyncIterable<string | { type: string; [key: string]: unknown }>
+            stream: AsyncIterable<string | StreamChunk>
           ) => {
             capturedChunks = [];
             for await (const chunk of stream) {
@@ -671,7 +671,9 @@ describe("ThreadImpl", () => {
         yield { type: "markdown_text" as const, text: "World" };
       }
 
-      const result = await thread.post(mdChunkStream() as AsyncIterable<string>);
+      const result = await thread.post(
+        mdChunkStream() as AsyncIterable<string>
+      );
 
       // markdown_text chunks contribute to accumulated text; plan_update does not
       expect(result.text).toBe("Hello World");

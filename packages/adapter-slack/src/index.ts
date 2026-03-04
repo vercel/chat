@@ -661,22 +661,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const body = await request.text();
     this.logger.debug("Slack webhook raw body", { body });
 
-    // Handle URL verification challenge BEFORE signature check.
-    // Slack sends this during Event Subscription setup and manifest updates.
-    // If the signing secret is misconfigured, rejecting verification causes
-    // Slack to disable event delivery entirely with no visible indicator.
-    try {
-      const maybeVerification = JSON.parse(body);
-      if (
-        maybeVerification.type === "url_verification" &&
-        maybeVerification.challenge
-      ) {
-        return Response.json({ challenge: maybeVerification.challenge });
-      }
-    } catch {
-      // Not JSON — fall through to normal processing
-    }
-
     // Verify request signature
     const timestamp = request.headers.get("x-slack-request-timestamp");
     const signature = request.headers.get("x-slack-signature");
@@ -724,6 +708,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       payload = JSON.parse(body);
     } catch {
       return new Response("Invalid JSON", { status: 400 });
+    }
+
+    // Handle URL verification challenge (signature already verified above)
+    if (payload.type === "url_verification" && payload.challenge) {
+      return Response.json({ challenge: payload.challenge });
     }
 
     // In multi-workspace mode, resolve token from team_id before processing events
@@ -2169,7 +2158,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * Handles first-append token passing and empty-delta skipping.
      */
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
-      if (delta.length === 0) return;
+      if (delta.length === 0) {
+        return;
+      }
       if (first) {
         // Pass token on first append so the streamer uses it for all subsequent calls
         // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
@@ -2191,10 +2182,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * Text streaming continues unaffected.
      */
     let structuredChunksSupported = true;
-    const sendStructuredChunk = async (
-      chunk: StreamChunk
-    ): Promise<void> => {
-      if (!structuredChunksSupported) return;
+    const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
+      if (!structuredChunksSupported) {
+        return;
+      }
 
       // Flush any buffered markdown before sending the structured chunk
       const committable = renderer.getCommittableText();
@@ -2226,21 +2217,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     };
 
+    const pushTextAndFlush = async (text: string): Promise<void> => {
+      renderer.push(text);
+      const committable = renderer.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
+      await flushMarkdownDelta(delta);
+      lastAppended = committable;
+    };
+
     for await (const chunk of textStream) {
       if (typeof chunk === "string") {
-        // Plain text — process through markdown renderer
-        renderer.push(chunk);
-        const committable = renderer.getCommittableText();
-        const delta = committable.slice(lastAppended.length);
-        await flushMarkdownDelta(delta);
-        lastAppended = committable;
-      } else if (chunk.type === "markdown_text" && typeof chunk.text === "string") {
-        // Markdown text chunk object — process through renderer like plain strings
-        renderer.push(chunk.text as string);
-        const committable = renderer.getCommittableText();
-        const delta = committable.slice(lastAppended.length);
-        await flushMarkdownDelta(delta);
-        lastAppended = committable;
+        await pushTextAndFlush(chunk);
+      } else if (chunk.type === "markdown_text") {
+        await pushTextAndFlush(chunk.text);
       } else {
         // Structured chunk (task_update, plan_update) — send directly to Slack
         await sendStructuredChunk(chunk);

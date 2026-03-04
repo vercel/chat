@@ -336,9 +336,24 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
  * Adapters that don't support structured chunks will extract `text` from
  * `markdown_text` chunks and ignore other types gracefully.
  */
-export interface StreamChunk {
-  type: "markdown_text" | "task_update" | "plan_update";
-  [key: string]: unknown;
+export type StreamChunk = MarkdownTextChunk | TaskUpdateChunk | PlanUpdateChunk;
+
+export interface MarkdownTextChunk {
+  text: string;
+  type: "markdown_text";
+}
+
+export interface TaskUpdateChunk {
+  id: string;
+  output?: string;
+  status: "pending" | "in_progress" | "complete" | "error";
+  title: string;
+  type: "task_update";
+}
+
+export interface PlanUpdateChunk {
+  title: string;
+  type: "plan_update";
 }
 
 /**
@@ -352,14 +367,14 @@ export interface StreamOptions {
   recipientUserId?: string;
   /** Block Kit elements to attach when stopping the stream (Slack only, via chat.stopStream) */
   stopBlocks?: unknown[];
-  /** Minimum interval between updates in ms (default: 1000). Used for fallback mode (GChat/Teams). */
-  updateIntervalMs?: number;
   /**
    * Slack: Controls how task_update chunks are displayed.
    * - `"timeline"` — individual task cards shown inline with text (default)
    * - `"plan"` — all tasks grouped into a single plan block
    */
   taskDisplayMode?: "timeline" | "plan";
+  /** Minimum interval between updates in ms (default: 1000). Used for fallback mode (GChat/Teams). */
+  updateIntervalMs?: number;
 }
 
 /** Internal interface for Chat instance passed to adapters */
@@ -1036,7 +1051,6 @@ export type AdapterPostableMessage =
  */
 export type PostableMessage =
   | AdapterPostableMessage
-  | AsyncIterable<string>
   | AsyncIterable<string | StreamChunk>;
 
 export interface PostableRaw {

@@ -443,7 +443,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
                 const value = result.value;
                 if (typeof value === "string") {
                   accumulated += value;
-                } else if (value.type === "markdown_text" && typeof value.text === "string") {
+                } else if (value.type === "markdown_text") {
                   accumulated += value.text;
                 }
                 // task_update and plan_update chunks don't contribute to accumulated text
@@ -478,8 +478,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
               if (typeof value === "string") {
                 return { value, done: false };
               }
-              if (value.type === "markdown_text" && typeof value.text === "string") {
-                return { value: value.text as string, done: false };
+              if (value.type === "markdown_text") {
+                return { value: value.text, done: false };
               }
               // Skip non-text chunks (task_update, plan_update) in fallback mode
             }
