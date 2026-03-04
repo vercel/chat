@@ -4,6 +4,10 @@
     {
       "path": "/api/discord/gateway",
       "schedule": "*/9 * * * *"
+    },
+    {
+      "path": "/api/slack/socket-mode",
+      "schedule": "*/9 * * * *"
     }
   ]
 }
