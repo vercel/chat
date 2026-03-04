@@ -25,6 +25,8 @@ import type {
   EmojiValue,
   Logger,
   LogLevel,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
   MessageHandler,
   ModalCloseEvent,
@@ -197,6 +199,8 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
+    [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -616,6 +620,11 @@ export class Chat<
     this.logger.debug("Registered app home opened handler");
   }
 
+  onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
+    this.memberJoinedChannelHandlers.push(handler);
+    this.logger.debug("Registered member joined channel handler");
+  }
+
   /**
    * Get an adapter by name with type safety.
    */
@@ -890,6 +899,27 @@ export class Chat<
     }
   }
 
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.memberJoinedChannelHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Member joined channel handler error", {
+        error: err,
+        channelId: event.channelId,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
   /**
    * Handle a slash command event internally.
    */
@@ -1099,7 +1129,7 @@ export class Chat<
           messageForThread,
           isSubscribed
         )
-      : (null as unknown as Thread<TState>);
+      : null;
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
@@ -1128,33 +1158,36 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
         let message: Message | undefined;
-        if (isEphemeralMessage) {
-          const recentMessage = thread.recentMessages[0];
-          if (recentMessage && typeof recentMessage.toJSON === "function") {
-            message = recentMessage as Message;
-          }
-        } else if (event.messageId && event.adapter.fetchMessage) {
-          const fetched = await event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch(() => null);
-          if (fetched) {
-            message = new Message(fetched);
-          } else {
+        if (thread) {
+          const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+          if (isEphemeralMessage) {
             const recentMessage = thread.recentMessages[0];
             if (recentMessage && typeof recentMessage.toJSON === "function") {
               message = recentMessage as Message;
             }
+          } else if (event.messageId && event.adapter.fetchMessage) {
+            const fetched = await event.adapter
+              .fetchMessage(event.threadId, event.messageId)
+              .catch(() => null);
+            if (fetched) {
+              message = new Message(fetched);
+            } else {
+              const recentMessage = thread.recentMessages[0];
+              if (recentMessage && typeof recentMessage.toJSON === "function") {
+                message = recentMessage as Message;
+              }
+            }
           }
         }
         const contextId = crypto.randomUUID();
-        const channel = (thread as ThreadImpl<TState>)
-          .channel as ChannelImpl<TState>;
+        const channel = thread
+          ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
+          : undefined;
         this.storeModalContext(
           event.adapter.name,
           contextId,
-          thread as ThreadImpl<TState>,
+          thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
           channel
         );

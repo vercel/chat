@@ -159,4 +159,47 @@ describe("SlackMarkdownConverter", () => {
       expect(result.endsWith("\n```")).toBe(true);
     });
   });
+
+  describe("nested lists", () => {
+    it("should indent nested unordered lists", () => {
+      const result = converter.fromMarkdown(
+        "- parent\n  - child 1\n  - child 2"
+      );
+      expect(result).toBe("• parent\n  • child 1\n  • child 2");
+    });
+
+    it("should indent nested ordered lists", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   1. sub-first\n   2. sub-second\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  1. sub-first");
+      expect(result).toContain("  2. sub-second");
+      expect(result).toContain("2. second");
+    });
+
+    it("should handle deeply nested lists", () => {
+      const result = converter.fromMarkdown(
+        "- level 1\n  - level 2\n    - level 3"
+      );
+      expect(result).toContain("• level 1");
+      expect(result).toContain("  • level 2");
+      expect(result).toContain("    • level 3");
+    });
+
+    it("should keep sibling items at the same indent level", () => {
+      const result = converter.fromMarkdown("- item 1\n- item 2\n- item 3");
+      expect(result).toBe("• item 1\n• item 2\n• item 3");
+    });
+
+    it("should handle mixed ordered and unordered nesting", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   - sub a\n   - sub b\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  • sub a");
+      expect(result).toContain("  • sub b");
+      expect(result).toContain("2. second");
+    });
+  });
 });

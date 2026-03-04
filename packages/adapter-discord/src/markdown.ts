@@ -24,7 +24,6 @@ import {
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
@@ -158,21 +157,9 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "-";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToDiscordMarkdown(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToDiscordMarkdown(child))
-        .join("");
+      return this.renderList(node, 0, (child) =>
+        this.nodeToDiscordMarkdown(child)
+      );
     }
 
     if (node.type === "break") {

@@ -1,5 +1,20 @@
 # @chat-adapter/shared
 
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - chat@4.16.0
+
 ## 4.15.0
 
 ### Minor Changes

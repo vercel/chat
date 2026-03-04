@@ -3,6 +3,7 @@ import type { Root } from "mdast";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
+import { fromFullStream } from "./from-full-stream";
 import { type CardJSXElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
   paragraph,
@@ -25,6 +26,7 @@ import type {
   SentMessage,
   StateAdapter,
   StreamChunk,
+  StreamEvent,
   StreamOptions,
   Thread,
 } from "./types";
@@ -86,11 +88,11 @@ function isLazyConfig(
 const THREAD_STATE_KEY_PREFIX = "thread-state:";
 
 /**
- * Check if a value is an AsyncIterable (like AI SDK's textStream).
+ * Check if a value is an AsyncIterable (like AI SDK's textStream or fullStream).
  */
 function isAsyncIterable(
   value: unknown
-): value is AsyncIterable<string | StreamChunk> {
+): value is AsyncIterable<string | StreamChunk | StreamEvent> {
   return (
     value !== null && typeof value === "object" && Symbol.asyncIterator in value
   );
@@ -411,11 +413,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   /**
    * Handle streaming from an AsyncIterable.
-   * Uses adapter's native streaming if available, otherwise falls back to post+edit.
+   * Normalizes the stream (supports both textStream and fullStream from AI SDK),
+   * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    textStream: AsyncIterable<string | StreamChunk>
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
   ): Promise<SentMessage> {
+    // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
+    const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context
     const options: StreamOptions = {};
     if (this._currentMessage) {

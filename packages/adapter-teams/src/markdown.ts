@@ -23,7 +23,6 @@ import {
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
@@ -183,21 +182,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "-";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToTeams(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToTeams(child))
-        .join("");
+      return this.renderList(node, 0, (child) => this.nodeToTeams(child));
     }
 
     if (node.type === "break") {

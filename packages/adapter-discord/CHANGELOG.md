@@ -1,5 +1,26 @@
 # @chat-adapter/discord
 
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+
+### Patch Changes
+
+- 9522b04: Add `disabled` prop to `Button()` for Google Chat and Discord
+- da7e05d: Fix Discord reaction events missing thread context
+- f01b92f: Add Discord slash command support by dispatching `InteractionType.ApplicationCommand` events to `chat.processSlashCommand(...)` while still sending an immediate deferred interaction ACK.
+- 1a37385: Add `Partials.Channel` to gateway client for DM support
+- f6d56ea: Fix Discord thread channel ID for reactions and delete
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - @chat-adapter/shared@4.16.0
+  - chat@4.16.0
+
 ## 4.15.0
 
 ### Minor Changes

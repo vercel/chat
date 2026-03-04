@@ -420,6 +420,11 @@ export interface ChatInstance {
     event: AssistantThreadStartedEvent,
     options?: WebhookOptions
   ): void;
+
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void;
   /**
    * Process an incoming message from an adapter.
    * Handles waitUntil registration and error catching internally.
@@ -1048,10 +1053,22 @@ export type AdapterPostableMessage =
  * - `{ card: CardElement }` - Rich card with buttons (Block Kit / Adaptive Cards / GChat Cards)
  * - `CardElement` - Direct card element
  * - `AsyncIterable<string>` - Streaming text (e.g., from AI SDK's textStream)
+ * - `AsyncIterable<string | StreamEvent>` - AI SDK fullStream (auto-detected, extracts text with step separators)
  */
 export type PostableMessage =
   | AdapterPostableMessage
-  | AsyncIterable<string | StreamChunk>;
+  | AsyncIterable<string | StreamChunk | StreamEvent>;
+
+/**
+ * Duck-typed stream event compatible with AI SDK's `fullStream`.
+ * - `text-delta` events are extracted as text output.
+ * - `step-finish` events trigger paragraph separators between steps.
+ * - All other event types (tool-call, tool-result, etc.) are silently skipped.
+ */
+export type StreamEvent =
+  | { textDelta: string; type: "text-delta" }
+  | { type: "step-finish" }
+  | { type: string };
 
 export interface PostableRaw {
   /** File/image attachments */
@@ -1471,8 +1488,8 @@ export interface ActionEvent<TRawMessage = unknown> {
   ): Promise<{ viewId: string } | undefined>;
   /** Platform-specific raw event data */
   raw: unknown;
-  /** The thread where the action occurred */
-  thread: Thread<TRawMessage>;
+  /** The thread where the action occurred (null for view-based actions like home tab buttons) */
+  thread: Thread<TRawMessage> | null;
   /** The thread ID */
   threadId: string;
   /** Trigger ID for opening modals (required by some platforms, may expire quickly) */
@@ -1767,4 +1784,15 @@ export interface AppHomeOpenedEvent {
 
 export type AppHomeOpenedHandler = (
   event: AppHomeOpenedEvent
+) => void | Promise<void>;
+
+export interface MemberJoinedChannelEvent {
+  adapter: Adapter;
+  channelId: string;
+  inviterId?: string;
+  userId: string;
+}
+
+export type MemberJoinedChannelHandler = (
+  event: MemberJoinedChannelEvent
 ) => void | Promise<void>;

@@ -6,6 +6,7 @@ export {
   type SerializedChannel,
 } from "./channel";
 export { Chat } from "./chat";
+export { fromFullStream } from "./from-full-stream";
 export {
   Message,
   type MessageData,
@@ -232,6 +233,8 @@ export type {
   Logger,
   LogLevel,
   MarkdownTextChunk,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
   MessageHandler,
   MessageMetadata,
@@ -260,6 +263,7 @@ export type {
   SlashCommandHandler,
   StateAdapter,
   StreamChunk,
+  StreamEvent,
   StreamOptions,
   SubscribedMessageHandler,
   TaskUpdateChunk,

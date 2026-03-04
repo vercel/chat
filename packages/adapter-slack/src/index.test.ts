@@ -929,6 +929,7 @@ function createMockChatInstance(state: StateAdapter): ChatInstance {
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processSlashCommand: vi.fn(),
+    processMemberJoinedChannel: vi.fn(),
     getState: () => state,
     getUserName: () => "test-bot",
     getLogger: () => mockLogger,
@@ -3651,6 +3652,45 @@ describe("handleWebhook - assistant events", () => {
       expect.objectContaining({
         userId: "U_HOME_USER",
         channelId: "D_HOME_CHAN",
+        adapter,
+      }),
+      undefined
+    );
+  });
+
+  it("handles member_joined_channel event", async () => {
+    const state = createMockState();
+    const chatInstance = {
+      ...createMockChatInstance(state),
+      processMemberJoinedChannel: vi.fn(),
+    };
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "member_joined_channel",
+        user: "U_JOINED_USER",
+        channel: "C_TARGET_CHAN",
+        inviter: "U_INVITER",
+        event_ts: "1234567893.000000",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chatInstance.processMemberJoinedChannel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "U_JOINED_USER",
+        channelId: "slack:C_TARGET_CHAN:",
+        inviterId: "U_INVITER",
         adapter,
       }),
       undefined

@@ -1079,6 +1079,64 @@ describe("Chat", () => {
         "Cannot open modal: slack does not support modals"
       );
     });
+
+    it("should open modal when action has empty threadId (no thread context)", async () => {
+      let capturedEvent: ActionEvent | undefined;
+      const handler = vi.fn().mockImplementation(async (event: ActionEvent) => {
+        capturedEvent = event;
+      });
+      chat.onAction(handler);
+
+      // Home tab actions have no thread context → empty threadId
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "home_select_scope",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "",
+        threadId: "",
+        adapter: mockAdapter,
+        raw: {},
+        triggerId: "trigger-456",
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+      // thread should be null for empty threadId
+      expect(capturedEvent?.thread).toBeNull();
+      expect(capturedEvent?.openModal).toBeDefined();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "select_scope_form",
+        title: "Select a team",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(mockAdapter.openModal).toHaveBeenCalledWith(
+        "trigger-456",
+        modal,
+        expect.any(String)
+      );
+      expect(result).toEqual({ viewId: "V123" });
+
+      // Modal context should store undefined thread
+      const calls = (mockState.set as ReturnType<typeof vi.fn>).mock.calls;
+      const modalContextCall = calls.find((c: unknown[]) =>
+        (c[0] as string).startsWith("modal-context:")
+      );
+      expect(modalContextCall).toBeDefined();
+      expect(modalContextCall?.[1]).toMatchObject({
+        thread: undefined,
+      });
+    });
   });
 
   describe("openDM", () => {

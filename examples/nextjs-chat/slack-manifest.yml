@@ -33,6 +33,7 @@ settings:
     request_url: https://your-deployment.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=TOKEN_HERE
     bot_events:
       - app_mention
+      - member_joined_channel
       - message.channels
       - message.groups
       - message.im

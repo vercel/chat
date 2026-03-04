@@ -1,5 +1,11 @@
 # docs
 
+## 0.4.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+
 ## 0.3.0
 
 ### Minor Changes
