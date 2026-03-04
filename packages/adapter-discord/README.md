@@ -182,6 +182,7 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 | Ephemeral messages | No (DM fallback) |
 | File uploads | Yes |
 | Typing indicator | Yes |
+| Slash Commands | Yes |
 | Message history | Yes |
 
 ## Testing
