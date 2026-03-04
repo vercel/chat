@@ -93,8 +93,6 @@ const FooterContent = ({
       <span className="flex items-center gap-2 text-muted-foreground text-xs">
         <ExternalLinkIcon className="size-3" />
         {prs.length === 1 ? "1 open PR" : `${prs.length} open PRs`}
-        {" — "}
-        Submit a PR to contribute
       </span>
     );
   }
