@@ -66,7 +66,9 @@ const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
 const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
-  while (end > 0 && url[end - 1] === "/") end--;
+  while (end > 0 && url[end - 1] === "/") {
+    end--;
+  }
   return url.slice(0, end);
 };
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
