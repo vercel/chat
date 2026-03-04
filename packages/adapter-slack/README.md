@@ -142,6 +142,7 @@ settings:
       - message.groups
       - message.im
       - message.mpim
+      - member_joined_channel
       - assistant_thread_started
       - assistant_thread_context_changed
   interactivity:
@@ -217,6 +218,7 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 | Typing indicator | Yes |
 | Message history | Yes |
 | Assistants API | Yes |
+| Member joined channel | Yes |
 | App Home tab | Yes |
 
 ## Slack Assistants API
