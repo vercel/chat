@@ -1012,8 +1012,22 @@ export type AdapterPostableMessage =
  * - `{ card: CardElement }` - Rich card with buttons (Block Kit / Adaptive Cards / GChat Cards)
  * - `CardElement` - Direct card element
  * - `AsyncIterable<string>` - Streaming text (e.g., from AI SDK's textStream)
+ * - `AsyncIterable<string | StreamEvent>` - AI SDK fullStream (auto-detected, extracts text with step separators)
  */
-export type PostableMessage = AdapterPostableMessage | AsyncIterable<string>;
+export type PostableMessage =
+  | AdapterPostableMessage
+  | AsyncIterable<string | StreamEvent>;
+
+/**
+ * Duck-typed stream event compatible with AI SDK's `fullStream`.
+ * - `text-delta` events are extracted as text output.
+ * - `step-finish` events trigger paragraph separators between steps.
+ * - All other event types (tool-call, tool-result, etc.) are silently skipped.
+ */
+export type StreamEvent =
+  | { textDelta: string; type: "text-delta" }
+  | { type: "step-finish" }
+  | { type: string };
 
 export interface PostableRaw {
   /** File/image attachments */

@@ -82,7 +82,7 @@ bot.onNewMention(async (thread, message) => {
     // Also respond to the initial message with AI
     await thread.startTyping("Thinking...");
     const result = await agent.stream({ prompt: message.text });
-    await thread.post(result.textStream);
+    await thread.post(result.fullStream);
     return;
   }
 
@@ -648,7 +648,7 @@ bot.onSubscribedMessage(async (thread, message) => {
     console.log("history", history);
     await thread.startTyping("Thinking...");
     const result = await agent.stream({ prompt: history });
-    await thread.post(result.textStream);
+    await thread.post(result.fullStream);
     return;
   }
 

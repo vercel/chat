@@ -139,14 +139,17 @@ See the [Cards](/docs/cards) page for the full list of card components.
 
 ## Streaming
 
-Pass an `AsyncIterable<string>` (like the AI SDK's `textStream`) to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit on other platforms.
+Pass an AI SDK stream to `thread.post()` to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit on other platforms.
 
 ```typescript title="lib/bot.ts" lineNumbers
-import { streamText } from "ai";
+import { ToolLoopAgent } from "ai";
 
-const result = streamText({ model, prompt: message.text });
-await thread.post(result.textStream);
+const agent = new ToolLoopAgent({ model, instructions: "You are a helpful assistant." });
+const result = await agent.stream({ prompt: message.text });
+await thread.post(result.fullStream);
 ```
+
+Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams.
 
 See the [Streaming](/docs/streaming) page for details on platform behavior and configuration.
 
