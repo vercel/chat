@@ -147,6 +147,9 @@ bot.onMemberJoinedChannel(async (event) => {
 });
 
 bot.onAction("show_channel_help", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const platforms = Object.keys(adapters).join(", ") || "none configured";
   await event.thread.post(
     <Card title={`${emoji.question} Help`}>
@@ -164,6 +167,9 @@ bot.onAction("show_channel_help", async (event) => {
 });
 
 bot.onAction("ephemeral", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.postEphemeral(
     event.user,
     <Card title={`${emoji.eyes} Ephemeral Message`}>
@@ -209,6 +215,9 @@ bot.onModalSubmit("ephemeral_modal_form", async (event) => {
 });
 
 bot.onAction("quick_action", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const action = event.value;
   if (action === "greet") {
     await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
@@ -224,6 +233,9 @@ bot.onAction("quick_action", async (event) => {
 });
 
 bot.onAction("choose_plan", (event) => {
+  if (!event.thread) {
+    return;
+  }
   event.thread.post(
     <Card title="Choose Plan">
       <Actions>
@@ -254,6 +266,9 @@ bot.onAction("choose_plan", (event) => {
   );
 });
 bot.onAction("plan_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
   event.thread.post(
     <Card title={`${emoji.check} Plan Chosen!`}>
       <Text>You chose plan *{event.value}*</Text>
@@ -263,10 +278,16 @@ bot.onAction("plan_selected", (event) => {
 
 // Handle card button actions
 bot.onAction("hello", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
 });
 
 bot.onAction("info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const threadState = await event.thread.state;
   await event.thread.post(
     <Card title="Bot Information">
@@ -286,6 +307,9 @@ bot.onAction("info", async (event) => {
 });
 
 bot.onAction("goodbye", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(
     `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
   );
@@ -449,6 +473,9 @@ bot.onModalClose("feedback_form", (event) => {
 
 // Demonstrate fetchMessages and allMessages
 bot.onAction("messages", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const { thread } = event;
 
   // Helper to get display text for a message (handles empty text from cards)
@@ -544,6 +571,9 @@ bot.onAction("messages", async (event) => {
 
 // Demonstrate channel abstraction: read channel messages and post summary
 bot.onAction("channel-post", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const { thread } = event;
   const channel = thread.channel;
 
