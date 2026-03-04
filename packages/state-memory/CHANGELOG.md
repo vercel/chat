@@ -1,5 +1,16 @@
 # @chat-adapter/state-memory
 
+## 4.16.0
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - chat@4.16.0
+
 ## 4.15.0
 
 ### Patch Changes

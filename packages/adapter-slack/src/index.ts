@@ -191,6 +191,17 @@ interface SlackAppHomeOpenedEvent {
   user: string;
 }
 
+/** Slack member_joined_channel event payload */
+interface SlackMemberJoinedChannelEvent {
+  channel: string;
+  channel_type?: string;
+  event_ts: string;
+  inviter?: string;
+  team?: string;
+  type: "member_joined_channel";
+  user: string;
+}
+
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
   challenge?: string;
@@ -199,7 +210,8 @@ interface SlackWebhookPayload {
     | SlackReactionEvent
     | SlackAssistantThreadStartedEvent
     | SlackAssistantContextChangedEvent
-    | SlackAppHomeOpenedEvent;
+    | SlackAppHomeOpenedEvent
+    | SlackMemberJoinedChannelEvent;
   event_id?: string;
   event_time?: number;
   team_id?: string;
@@ -769,6 +781,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         (event as SlackAppHomeOpenedEvent).tab === "home"
       ) {
         this.handleAppHomeOpened(event as SlackAppHomeOpenedEvent, options);
+      } else if (event.type === "member_joined_channel") {
+        this.handleMemberJoinedChannel(
+          event as SlackMemberJoinedChannelEvent,
+          options
+        );
       }
     }
   }
@@ -1339,6 +1356,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       {
         userId: event.user,
         channelId: event.channel,
+        adapter: this,
+      },
+      options
+    );
+  }
+
+  /**
+   * Handle member_joined_channel events from Slack.
+   * Fires when a user (including the bot) joins a channel.
+   */
+  private handleMemberJoinedChannel(
+    event: SlackMemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring member_joined_channel"
+      );
+      return;
+    }
+
+    this.chat.processMemberJoinedChannel(
+      {
+        userId: event.user,
+        channelId: this.encodeThreadId({
+          channel: event.channel,
+          threadTs: "",
+        }),
+        inviterId: event.inviter,
         adapter: this,
       },
       options
