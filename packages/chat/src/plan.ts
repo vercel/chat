@@ -16,7 +16,7 @@ import type {
 /**
  * Convert PlanContent to plain text for titles/labels.
  */
-export function contentToPlainText(content: PlanContent | undefined): string {
+function contentToPlainText(content: PlanContent | undefined): string {
   if (!content) {
     return "";
   }
