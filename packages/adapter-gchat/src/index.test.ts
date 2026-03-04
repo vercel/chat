@@ -250,7 +250,6 @@ describe("GoogleChatAdapter", () => {
     beforeEach(() => {
       for (const key of Object.keys(process.env)) {
         if (key.startsWith("GOOGLE_CHAT_")) {
-          // biome-ignore lint/performance/noDelete: env var removal requires delete
           delete process.env[key];
         }
       }
@@ -337,7 +336,6 @@ describe("GoogleChatAdapter", () => {
     beforeEach(() => {
       for (const key of Object.keys(process.env)) {
         if (key.startsWith("GOOGLE_CHAT_")) {
-          // biome-ignore lint/performance/noDelete: env var removal requires delete
           delete process.env[key];
         }
       }

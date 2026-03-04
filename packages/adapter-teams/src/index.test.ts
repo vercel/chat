@@ -245,7 +245,6 @@ describe("TeamsAdapter", () => {
     beforeEach(() => {
       for (const key of Object.keys(process.env)) {
         if (key.startsWith("TEAMS_")) {
-          // biome-ignore lint/performance/noDelete: env var removal requires delete
           delete process.env[key];
         }
       }

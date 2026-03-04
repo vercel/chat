@@ -171,7 +171,6 @@ describe("constructor env var resolution", () => {
   beforeEach(() => {
     for (const key of Object.keys(process.env)) {
       if (key.startsWith("TELEGRAM_")) {
-        // biome-ignore lint/performance/noDelete: env var removal requires delete
         delete process.env[key];
       }
     }
