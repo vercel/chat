@@ -254,7 +254,6 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("constructor env var resolution", () => {
-
     it("should throw when appId is missing and env var not set", () => {
       expect(() => new TeamsAdapter({})).toThrow("appId is required");
     });
