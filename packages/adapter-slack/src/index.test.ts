@@ -2788,7 +2788,7 @@ describe("postChannelMessage", () => {
     expect(client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "C123",
-        thread_ts: undefined,
+        thread_ts: "",
       })
     );
   });
