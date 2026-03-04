@@ -82,6 +82,20 @@ describe("ESM compatibility", () => {
 });
 
 describe("TeamsAdapter", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("TEAMS_")) {
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
   it("should export createTeamsAdapter function", () => {
     expect(typeof createTeamsAdapter).toBe("function");
   });
@@ -240,19 +254,6 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("constructor env var resolution", () => {
-    const savedEnv = { ...process.env };
-
-    beforeEach(() => {
-      for (const key of Object.keys(process.env)) {
-        if (key.startsWith("TEAMS_")) {
-          delete process.env[key];
-        }
-      }
-    });
-
-    afterEach(() => {
-      process.env = { ...savedEnv };
-    });
 
     it("should throw when appId is missing and env var not set", () => {
       expect(() => new TeamsAdapter({})).toThrow("appId is required");
