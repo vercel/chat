@@ -28,6 +28,7 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
+  type List,
   parseMarkdown,
   type Root,
   tableToAscii,
@@ -59,7 +60,33 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     return parseMarkdown(markdown);
   }
 
-  private nodeToGChat(node: Content, depth = 0): string {
+  private renderList(node: List, depth: number): string {
+    const indent = "  ".repeat(depth);
+    const lines: string[] = [];
+    for (const [i, item] of getNodeChildren(node).entries()) {
+      const prefix = node.ordered ? `${i + 1}.` : "•";
+      let isFirstContent = true;
+      for (const child of getNodeChildren(item)) {
+        if (isListNode(child)) {
+          lines.push(this.renderList(child, depth + 1));
+          continue;
+        }
+        const text = this.nodeToGChat(child);
+        if (!text.trim()) {
+          continue;
+        }
+        if (isFirstContent) {
+          lines.push(`${indent}${prefix} ${text}`);
+          isFirstContent = false;
+        } else {
+          lines.push(`${indent}  ${text}`);
+        }
+      }
+    }
+    return lines.join("\n");
+  }
+
+  private nodeToGChat(node: Content): string {
     // Use type guards for type-safe node handling
     if (isParagraphNode(node)) {
       return getNodeChildren(node)
@@ -127,29 +154,7 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      const indent = "  ".repeat(depth);
-      const lines: string[] = [];
-      for (const [i, item] of getNodeChildren(node).entries()) {
-        const prefix = node.ordered ? `${i + 1}.` : "•";
-        let isFirstContent = true;
-        for (const child of getNodeChildren(item)) {
-          if (isListNode(child)) {
-            lines.push(this.nodeToGChat(child, depth + 1));
-            continue;
-          }
-          const text = this.nodeToGChat(child);
-          if (!text.trim()) {
-            continue;
-          }
-          if (isFirstContent) {
-            lines.push(`${indent}${prefix} ${text}`);
-            isFirstContent = false;
-          } else {
-            lines.push(`${indent}  ${text}`);
-          }
-        }
-      }
-      return lines.join("\n");
+      return this.renderList(node, 0);
     }
 
     if (isListItemNode(node)) {
