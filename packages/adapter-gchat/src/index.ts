@@ -415,7 +415,6 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.logger.info("onThreadSubscribe called", {
       threadId,
       hasPubsubTopic: !!this.pubsubTopic,
-      pubsubTopic: this.pubsubTopic,
     });
 
     if (!this.pubsubTopic) {
@@ -543,7 +542,6 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       this.logger.info("Creating Workspace Events subscription", {
         spaceName,
-        pubsubTopic,
       });
 
       const result = await createSpaceSubscription(
