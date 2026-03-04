@@ -1428,8 +1428,8 @@ export interface ActionEvent<TRawMessage = unknown> {
   ): Promise<{ viewId: string } | undefined>;
   /** Platform-specific raw event data */
   raw: unknown;
-  /** The thread where the action occurred */
-  thread: Thread<TRawMessage>;
+  /** The thread where the action occurred (null for view-based actions like home tab buttons) */
+  thread: Thread<TRawMessage> | null;
   /** The thread ID */
   threadId: string;
   /** Trigger ID for opening modals (required by some platforms, may expire quickly) */

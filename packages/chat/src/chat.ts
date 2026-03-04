@@ -1099,7 +1099,7 @@ export class Chat<
           messageForThread,
           isSubscribed
         )
-      : (null as unknown as Thread<TState>);
+      : null;
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {

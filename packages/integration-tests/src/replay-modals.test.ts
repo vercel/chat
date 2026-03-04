@@ -254,7 +254,7 @@ describe("Replay Tests - Modals", () => {
       expect(capturedAction?.threadId).toBe(
         "slack:C00FAKECHAN3:1771126602.612659"
       );
-      expect(capturedAction?.thread.channelId).toBe("C00FAKECHAN3");
+      expect(capturedAction?.thread?.channelId).toBe("C00FAKECHAN3");
     });
 
     it("should allow editing relatedMessage from ephemeral modal submission", async () => {
