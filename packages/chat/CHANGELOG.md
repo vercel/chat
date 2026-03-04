@@ -1,5 +1,18 @@
 # chat
 
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+- f0c7050: add onMemberJoinedChannel on slack adapter
+
+### Patch Changes
+
+- 9522b04: Add `disabled` prop to `Button()` for Google Chat and Discord
+- f5a75c9: Add `fallbackStreamingPlaceholderText` config option to suppress the initial "..." placeholder in post+edit fallback streaming
+- 73de82d: Add remend for streaming markdown healing
+
 ## 4.15.0
 
 ### Minor Changes
