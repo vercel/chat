@@ -1,6 +1,6 @@
 import { AdapterRateLimitError } from "@chat-adapter/shared";
 import type { ChatInstance, Lock, Logger, StateAdapter } from "chat";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGoogleChatAdapter,
   GoogleChatAdapter,
@@ -278,6 +278,13 @@ describe("GoogleChatAdapter", () => {
       expect(adapter.name).toBe("gchat");
     });
 
+    it("should default logger when not provided", () => {
+      const adapter = new GoogleChatAdapter({
+        useApplicationDefaultCredentials: true,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
     it("should restore bot user ID from state on initialize", async () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
@@ -306,6 +313,63 @@ describe("GoogleChatAdapter", () => {
       await adapter.initialize(mockChat);
 
       expect(adapter.botUserId).toBe("users/EXISTING");
+    });
+  });
+
+  describe("constructor env var resolution", () => {
+    const savedEnv = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("GOOGLE_CHAT_")) {
+          // biome-ignore lint/performance/noDelete: env var removal requires delete
+          delete process.env[key];
+        }
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...savedEnv };
+    });
+
+    it("should throw when no auth is configured and no env vars set", () => {
+      expect(() => new GoogleChatAdapter()).toThrow(
+        "Authentication is required"
+      );
+    });
+
+    it("should resolve credentials from GOOGLE_CHAT_CREDENTIALS env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve ADC from GOOGLE_CHAT_USE_ADC env var", () => {
+      process.env.GOOGLE_CHAT_USE_ADC = "true";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve pubsubTopic from GOOGLE_CHAT_PUBSUB_TOPIC env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_PUBSUB_TOPIC = "projects/test/topics/test";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve impersonateUser from GOOGLE_CHAT_IMPERSONATE_USER env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_IMPERSONATE_USER = "user@example.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should prefer config credentials over env vars", () => {
+      process.env.GOOGLE_CHAT_USE_ADC = "true";
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
   });
 

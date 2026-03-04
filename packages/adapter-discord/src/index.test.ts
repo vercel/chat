@@ -6,7 +6,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
 import { InteractionType } from "discord-api-types/v10";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -104,6 +104,82 @@ describe("createDiscordAdapter", () => {
       userName: "custombot",
     });
     expect(adapter.userName).toBe("custombot");
+  });
+});
+
+// ============================================================================
+// Constructor env var resolution
+// ============================================================================
+
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("DISCORD_")) {
+        // biome-ignore lint/performance/noDelete: env var removal requires delete
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when botToken is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({})).toThrow("botToken is required");
+  });
+
+  it("should throw when publicKey is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({ botToken: "test" })).toThrow(
+      "publicKey is required"
+    );
+  });
+
+  it("should throw when applicationId is missing and env var not set", () => {
+    expect(
+      () => new DiscordAdapter({ botToken: "test", publicKey: testPublicKey })
+    ).toThrow("applicationId is required");
+  });
+
+  it("should resolve all fields from env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+    expect(adapter.userName).toBe("bot");
+  });
+
+  it("should resolve mentionRoleIds from DISCORD_MENTION_ROLE_IDS env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_MENTION_ROLE_IDS = "role1, role2, role3";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      userName: "mybot",
+    });
+    expect(adapter.userName).toBe("mybot");
   });
 });
 

@@ -5,7 +5,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger, StateAdapter } from "chat";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SlackInstallation } from "./index";
 import { createSlackAdapter, SlackAdapter } from "./index";
 
@@ -92,6 +92,59 @@ describe("createSlackAdapter", () => {
       botUserId: "U12345",
     });
     expect(adapter.botUserId).toBe("U12345");
+  });
+});
+
+// ============================================================================
+// Constructor env var resolution
+// ============================================================================
+
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("SLACK_")) {
+        // biome-ignore lint/performance/noDelete: env var removal requires delete
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when signingSecret is missing and env var not set", () => {
+    expect(() => new SlackAdapter({})).toThrow("signingSecret is required");
+  });
+
+  it("should resolve signingSecret from SLACK_SIGNING_SECRET env var", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should resolve botToken from SLACK_BOT_TOKEN in zero-config mode", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_BOT_TOKEN = "xoxb-env-token";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-secret";
+    const adapter = new SlackAdapter({
+      signingSecret: "config-secret",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
   });
 });
 

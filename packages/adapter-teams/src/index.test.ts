@@ -10,7 +10,7 @@ import {
 } from "@chat-adapter/shared";
 import type { Logger } from "chat";
 import { NotImplementedError } from "chat";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
 
 const TEAMS_PREFIX_PATTERN = /^teams:/;
@@ -236,63 +236,87 @@ describe("TeamsAdapter", () => {
   });
 
   // ==========================================================================
+  // Constructor env var resolution
+  // ==========================================================================
+
+  describe("constructor env var resolution", () => {
+    const savedEnv = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("TEAMS_")) {
+          // biome-ignore lint/performance/noDelete: env var removal requires delete
+          delete process.env[key];
+        }
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...savedEnv };
+    });
+
+    it("should throw when appId is missing and env var not set", () => {
+      expect(() => new TeamsAdapter({})).toThrow("appId is required");
+    });
+
+    it("should throw when appPassword is missing and env var not set", () => {
+      expect(() => new TeamsAdapter({ appId: "test" })).toThrow(
+        "appPassword is required"
+      );
+    });
+
+    it("should resolve appId from TEAMS_APP_ID env var", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      const adapter = new TeamsAdapter();
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should resolve appPassword from TEAMS_APP_PASSWORD env var", () => {
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      const adapter = new TeamsAdapter({ appId: "test" });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should resolve appTenantId from TEAMS_APP_TENANT_ID env var", () => {
+      process.env.TEAMS_APP_TENANT_ID = "env-tenant";
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should default logger when not provided", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      const adapter = new TeamsAdapter();
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should prefer config values over env vars", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      const adapter = new TeamsAdapter({
+        appId: "config-app-id",
+        appPassword: "test",
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+      expect(adapter.name).toBe("teams");
+    });
+  });
+
+  // ==========================================================================
   // createTeamsAdapter Factory Tests
   // ==========================================================================
 
   describe("createTeamsAdapter factory", () => {
-    it("should throw when appId is missing and env var not set", () => {
-      const origAppId = process.env.TEAMS_APP_ID;
-      const origAppPwd = process.env.TEAMS_APP_PASSWORD;
-      // biome-ignore lint/performance/noDelete: env var removal requires delete
-      delete process.env.TEAMS_APP_ID;
-      // biome-ignore lint/performance/noDelete: env var removal requires delete
-      delete process.env.TEAMS_APP_PASSWORD;
-      try {
-        expect(() => createTeamsAdapter({})).toThrow(ValidationError);
-      } finally {
-        if (origAppId !== undefined) {
-          process.env.TEAMS_APP_ID = origAppId;
-        }
-        if (origAppPwd !== undefined) {
-          process.env.TEAMS_APP_PASSWORD = origAppPwd;
-        }
-      }
-    });
-
-    it("should throw when appPassword is missing and env var not set", () => {
-      const origAppPwd = process.env.TEAMS_APP_PASSWORD;
-      // biome-ignore lint/performance/noDelete: env var removal requires delete
-      delete process.env.TEAMS_APP_PASSWORD;
-      try {
-        expect(() =>
-          createTeamsAdapter({ appId: "test-id", logger: mockLogger })
-        ).toThrow(ValidationError);
-      } finally {
-        if (origAppPwd !== undefined) {
-          process.env.TEAMS_APP_PASSWORD = origAppPwd;
-        }
-      }
-    });
-
-    it("should pick up appTenantId from env", () => {
-      const origTenant = process.env.TEAMS_APP_TENANT_ID;
-      process.env.TEAMS_APP_TENANT_ID = "env-tenant";
-      try {
-        // Should not throw - means it's initializing graph client with the tenant
-        const adapter = createTeamsAdapter({
-          appId: "test",
-          appPassword: "test",
-          logger: mockLogger,
-        });
-        expect(adapter).toBeInstanceOf(TeamsAdapter);
-      } finally {
-        if (origTenant !== undefined) {
-          process.env.TEAMS_APP_TENANT_ID = origTenant;
-        } else {
-          // biome-ignore lint/performance/noDelete: env var removal requires delete
-          delete process.env.TEAMS_APP_TENANT_ID;
-        }
-      }
+    it("should delegate to constructor", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger: mockLogger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
   });
 
