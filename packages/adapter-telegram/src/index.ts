@@ -64,7 +64,11 @@ const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
 const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
-const TRAILING_SLASHES_REGEX = /\/+$/;
+const trimTrailingSlashes = (url: string): string => {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end--;
+  return url.slice(0, end);
+};
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
 const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
@@ -147,11 +151,11 @@ export class TelegramAdapter
     }
 
     this.botToken = botToken;
-    this.apiBaseUrl = (
+    this.apiBaseUrl = trimTrailingSlashes(
       config.apiBaseUrl ??
-      process.env.TELEGRAM_API_BASE_URL ??
-      TELEGRAM_API_BASE
-    ).replace(TRAILING_SLASHES_REGEX, "");
+        process.env.TELEGRAM_API_BASE_URL ??
+        TELEGRAM_API_BASE
+    );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
     this.logger = config.logger ?? new ConsoleLogger("info").child("telegram");
