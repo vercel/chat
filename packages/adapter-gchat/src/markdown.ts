@@ -59,7 +59,7 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     return parseMarkdown(markdown);
   }
 
-  private nodeToGChat(node: Content): string {
+  private nodeToGChat(node: Content, depth = 0): string {
     // Use type guards for type-safe node handling
     if (isParagraphNode(node)) {
       return getNodeChildren(node)
@@ -127,15 +127,29 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "•";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToGChat(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
+      const indent = "  ".repeat(depth);
+      const lines: string[] = [];
+      for (const [i, item] of getNodeChildren(node).entries()) {
+        const prefix = node.ordered ? `${i + 1}.` : "•";
+        let isFirstContent = true;
+        for (const child of getNodeChildren(item)) {
+          if (isListNode(child)) {
+            lines.push(this.nodeToGChat(child, depth + 1));
+            continue;
+          }
+          const text = this.nodeToGChat(child);
+          if (!text.trim()) {
+            continue;
+          }
+          if (isFirstContent) {
+            lines.push(`${indent}${prefix} ${text}`);
+            isFirstContent = false;
+          } else {
+            lines.push(`${indent}  ${text}`);
+          }
+        }
+      }
+      return lines.join("\n");
     }
 
     if (isListItemNode(node)) {
