@@ -1,5 +1,28 @@
 # @chat-adapter/slack
 
+## 4.16.1
+
+### Patch Changes
+
+- f0dfa4d: Fix nested list rendering in Markdown-to-platform converters
+
+  All adapters (Slack, Discord, Teams, Google Chat) were flattening nested
+  lists during `fromAst()` conversion, causing child items to be concatenated
+  directly onto the parent item without any indentation or newline separation.
+
+  The `nodeToX()` list handler now accepts a `depth` parameter and uses it to
+  produce platform-appropriate indentation (`"  ".repeat(depth)`) for nested
+  lists. Each list item's children are processed in order: paragraph content
+  is prefixed with the bullet/number at the correct indent level, and nested
+  list nodes are rendered recursively at `depth + 1`.
+
+- f27c89b: Improve StreamChunk type safety with discriminated union and fix url_verification security bypass
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+  - @chat-adapter/shared@4.16.1
+
 ## 4.16.0
 
 ### Minor Changes

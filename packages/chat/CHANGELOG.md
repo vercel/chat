@@ -1,5 +1,13 @@
 # chat
 
+## 4.16.1
+
+### Patch Changes
+
+- 130e780: Fix openModal crash when action has no thread context (e.g. home tab buttons)
+- ff954f9: Better streaming for AI SDK
+- f27c89b: Improve StreamChunk type safety with discriminated union and fix url_verification security bypass
+
 ## 4.16.0
 
 ### Minor Changes
