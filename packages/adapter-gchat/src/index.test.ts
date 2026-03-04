@@ -245,6 +245,21 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("constructor / initialization", () => {
+    const savedEnv = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("GOOGLE_CHAT_")) {
+          // biome-ignore lint/performance/noDelete: env var removal requires delete
+          delete process.env[key];
+        }
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...savedEnv };
+    });
+
     it("should use provided userName", () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
