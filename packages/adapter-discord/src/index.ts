@@ -146,11 +146,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
-    this.logger.info("Discord adapter initialized", {
-      applicationId: this.applicationId,
-      // Log full public key for debugging - it's public, not secret
-      publicKey: this.publicKey,
-    });
+    this.logger.info("Discord adapter initialized");
   }
 
   /**

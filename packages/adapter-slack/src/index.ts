@@ -348,6 +348,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // (per-team token lookup via installations). Only fall back to env vars
     // in zero-config mode (no config fields provided at all).
     const zeroConfig = !(
+      config.signingSecret ||
       config.botToken ||
       config.clientId ||
       config.clientSecret
