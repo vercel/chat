@@ -80,14 +80,16 @@ export interface GoogleChatAdapterBaseConfig {
    * User email to impersonate for Workspace Events API calls.
    * Required when using domain-wide delegation.
    * This user must have access to the Chat spaces you want to subscribe to.
+   * Defaults to GOOGLE_CHAT_IMPERSONATE_USER env var.
    */
   impersonateUser?: string;
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
   /**
    * Pub/Sub topic for receiving all messages via Workspace Events.
    * When set, the adapter will automatically create subscriptions when added to a space.
    * Format: "projects/my-project/topics/my-topic"
+   * Defaults to GOOGLE_CHAT_PUBSUB_TOPIC env var.
    */
   pubsubTopic?: string;
   /** Override bot username (optional) */
@@ -98,7 +100,7 @@ export interface GoogleChatAdapterBaseConfig {
 export interface GoogleChatAdapterServiceAccountConfig
   extends GoogleChatAdapterBaseConfig {
   auth?: never;
-  /** Service account credentials JSON */
+  /** Service account credentials JSON. Defaults to GOOGLE_CHAT_CREDENTIALS env var (JSON). */
   credentials: ServiceAccountCredentials;
   useApplicationDefaultCredentials?: never;
 }
@@ -115,6 +117,7 @@ export interface GoogleChatAdapterADCConfig
    * - Workload Identity Federation (external_account JSON)
    * - GCE/Cloud Run/Cloud Functions default service account
    * - gcloud auth application-default login (local development)
+   * Defaults to GOOGLE_CHAT_USE_ADC env var.
    */
   useApplicationDefaultCredentials: true;
 }
@@ -128,10 +131,19 @@ export interface GoogleChatAdapterCustomAuthConfig
   useApplicationDefaultCredentials?: never;
 }
 
+/** Config with no auth fields - will auto-detect from env vars */
+export interface GoogleChatAdapterAutoConfig
+  extends GoogleChatAdapterBaseConfig {
+  auth?: never;
+  credentials?: never;
+  useApplicationDefaultCredentials?: never;
+}
+
 export type GoogleChatAdapterConfig =
   | GoogleChatAdapterServiceAccountConfig
   | GoogleChatAdapterADCConfig
-  | GoogleChatAdapterCustomAuthConfig;
+  | GoogleChatAdapterCustomAuthConfig
+  | GoogleChatAdapterAutoConfig;
 
 // Re-export GoogleChatThreadId from thread-utils
 export type { GoogleChatThreadId } from "./thread-utils";
@@ -267,13 +279,17 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /** User info cache for display name lookups - initialized later in initialize() */
   private userInfoCache: UserInfoCache;
 
-  constructor(config: GoogleChatAdapterConfig) {
-    this.logger = config.logger;
+  constructor(
+    config: GoogleChatAdapterConfig = {} as GoogleChatAdapterAutoConfig
+  ) {
+    this.logger = config.logger ?? new ConsoleLogger("info").child("gchat");
     this.userName = config.userName || "bot";
     // Initialize with null state - will be updated in initialize()
     this.userInfoCache = new UserInfoCache(null, this.logger);
-    this.pubsubTopic = config.pubsubTopic;
-    this.impersonateUser = config.impersonateUser;
+    this.pubsubTopic =
+      config.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
+    this.impersonateUser =
+      config.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER;
     this.endpointUrl = config.endpointUrl;
 
     let authClient: Parameters<typeof chat>[0]["auth"];
@@ -310,10 +326,25 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // Custom auth client provided directly (e.g., Vercel OIDC)
       this.customAuth = config.auth;
       authClient = config.auth;
+    } else if (process.env.GOOGLE_CHAT_CREDENTIALS) {
+      // Auto-detect from env vars: service account credentials
+      const credentialsJson = JSON.parse(
+        process.env.GOOGLE_CHAT_CREDENTIALS
+      ) as ServiceAccountCredentials;
+      this.credentials = credentialsJson;
+      authClient = new auth.JWT({
+        email: credentialsJson.client_email,
+        key: credentialsJson.private_key,
+        scopes,
+      });
+    } else if (process.env.GOOGLE_CHAT_USE_ADC === "true") {
+      // Auto-detect from env vars: ADC
+      this.useADC = true;
+      authClient = new auth.GoogleAuth({ scopes });
     } else {
       throw new ValidationError(
         "gchat",
-        "GoogleChatAdapter requires one of: credentials, useApplicationDefaultCredentials, or auth"
+        "Authentication is required. Set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true, or provide credentials/auth in config."
       );
     }
 
@@ -2488,80 +2519,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }
 }
 
-export function createGoogleChatAdapter(config?: {
-  auth?: Parameters<typeof chat>[0]["auth"];
-  credentials?: ServiceAccountCredentials;
-  endpointUrl?: string;
-  impersonateUser?: string;
-  logger?: Logger;
-  pubsubTopic?: string;
-  useApplicationDefaultCredentials?: boolean;
-  userName?: string;
-}): GoogleChatAdapter {
-  const logger = config?.logger ?? new ConsoleLogger("info").child("gchat");
-
-  // Auto-detect auth mode. Only fall back to env vars for auth fields when
-  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
-  const hasAuthConfig = !!(
-    config?.auth ||
-    config?.credentials ||
-    config?.useApplicationDefaultCredentials
-  );
-
-  if (config?.auth) {
-    return new GoogleChatAdapter({
-      auth: config.auth,
-      endpointUrl: config.endpointUrl,
-      impersonateUser:
-        config.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
-      logger,
-      pubsubTopic: config.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
-      userName: config.userName,
-    });
-  }
-
-  // Service account credentials from config or env
-  let credentialsJson = config?.credentials;
-  if (
-    !(credentialsJson || hasAuthConfig) &&
-    process.env.GOOGLE_CHAT_CREDENTIALS
-  ) {
-    credentialsJson = JSON.parse(
-      process.env.GOOGLE_CHAT_CREDENTIALS
-    ) as ServiceAccountCredentials;
-  }
-  if (credentialsJson) {
-    return new GoogleChatAdapter({
-      credentials: credentialsJson,
-      endpointUrl: config?.endpointUrl,
-      impersonateUser:
-        config?.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
-      logger,
-      pubsubTopic: config?.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
-      userName: config?.userName,
-    });
-  }
-
-  // Application Default Credentials
-  if (
-    config?.useApplicationDefaultCredentials ||
-    (!hasAuthConfig && process.env.GOOGLE_CHAT_USE_ADC === "true")
-  ) {
-    return new GoogleChatAdapter({
-      useApplicationDefaultCredentials: true,
-      endpointUrl: config?.endpointUrl,
-      impersonateUser:
-        config?.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER,
-      logger,
-      pubsubTopic: config?.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
-      userName: config?.userName,
-    });
-  }
-
-  throw new ValidationError(
-    "gchat",
-    "Authentication is required. Set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true, or provide credentials/auth in config."
-  );
+export function createGoogleChatAdapter(
+  config?: GoogleChatAdapterConfig
+): GoogleChatAdapter {
+  return new GoogleChatAdapter(config);
 }
 
 // Re-export card converter for advanced use

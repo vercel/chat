@@ -99,15 +99,40 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   >();
   private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
-  constructor(
-    config: DiscordAdapterConfig & { logger: Logger; userName?: string }
-  ) {
-    this.botToken = config.botToken;
-    this.publicKey = config.publicKey.trim().toLowerCase();
-    this.applicationId = config.applicationId;
-    this.mentionRoleIds = config.mentionRoleIds ?? [];
-    this.botUserId = config.applicationId; // Discord app ID is the bot's user ID
-    this.logger = config.logger;
+  constructor(config: DiscordAdapterConfig = {}) {
+    const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
+    if (!botToken) {
+      throw new ValidationError(
+        "discord",
+        "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
+      );
+    }
+    const publicKey = config.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
+    if (!publicKey) {
+      throw new ValidationError(
+        "discord",
+        "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
+      );
+    }
+    const applicationId =
+      config.applicationId ?? process.env.DISCORD_APPLICATION_ID;
+    if (!applicationId) {
+      throw new ValidationError(
+        "discord",
+        "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
+      );
+    }
+
+    this.botToken = botToken;
+    this.publicKey = publicKey.trim().toLowerCase();
+    this.applicationId = applicationId;
+    this.mentionRoleIds =
+      config.mentionRoleIds ??
+      (process.env.DISCORD_MENTION_ROLE_IDS
+        ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
+        : []);
+    this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
     // Validate public key format
@@ -2437,47 +2462,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
  * Create a Discord adapter instance.
  */
 export function createDiscordAdapter(
-  config?: Partial<DiscordAdapterConfig & { logger: Logger; userName?: string }>
+  config?: DiscordAdapterConfig
 ): DiscordAdapter {
-  const botToken = config?.botToken ?? process.env.DISCORD_BOT_TOKEN;
-  if (!botToken) {
-    throw new ValidationError(
-      "discord",
-      "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
-    );
-  }
-  const publicKey = config?.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
-  if (!publicKey) {
-    throw new ValidationError(
-      "discord",
-      "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
-    );
-  }
-  const applicationId =
-    config?.applicationId ?? process.env.DISCORD_APPLICATION_ID;
-  if (!applicationId) {
-    throw new ValidationError(
-      "discord",
-      "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
-    );
-  }
-  const mentionRoleIds =
-    config?.mentionRoleIds ??
-    (process.env.DISCORD_MENTION_ROLE_IDS
-      ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
-      : undefined);
-  const resolved: DiscordAdapterConfig & {
-    logger: Logger;
-    userName?: string;
-  } = {
-    botToken,
-    publicKey,
-    applicationId,
-    mentionRoleIds,
-    logger: config?.logger ?? new ConsoleLogger("info").child("discord"),
-    userName: config?.userName,
-  };
-  return new DiscordAdapter(resolved);
+  return new DiscordAdapter(config ?? {});
 }
 
 // Re-export card converter for advanced use

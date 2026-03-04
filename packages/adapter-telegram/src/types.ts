@@ -2,14 +2,18 @@
  * Telegram adapter types.
  */
 
+import type { Logger } from "chat";
+
 /**
  * Telegram adapter configuration.
  */
 export interface TelegramAdapterConfig {
-  /** Optional custom API base URL (defaults to https://api.telegram.org). */
+  /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
-  /** Telegram bot token from BotFather. */
-  botToken: string;
+  /** Telegram bot token from BotFather. Defaults to TELEGRAM_BOT_TOKEN env var. */
+  botToken?: string;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
   /** Optional long-polling configuration for getUpdates flow. */
   longPolling?: TelegramLongPollingConfig;
   /**
@@ -19,8 +23,10 @@ export interface TelegramAdapterConfig {
    * - polling: polling-only mode
    */
   mode?: TelegramAdapterMode;
-  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. */
+  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
+  /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
+  userName?: string;
 }
 
 export type TelegramAdapterMode = "auto" | "webhook" | "polling";

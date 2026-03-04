@@ -23,6 +23,7 @@ import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToGitHubMarkdown } from "./cards";
 import { GitHubFormatConverter } from "./markdown";
 import type {
+  GitHubAdapterAutoConfig,
   GitHubAdapterConfig,
   GitHubIssueComment,
   GitHubRawMessage,
@@ -125,17 +126,39 @@ export class GitHubAdapter
     return this.appCredentials !== null && this.octokit === null;
   }
 
-  constructor(config: GitHubAdapterConfig) {
-    this.webhookSecret = config.webhookSecret;
-    this.logger = config.logger;
-    this.userName = config.userName;
+  constructor(config: GitHubAdapterConfig = {} as GitHubAdapterAutoConfig) {
+    const webhookSecret =
+      config.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      throw new ValidationError(
+        "github",
+        "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
+      );
+    }
+    this.webhookSecret = webhookSecret;
+    this.logger = config.logger ?? new ConsoleLogger("info").child("github");
+    this.userName =
+      config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
 
-    // Create Octokit instance based on auth method
+    // Create Octokit instance based on auth method.
+    // Only fall back to env vars when NO auth field was explicitly provided,
+    // so we don't mix auth modes.
+    const hasExplicitAuth = !!(
+      ("token" in config && config.token) ||
+      ("appId" in config && config.appId) ||
+      ("privateKey" in config && config.privateKey)
+    );
+
     if ("token" in config && config.token) {
       // PAT mode - single Octokit instance
       this.octokit = new Octokit({ auth: config.token });
-    } else if ("appId" in config && config.appId) {
+    } else if (
+      "appId" in config &&
+      config.appId &&
+      "privateKey" in config &&
+      config.privateKey
+    ) {
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
         this.octokit = new Octokit({
@@ -156,10 +179,42 @@ export class GitHubAdapter
           "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)"
         );
       }
-    } else {
-      throw new Error(
-        "GitHubAdapter requires either token or appId/privateKey"
+    } else if (hasExplicitAuth) {
+      // Some auth fields were provided but not enough to configure
+      throw new ValidationError(
+        "github",
+        "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
       );
+    } else {
+      // Auto-detect from env vars
+      const token = process.env.GITHUB_TOKEN;
+      if (token) {
+        this.octokit = new Octokit({ auth: token });
+      } else {
+        const appId = process.env.GITHUB_APP_ID;
+        const privateKey = process.env.GITHUB_PRIVATE_KEY;
+        if (appId && privateKey) {
+          const installationIdRaw = process.env.GITHUB_INSTALLATION_ID
+            ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
+            : undefined;
+          if (installationIdRaw) {
+            this.octokit = new Octokit({
+              authStrategy: createAppAuth,
+              auth: { appId, privateKey, installationId: installationIdRaw },
+            });
+          } else {
+            this.appCredentials = { appId, privateKey };
+            this.logger.info(
+              "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)"
+            );
+          }
+        } else {
+          throw new ValidationError(
+            "github",
+            "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
+          );
+        }
+      }
     }
   }
 
@@ -1225,84 +1280,8 @@ export class GitHubAdapter
  * });
  * ```
  */
-export function createGitHubAdapter(config?: {
-  appId?: string;
-  botUserId?: number;
-  installationId?: number;
-  logger?: Logger;
-  privateKey?: string;
-  token?: string;
-  userName?: string;
-  webhookSecret?: string;
-}): GitHubAdapter {
-  const logger = config?.logger ?? new ConsoleLogger("info").child("github");
-  const webhookSecret =
-    config?.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    throw new ValidationError(
-      "github",
-      "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
-    );
-  }
-  const userName =
-    config?.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
-
-  // Auto-detect auth mode. Only fall back to env vars for auth fields when
-  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
-  const hasAuthConfig = !!(
-    config?.token ||
-    config?.appId ||
-    config?.privateKey
-  );
-
-  const token =
-    config?.token ?? (hasAuthConfig ? undefined : process.env.GITHUB_TOKEN);
-  if (token) {
-    return new GitHubAdapter({
-      token,
-      webhookSecret,
-      userName,
-      botUserId: config?.botUserId,
-      logger,
-    });
-  }
-
-  const appId =
-    config?.appId ?? (hasAuthConfig ? undefined : process.env.GITHUB_APP_ID);
-  const privateKey =
-    config?.privateKey ??
-    (hasAuthConfig ? undefined : process.env.GITHUB_PRIVATE_KEY);
-  if (appId && privateKey) {
-    const installationIdRaw =
-      config?.installationId ??
-      (process.env.GITHUB_INSTALLATION_ID
-        ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
-        : undefined);
-    if (installationIdRaw) {
-      // Single-tenant app mode
-      return new GitHubAdapter({
-        appId,
-        privateKey,
-        installationId: installationIdRaw,
-        webhookSecret,
-        userName,
-        botUserId: config?.botUserId,
-        logger,
-      });
-    }
-    // Multi-tenant app mode
-    return new GitHubAdapter({
-      appId,
-      privateKey,
-      webhookSecret,
-      userName,
-      botUserId: config?.botUserId,
-      logger,
-    });
-  }
-
-  throw new ValidationError(
-    "github",
-    "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
-  );
+export function createGitHubAdapter(
+  config?: GitHubAdapterConfig
+): GitHubAdapter {
+  return new GitHubAdapter(config);
 }
