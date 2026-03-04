@@ -424,6 +424,40 @@ export abstract class BaseFormatConverter implements FormatConverter {
   abstract fromAst(ast: Root): string;
   abstract toAst(platformText: string): Root;
 
+  protected renderList(
+    node: List,
+    depth: number,
+    nodeConverter: (node: Content) => string,
+    unorderedBullet = "-"
+  ): string {
+    const indent = "  ".repeat(depth);
+    const start = node.start ?? 1;
+    const lines: string[] = [];
+    for (const [i, item] of getNodeChildren(node).entries()) {
+      const prefix = node.ordered ? `${start + i}.` : unorderedBullet;
+      let isFirstContent = true;
+      for (const child of getNodeChildren(item)) {
+        if (isListNode(child)) {
+          lines.push(
+            this.renderList(child, depth + 1, nodeConverter, unorderedBullet)
+          );
+          continue;
+        }
+        const text = nodeConverter(child);
+        if (!text.trim()) {
+          continue;
+        }
+        if (isFirstContent) {
+          lines.push(`${indent}${prefix} ${text}`);
+          isFirstContent = false;
+        } else {
+          lines.push(`${indent}  ${text}`);
+        }
+      }
+    }
+    return lines.join("\n");
+  }
+
   /**
    * Default fallback for converting an unknown mdast node to text.
    * Recursively converts children if present, otherwise extracts the node value.

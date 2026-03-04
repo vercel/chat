@@ -24,13 +24,11 @@ import {
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
   isTableNode,
   isTextNode,
-  type List,
   parseMarkdown,
   type Root,
   tableToAscii,
@@ -99,32 +97,6 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     return parseMarkdown(markdown);
   }
 
-  private renderList(node: List, depth: number): string {
-    const indent = "  ".repeat(depth);
-    const lines: string[] = [];
-    for (const [i, item] of getNodeChildren(node).entries()) {
-      const prefix = node.ordered ? `${i + 1}.` : "-";
-      let isFirstContent = true;
-      for (const child of getNodeChildren(item)) {
-        if (isListNode(child)) {
-          lines.push(this.renderList(child, depth + 1));
-          continue;
-        }
-        const text = this.nodeToDiscordMarkdown(child);
-        if (!text.trim()) {
-          continue;
-        }
-        if (isFirstContent) {
-          lines.push(`${indent}${prefix} ${text}`);
-          isFirstContent = false;
-        } else {
-          lines.push(`${indent}  ${text}`);
-        }
-      }
-    }
-    return lines.join("\n");
-  }
-
   private nodeToDiscordMarkdown(node: Content): string {
     // Use type guards for type-safe node handling
     if (isParagraphNode(node)) {
@@ -185,13 +157,9 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return this.renderList(node, 0);
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToDiscordMarkdown(child))
-        .join("");
+      return this.renderList(node, 0, (child) =>
+        this.nodeToDiscordMarkdown(child)
+      );
     }
 
     if (node.type === "break") {

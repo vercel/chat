@@ -94,6 +94,16 @@ describe("TeamsFormatConverter", () => {
       expect(result).toBe("- item 1\n- item 2\n- item 3");
     });
 
+    it("should handle mixed ordered and unordered nesting", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   - sub a\n   - sub b\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  - sub a");
+      expect(result).toContain("  - sub b");
+      expect(result).toContain("2. second");
+    });
+
     it("should convert @mentions to <at>mention</at>", () => {
       const ast = converter.toAst("Hello @someone");
       const result = converter.fromAst(ast);
