@@ -153,6 +153,16 @@
     "vendorOfficial": true
   },
   {
+    "name": "Baileys WhatsApp",
+    "slug": "baileys",
+    "type": "platform",
+    "community": true,
+    "description": "Chat SDK adapter for Baileys (Unofficial WhatsApp API).",
+    "packageName": "chat-adapter-baileys",
+    "author": "rama-adi",
+    "readme": "https://github.com/rama-adi/chat-adapter-baileys"
+  },
+  {
     "name": "WhatsApp",
     "slug": "whatsapp",
     "type": "platform",
