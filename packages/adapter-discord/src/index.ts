@@ -55,8 +55,26 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, cardToFallbackText } from "./cards";
+import { cardToDiscordPayload } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
+
+/**
+ * Extract explicit fallback text from a PostableCard message.
+ * Returns undefined for direct CardElement (no wrapper) or when fallbackText is absent.
+ */
+function extractFallbackText(
+  message: AdapterPostableMessage
+): string | undefined {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    "card" in message &&
+    "fallbackText" in message
+  ) {
+    return (message as { fallbackText?: string }).fallbackText ?? undefined;
+  }
+  return undefined;
+}
 import {
   type DiscordActionRow,
   type DiscordAdapterConfig,
@@ -789,8 +807,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Only set content when PostableCard provides explicit fallbackText.
+      // Auto-generated fallback duplicates the embed content in the chat view.
+      const fallback = extractFallbackText(message);
+      if (fallback) {
+        payload.content = this.truncateContent(fallback);
+      }
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -1135,8 +1157,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Only set content when PostableCard provides explicit fallbackText.
+      // Auto-generated fallback duplicates the embed content in the chat view.
+      const fallback = extractFallbackText(message);
+      if (fallback) {
+        payload.content = this.truncateContent(fallback);
+      }
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -2350,7 +2376,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Only set content when PostableCard provides explicit fallbackText.
+      // Auto-generated fallback duplicates the embed content in the chat view.
+      const fallback = extractFallbackText(message);
+      if (fallback) {
+        payload.content = this.truncateContent(fallback);
+      }
     } else {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(
