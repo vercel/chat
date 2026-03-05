@@ -142,6 +142,30 @@ export class MemoryStateAdapter implements StateAdapter {
     });
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const existing = this.cache.get(key);
+    if (existing) {
+      // Check if expired
+      if (existing.expiresAt !== null && existing.expiresAt <= Date.now()) {
+        this.cache.delete(key);
+      } else {
+        return false;
+      }
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: ttlMs ? Date.now() + ttlMs : null,
+    });
+    return true;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
     this.cache.delete(key);
