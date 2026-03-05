@@ -191,7 +191,7 @@ describe("Chat", () => {
         message
       );
 
-      expect(mockState.set).toHaveBeenCalledWith(
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
         "dedupe:slack:msg-1",
         true,
         300_000
@@ -221,7 +221,7 @@ describe("Chat", () => {
         message
       );
 
-      expect(mockState.set).toHaveBeenCalledWith(
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
         "dedupe:slack:msg-2",
         true,
         300_000
