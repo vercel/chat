@@ -1466,6 +1466,170 @@ describe("DM message handling", () => {
 });
 
 // ============================================================================
+// Message Subtype Handling Tests
+// ============================================================================
+
+describe("message subtype handling", () => {
+  const secret = "test-signing-secret";
+
+  it("allows file_share messages through to processMessage", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "file_share",
+        user: "U_USER",
+        channel: "C_CHAN",
+        text: "Check this file",
+        ts: "1234567890.111111",
+        thread_ts: "1234567890.000000",
+        files: [
+          {
+            id: "F123",
+            mimetype: "image/png",
+            url_private: "https://files.slack.com/file.png",
+            name: "screenshot.png",
+            size: 12345,
+          },
+        ],
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:C_CHAN:1234567890.000000",
+      expect.any(Function),
+      undefined
+    );
+  });
+
+  it("allows thread_broadcast messages through to processMessage", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "thread_broadcast",
+        user: "U_USER",
+        channel: "C_CHAN",
+        text: "Also posted to channel",
+        ts: "1234567890.222222",
+        thread_ts: "1234567890.000000",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:C_CHAN:1234567890.000000",
+      expect.any(Function),
+      undefined
+    );
+  });
+
+  it("ignores message_changed subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores message_deleted subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_deleted",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores channel_join subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "channel_join",
+        user: "U_USER",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // Slash Command Tests
 // ============================================================================
 
