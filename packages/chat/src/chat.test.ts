@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const HELP_REGEX = /help/i;
+const HELLO_REGEX = /hello/i;
 
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
@@ -226,6 +227,84 @@ describe("Chat", () => {
         true,
         300_000
       );
+    });
+
+    it("should use atomic setIfNotExists for deduplication", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      // Verify setIfNotExists was called (not separate get+set)
+      expect(mockState.setIfNotExists).toHaveBeenCalledTimes(1);
+      expect(mockState.get).not.toHaveBeenCalledWith(
+        expect.stringContaining("dedupe:")
+      );
+    });
+
+    it("should handle concurrent duplicates atomically", async () => {
+      // Simulate the race: make setIfNotExists return false on second call
+      let callCount = 0;
+      (mockState.setIfNotExists as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => {
+          callCount++;
+          return callCount === 1;
+        }
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const msg1 = createTestMessage("ts-1", "Hey @slack-bot help");
+      const msg2 = createTestMessage("ts-1", "Hey @slack-bot help");
+
+      // Send both concurrently
+      await Promise.allSettled([
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg1),
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg2),
+      ]);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should trigger onNewMention for message events containing a bot mention", async () => {
+      // Simulates the Slack message.channels event (not app_mention) that
+      // contains <@BOT_ID> — detectMention should still identify it
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not trigger onNewMention when message event has no bot mention", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      const patternHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+      chat.onNewMessage(HELLO_REGEX, patternHandler);
+
+      const message = createTestMessage("msg-1", "hello everyone");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(patternHandler).toHaveBeenCalledTimes(1);
     });
   });
 
