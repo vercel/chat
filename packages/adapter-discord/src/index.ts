@@ -1480,7 +1480,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadId,
       text: this.formatConverter.extractPlainText(msg.content),
       formatted: this.formatConverter.toAst(msg.content),
-      raw: msg,
+      raw,
       author: {
         userId: author.id,
         userName: author.username,
