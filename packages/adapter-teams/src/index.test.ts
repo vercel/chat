@@ -294,6 +294,113 @@ describe("TeamsAdapter", () => {
         }
       }
     });
+
+    it("should create adapter with certificate auth (thumbprint)", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        certificate: {
+          certificatePrivateKey:
+            "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+          certificateThumbprint: "AABBCCDD",
+        },
+        logger: mockLogger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should create adapter with certificate auth (x5c)", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        certificate: {
+          certificatePrivateKey:
+            "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+          x5c: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+        },
+        logger: mockLogger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should throw when certificate has neither thumbprint nor x5c", () => {
+      expect(() =>
+        createTeamsAdapter({
+          appId: "test",
+          certificate: {
+            certificatePrivateKey:
+              "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+          },
+          logger: mockLogger,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    it("should create adapter with federated auth", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        federated: {
+          clientId: "managed-identity-client-id",
+        },
+        logger: mockLogger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should throw when multiple auth methods are provided", () => {
+      expect(() =>
+        createTeamsAdapter({
+          appId: "test",
+          appPassword: "test",
+          certificate: {
+            certificatePrivateKey:
+              "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+            certificateThumbprint: "AABBCCDD",
+          },
+          logger: mockLogger,
+        })
+      ).toThrow(ValidationError);
+    });
+
+    it("should not require appPassword env var when certificate is provided", () => {
+      const origAppPwd = process.env.TEAMS_APP_PASSWORD;
+      // biome-ignore lint/performance/noDelete: env var removal requires delete
+      delete process.env.TEAMS_APP_PASSWORD;
+      try {
+        const adapter = createTeamsAdapter({
+          appId: "test",
+          certificate: {
+            certificatePrivateKey:
+              "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+            certificateThumbprint: "AABBCCDD",
+          },
+          logger: mockLogger,
+        });
+        expect(adapter).toBeInstanceOf(TeamsAdapter);
+      } finally {
+        if (origAppPwd !== undefined) {
+          process.env.TEAMS_APP_PASSWORD = origAppPwd;
+        }
+      }
+    });
+
+    it("should not require appPassword env var when federated is provided", () => {
+      const origAppPwd = process.env.TEAMS_APP_PASSWORD;
+      // biome-ignore lint/performance/noDelete: env var removal requires delete
+      delete process.env.TEAMS_APP_PASSWORD;
+      try {
+        const adapter = createTeamsAdapter({
+          appId: "test",
+          federated: {
+            clientId: "managed-identity-client-id",
+          },
+          logger: mockLogger,
+        });
+        expect(adapter).toBeInstanceOf(TeamsAdapter);
+      } finally {
+        if (origAppPwd !== undefined) {
+          process.env.TEAMS_APP_PASSWORD = origAppPwd;
+        }
+      }
+    });
   });
 
   // ==========================================================================
