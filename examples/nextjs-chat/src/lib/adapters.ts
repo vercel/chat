@@ -14,6 +14,10 @@ import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
+import {
+  createWhatsAppAdapter,
+  type WhatsAppAdapter,
+} from "@chat-adapter/whatsapp";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -28,6 +32,7 @@ export interface Adapters {
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
+  whatsapp?: WhatsAppAdapter;
 }
 
 // Methods to record for each adapter (outgoing API calls)
@@ -93,6 +98,13 @@ const TELEGRAM_METHODS = [
   "addReaction",
   "removeReaction",
   "startTyping",
+  "openDM",
+  "fetchMessages",
+];
+const WHATSAPP_METHODS = [
+  "postMessage",
+  "addReaction",
+  "removeReaction",
   "openDM",
   "fetchMessages",
 ];
@@ -212,6 +224,20 @@ export function buildAdapters(): Adapters {
       }),
       "telegram",
       TELEGRAM_METHODS
+    );
+  }
+
+  // WhatsApp adapter (optional) - env vars: WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+  if (
+    process.env.WHATSAPP_ACCESS_TOKEN &&
+    process.env.WHATSAPP_PHONE_NUMBER_ID
+  ) {
+    adapters.whatsapp = withRecording(
+      createWhatsAppAdapter({
+        logger: logger.child("whatsapp"),
+      }),
+      "whatsapp",
+      WHATSAPP_METHODS
     );
   }
 

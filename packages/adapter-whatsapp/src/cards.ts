@@ -20,6 +20,13 @@ import type {
 } from "chat";
 import type { WhatsAppInteractiveMessage } from "./types";
 
+const CALLBACK_DATA_PREFIX = "chat:";
+
+interface WhatsAppCardActionPayload {
+  a: string;
+  v?: string;
+}
+
 /** Maximum number of reply buttons WhatsApp allows */
 const MAX_REPLY_BUTTONS = 3;
 
@@ -36,6 +43,55 @@ const MAX_BODY_LENGTH = 1024;
 export type WhatsAppCardResult =
   | { interactive: WhatsAppInteractiveMessage; type: "interactive" }
   | { text: string; type: "text" };
+
+/**
+ * Encode an action ID and optional value into a callback data string.
+ * Format: "chat:{json}" where json is { a: actionId, v?: value }
+ */
+export function encodeWhatsAppCallbackData(
+  actionId: string,
+  value?: string
+): string {
+  const payload: WhatsAppCardActionPayload = { a: actionId };
+  if (typeof value === "string") {
+    payload.v = value;
+  }
+  return `${CALLBACK_DATA_PREFIX}${JSON.stringify(payload)}`;
+}
+
+/**
+ * Decode callback data from a WhatsApp interactive reply.
+ * Returns the actionId and optional value.
+ */
+export function decodeWhatsAppCallbackData(data?: string): {
+  actionId: string;
+  value: string | undefined;
+} {
+  if (!data) {
+    return { actionId: "whatsapp_callback", value: undefined };
+  }
+
+  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
+    return { actionId: data, value: data };
+  }
+
+  try {
+    const decoded = JSON.parse(
+      data.slice(CALLBACK_DATA_PREFIX.length)
+    ) as WhatsAppCardActionPayload;
+
+    if (typeof decoded.a === "string" && decoded.a) {
+      return {
+        actionId: decoded.a,
+        value: typeof decoded.v === "string" ? decoded.v : undefined,
+      };
+    }
+  } catch {
+    // Fall back to passthrough behavior below.
+  }
+
+  return { actionId: data, value: data };
+}
 
 /**
  * Convert a CardElement to a WhatsApp message payload.
@@ -69,7 +125,7 @@ export function cardToWhatsApp(card: CardElement): WhatsAppCardResult {
           buttons: actionButtons.map((btn) => ({
             type: "reply" as const,
             reply: {
-              id: btn.id,
+              id: encodeWhatsAppCallbackData(btn.id, btn.value),
               title: truncate(btn.label, MAX_BUTTON_TITLE_LENGTH),
             },
           })),

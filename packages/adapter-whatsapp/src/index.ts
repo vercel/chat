@@ -17,7 +17,7 @@ import type {
   WebhookOptions,
 } from "chat";
 import { ConsoleLogger, getEmoji, Message } from "chat";
-import { cardToWhatsApp } from "./cards";
+import { cardToWhatsApp, decodeWhatsAppCallbackData } from "./cards";
 import { WhatsAppFormatConverter } from "./markdown";
 import type {
   WhatsAppAdapterConfig,
@@ -32,6 +32,9 @@ import type {
 
 /** Graph API base URL */
 const GRAPH_API_URL = "https://graph.facebook.com/v21.0";
+
+/** Maximum message length for WhatsApp Cloud API */
+const WHATSAPP_MESSAGE_LIMIT = 4096;
 
 // Re-export types
 export type {
@@ -240,6 +243,12 @@ export class WhatsAppAdapter
       return;
     }
 
+    // Handle legacy button responses (from template quick replies)
+    if (inbound.type === "button" && inbound.button) {
+      this.handleButtonResponse(inbound, contact, phoneNumberId, options);
+      return;
+    }
+
     // Extract text content based on message type
     const text = this.extractTextContent(inbound);
     if (text === null) {
@@ -328,24 +337,64 @@ export class WhatsAppAdapter
     });
 
     const { interactive } = inbound;
-    let actionId: string;
-    let actionValue: string;
+    let rawId: string;
+    let fallbackValue: string;
 
     if (interactive.type === "button_reply" && interactive.button_reply) {
-      actionId = interactive.button_reply.id;
-      actionValue = interactive.button_reply.title;
+      rawId = interactive.button_reply.id;
+      fallbackValue = interactive.button_reply.title;
     } else if (interactive.type === "list_reply" && interactive.list_reply) {
-      actionId = interactive.list_reply.id;
-      actionValue = interactive.list_reply.title;
+      rawId = interactive.list_reply.id;
+      fallbackValue = interactive.list_reply.title;
     } else {
       return;
     }
+
+    const { actionId, value } = decodeWhatsAppCallbackData(rawId);
 
     this.chat.processAction(
       {
         adapter: this,
         actionId,
-        value: actionValue,
+        value: value ?? fallbackValue,
+        user: {
+          userId: inbound.from,
+          userName: contact?.profile.name || inbound.from,
+          fullName: contact?.profile.name || inbound.from,
+          isBot: false,
+          isMe: false,
+        },
+        messageId: inbound.id,
+        threadId,
+        raw: inbound,
+      },
+      options
+    );
+  }
+
+  /**
+   * Handle legacy button responses (from template quick replies).
+   */
+  private handleButtonResponse(
+    inbound: WhatsAppInboundMessage,
+    contact: WhatsAppContact | undefined,
+    phoneNumberId: string,
+    options?: WebhookOptions
+  ): void {
+    if (!(this.chat && inbound.button)) {
+      return;
+    }
+
+    const threadId = this.encodeThreadId({
+      phoneNumberId,
+      userWaId: inbound.from,
+    });
+
+    this.chat.processAction(
+      {
+        adapter: this,
+        actionId: inbound.button.payload,
+        value: inbound.button.text,
         user: {
           userId: inbound.from,
           userName: contact?.profile.name || inbound.from,
@@ -378,6 +427,8 @@ export class WhatsAppAdapter
         );
       case "audio":
         return "[Audio message]";
+      case "voice":
+        return "[Voice message]";
       case "video":
         return "[Video]";
       case "sticker":
@@ -489,6 +540,17 @@ export class WhatsAppAdapter
           inbound.video.id,
           "video",
           inbound.video.mime_type
+        )
+      );
+    }
+
+    if (inbound.voice) {
+      attachments.push(
+        this.buildMediaAttachment(
+          inbound.voice.id,
+          "audio",
+          inbound.voice.mime_type,
+          "voice"
         )
       );
     }
@@ -623,6 +685,11 @@ export class WhatsAppAdapter
     to: string,
     text: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const truncatedText =
+      text.length > WHATSAPP_MESSAGE_LIMIT
+        ? `${text.slice(0, WHATSAPP_MESSAGE_LIMIT - 3)}...`
+        : text;
+
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
       {
@@ -630,7 +697,7 @@ export class WhatsAppAdapter
         recipient_type: "individual",
         to,
         type: "text",
-        text: { preview_url: false, body: text },
+        text: { preview_url: false, body: truncatedText },
       }
     );
 
@@ -650,7 +717,7 @@ export class WhatsAppAdapter
           from: this.phoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type: "text",
-          text: { body: text },
+          text: { body: truncatedText },
         },
         phoneNumberId: this.phoneNumberId,
       },

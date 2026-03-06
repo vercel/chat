@@ -118,6 +118,11 @@ export interface WhatsAppInboundMessage {
     sha256: string;
     voice?: boolean;
   };
+  /** Legacy button response (from template quick replies) */
+  button?: {
+    payload: string;
+    text: string;
+  };
   /** Context for quoted replies */
   context?: {
     from: string;
@@ -182,22 +187,31 @@ export interface WhatsAppInboundMessage {
   /** Unix timestamp string */
   timestamp: string;
   /** Message type */
+  /** Message type */
   type:
     | "text"
     | "image"
     | "document"
     | "audio"
     | "video"
+    | "voice"
     | "sticker"
     | "location"
     | "contacts"
     | "interactive"
+    | "button"
     | "reaction"
     | "order"
     | "system";
   /** Video message content */
   video?: {
     caption?: string;
+    id: string;
+    mime_type: string;
+    sha256: string;
+  };
+  /** Voice message content */
+  voice?: {
     id: string;
     mime_type: string;
     sha256: string;
