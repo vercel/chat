@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-memory",
-  "version": "4.14.0",
+  "version": "4.17.0",
   "description": "In-memory state adapter for chat (development/testing)",
   "type": "module",
   "main": "./dist/index.js",
@@ -39,10 +39,10 @@
     "access": "public"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.18"
   },
   "keywords": [
     "chat",

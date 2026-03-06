@@ -4,6 +4,7 @@
 
 import { generateKeyPairSync, sign } from "node:crypto";
 import { InteractionType } from "discord-api-types/v10";
+import type { Mock } from "vitest";
 import { vi } from "vitest";
 
 // Generate an Ed25519 keypair for testing using Node.js crypto
@@ -193,24 +194,31 @@ export function createDiscordButtonRequest(options: {
 /**
  * Mock Discord API responses
  */
+// biome-ignore lint/suspicious/noExplicitAny: test mock types
+type MockFn = Mock<(...args: any[]) => any>;
+
 export interface MockDiscordApi {
   channels: {
-    get: ReturnType<typeof vi.fn>;
-    typing: ReturnType<typeof vi.fn>;
+    get: MockFn;
+    typing: MockFn;
   };
   clearMocks: () => void;
+  interactions: {
+    editOriginal: MockFn;
+    followUp: MockFn;
+  };
   messages: {
-    create: ReturnType<typeof vi.fn>;
-    update: ReturnType<typeof vi.fn>;
-    delete: ReturnType<typeof vi.fn>;
-    list: ReturnType<typeof vi.fn>;
+    create: MockFn;
+    update: MockFn;
+    delete: MockFn;
+    list: MockFn;
   };
   reactions: {
-    add: ReturnType<typeof vi.fn>;
-    remove: ReturnType<typeof vi.fn>;
+    add: MockFn;
+    remove: MockFn;
   };
   users: {
-    createDM: ReturnType<typeof vi.fn>;
+    createDM: MockFn;
   };
 }
 
@@ -263,6 +271,38 @@ export function createMockDiscordApi(): MockDiscordApi {
       }),
       typing: vi.fn().mockResolvedValue(undefined),
     },
+    interactions: {
+      editOriginal: vi.fn().mockResolvedValue({
+        id: `msg_${Date.now()}`,
+        channel_id: "CHANNEL456",
+        content: "interaction response",
+        author: {
+          id: DISCORD_APPLICATION_ID,
+          username: DISCORD_BOT_USERNAME,
+          discriminator: "0",
+          bot: true,
+        },
+        timestamp: new Date().toISOString(),
+        edited_timestamp: null,
+        attachments: [],
+        embeds: [],
+      }),
+      followUp: vi.fn().mockResolvedValue({
+        id: `msg_${Date.now()}`,
+        channel_id: "CHANNEL456",
+        content: "follow-up response",
+        author: {
+          id: DISCORD_APPLICATION_ID,
+          username: DISCORD_BOT_USERNAME,
+          discriminator: "0",
+          bot: true,
+        },
+        timestamp: new Date().toISOString(),
+        edited_timestamp: null,
+        attachments: [],
+        embeds: [],
+      }),
+    },
     users: {
       createDM: vi.fn().mockResolvedValue({
         id: "DM_CHANNEL_123",
@@ -279,6 +319,8 @@ export function createMockDiscordApi(): MockDiscordApi {
       api.channels.get.mockClear();
       api.channels.typing.mockClear();
       api.users.createDM.mockClear();
+      api.interactions.editOriginal.mockClear();
+      api.interactions.followUp.mockClear();
     },
   };
   return api;
@@ -291,6 +333,9 @@ const CHANNEL_MESSAGES_QUERY_REGEX = /\/channels\/\w+\/messages(\?|$)/;
 const REACTIONS_ME_REGEX = /\/reactions\/[^/]+\/@me$/;
 const CHANNEL_ID_REGEX = /\/channels\/\w+$/;
 const CHANNEL_TYPING_REGEX = /\/channels\/\w+\/typing$/;
+const INTERACTION_ORIGINAL_REGEX =
+  /\/webhooks\/\w+\/[^/]+\/messages\/@original/;
+const INTERACTION_FOLLOWUP_REGEX = /\/webhooks\/\w+\/[^/]+(\?|$)/;
 
 /**
  * Setup fetch mock for Discord API calls
@@ -309,9 +354,11 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       }
 
       const method = options?.method || "GET";
-      const body = options?.body
-        ? JSON.parse(options.body as string)
-        : undefined;
+      const rawBody = options?.body;
+      const body =
+        rawBody && typeof rawBody === "string"
+          ? JSON.parse(rawBody)
+          : undefined;
 
       // Route to appropriate mock
       // POST /channels/{id}/messages
@@ -377,6 +424,24 @@ export function setupDiscordFetchMock(api: MockDiscordApi): void {
       // POST /users/@me/channels
       if (urlStr.includes("/users/@me/channels") && method === "POST") {
         const result = await api.users.createDM(body);
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // PATCH /webhooks/{appId}/{token}/messages/@original
+      if (INTERACTION_ORIGINAL_REGEX.test(urlStr) && method === "PATCH") {
+        const result = await api.interactions.editOriginal(body ?? rawBody);
+        return new Response(JSON.stringify(result), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // POST /webhooks/{appId}/{token} (follow-up)
+      if (INTERACTION_FOLLOWUP_REGEX.test(urlStr) && method === "POST") {
+        const result = await api.interactions.followUp(body ?? rawBody);
         return new Response(JSON.stringify(result), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -479,6 +544,7 @@ export function createGatewayReactionEvent(options: {
   emojiId?: string;
   messageId?: string;
   channelId?: string;
+  channelType?: number;
   guildId?: string;
   userId: string;
   userUsername: string;
@@ -496,6 +562,7 @@ export function createGatewayReactionEvent(options: {
       },
       message_id: options.messageId || "msg_123",
       channel_id: options.channelId || "CHANNEL456",
+      channel_type: options.channelType,
       guild_id: options.guildId ?? "GUILD123",
       user_id: options.userId,
       user: {

@@ -26,6 +26,11 @@ const bot = new Chat(config);
       description: 'Map of adapter name to adapter instance.',
       type: 'Record<string, Adapter>',
     },
+    dedupeTtlMs: {
+      description: 'TTL for message deduplication entries in milliseconds. Increase if webhook cold starts cause platform retries after the default window.',
+      type: 'number',
+      default: '300000',
+    },
     state: {
       description: 'State adapter for subscriptions, locking, and caching.',
       type: 'StateAdapter',

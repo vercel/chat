@@ -520,7 +520,7 @@ Environment:
       console.log(JSON.stringify(records, null, 2));
     }
   } finally {
-    await redis.quit();
+    await redis.close();
   }
 }
 

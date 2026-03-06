@@ -125,7 +125,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(slackFixtures.mention);
       await ctx.sendSlackAction(slackFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
       expect(channel?.id).toBe("slack:C00FAKECHAN1");
     });
@@ -134,7 +134,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(slackFixtures.mention);
       await ctx.sendSlackAction(slackFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
 
       const info = await channel?.fetchMetadata();
@@ -154,7 +154,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(slackFixtures.mention);
       await ctx.sendSlackAction(slackFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
 
       const messages: Message[] = [];
       for await (const msg of channel.messages) {
@@ -181,7 +181,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(slackFixtures.mention);
       await ctx.sendSlackAction(slackFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
 
       await channel.post("Hello from channel!");
 
@@ -199,7 +199,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(slackFixtures.mention);
       await ctx.sendSlackAction(slackFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
 
       // Only get first 2 messages
       const messages: Message[] = [];
@@ -274,7 +274,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(gchatFixtures.mention);
       await ctx.sendWebhook(gchatFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
       expect(channel?.id).toBe(`gchat:${gchatFixtures.spaceName}`);
     });
@@ -283,7 +283,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(gchatFixtures.mention);
       await ctx.sendWebhook(gchatFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
 
       const info = await channel?.fetchMetadata();
@@ -297,7 +297,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(gchatFixtures.mention);
       await ctx.sendWebhook(gchatFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
       ctx.mockChatApi.clearMocks();
 
       await channel.post("Hello from channel!");
@@ -398,12 +398,12 @@ describe("Replay Tests - Channel", () => {
       );
 
       // The action's thread should have the 4-part ID (guild:channel:thread)
-      expect(capturedAction?.thread.id).toBe(
+      expect(capturedAction?.thread?.id).toBe(
         `discord:${discordFixtures.guildId}:${discordFixtures.channelId}:${discordFixtures.threadChannelId}`
       );
 
       // Channel should point to the parent channel, not the thread
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
       expect(channel?.id).toBe(
         `discord:${discordFixtures.guildId}:${discordFixtures.channelId}`
@@ -438,7 +438,7 @@ describe("Replay Tests - Channel", () => {
         discordFixtures.channel_post_action as Record<string, unknown>
       );
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
       await channel.post("Hello from channel!");
 
       // Verify message was posted to the parent channel, not the thread
@@ -497,7 +497,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(teamsFixtures.mention);
       await ctx.sendWebhook(teamsFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel;
+      const channel = capturedAction?.thread?.channel;
       expect(channel).toBeDefined();
 
       // Channel ID should use the base conversation ID without ;messageid=
@@ -521,7 +521,7 @@ describe("Replay Tests - Channel", () => {
       await ctx.sendWebhook(teamsFixtures.mention);
       await ctx.sendWebhook(teamsFixtures.channel_post_action);
 
-      const channel = capturedAction?.thread.channel as Channel;
+      const channel = capturedAction?.thread?.channel as Channel;
       await channel.post("Hello from channel!");
 
       // Verify sendActivity was called via the mock bot adapter

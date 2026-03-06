@@ -140,12 +140,67 @@ All options are auto-detected from environment variables when not provided.
 | Option | Required | Description |
 |--------|----------|-------------|
 | `appId` | No* | Azure Bot App ID. Auto-detected from `TEAMS_APP_ID` |
-| `appPassword` | No* | Azure Bot App Password. Auto-detected from `TEAMS_APP_PASSWORD` |
+| `appPassword` | No** | Azure Bot App Password. Auto-detected from `TEAMS_APP_PASSWORD` |
+| `certificate` | No** | Certificate-based authentication config |
+| `federated` | No** | Federated (workload identity) authentication config |
 | `appType` | No | `"MultiTenant"` or `"SingleTenant"` (default: `"MultiTenant"`) |
 | `appTenantId` | For SingleTenant | Azure AD Tenant ID. Auto-detected from `TEAMS_APP_TENANT_ID` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`appId` and `appPassword` are required — either via config or env vars.
+\*`appId` is required — either via config or `TEAMS_APP_ID` env var.
+
+\*\*Exactly one authentication method is required: `appPassword`, `certificate`, or `federated`.
+
+### Authentication methods
+
+The adapter supports three mutually exclusive authentication methods. When no explicit auth is provided, `TEAMS_APP_PASSWORD` is auto-detected from environment variables.
+
+#### Client secret (default)
+
+The simplest option — provide `appPassword` directly or set `TEAMS_APP_PASSWORD`:
+
+```typescript title="lib/bot.ts"
+createTeamsAdapter({
+  appPassword: "your_app_password_here",
+});
+```
+
+#### Certificate
+
+Authenticate with a PEM certificate. Provide either `certificateThumbprint` or `x5c` (public certificate for subject-name validation):
+
+```typescript title="lib/bot.ts"
+createTeamsAdapter({
+  certificate: {
+    certificatePrivateKey: "-----BEGIN RSA PRIVATE KEY-----\n...",
+    certificateThumbprint: "AB1234...", // hex-encoded thumbprint
+  },
+});
+```
+
+Or with subject-name validation:
+
+```typescript title="lib/bot.ts"
+createTeamsAdapter({
+  certificate: {
+    certificatePrivateKey: "-----BEGIN RSA PRIVATE KEY-----\n...",
+    x5c: "-----BEGIN CERTIFICATE-----\n...",
+  },
+});
+```
+
+#### Federated (workload identity)
+
+For environments with managed identities (e.g. Azure Kubernetes Service, GitHub Actions):
+
+```typescript title="lib/bot.ts"
+createTeamsAdapter({
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
+    clientAudience: "api://AzureADTokenExchange", // optional, this is the default
+  },
+});
+```
 
 ## Environment variables
 
@@ -212,7 +267,10 @@ Alternatively, configure the bot in Azure to receive all messages.
 
 ### "Unauthorized" error
 
-- Verify `TEAMS_APP_ID` and `TEAMS_APP_PASSWORD` are correct
+- Verify `TEAMS_APP_ID` and your chosen auth credential are correct
+- For client secret auth, check that `TEAMS_APP_PASSWORD` is valid
+- For certificate auth, ensure the private key and thumbprint/x5c match what's registered in Azure AD
+- For federated auth, verify the managed identity client ID and audience are correct
 - For SingleTenant apps, ensure `TEAMS_APP_TENANT_ID` is set
 - Check that the messaging endpoint URL is correct in Azure
 

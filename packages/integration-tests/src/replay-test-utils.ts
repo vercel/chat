@@ -621,22 +621,22 @@ export function expectValidAction(
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.thread).toBeDefined();
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(action?.thread.id).toContain(`${options.adapterName}:`);
+  expect(action?.thread?.id).toContain(`${options.adapterName}:`);
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(action?.thread.adapter.name).toBe(options.adapterName);
+  expect(action?.thread?.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
     // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-    expect(action?.thread.channelId).toBe(options.channelId);
+    expect(action?.thread?.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
     // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-    expect(action?.thread.isDM).toBe(options.isDM);
+    expect(action?.thread?.isDM).toBe(options.isDM);
   }
 
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(action?.threadId).toBe(action?.thread.id);
+  expect(action?.threadId).toBe(action?.thread?.id);
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(action?.messageId).toBeDefined();
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
@@ -684,22 +684,22 @@ export function expectValidReaction(
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
   expect(reaction?.thread).toBeDefined();
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(reaction?.thread.id).toContain(`${options.adapterName}:`);
+  expect(reaction?.thread?.id).toContain(`${options.adapterName}:`);
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(reaction?.thread.adapter.name).toBe(options.adapterName);
+  expect(reaction?.thread?.adapter.name).toBe(options.adapterName);
 
   if (options.channelId) {
     // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-    expect(reaction?.thread.channelId).toBe(options.channelId);
+    expect(reaction?.thread?.channelId).toBe(options.channelId);
   }
 
   if (options.isDM !== undefined) {
     // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-    expect(reaction?.thread.isDM).toBe(options.isDM);
+    expect(reaction?.thread?.isDM).toBe(options.isDM);
   }
 
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
-  expect(reaction?.threadId).toBe(reaction?.thread.id);
+  expect(reaction?.threadId).toBe(reaction?.thread?.id);
 
   if (options.messageId) {
     // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests

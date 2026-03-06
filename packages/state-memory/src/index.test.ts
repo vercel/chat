@@ -108,6 +108,35 @@ describe("MemoryStateAdapter", () => {
     });
   });
 
+  describe("setIfNotExists", () => {
+    it("should set a value when key does not exist", async () => {
+      const result = await adapter.setIfNotExists("key1", "value1");
+      expect(result).toBe(true);
+      expect(await adapter.get("key1")).toBe("value1");
+    });
+
+    it("should not overwrite an existing key", async () => {
+      await adapter.setIfNotExists("key1", "first");
+      const result = await adapter.setIfNotExists("key1", "second");
+      expect(result).toBe(false);
+      expect(await adapter.get("key1")).toBe("first");
+    });
+
+    it("should allow setting after TTL expiry", async () => {
+      await adapter.setIfNotExists("key1", "first", 10);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const result = await adapter.setIfNotExists("key1", "second");
+      expect(result).toBe(true);
+      expect(await adapter.get("key1")).toBe("second");
+    });
+
+    it("should respect TTL on the new value", async () => {
+      await adapter.setIfNotExists("key1", "value", 10);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(await adapter.get("key1")).toBeNull();
+    });
+  });
+
   describe("connection", () => {
     it("should throw when not connected", async () => {
       const newAdapter = createMemoryState();

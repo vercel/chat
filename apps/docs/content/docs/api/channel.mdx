@@ -161,10 +161,13 @@ await channel.postEphemeral(userId, "Only you can see this", {
 
 ## startTyping
 
-Show a typing indicator. No-op on platforms that don't support it.
+Show a typing indicator. No-op on platforms that don't support it. On Slack, you can pass an optional `status` string to show a custom loading message (requires `assistant:write` scope).
 
 ```typescript
 await channel.startTyping();
+
+// With custom status (Slack only)
+await channel.startTyping("Searching documents...");
 ```
 
 ## mentionUser

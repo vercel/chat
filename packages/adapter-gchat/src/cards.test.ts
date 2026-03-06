@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -172,6 +173,50 @@ describe("cardToGoogleCard", () => {
         action: {
           function: "skip",
           parameters: [{ key: "actionId", value: "skip" }],
+        },
+      },
+    });
+  });
+
+  it("sets disabled on button when specified", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({
+            id: "cancel",
+            label: "Cancelled",
+            style: "danger",
+            disabled: true,
+          }),
+          Button({ id: "retry", label: "Retry" }),
+        ]),
+      ],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    const buttonList = widgets[0].buttonList;
+    expect(buttonList?.buttons).toHaveLength(2);
+
+    expect(buttonList?.buttons[0]).toEqual({
+      text: "Cancelled",
+      onClick: {
+        action: {
+          function: "cancel",
+          parameters: [{ key: "actionId", value: "cancel" }],
+        },
+      },
+      color: { red: 0.9, green: 0.2, blue: 0.2 },
+      disabled: true,
+    });
+
+    // Non-disabled button should not have disabled field
+    expect(buttonList?.buttons[1]).toEqual({
+      text: "Retry",
+      onClick: {
+        action: {
+          function: "retry",
+          parameters: [{ key: "actionId", value: "retry" }],
         },
       },
     });
@@ -446,5 +491,23 @@ describe("markdown bold to Google Chat conversion", () => {
 
     const widgets = gchatCard.card.sections[0].widgets;
     expect(widgets[0].textParagraph.text).toBe("Plain text");
+  });
+});
+
+describe("cardToGoogleCard with CardLink", () => {
+  it("converts CardLink to a textParagraph widget with HTML link", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const googleCard = cardToGoogleCard(card);
+
+    expect(googleCard.card.sections).toHaveLength(1);
+    expect(googleCard.card.sections[0].widgets).toHaveLength(1);
+    expect(googleCard.card.sections[0].widgets[0]).toEqual({
+      textParagraph: {
+        text: '<a href="https://example.com">Click here</a>',
+      },
+    });
   });
 });

@@ -23,7 +23,8 @@ export const metadata: Metadata = {
 const templates = [
   {
     title: "Slack bot with Next.js",
-    description: "Build a Slack bot from scratch using Chat SDK, Next.js, and Redis.",
+    description:
+      "Build a Slack bot from scratch using Chat SDK, Next.js, and Redis.",
     link: "/docs/guides/slack-nextjs",
     code: `const bot = new Chat({
   userName: "my-bot",
@@ -35,7 +36,8 @@ const templates = [
   },
   {
     title: "Discord support bot with Nuxt",
-    description: "Build a Discord support bot using Chat SDK, Nuxt, and AI SDK.",
+    description:
+      "Build a Discord support bot using Chat SDK, Nuxt, and AI SDK.",
     link: "/docs/guides/discord-nuxt",
     code: `bot.onNewMention(async (thread) => {
   await thread.subscribe();
@@ -54,7 +56,8 @@ const templates = [
   },
   {
     title: "Code review bot with Hono",
-    description: "Build a GitHub bot that reviews pull requests using AI SDK and Vercel Sandbox.",
+    description:
+      "Build a GitHub bot that reviews pull requests using AI SDK and Vercel Sandbox.",
     link: "/docs/guides/code-review-hono",
     code: `const sandbox = await Sandbox.create({
   source: {
@@ -105,7 +108,7 @@ const HomePage = () => (
             Get Started
           </DynamicLink>
         </Button>
-        <Installer command="pnpm add chat" className="w-40 sm:w-32" />
+        <Installer className="w-40 sm:w-32" command="pnpm add chat" />
       </div>
     </Hero>
     <div className="grid divide-y border-y sm:border-x">

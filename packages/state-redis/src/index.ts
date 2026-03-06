@@ -60,7 +60,7 @@ export class RedisStateAdapter implements StateAdapter {
 
   async disconnect(): Promise<void> {
     if (this.connected) {
-      await this.client.quit();
+      await this.client.close();
       this.connected = false;
       this.connectPromise = null;
     }
@@ -78,7 +78,11 @@ export class RedisStateAdapter implements StateAdapter {
 
   async isSubscribed(threadId: string): Promise<boolean> {
     this.ensureConnected();
-    return this.client.sIsMember(this.subscriptionsSetKey(), threadId);
+    const result = await this.client.sIsMember(
+      this.subscriptionsSetKey(),
+      threadId
+    );
+    return result === 1;
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -175,6 +179,23 @@ export class RedisStateAdapter implements StateAdapter {
     } else {
       await this.client.set(cacheKey, serialized);
     }
+  }
+
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const cacheKey = this.key("cache", key);
+    const serialized = JSON.stringify(value);
+
+    const result = ttlMs
+      ? await this.client.set(cacheKey, serialized, { NX: true, PX: ttlMs })
+      : await this.client.set(cacheKey, serialized, { NX: true });
+
+    return result !== null;
   }
 
   async delete(key: string): Promise<void> {

@@ -183,8 +183,8 @@ export function createPersistentListener(config: PersistentListenerConfig) {
       } finally {
         await subClient.unsubscribe(channel).catch(() => {});
         await Promise.all([
-          pubClient.quit().catch(() => {}),
-          subClient.quit().catch(() => {}),
+          pubClient.close().catch(() => {}),
+          subClient.close().catch(() => {}),
         ]);
         console.log(`[${name}] ${listenerId} pub/sub cleanup complete`);
       }

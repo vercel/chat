@@ -15,19 +15,21 @@ import type { Logger } from "chat";
  * Base configuration options shared by all auth methods.
  */
 interface LinearAdapterBaseConfig {
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
   /**
    * Bot display name used for @-mention detection.
    * For API key auth, this is typically the user's display name.
    * For OAuth app auth with actor=app, this is the app name.
+   * Defaults to LINEAR_BOT_USERNAME env var or "linear-bot".
    */
-  userName: string;
+  userName?: string;
   /**
    * Webhook signing secret for HMAC-SHA256 verification.
    * Found on the webhook detail page in Linear settings.
+   * Defaults to LINEAR_WEBHOOK_SECRET env var.
    */
-  webhookSecret: string;
+  webhookSecret?: string;
 }
 
 /**
@@ -38,8 +40,10 @@ interface LinearAdapterBaseConfig {
  */
 export interface LinearAdapterAPIKeyConfig extends LinearAdapterBaseConfig {
   accessToken?: never;
-  /** Personal API key from Linear Settings > Security & Access */
+  /** Personal API key from Linear Settings > Security & Access. Defaults to LINEAR_API_KEY env var. */
   apiKey: string;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /**
@@ -49,7 +53,7 @@ export interface LinearAdapterAPIKeyConfig extends LinearAdapterBaseConfig {
  * @see https://linear.app/developers/oauth-2-0-authentication
  */
 export interface LinearAdapterOAuthConfig extends LinearAdapterBaseConfig {
-  /** OAuth access token obtained through the OAuth flow */
+  /** OAuth access token obtained through the OAuth flow. Defaults to LINEAR_ACCESS_TOKEN env var. */
   accessToken: string;
   apiKey?: never;
   clientId?: never;
@@ -68,10 +72,20 @@ export interface LinearAdapterOAuthConfig extends LinearAdapterBaseConfig {
 export interface LinearAdapterAppConfig extends LinearAdapterBaseConfig {
   accessToken?: never;
   apiKey?: never;
-  /** OAuth application client ID */
+  /** OAuth application client ID. Defaults to LINEAR_CLIENT_ID env var. */
   clientId: string;
-  /** OAuth application client secret */
+  /** OAuth application client secret. Defaults to LINEAR_CLIENT_SECRET env var. */
   clientSecret: string;
+}
+
+/**
+ * Configuration with no auth fields - will auto-detect from env vars.
+ */
+export interface LinearAdapterAutoConfig extends LinearAdapterBaseConfig {
+  accessToken?: never;
+  apiKey?: never;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /**
@@ -80,7 +94,8 @@ export interface LinearAdapterAppConfig extends LinearAdapterBaseConfig {
 export type LinearAdapterConfig =
   | LinearAdapterAPIKeyConfig
   | LinearAdapterOAuthConfig
-  | LinearAdapterAppConfig;
+  | LinearAdapterAppConfig
+  | LinearAdapterAutoConfig;
 
 // =============================================================================
 // Thread ID

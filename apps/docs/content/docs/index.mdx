@@ -1,10 +1,10 @@
 ---
 title: Introduction
-description: A unified SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more.
+description: A unified SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, and more.
 type: overview
 ---
 
-Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it to Slack, Microsoft Teams, Google Chat, Discord, GitHub, Linear, and WhatsApp.
+Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it to Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp.
 
 ## Why Chat SDK?
 
@@ -55,6 +55,7 @@ Each adapter factory auto-detects credentials from environment variables (`SLACK
 | Microsoft Teams | `@chat-adapter/teams` | Yes | Read-only | Yes | No | Post+Edit | Yes |
 | Google Chat | `@chat-adapter/gchat` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
+| Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
 | WhatsApp | `@chat-adapter/whatsapp` | N/A | Yes | Partial | No | No | Yes |
@@ -80,6 +81,7 @@ The SDK is distributed as a set of packages you install based on your needs:
 | `@chat-adapter/teams` | Microsoft Teams adapter |
 | `@chat-adapter/gchat` | Google Chat adapter |
 | `@chat-adapter/discord` | Discord adapter |
+| `@chat-adapter/telegram` | Telegram adapter |
 | `@chat-adapter/github` | GitHub Issues adapter |
 | `@chat-adapter/linear` | Linear Issues adapter |
 | `@chat-adapter/whatsapp` | WhatsApp Business adapter |

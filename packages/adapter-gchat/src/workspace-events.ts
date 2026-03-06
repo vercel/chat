@@ -12,7 +12,10 @@
  * 4. Handle Pub/Sub messages in your webhook with handlePubSubMessage()
  */
 
-import { google } from "googleapis";
+import {
+  auth as googleAuth,
+  workspaceevents,
+} from "@googleapis/workspaceevents";
 import type { GoogleChatMessage } from "./index";
 
 /** Options for creating a space subscription */
@@ -93,7 +96,7 @@ export interface ServiceAccountCredentials {
 export type WorkspaceEventsAuthOptions =
   | { credentials: ServiceAccountCredentials; impersonateUser?: string }
   | { useApplicationDefaultCredentials: true; impersonateUser?: string }
-  | { auth: Parameters<typeof google.workspaceevents>[0]["auth"] };
+  | { auth: Parameters<typeof workspaceevents>[0]["auth"] };
 
 /**
  * Create a Workspace Events subscription to receive all messages in a Chat space.
@@ -123,10 +126,10 @@ export async function createSpaceSubscription(
   const { spaceName, pubsubTopic, ttlSeconds = 86400 } = options; // Default 1 day
 
   // Set up auth
-  let authClient: Parameters<typeof google.workspaceevents>[0]["auth"];
+  let authClient: Parameters<typeof workspaceevents>[0]["auth"];
 
   if ("credentials" in auth) {
-    authClient = new google.auth.JWT({
+    authClient = new googleAuth.JWT({
       email: auth.credentials.client_email,
       key: auth.credentials.private_key,
       // For domain-wide delegation, impersonate a user
@@ -137,7 +140,7 @@ export async function createSpaceSubscription(
       ],
     });
   } else if ("useApplicationDefaultCredentials" in auth) {
-    authClient = new google.auth.GoogleAuth({
+    authClient = new googleAuth.GoogleAuth({
       // Note: ADC with impersonation requires different setup
       scopes: [
         "https://www.googleapis.com/auth/chat.spaces.readonly",
@@ -149,7 +152,7 @@ export async function createSpaceSubscription(
     authClient = auth.auth;
   }
 
-  const workspaceEvents = google.workspaceevents({
+  const workspaceEvents = workspaceevents({
     version: "v1",
     auth: authClient,
   });
@@ -204,17 +207,17 @@ export async function listSpaceSubscriptions(
   spaceName: string,
   auth: WorkspaceEventsAuthOptions
 ): Promise<Array<{ name: string; expireTime: string; eventTypes: string[] }>> {
-  let authClient: Parameters<typeof google.workspaceevents>[0]["auth"];
+  let authClient: Parameters<typeof workspaceevents>[0]["auth"];
 
   if ("credentials" in auth) {
-    authClient = new google.auth.JWT({
+    authClient = new googleAuth.JWT({
       email: auth.credentials.client_email,
       key: auth.credentials.private_key,
       subject: auth.impersonateUser,
       scopes: ["https://www.googleapis.com/auth/chat.spaces.readonly"],
     });
   } else if ("useApplicationDefaultCredentials" in auth) {
-    authClient = new google.auth.GoogleAuth({
+    authClient = new googleAuth.GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/chat.spaces.readonly"],
     });
   } else {
@@ -222,7 +225,7 @@ export async function listSpaceSubscriptions(
     authClient = auth.auth;
   }
 
-  const workspaceEvents = google.workspaceevents({
+  const workspaceEvents = workspaceevents({
     version: "v1",
     auth: authClient,
   });
@@ -245,17 +248,17 @@ export async function deleteSpaceSubscription(
   subscriptionName: string,
   auth: WorkspaceEventsAuthOptions
 ): Promise<void> {
-  let authClient: Parameters<typeof google.workspaceevents>[0]["auth"];
+  let authClient: Parameters<typeof workspaceevents>[0]["auth"];
 
   if ("credentials" in auth) {
-    authClient = new google.auth.JWT({
+    authClient = new googleAuth.JWT({
       email: auth.credentials.client_email,
       key: auth.credentials.private_key,
       subject: auth.impersonateUser,
       scopes: ["https://www.googleapis.com/auth/chat.spaces.readonly"],
     });
   } else if ("useApplicationDefaultCredentials" in auth) {
-    authClient = new google.auth.GoogleAuth({
+    authClient = new googleAuth.GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/chat.spaces.readonly"],
     });
   } else {
@@ -263,7 +266,7 @@ export async function deleteSpaceSubscription(
     authClient = auth.auth;
   }
 
-  const workspaceEvents = google.workspaceevents({
+  const workspaceEvents = workspaceevents({
     version: "v1",
     auth: authClient,
   });

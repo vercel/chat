@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const HELP_REGEX = /help/i;
+const HELLO_REGEX = /hello/i;
 
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
@@ -50,6 +51,49 @@ describe("Chat", () => {
   it("should register webhook handlers", () => {
     expect(chat.webhooks.slack).toBeDefined();
     expect(typeof chat.webhooks.slack).toBe("function");
+  });
+
+  it("should preserve null fallback streaming placeholder config", async () => {
+    mockAdapter.stream = undefined;
+
+    const customChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: mockAdapter },
+      state: mockState,
+      logger: mockLogger,
+      fallbackStreamingPlaceholderText: null,
+    });
+
+    await customChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    // Use a mention handler to exercise the full Chat → Thread pipeline
+    customChat.onNewMention(async (_thread, _message) => {
+      await _thread.post({
+        async *[Symbol.asyncIterator]() {
+          yield "H";
+          yield "i";
+        },
+      });
+    });
+
+    const message = createTestMessage("msg-1", "Hey @slack-bot help me");
+    await customChat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      message
+    );
+
+    expect(mockAdapter.postMessage).not.toHaveBeenCalledWith(
+      "slack:C123:1234.5678",
+      "..."
+    );
+    expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+      "slack:C123:1234.5678",
+      "msg-1",
+      { markdown: "Hi" }
+    );
   });
 
   it("should call onNewMention handler when bot is mentioned", async () => {
@@ -113,6 +157,155 @@ describe("Chat", () => {
     );
 
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  describe("message deduplication", () => {
+    it("should skip duplicate messages with the same id", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message1 = createTestMessage("msg-1", "Hey @slack-bot help");
+      const message2 = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message1
+      );
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message2
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should use default dedupe TTL of 5 minutes", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
+        "dedupe:slack:msg-1",
+        true,
+        300_000
+      );
+    });
+
+    it("should use custom dedupeTtlMs when configured", async () => {
+      const customChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        dedupeTtlMs: 300_000,
+      });
+
+      await customChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      customChat.onNewMention(handler);
+
+      const message = createTestMessage("msg-2", "Hey @slack-bot help");
+      await customChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
+        "dedupe:slack:msg-2",
+        true,
+        300_000
+      );
+    });
+
+    it("should use atomic setIfNotExists for deduplication", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      // Verify setIfNotExists was called (not separate get+set)
+      expect(mockState.setIfNotExists).toHaveBeenCalledTimes(1);
+      expect(mockState.get).not.toHaveBeenCalledWith(
+        expect.stringContaining("dedupe:")
+      );
+    });
+
+    it("should handle concurrent duplicates atomically", async () => {
+      // Simulate the race: make setIfNotExists return false on second call
+      let callCount = 0;
+      (mockState.setIfNotExists as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => {
+          callCount++;
+          return callCount === 1;
+        }
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const msg1 = createTestMessage("ts-1", "Hey @slack-bot help");
+      const msg2 = createTestMessage("ts-1", "Hey @slack-bot help");
+
+      // Send both concurrently
+      await Promise.allSettled([
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg1),
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg2),
+      ]);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should trigger onNewMention for message events containing a bot mention", async () => {
+      // Simulates the Slack message.channels event (not app_mention) that
+      // contains <@BOT_ID> — detectMention should still identify it
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not trigger onNewMention when message event has no bot mention", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      const patternHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+      chat.onNewMessage(HELLO_REGEX, patternHandler);
+
+      const message = createTestMessage("msg-1", "hello everyone");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(patternHandler).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("should match message patterns", async () => {
@@ -964,6 +1157,64 @@ describe("Chat", () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         "Cannot open modal: slack does not support modals"
       );
+    });
+
+    it("should open modal when action has empty threadId (no thread context)", async () => {
+      let capturedEvent: ActionEvent | undefined;
+      const handler = vi.fn().mockImplementation(async (event: ActionEvent) => {
+        capturedEvent = event;
+      });
+      chat.onAction(handler);
+
+      // Home tab actions have no thread context → empty threadId
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "home_select_scope",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "",
+        threadId: "",
+        adapter: mockAdapter,
+        raw: {},
+        triggerId: "trigger-456",
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+      // thread should be null for empty threadId
+      expect(capturedEvent?.thread).toBeNull();
+      expect(capturedEvent?.openModal).toBeDefined();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "select_scope_form",
+        title: "Select a team",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(mockAdapter.openModal).toHaveBeenCalledWith(
+        "trigger-456",
+        modal,
+        expect.any(String)
+      );
+      expect(result).toEqual({ viewId: "V123" });
+
+      // Modal context should store undefined thread
+      const calls = (mockState.set as ReturnType<typeof vi.fn>).mock.calls;
+      const modalContextCall = calls.find((c: unknown[]) =>
+        (c[0] as string).startsWith("modal-context:")
+      );
+      expect(modalContextCall).toBeDefined();
+      expect(modalContextCall?.[1]).toMatchObject({
+        thread: undefined,
+      });
     });
   });
 

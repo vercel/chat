@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@chat-adapter/discord": "workspace:*",
@@ -20,6 +20,7 @@
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
+    "@chat-adapter/telegram": "workspace:*",
     "chat": "workspace:*",
     "discord-api-types": "^0.37.119"
   }

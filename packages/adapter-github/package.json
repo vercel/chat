@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.14.0",
+  "version": "4.17.0",
   "description": "GitHub adapter for chat - PR comment threads",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,15 +25,15 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@octokit/auth-app": "^7.1.1",
-    "@octokit/rest": "^21.0.2",
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/rest": "^22.0.1",
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.18"
   },
   "repository": {
     "type": "git",

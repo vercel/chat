@@ -73,6 +73,9 @@ function createTempProject(codeBlocks: string[]): string {
         "@chat-adapter/discord": [
           join(import.meta.dirname, "../../adapter-discord/src/index.ts"),
         ],
+        "@chat-adapter/telegram": [
+          join(import.meta.dirname, "../../adapter-telegram/src/index.ts"),
+        ],
         "@chat-adapter/github": [
           join(import.meta.dirname, "../../adapter-github/src/index.ts"),
         ],
@@ -262,6 +265,7 @@ describe("Package README code examples", () => {
               "@chat-adapter/teams",
               "@chat-adapter/gchat",
               "@chat-adapter/discord",
+              "@chat-adapter/telegram",
               "@chat-adapter/github",
               "@chat-adapter/linear",
               "@chat-adapter/state-redis",

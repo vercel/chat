@@ -4,7 +4,11 @@
 
 import { createHmac } from "node:crypto";
 import type { SlackAdapter } from "@chat-adapter/slack";
+import type { Mock } from "vitest";
 import { vi } from "vitest";
+
+// biome-ignore lint/suspicious/noExplicitAny: test mock types
+type MockFn = Mock<(...args: any[]) => any>;
 
 export const SLACK_SIGNING_SECRET = "test-signing-secret";
 export const SLACK_BOT_TOKEN = "xoxb-test-token";
@@ -96,10 +100,39 @@ export function createSlackWebhookRequest(
   });
 }
 
+interface MockSlackClientShape {
+  assistant: {
+    threads: {
+      setSuggestedPrompts: MockFn;
+      setStatus: MockFn;
+      setTitle: MockFn;
+    };
+  };
+  auth: { test: MockFn };
+  chat: {
+    postMessage: MockFn;
+    postEphemeral: MockFn;
+    update: MockFn;
+    delete: MockFn;
+  };
+  chatStream: MockFn;
+  clearMocks: () => void;
+  conversations: {
+    info: MockFn;
+    history: MockFn;
+    replies: MockFn;
+    open: MockFn;
+  };
+  files: { uploadV2: MockFn };
+  reactions: { add: MockFn; remove: MockFn };
+  users: { info: MockFn };
+  views: { publish: MockFn; open: MockFn; update: MockFn };
+}
+
 /**
  * Create mock Slack Web API client
  */
-export function createMockSlackClient() {
+export function createMockSlackClient(): MockSlackClientShape {
   const client = {
     auth: {
       test: vi.fn().mockResolvedValue({
