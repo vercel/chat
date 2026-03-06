@@ -12,7 +12,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
-import { isPostableObject } from "./plan";
+import { isPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type {
   Adapter,
@@ -389,10 +389,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
         threadId: raw.threadId ?? this.id,
       });
     } else {
+      // Adapter doesn't support this object type - post fallback text
+      const fallbackText = obj.getFallbackText();
+      const raw = await this.adapter.postMessage(this.id, fallbackText);
       obj.onPosted({
         adapter,
-        messageId: `${obj.kind}_${crypto.randomUUID()}`,
-        threadId: this.id,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
       });
     }
   }

@@ -1,17 +1,76 @@
+import type { Root } from "mdast";
 import { parseMarkdown, toPlainText } from "./markdown";
-import type {
-  Adapter,
-  AddTaskOptions,
-  CompletePlanOptions,
-  PlanContent,
-  PlanModel,
-  PlanModelTask,
-  PlanTask,
-  PostableObject,
-  PostableObjectContext,
-  StartPlanOptions,
-  UpdateTaskInput,
-} from "./types";
+import {
+  isPostableObject,
+  POSTABLE_OBJECT,
+  type PostableObject,
+  type PostableObjectContext,
+} from "./postable-object";
+import type { Adapter } from "./types";
+
+// Re-export from postable-object for backwards compatibility
+export { isPostableObject };
+export type { PostableObject, PostableObjectContext };
+
+// =============================================================================
+// Plan Types (moved from types.ts per review feedback)
+// =============================================================================
+
+export type PlanTaskStatus = "pending" | "in_progress" | "complete" | "error";
+
+export interface PlanTask {
+  id: string;
+  status: PlanTaskStatus;
+  title: string;
+}
+
+export interface PlanModel {
+  tasks: PlanModelTask[];
+  title: string;
+}
+
+export interface PlanModelTask {
+  details?: PlanContent;
+  id: string;
+  output?: PlanContent;
+  status: PlanTaskStatus;
+  title: string;
+}
+
+export type PlanContent =
+  | string
+  | string[]
+  | { markdown: string }
+  | { ast: Root };
+
+export interface StartPlanOptions {
+  /** Initial plan title and first task title */
+  initialMessage: PlanContent;
+}
+
+export interface AddTaskOptions {
+  /** Task details/substeps. */
+  children?: PlanContent;
+  title: PlanContent;
+}
+
+export type UpdateTaskInput =
+  | PlanContent
+  | {
+      /** Task output/results. */
+      output?: PlanContent;
+      /** Optional status override. */
+      status?: PlanTaskStatus;
+    };
+
+export interface CompletePlanOptions {
+  /** Final plan title shown when completed */
+  completeMessage: PlanContent;
+}
+
+// =============================================================================
+// Plan Implementation
+// =============================================================================
 
 /**
  * Convert PlanContent to plain text for titles/labels.
@@ -33,20 +92,6 @@ function contentToPlainText(content: PlanContent | undefined): string {
     return toPlainText(content.ast);
   }
   return "";
-}
-
-/** Symbol identifying Plan objects */
-const POSTABLE_OBJECT = Symbol.for("chat.postable");
-
-/**
- * Type guard to check if a value is a PostableObject.
- */
-export function isPostableObject(value: unknown): value is PostableObject {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as PostableObject).$$typeof === POSTABLE_OBJECT
-  );
 }
 
 interface BoundState {
@@ -71,7 +116,7 @@ interface BoundState {
  * await plan.complete({ completeMessage: "Done!" });
  * ```
  */
-export class Plan implements PostableObject {
+export class Plan implements PostableObject<PlanModel> {
   readonly $$typeof = POSTABLE_OBJECT;
   readonly kind = "plan";
 
@@ -91,8 +136,26 @@ export class Plan implements PostableObject {
   isSupported(adapter: Adapter): boolean {
     return !!adapter.postObject && !!adapter.editObject;
   }
+
   getPostData(): PlanModel {
     return this._model;
+  }
+
+  getFallbackText(): string {
+    const lines: string[] = [];
+    lines.push(`📋 ${this._model.title || "Plan"}`);
+    for (const task of this._model.tasks) {
+      const statusIcon =
+        task.status === "complete"
+          ? "✅"
+          : task.status === "in_progress"
+            ? "🔄"
+            : task.status === "error"
+              ? "❌"
+              : "⬜";
+      lines.push(`${statusIcon} ${task.title}`);
+    }
+    return lines.join("\n");
   }
 
   onPosted(context: PostableObjectContext): void {
