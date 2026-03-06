@@ -158,12 +158,19 @@ export class WhatsAppAdapter
         // Process incoming messages
         if (value.messages) {
           for (const message of value.messages) {
-            this.handleInboundMessage(
-              message,
-              value.contacts?.[0],
-              value.metadata.phone_number_id,
-              options
-            );
+            try {
+              this.handleInboundMessage(
+                message,
+                value.contacts?.[0],
+                value.metadata.phone_number_id,
+                options
+              );
+            } catch (error) {
+              this.logger.error("Failed to handle inbound message", {
+                messageId: message.id,
+                error,
+              });
+            }
           }
         }
       }
