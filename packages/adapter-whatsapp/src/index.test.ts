@@ -413,6 +413,30 @@ describe("parseMessage - media attachments", () => {
     expect(message.attachments[0].name).toBe("Location");
   });
 
+  it("should create a voice message attachment as audio type", () => {
+    const adapter = createTestAdapter();
+    const raw = {
+      message: {
+        id: "wamid.VOC001",
+        from: "15551234567",
+        timestamp: "1700000650",
+        type: "voice" as const,
+        voice: {
+          id: "media-voc-303",
+          mime_type: "audio/ogg; codecs=opus",
+          sha256: "pqr",
+        },
+      },
+      phoneNumberId: "123456789",
+    };
+    const message = adapter.parseMessage(raw);
+    expect(message.text).toBe("[Voice message]");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.attachments[0].type).toBe("audio");
+    expect(message.attachments[0].mimeType).toBe("audio/ogg; codecs=opus");
+    expect(message.attachments[0].name).toBe("voice");
+  });
+
   it("should have no attachments for plain text messages", () => {
     const adapter = createTestAdapter();
     const raw = {

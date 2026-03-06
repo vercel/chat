@@ -10,6 +10,10 @@ import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
+import {
+  createWhatsAppAdapter,
+  type WhatsAppAdapter,
+} from "@chat-adapter/whatsapp";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -23,6 +27,7 @@ export interface Adapters {
   linear?: LinearAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
+  whatsapp?: WhatsAppAdapter;
 }
 
 // Methods to record for each adapter (outgoing API calls)
@@ -79,6 +84,13 @@ const LINEAR_METHODS = [
   "editMessage",
   "deleteMessage",
   "addReaction",
+  "fetchMessages",
+];
+const WHATSAPP_METHODS = [
+  "postMessage",
+  "addReaction",
+  "removeReaction",
+  "openDM",
   "fetchMessages",
 ];
 
@@ -185,6 +197,20 @@ export function buildAdapters(): Adapters {
         "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
       );
     }
+  }
+
+  // WhatsApp adapter (optional) - env vars: WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+  if (
+    process.env.WHATSAPP_ACCESS_TOKEN &&
+    process.env.WHATSAPP_PHONE_NUMBER_ID
+  ) {
+    adapters.whatsapp = withRecording(
+      createWhatsAppAdapter({
+        logger: logger.child("whatsapp"),
+      }),
+      "whatsapp",
+      WHATSAPP_METHODS
+    );
   }
 
   return adapters;

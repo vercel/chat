@@ -1,6 +1,12 @@
 import type { CardElement } from "chat";
 import { describe, expect, it } from "vitest";
-import { cardToPlainText, cardToWhatsApp, cardToWhatsAppText } from "./cards";
+import {
+  cardToPlainText,
+  cardToWhatsApp,
+  cardToWhatsAppText,
+  decodeWhatsAppCallbackData,
+  encodeWhatsAppCallbackData,
+} from "./cards";
 
 describe("cardToWhatsAppText", () => {
   it("should render a simple card with title", () => {
@@ -197,8 +203,12 @@ describe("cardToWhatsApp", () => {
       expect("buttons" in result.interactive.action).toBe(true);
       if ("buttons" in result.interactive.action) {
         expect(result.interactive.action.buttons).toHaveLength(2);
-        expect(result.interactive.action.buttons[0].reply.id).toBe("btn_yes");
-        expect(result.interactive.action.buttons[1].reply.id).toBe("btn_no");
+        expect(result.interactive.action.buttons[0].reply.id).toBe(
+          encodeWhatsAppCallbackData("btn_yes", undefined)
+        );
+        expect(result.interactive.action.buttons[1].reply.id).toBe(
+          encodeWhatsAppCallbackData("btn_no", undefined)
+        );
       }
     }
   });
@@ -303,5 +313,51 @@ describe("cardToPlainText", () => {
     expect(result).toContain("World");
     expect(result).toContain("Some content");
     expect(result).toContain("Key: Value");
+  });
+});
+
+describe("encodeWhatsAppCallbackData", () => {
+  it("should encode actionId only", () => {
+    const result = encodeWhatsAppCallbackData("my_action");
+    expect(result).toBe('chat:{"a":"my_action"}');
+  });
+
+  it("should encode actionId and value", () => {
+    const result = encodeWhatsAppCallbackData("my_action", "some_value");
+    expect(result).toBe('chat:{"a":"my_action","v":"some_value"}');
+  });
+});
+
+describe("decodeWhatsAppCallbackData", () => {
+  it("should decode encoded callback data", () => {
+    const encoded = encodeWhatsAppCallbackData("my_action", "some_value");
+    const result = decodeWhatsAppCallbackData(encoded);
+    expect(result.actionId).toBe("my_action");
+    expect(result.value).toBe("some_value");
+  });
+
+  it("should decode actionId without value", () => {
+    const encoded = encodeWhatsAppCallbackData("my_action");
+    const result = decodeWhatsAppCallbackData(encoded);
+    expect(result.actionId).toBe("my_action");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("should handle non-prefixed data as passthrough", () => {
+    const result = decodeWhatsAppCallbackData("raw_id");
+    expect(result.actionId).toBe("raw_id");
+    expect(result.value).toBe("raw_id");
+  });
+
+  it("should handle undefined data", () => {
+    const result = decodeWhatsAppCallbackData(undefined);
+    expect(result.actionId).toBe("whatsapp_callback");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("should handle malformed JSON after prefix", () => {
+    const result = decodeWhatsAppCallbackData("chat:not-json");
+    expect(result.actionId).toBe("chat:not-json");
+    expect(result.value).toBe("chat:not-json");
   });
 });

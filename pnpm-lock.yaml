@@ -192,6 +192,9 @@ importers:
       '@chat-adapter/teams':
         specifier: workspace:*
         version: link:../../packages/adapter-teams
+      '@chat-adapter/whatsapp':
+        specifier: workspace:*
+        version: link:../../packages/adapter-whatsapp
       ai:
         specifier: ^6.0.5
         version: 6.0.6(zod@4.3.3)
