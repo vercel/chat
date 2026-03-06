@@ -81,7 +81,10 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    */
   private fromWhatsAppFormat(text: string): string {
     // Convert *bold* to **bold** (single * not preceded/followed by *, no newlines)
-    let result = text.replace(/(?<!\*)\*(?!\*)([^\n*]+?)(?<!\*)\*(?!\*)/g, "**$1**");
+    let result = text.replace(
+      /(?<!\*)\*(?!\*)([^\n*]+?)(?<!\*)\*(?!\*)/g,
+      "**$1**"
+    );
     // Convert ~strike~ to ~~strike~~ (single ~ not preceded/followed by ~, no newlines)
     result = result.replace(/(?<!~)~(?!~)([^\n~]+?)(?<!~)~(?!~)/g, "~~$1~~");
     return result;
