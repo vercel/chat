@@ -23,6 +23,7 @@ import type {
   WhatsAppAdapterConfig,
   WhatsAppContact,
   WhatsAppInboundMessage,
+  WhatsAppInteractiveMessage,
   WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppSendResponse,
@@ -737,7 +738,7 @@ export class WhatsAppAdapter
   private async sendInteractiveMessage(
     threadId: string,
     to: string,
-    interactive: object
+    interactive: WhatsAppInteractiveMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
