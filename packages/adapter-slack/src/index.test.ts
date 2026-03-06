@@ -4,10 +4,17 @@
 
 import { createHmac, randomBytes } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
-import type { ChatInstance, Logger, StateAdapter } from "chat";
+import type {
+  AdapterPostableMessage,
+  ChatInstance,
+  Logger,
+  StateAdapter,
+} from "chat";
 import { describe, expect, it, vi } from "vitest";
 import type { SlackInstallation } from "./index";
 import { createSlackAdapter, SlackAdapter } from "./index";
+
+const FILE_ID_PATTERN = /^file-/;
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -1954,6 +1961,31 @@ describe("postMessage", () => {
         unfurl_media: false,
       })
     );
+  });
+
+  it("returns early for file-only post with empty markdown", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "files.uploadV2",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    const chatPostMessage = vi.fn();
+    mockClientMethod(adapter, "chat.postMessage", chatPostMessage);
+
+    const result = await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown: "",
+      files: [{ data: Buffer.from("hello"), filename: "test.txt" }],
+    } as AdapterPostableMessage);
+
+    expect(result.id).toMatch(FILE_ID_PATTERN);
+    expect(chatPostMessage).not.toHaveBeenCalled();
   });
 });
 

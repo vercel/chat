@@ -1661,7 +1661,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           typeof message === "string" ||
           (typeof message === "object" &&
             message !== null &&
-            ("raw" in message || "markdown" in message || "ast" in message));
+            (("raw" in message && message.raw) ||
+              ("markdown" in message && message.markdown) ||
+              ("ast" in message && message.ast)));
         const card = extractCard(message);
 
         if (!(hasText || card)) {
