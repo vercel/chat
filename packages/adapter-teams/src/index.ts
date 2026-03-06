@@ -263,11 +263,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       }
 
       if (appTenantId) {
-        graphCredential = new ClientCertificateCredential(
-          appTenantId,
-          appId,
-          { certificate: certificatePrivateKey }
-        );
+        graphCredential = new ClientCertificateCredential(appTenantId, appId, {
+          certificate: certificatePrivateKey,
+        });
       }
     } else if (config.federated) {
       credentialsFactory = new FederatedServiceClientCredentialsFactory(
@@ -291,9 +289,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const auth = new ConfigurationBotFrameworkAuthentication(
       {
         ...botFrameworkConfig,
-        ...(appPassword
-          ? { MicrosoftAppPassword: appPassword }
-          : {}),
+        ...(appPassword ? { MicrosoftAppPassword: appPassword } : {}),
       },
       credentialsFactory
     );

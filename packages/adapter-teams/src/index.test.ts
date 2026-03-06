@@ -260,7 +260,7 @@ describe("TeamsAdapter", () => {
 
     it("should throw when appPassword is missing and env var not set", () => {
       expect(() => new TeamsAdapter({ appId: "test" })).toThrow(
-        "appPassword is required"
+        "One of appPassword, certificate, or federated must be provided"
       );
     });
 
