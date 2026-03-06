@@ -268,6 +268,7 @@ describe("Package README code examples", () => {
               "@chat-adapter/telegram",
               "@chat-adapter/github",
               "@chat-adapter/linear",
+              "@chat-adapter/whatsapp",
               "@chat-adapter/state-redis",
               "@chat-adapter/state-ioredis",
               "@chat-adapter/state-memory",
