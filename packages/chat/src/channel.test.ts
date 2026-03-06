@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, type vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import {
   createMockAdapter,
@@ -448,6 +448,61 @@ describe("ChannelImpl", () => {
     });
   });
 
+  describe("post with different message formats", () => {
+    let channel: ChannelImpl;
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+
+      channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+    });
+
+    it("should handle raw message format", async () => {
+      const result = await channel.post({ raw: "raw text message" });
+
+      expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
+        "slack:C123",
+        { raw: "raw text message" }
+      );
+      expect(result.text).toBe("raw text message");
+    });
+
+    it("should handle markdown message format", async () => {
+      const result = await channel.post({ markdown: "**bold** text" });
+
+      expect(result.text).toBe("bold text");
+    });
+
+    it("should handle AST message format", async () => {
+      const {
+        root: rootFn,
+        paragraph: paragraphFn,
+        text: textFn,
+      } = await import("./markdown");
+      const ast = rootFn([paragraphFn([textFn("from ast")])]);
+      const result = await channel.post({ ast });
+
+      expect(result.text).toBe("from ast");
+    });
+
+    it("should handle raw message with attachments", async () => {
+      const result = await channel.post({
+        raw: "text with attachment",
+        attachments: [{ type: "image", url: "https://example.com/img.png" }],
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0].type).toBe("image");
+    });
+  });
+
   describe("serialization", () => {
     it("should serialize to JSON", () => {
       const mockAdapter = createMockAdapter();
@@ -564,6 +619,304 @@ describe("thread.channel", () => {
     });
 
     expect(thread.channel.isDM).toBe(true);
+  });
+});
+
+describe("ChannelImpl.postEphemeral", () => {
+  let channel: ChannelImpl;
+  let mockAdapter: Adapter;
+  let mockState: ReturnType<typeof createMockState>;
+
+  beforeEach(() => {
+    mockAdapter = createMockAdapter();
+    mockState = createMockState();
+
+    channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+  });
+
+  it("should use adapter postEphemeral when available", async () => {
+    const mockPostEphemeral = vi.fn().mockResolvedValue({
+      id: "eph-1",
+      threadId: "slack:C123",
+      usedFallback: false,
+      raw: {},
+    });
+    mockAdapter.postEphemeral = mockPostEphemeral;
+
+    const result = await channel.postEphemeral("U456", "Secret!", {
+      fallbackToDM: true,
+    });
+
+    expect(mockPostEphemeral).toHaveBeenCalledWith(
+      "slack:C123",
+      "U456",
+      "Secret!"
+    );
+    expect(result).toEqual({
+      id: "eph-1",
+      threadId: "slack:C123",
+      usedFallback: false,
+      raw: {},
+    });
+  });
+
+  it("should extract userId from Author object", async () => {
+    const mockPostEphemeral = vi.fn().mockResolvedValue({
+      id: "eph-1",
+      threadId: "slack:C123",
+      usedFallback: false,
+      raw: {},
+    });
+    mockAdapter.postEphemeral = mockPostEphemeral;
+
+    const author = {
+      userId: "U789",
+      userName: "testuser",
+      fullName: "Test User",
+      isBot: false as const,
+      isMe: false as const,
+    };
+
+    await channel.postEphemeral(author, "Hello!", { fallbackToDM: false });
+
+    expect(mockPostEphemeral).toHaveBeenCalledWith(
+      "slack:C123",
+      "U789",
+      "Hello!"
+    );
+  });
+
+  it("should return null when adapter has no postEphemeral and fallbackToDM is false", async () => {
+    mockAdapter.postEphemeral = undefined;
+
+    const result = await channel.postEphemeral("U456", "Secret!", {
+      fallbackToDM: false,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("should fallback to DM when adapter has no postEphemeral and fallbackToDM is true", async () => {
+    mockAdapter.postEphemeral = undefined;
+
+    const result = await channel.postEphemeral("U456", "Secret!", {
+      fallbackToDM: true,
+    });
+
+    expect(mockAdapter.openDM).toHaveBeenCalledWith("U456");
+    expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+      "slack:DU456:",
+      "Secret!"
+    );
+    expect(result).toEqual({
+      id: "msg-1",
+      threadId: "slack:DU456:",
+      usedFallback: true,
+      raw: {},
+    });
+  });
+
+  it("should return null when no postEphemeral, no openDM, and fallbackToDM is true", async () => {
+    mockAdapter.postEphemeral = undefined;
+    mockAdapter.openDM = undefined;
+
+    const result = await channel.postEphemeral("U456", "Secret!", {
+      fallbackToDM: true,
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("ChannelImpl.startTyping", () => {
+  it("should call adapter.startTyping with channel id", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    await channel.startTyping();
+
+    expect(mockAdapter.startTyping).toHaveBeenCalledWith(
+      "slack:C123",
+      undefined
+    );
+  });
+
+  it("should pass status string to adapter.startTyping", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    await channel.startTyping("thinking...");
+
+    expect(mockAdapter.startTyping).toHaveBeenCalledWith(
+      "slack:C123",
+      "thinking..."
+    );
+  });
+});
+
+describe("ChannelImpl.mentionUser", () => {
+  it("should return formatted mention string", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    expect(channel.mentionUser("U456")).toBe("<@U456>");
+  });
+
+  it("should handle different user ID formats", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    expect(channel.mentionUser("UABC123DEF")).toBe("<@UABC123DEF>");
+    expect(channel.mentionUser("bot-user")).toBe("<@bot-user>");
+  });
+});
+
+describe("ChannelImpl.post error cases", () => {
+  it("should handle postChannelMessage returning a threadId override", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+    (
+      mockAdapter.postChannelMessage as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
+      id: "msg-2",
+      threadId: "slack:C123:new-thread",
+      raw: {},
+    });
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+
+    expect(result.threadId).toBe("slack:C123:new-thread");
+  });
+
+  it("should return a SentMessage with edit/delete capabilities", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+
+    expect(typeof result.edit).toBe("function");
+    expect(typeof result.delete).toBe("function");
+    expect(typeof result.addReaction).toBe("function");
+    expect(typeof result.removeReaction).toBe("function");
+  });
+
+  it("should allow editing a sent message", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+    await result.edit("Updated!");
+
+    expect(mockAdapter.editMessage).toHaveBeenCalledWith(
+      "slack:C123",
+      "msg-1",
+      "Updated!"
+    );
+  });
+
+  it("should allow deleting a sent message", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+    await result.delete();
+
+    expect(mockAdapter.deleteMessage).toHaveBeenCalledWith(
+      "slack:C123",
+      "msg-1"
+    );
+  });
+
+  it("should allow adding a reaction to a sent message", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+    await result.addReaction("thumbsup");
+
+    expect(mockAdapter.addReaction).toHaveBeenCalledWith(
+      "slack:C123",
+      "msg-1",
+      "thumbsup"
+    );
+  });
+
+  it("should allow removing a reaction from a sent message", async () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const channel = new ChannelImpl({
+      id: "slack:C123",
+      adapter: mockAdapter,
+      stateAdapter: mockState,
+    });
+
+    const result = await channel.post("Hello!");
+    await result.removeReaction("thumbsup");
+
+    expect(mockAdapter.removeReaction).toHaveBeenCalledWith(
+      "slack:C123",
+      "msg-1",
+      "thumbsup"
+    );
   });
 });
 

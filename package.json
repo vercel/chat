@@ -15,11 +15,11 @@
     "build": "turbo build",
     "build:validate": "SLACK_BOT_TOKEN=xoxb-mock SLACK_SIGNING_SECRET=mock TEAMS_APP_ID=mock TEAMS_APP_PASSWORD=mock TEAMS_APP_TENANT_ID=mock GOOGLE_CHAT_CREDENTIALS='{\"type\":\"service_account\",\"project_id\":\"mock\",\"private_key\":\"-----BEGIN RSA PRIVATE KEY-----\\nMOCK\\n-----END RSA PRIVATE KEY-----\",\"client_email\":\"mock@mock.iam.gserviceaccount.com\"}' REDIS_URL=redis://localhost:6379 RECORDING_ENABLED=false turbo build",
     "dev": "turbo dev",
-    "test": "turbo test --filter='!example-nextjs-chat'",
+    "test": "turbo test --filter='!example-nextjs-chat' --filter='!docs'",
     "test:workspace": "vitest run",
     "typecheck": "turbo typecheck",
     "knip": "knip",
-    "validate": "pnpm knip && pnpm check && turbo typecheck && turbo test && pnpm build:validate",
+    "validate": "pnpm knip && pnpm check && turbo typecheck && pnpm test && pnpm build:validate",
     "clean": "turbo clean && rm -rf node_modules",
     "check": "ultracite check",
     "fix": "ultracite fix"

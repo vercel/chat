@@ -7,9 +7,12 @@ prerequisites:
 related:
   - /docs/modals
   - /docs/adapters/slack
+  - /docs/adapters/discord
 ---
 
 Slash commands let users invoke your bot with `/command` syntax. Register handlers with `onSlashCommand` to respond.
+
+Slash commands are supported on [Slack](/docs/adapters/slack) and [Discord](/docs/adapters/discord).
 
 ## Handle a specific command
 
@@ -108,3 +111,23 @@ bot.onModalSubmit("feedback_form", async (event) => {
   }
 });
 ```
+
+## Discord
+
+Discord slash commands are received via [HTTP Interactions](/docs/adapters/discord#architecture-http-interactions-vs-gateway) — no Gateway connection is needed. The adapter automatically sends a deferred response to Discord, then resolves it when your handler calls `event.channel.post()`.
+
+### Subcommands
+
+Discord supports subcommand groups and subcommands. The adapter flattens these into the `event.command` path:
+
+| Discord command | `event.command` | `event.text` |
+|-----------------|-----------------|--------------|
+| `/status` | `/status` | `""` |
+| `/project create --name="Acme"` | `/project create` | `Acme` |
+| `/project issue list --status="open"` | `/project issue list` | `open` |
+
+For full option details (names, types), use `event.raw` to access the original Discord interaction payload.
+
+### Registering commands with Discord
+
+You need to register slash commands with the [Discord API](https://discord.com/developers/docs/interactions/application-commands) before they appear in the client. The Chat SDK handles incoming commands but does not register them for you.

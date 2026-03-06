@@ -1,4 +1,3 @@
-// @ts-nocheck - Uses vitest's custom JSX runtime config, not TypeScript's
 /**
  * Tests for the custom chat-sdk JSX runtime using actual JSX syntax.
  *

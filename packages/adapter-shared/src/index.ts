@@ -22,9 +22,11 @@ export {
   BUTTON_STYLE_MAPPINGS,
   cardToFallbackText,
   createEmojiConverter,
+  escapeTableCell,
   type FallbackTextOptions,
   mapButtonStyle,
   type PlatformName,
+  renderGfmTable,
 } from "./card-utils";
 
 // Standardized adapter errors

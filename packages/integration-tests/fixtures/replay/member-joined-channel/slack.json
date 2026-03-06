@@ -1,0 +1,66 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U00FAKEBOT01",
+  "memberJoinedChannel": {
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "enterprise_id": "E00FAKEENT01",
+    "context_team_id": "T00FAKE00AA",
+    "context_enterprise_id": "E00FAKEENT01",
+    "api_app_id": "A00FAKEAPP01",
+    "event": {
+      "type": "member_joined_channel",
+      "user": "U00FAKEBOT01",
+      "channel": "C00FAKECHAN1",
+      "channel_type": "C",
+      "team": "T00FAKE00AA",
+      "inviter": "U00FAKEUSER1",
+      "enterprise": "E00FAKEENT01",
+      "event_ts": "1772518352.000200"
+    },
+    "type": "event_callback",
+    "event_id": "Ev00FAKE0001",
+    "event_time": 1772518352,
+    "authorizations": [
+      {
+        "enterprise_id": "E00FAKEENT01",
+        "team_id": "T00FAKE00AA",
+        "user_id": "U00FAKEBOT01",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "4-eyJldCI6Im1lbWJlcl9qb2luZWRfY2hhbm5lbCJ9"
+  },
+  "mention": {
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "enterprise_id": "E00FAKEENT01",
+    "api_app_id": "A00FAKEAPP01",
+    "event": {
+      "type": "app_mention",
+      "user": "U00FAKEUSER1",
+      "ts": "1772518347.953719",
+      "client_msg_id": "9498c50c-1ace-4b37-8b0d-5bfecb45b483",
+      "text": "<@U00FAKEBOT01> test",
+      "team": "T00FAKE00AA",
+      "channel": "C00FAKECHAN1",
+      "event_ts": "1772518347.953719"
+    },
+    "type": "event_callback",
+    "event_id": "Ev00FAKE0002",
+    "event_time": 1772518347,
+    "authorizations": [
+      {
+        "enterprise_id": "E00FAKEENT01",
+        "team_id": "T00FAKE00AA",
+        "user_id": "U00FAKEBOT01",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "4-eyJldCI6ImFwcF9tZW50aW9uIn0"
+  }
+}

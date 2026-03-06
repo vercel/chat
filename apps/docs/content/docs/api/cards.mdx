@@ -7,7 +7,7 @@ type: reference
 Card components render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Embeds on Discord, and Google Chat Cards.
 
 ```typescript
-import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton } from "chat";
+import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton, Table } from "chat";
 ```
 
 All components support both function-call and JSX syntax. Function-call syntax is recommended for better type inference.
@@ -216,6 +216,39 @@ Image({ url: "https://example.com/screenshot.png", alt: "Screenshot" })
   }}
 />
 
+## Table
+
+Structured data display with column headers and rows.
+
+```typescript
+Table({
+  headers: ["Name", "Age", "Role"],
+  rows: [
+    ["Alice", "30", "Engineer"],
+    ["Bob", "25", "Designer"],
+  ],
+})
+```
+
+<TypeTable
+  type={{
+    headers: {
+      description: 'Column header labels.',
+      type: 'string[]',
+    },
+    rows: {
+      description: 'Data rows (each row is an array of cell strings).',
+      type: 'string[][]',
+    },
+    align: {
+      description: 'Column alignment.',
+      type: '"left" | "center" | "right"[]',
+    },
+  }}
+/>
+
+On platforms with native table support (Teams, GitHub, Linear), tables render as formatted tables. On other platforms (Slack, Google Chat, Discord, Telegram), tables render as padded ASCII text.
+
 ## Divider
 
 A visual separator between sections.
@@ -237,3 +270,4 @@ The `children` array in `Card` and `Section` accepts these element types:
 | `ActionsElement` | `Actions()` |
 | `SectionElement` | `Section()` |
 | `FieldsElement` | `Fields()` |
+| `TableElement` | `Table()` |

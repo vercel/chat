@@ -63,6 +63,47 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("2.");
     });
 
+    it("should indent nested unordered lists", () => {
+      const result = converter.fromMarkdown(
+        "- parent\n  - child 1\n  - child 2"
+      );
+      expect(result).toBe("- parent\n  - child 1\n  - child 2");
+    });
+
+    it("should indent nested ordered lists", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   1. sub-first\n   2. sub-second\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  1. sub-first");
+      expect(result).toContain("  2. sub-second");
+      expect(result).toContain("2. second");
+    });
+
+    it("should handle deeply nested lists", () => {
+      const result = converter.fromMarkdown(
+        "- level 1\n  - level 2\n    - level 3"
+      );
+      expect(result).toContain("- level 1");
+      expect(result).toContain("  - level 2");
+      expect(result).toContain("    - level 3");
+    });
+
+    it("should keep sibling items at the same indent level", () => {
+      const result = converter.fromMarkdown("- item 1\n- item 2\n- item 3");
+      expect(result).toBe("- item 1\n- item 2\n- item 3");
+    });
+
+    it("should handle mixed ordered and unordered nesting", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   - sub a\n   - sub b\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  - sub a");
+      expect(result).toContain("  - sub b");
+      expect(result).toContain("2. second");
+    });
+
     it("should convert @mentions to <at>mention</at>", () => {
       const ast = converter.toAst("Hello @someone");
       const result = converter.fromAst(ast);
@@ -199,6 +240,23 @@ describe("TeamsFormatConverter", () => {
     it("should handle inline code", () => {
       const result = converter.extractPlainText("Use `const x = 1`");
       expect(result).toContain("const x = 1");
+    });
+  });
+
+  describe("table rendering", () => {
+    it("should render markdown tables as GFM tables", () => {
+      const result = converter.fromMarkdown(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      expect(result).toContain("| Name | Age |");
+      expect(result).toContain("| --- | --- |");
+      expect(result).toContain("| Alice | 30 |");
+    });
+
+    it("should render tables with pipe syntax", () => {
+      const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+      expect(result).toContain("|");
+      expect(result).not.toContain("```");
     });
   });
 });
