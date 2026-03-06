@@ -126,14 +126,4 @@ bot.onNewMention(async (thread) => {
 
 Each adapter auto-detects credentials from environment variables, so you only need to pass config when overriding defaults.
 
-You can use either factory functions or constructors directly — both resolve from env vars:
-
-```typescript
-// Factory function
-const slack = createSlackAdapter();
-
-// Constructor (equivalent)
-const slack = new SlackAdapter();
-```
-
 Each adapter creates a webhook handler accessible via `bot.webhooks.slack`, `bot.webhooks.teams`, etc.
