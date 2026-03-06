@@ -1131,26 +1131,55 @@ describe("ThreadImpl", () => {
       });
     });
 
-    it("should silently no-op when adapter does not support plans", async () => {
+    it("should post fallback text when adapter does not support plans", async () => {
       const plan = new Plan({ initialMessage: "Starting..." });
       await thread.post(plan);
+
+      // Should have posted fallback text via postMessage
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.stringContaining("Starting...")
+      );
 
       expect(plan.title).toBe("Starting...");
       expect(plan.tasks).toHaveLength(1);
       expect(plan.tasks[0].status).toBe("in_progress");
+      expect(plan.id).toBe("msg-1");
+    });
 
-      // Methods should return null (no-op)
+    it("should update via editMessage in fallback mode", async () => {
+      const plan = new Plan({ initialMessage: "Starting..." });
+      await thread.post(plan);
+
       const task = await plan.addTask({ title: "Task 1" });
-      expect(task).toBeNull();
+      expect(task).not.toBeNull();
+      expect(task?.title).toBe("Task 1");
 
-      const updated = await plan.updateTask("progress");
-      expect(updated).toBeNull();
+      // Should edit the message with updated fallback text
+      expect(mockAdapter.editMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        expect.stringContaining("Task 1")
+      );
+    });
 
-      const reset = await plan.reset({ initialMessage: "Reset" });
-      expect(reset).toBeNull();
+    it("should complete plan via editMessage in fallback mode", async () => {
+      const plan = new Plan({ initialMessage: "Starting..." });
+      await thread.post(plan);
 
-      // complete should not throw
-      await plan.complete({ completeMessage: "Done" });
+      await plan.addTask({ title: "Step 1" });
+      await plan.complete({ completeMessage: "All done!" });
+
+      expect(plan.title).toBe("All done!");
+      for (const task of plan.tasks) {
+        expect(task.status).toBe("complete");
+      }
+
+      // Last editMessage call should contain completed status icons
+      const lastCall = (
+        mockAdapter.editMessage as ReturnType<typeof vi.fn>
+      ).mock.calls.at(-1);
+      expect(lastCall?.[2]).toContain("✅");
     });
 
     it("should call adapter postObject when supported", async () => {

@@ -8,6 +8,7 @@ import type { CardJSXElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
+import type { PostableObject } from "./postable-object";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -855,83 +856,23 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
 // Postable Objects
 // =============================================================================
 
-/**
- * Context provided to a PostableObject after it has been posted.
- */
-export interface PostableObjectContext {
-  adapter: Adapter;
-  messageId: string;
-  threadId: string;
-}
-
-export interface PostableObject {
-  /** Symbol identifying this as a postable object */
-  readonly $$typeof: symbol;
-
-  /** Get the data to send to the adapter */
-  getPostData(): unknown;
-
-  /** Check if the adapter supports this object type */
-  isSupported(adapter: Adapter): boolean;
-
-  /** The kind of object - used by adapters to dispatch */
-  readonly kind: string;
-
-  /** Called after successful posting to bind the object to the thread */
-  onPosted(context: PostableObjectContext): void;
-}
-
-export type PlanTaskStatus = "pending" | "in_progress" | "complete" | "error";
-
-export interface PlanTask {
-  id: string;
-  status: PlanTaskStatus;
-  title: string;
-}
-
-export interface PlanModel {
-  tasks: PlanModelTask[];
-  title: string;
-}
-
-export interface PlanModelTask {
-  details?: PlanContent;
-  id: string;
-  output?: PlanContent;
-  status: PlanTaskStatus;
-  title: string;
-}
-
-export type PlanContent =
-  | string
-  | string[]
-  | { markdown: string }
-  | { ast: Root };
-
-export interface StartPlanOptions {
-  /** Initial plan title and first task title */
-  initialMessage: PlanContent;
-}
-
-export interface AddTaskOptions {
-  /** Task details/substeps. */
-  children?: PlanContent;
-  title: PlanContent;
-}
-
-export type UpdateTaskInput =
-  | PlanContent
-  | {
-      /** Task output/results. */
-      output?: PlanContent;
-      /** Optional status override. */
-      status?: PlanTaskStatus;
-    };
-
-export interface CompletePlanOptions {
-  /** Final plan title shown when completed */
-  completeMessage: PlanContent;
-}
+// Re-export Plan types from plan.ts for backwards compatibility
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+// Re-export PostableObject types from plan.ts for backwards compatibility
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
 
 export interface ThreadInfo {
   channelId: string;

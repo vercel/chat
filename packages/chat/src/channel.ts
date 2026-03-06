@@ -10,7 +10,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
-import { isPostableObject } from "./plan";
+import { isPostableObject } from "./postable-object";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -297,10 +297,15 @@ export class ChannelImpl<TState = Record<string, unknown>>
         threadId: raw.threadId ?? this.id,
       });
     } else {
+      // Adapter doesn't support this object type - post fallback text
+      const fallbackText = obj.getFallbackText();
+      const raw = this.adapter.postChannelMessage
+        ? await this.adapter.postChannelMessage(this.id, fallbackText)
+        : await this.adapter.postMessage(this.id, fallbackText);
       obj.onPosted({
         adapter,
-        messageId: `${obj.kind}_${crypto.randomUUID()}`,
-        threadId: this.id,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
       });
     }
   }

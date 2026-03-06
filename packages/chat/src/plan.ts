@@ -1,17 +1,71 @@
+import type { Root } from "mdast";
 import { parseMarkdown, toPlainText } from "./markdown";
-import type {
-  Adapter,
-  AddTaskOptions,
-  CompletePlanOptions,
-  PlanContent,
-  PlanModel,
-  PlanModelTask,
-  PlanTask,
-  PostableObject,
-  PostableObjectContext,
-  StartPlanOptions,
-  UpdateTaskInput,
-} from "./types";
+import {
+  POSTABLE_OBJECT,
+  type PostableObject,
+  type PostableObjectContext,
+} from "./postable-object";
+import type { Adapter } from "./types";
+
+// =============================================================================
+// Plan Types (moved from types.ts per review feedback)
+// =============================================================================
+
+export type PlanTaskStatus = "pending" | "in_progress" | "complete" | "error";
+
+export interface PlanTask {
+  id: string;
+  status: PlanTaskStatus;
+  title: string;
+}
+
+export interface PlanModel {
+  tasks: PlanModelTask[];
+  title: string;
+}
+
+export interface PlanModelTask {
+  details?: PlanContent;
+  id: string;
+  output?: PlanContent;
+  status: PlanTaskStatus;
+  title: string;
+}
+
+export type PlanContent =
+  | string
+  | string[]
+  | { markdown: string }
+  | { ast: Root };
+
+export interface StartPlanOptions {
+  /** Initial plan title and first task title */
+  initialMessage: PlanContent;
+}
+
+export interface AddTaskOptions {
+  /** Task details/substeps. */
+  children?: PlanContent;
+  title: PlanContent;
+}
+
+export type UpdateTaskInput =
+  | PlanContent
+  | {
+      /** Task output/results. */
+      output?: PlanContent;
+      /** Optional status override. */
+      status?: PlanTaskStatus;
+    };
+
+export interface CompletePlanOptions {
+  /** Final plan title shown when completed */
+  completeMessage: PlanContent;
+}
+
+// =============================================================================
+// Plan Implementation
+// =============================================================================
 
 /**
  * Convert PlanContent to plain text for titles/labels.
@@ -35,22 +89,9 @@ function contentToPlainText(content: PlanContent | undefined): string {
   return "";
 }
 
-/** Symbol identifying Plan objects */
-const POSTABLE_OBJECT = Symbol.for("chat.postable");
-
-/**
- * Type guard to check if a value is a PostableObject.
- */
-export function isPostableObject(value: unknown): value is PostableObject {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as PostableObject).$$typeof === POSTABLE_OBJECT
-  );
-}
-
 interface BoundState {
   adapter: Adapter;
+  fallback: boolean;
   messageId: string;
   threadId: string;
   updateChain: Promise<void>;
@@ -71,7 +112,7 @@ interface BoundState {
  * await plan.complete({ completeMessage: "Done!" });
  * ```
  */
-export class Plan implements PostableObject {
+export class Plan implements PostableObject<PlanModel> {
   readonly $$typeof = POSTABLE_OBJECT;
   readonly kind = "plan";
 
@@ -91,13 +132,30 @@ export class Plan implements PostableObject {
   isSupported(adapter: Adapter): boolean {
     return !!adapter.postObject && !!adapter.editObject;
   }
+
   getPostData(): PlanModel {
     return this._model;
+  }
+
+  getFallbackText(): string {
+    const lines: string[] = [];
+    lines.push(`📋 ${this._model.title || "Plan"}`);
+    for (const task of this._model.tasks) {
+      const statusIcons: Record<string, string> = {
+        complete: "✅",
+        in_progress: "🔄",
+        error: "❌",
+      };
+      const statusIcon = statusIcons[task.status] ?? "⬜";
+      lines.push(`${statusIcon} ${task.title}`);
+    }
+    return lines.join("\n");
   }
 
   onPosted(context: PostableObjectContext): void {
     this._bound = {
       adapter: context.adapter,
+      fallback: !this.isSupported(context.adapter),
       messageId: context.messageId,
       threadId: context.threadId,
       updateChain: Promise.resolve(),
@@ -218,26 +276,34 @@ export class Plan implements PostableObject {
   }
 
   private canMutate(): boolean {
-    return !!(this._bound && this.isSupported(this._bound.adapter));
+    return !!this._bound;
   }
 
   private enqueueEdit(): Promise<void> {
     if (!this._bound) {
       return Promise.resolve();
     }
-    const editObject = this._bound.adapter.editObject;
-    if (!editObject) {
-      return Promise.resolve();
-    }
     const bound = this._bound;
     const doEdit = async (): Promise<void> => {
-      await editObject.call(
-        bound.adapter,
-        bound.threadId,
-        bound.messageId,
-        this.kind,
-        this._model
-      );
+      if (bound.fallback) {
+        await bound.adapter.editMessage(
+          bound.threadId,
+          bound.messageId,
+          this.getFallbackText()
+        );
+      } else {
+        const editObject = bound.adapter.editObject;
+        if (!editObject) {
+          return;
+        }
+        await editObject.call(
+          bound.adapter,
+          bound.threadId,
+          bound.messageId,
+          this.kind,
+          this._model
+        );
+      }
     };
     const chained = bound.updateChain.then(doEdit, doEdit);
     bound.updateChain = chained.then(
