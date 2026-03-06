@@ -187,7 +187,6 @@ export interface WhatsAppInboundMessage {
   /** Unix timestamp string */
   timestamp: string;
   /** Message type */
-  /** Message type */
   type:
     | "text"
     | "image"
