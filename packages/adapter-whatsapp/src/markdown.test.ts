@@ -26,6 +26,14 @@ describe("WhatsAppFormatConverter", () => {
       expect(ast.type).toBe("root");
     });
 
+    it("should not merge bold spans across newlines", () => {
+      const ast = converter.toAst("*bold1*\nsome text\n*bold2*");
+      const result = converter.fromAst(ast);
+      // Each bold span should remain separate, not merge into one
+      expect(result).toContain("*bold1*");
+      expect(result).toContain("*bold2*");
+    });
+
     it("should parse code blocks", () => {
       const ast = converter.toAst("```\ncode\n```");
       expect(ast.type).toBe("root");

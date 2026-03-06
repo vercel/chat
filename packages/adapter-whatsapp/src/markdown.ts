@@ -80,10 +80,10 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * Careful not to convert _italic_ (which is the same in both formats).
    */
   private fromWhatsAppFormat(text: string): string {
-    // Convert *bold* to **bold** (single * not preceded/followed by *)
-    let result = text.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "**$1**");
-    // Convert ~strike~ to ~~strike~~ (single ~ not preceded/followed by ~)
-    result = result.replace(/(?<!~)~(?!~)(.+?)(?<!~)~(?!~)/g, "~~$1~~");
+    // Convert *bold* to **bold** (single * not preceded/followed by *, no newlines)
+    let result = text.replace(/(?<!\*)\*(?!\*)([^\n*]+?)(?<!\*)\*(?!\*)/g, "**$1**");
+    // Convert ~strike~ to ~~strike~~ (single ~ not preceded/followed by ~, no newlines)
+    result = result.replace(/(?<!~)~(?!~)([^\n~]+?)(?<!~)~(?!~)/g, "~~$1~~");
     return result;
   }
 }
