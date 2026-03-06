@@ -297,7 +297,7 @@ export function createPostgresState(
   }
 
   const url =
-    options.url ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+    options.url || process.env.POSTGRES_URL || process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
       "Postgres url is required. Set POSTGRES_URL or DATABASE_URL, or provide it in options."
