@@ -37,6 +37,24 @@ const GRAPH_API_URL = "https://graph.facebook.com/v21.0";
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
 
+/** Mapping from named emoji values to unicode characters */
+const EMOJI_MAP: Record<string, string> = {
+  thumbs_up: "\u{1F44D}",
+  thumbs_down: "\u{1F44E}",
+  heart: "\u{2764}\u{FE0F}",
+  fire: "\u{1F525}",
+  rocket: "\u{1F680}",
+  eyes: "\u{1F440}",
+  check: "\u{2705}",
+  warning: "\u{26A0}\u{FE0F}",
+  sparkles: "\u{2728}",
+  wave: "\u{1F44B}",
+  raised_hands: "\u{1F64C}",
+  laugh: "\u{1F604}",
+  hooray: "\u{1F389}",
+  confused: "\u{1F615}",
+};
+
 // Re-export types
 export type {
   WhatsAppAdapterConfig,
@@ -1067,25 +1085,7 @@ export class WhatsAppAdapter
    */
   private resolveEmoji(emoji: EmojiValue | string): string {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
-
-    const mapping: Record<string, string> = {
-      thumbs_up: "\u{1F44D}",
-      thumbs_down: "\u{1F44E}",
-      heart: "\u{2764}\u{FE0F}",
-      fire: "\u{1F525}",
-      rocket: "\u{1F680}",
-      eyes: "\u{1F440}",
-      check: "\u{2705}",
-      warning: "\u{26A0}\u{FE0F}",
-      sparkles: "\u{2728}",
-      wave: "\u{1F44B}",
-      raised_hands: "\u{1F64C}",
-      laugh: "\u{1F604}",
-      hooray: "\u{1F389}",
-      confused: "\u{1F615}",
-    };
-
-    return mapping[emojiName] || emojiName;
+    return EMOJI_MAP[emojiName] || emojiName;
   }
 }
 
