@@ -45,6 +45,7 @@ import {
   GatewayIntentBits,
   Partials,
 } from "discord.js";
+import { MessageType } from "discord-api-types/v9";
 import {
   type APIEmbed,
   type APIMessage,
@@ -99,15 +100,40 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   >();
   private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
-  constructor(
-    config: DiscordAdapterConfig & { logger: Logger; userName?: string }
-  ) {
-    this.botToken = config.botToken;
-    this.publicKey = config.publicKey.trim().toLowerCase();
-    this.applicationId = config.applicationId;
-    this.mentionRoleIds = config.mentionRoleIds ?? [];
-    this.botUserId = config.applicationId; // Discord app ID is the bot's user ID
-    this.logger = config.logger;
+  constructor(config: DiscordAdapterConfig = {}) {
+    const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
+    if (!botToken) {
+      throw new ValidationError(
+        "discord",
+        "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
+      );
+    }
+    const publicKey = config.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
+    if (!publicKey) {
+      throw new ValidationError(
+        "discord",
+        "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
+      );
+    }
+    const applicationId =
+      config.applicationId ?? process.env.DISCORD_APPLICATION_ID;
+    if (!applicationId) {
+      throw new ValidationError(
+        "discord",
+        "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
+      );
+    }
+
+    this.botToken = botToken;
+    this.publicKey = publicKey.trim().toLowerCase();
+    this.applicationId = applicationId;
+    this.mentionRoleIds =
+      config.mentionRoleIds ??
+      (process.env.DISCORD_MENTION_ROLE_IDS
+        ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
+        : []);
+    this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
     // Validate public key format
@@ -121,11 +147,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
-    this.logger.info("Discord adapter initialized", {
-      applicationId: this.applicationId,
-      // Log full public key for debugging - it's public, not secret
-      publicKey: this.publicKey,
-    });
+    this.logger.info("Discord adapter initialized");
   }
 
   /**
@@ -1461,9 +1483,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Parse a Discord API message into normalized format.
    */
   private parseDiscordMessage(
-    msg: APIMessage,
+    raw: APIMessage,
     threadId: string
   ): Message<unknown> {
+    // use original message instead of empty thread starter message if available
+    const msg =
+      raw.type === MessageType.ThreadStarterMessage && raw.referenced_message
+        ? raw.referenced_message
+        : raw;
+
     const author = msg.author;
     const isBot = author.bot ?? false;
     const isMe = author.id === this.botUserId;
@@ -1473,7 +1501,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadId,
       text: this.formatConverter.extractPlainText(msg.content),
       formatted: this.formatConverter.toAst(msg.content),
-      raw: msg,
+      raw,
       author: {
         userId: author.id,
         userName: author.username,
@@ -2437,47 +2465,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
  * Create a Discord adapter instance.
  */
 export function createDiscordAdapter(
-  config?: Partial<DiscordAdapterConfig & { logger: Logger; userName?: string }>
+  config?: DiscordAdapterConfig
 ): DiscordAdapter {
-  const botToken = config?.botToken ?? process.env.DISCORD_BOT_TOKEN;
-  if (!botToken) {
-    throw new ValidationError(
-      "discord",
-      "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
-    );
-  }
-  const publicKey = config?.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
-  if (!publicKey) {
-    throw new ValidationError(
-      "discord",
-      "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
-    );
-  }
-  const applicationId =
-    config?.applicationId ?? process.env.DISCORD_APPLICATION_ID;
-  if (!applicationId) {
-    throw new ValidationError(
-      "discord",
-      "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
-    );
-  }
-  const mentionRoleIds =
-    config?.mentionRoleIds ??
-    (process.env.DISCORD_MENTION_ROLE_IDS
-      ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
-      : undefined);
-  const resolved: DiscordAdapterConfig & {
-    logger: Logger;
-    userName?: string;
-  } = {
-    botToken,
-    publicKey,
-    applicationId,
-    mentionRoleIds,
-    logger: config?.logger ?? new ConsoleLogger("info").child("discord"),
-    userName: config?.userName,
-  };
-  return new DiscordAdapter(resolved);
+  return new DiscordAdapter(config ?? {});
 }
 
 // Re-export card converter for advanced use

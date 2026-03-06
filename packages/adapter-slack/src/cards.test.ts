@@ -13,6 +13,7 @@ import {
   Section,
   Select,
   SelectOption,
+  Table,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
@@ -740,5 +741,41 @@ describe("cardToBlockKit with CardLink", () => {
         text: "<https://example.com|Link>",
       },
     });
+  });
+
+  it("converts a card with table element to Block Kit Table", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["Name", "Age"],
+          rows: [
+            ["Alice", "30"],
+            ["Bob", "25"],
+          ],
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("table");
+    expect(blocks[0].columns).toEqual([
+      { id: "col_0", header: { type: "plain_text", text: "Name" } },
+      { id: "col_1", header: { type: "plain_text", text: "Age" } },
+    ]);
+    expect(blocks[0].rows).toEqual([
+      {
+        cells: [
+          { type: "plain_text", text: "Alice" },
+          { type: "plain_text", text: "30" },
+        ],
+      },
+      {
+        cells: [
+          { type: "plain_text", text: "Bob" },
+          { type: "plain_text", text: "25" },
+        ],
+      },
+    ]);
   });
 });

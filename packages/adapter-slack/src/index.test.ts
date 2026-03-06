@@ -4,10 +4,17 @@
 
 import { createHmac, randomBytes } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
-import type { ChatInstance, Logger, StateAdapter } from "chat";
-import { describe, expect, it, vi } from "vitest";
+import type {
+  AdapterPostableMessage,
+  ChatInstance,
+  Logger,
+  StateAdapter,
+} from "chat";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SlackInstallation } from "./index";
 import { createSlackAdapter, SlackAdapter } from "./index";
+
+const FILE_ID_PATTERN = /^file-/;
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -92,6 +99,58 @@ describe("createSlackAdapter", () => {
       botUserId: "U12345",
     });
     expect(adapter.botUserId).toBe("U12345");
+  });
+});
+
+// ============================================================================
+// Constructor env var resolution
+// ============================================================================
+
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("SLACK_")) {
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when signingSecret is missing and env var not set", () => {
+    expect(() => new SlackAdapter({})).toThrow("signingSecret is required");
+  });
+
+  it("should resolve signingSecret from SLACK_SIGNING_SECRET env var", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should resolve botToken from SLACK_BOT_TOKEN in zero-config mode", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_BOT_TOKEN = "xoxb-env-token";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-secret";
+    const adapter = new SlackAdapter({
+      signingSecret: "config-secret",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
   });
 });
 
@@ -929,6 +988,7 @@ function createMockChatInstance(state: StateAdapter): ChatInstance {
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processSlashCommand: vi.fn(),
+    processMemberJoinedChannel: vi.fn(),
     getState: () => state,
     getUserName: () => "test-bot",
     getLogger: () => mockLogger,
@@ -1465,6 +1525,170 @@ describe("DM message handling", () => {
 });
 
 // ============================================================================
+// Message Subtype Handling Tests
+// ============================================================================
+
+describe("message subtype handling", () => {
+  const secret = "test-signing-secret";
+
+  it("allows file_share messages through to processMessage", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "file_share",
+        user: "U_USER",
+        channel: "C_CHAN",
+        text: "Check this file",
+        ts: "1234567890.111111",
+        thread_ts: "1234567890.000000",
+        files: [
+          {
+            id: "F123",
+            mimetype: "image/png",
+            url_private: "https://files.slack.com/file.png",
+            name: "screenshot.png",
+            size: 12345,
+          },
+        ],
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:C_CHAN:1234567890.000000",
+      expect.any(Function),
+      undefined
+    );
+  });
+
+  it("allows thread_broadcast messages through to processMessage", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "thread_broadcast",
+        user: "U_USER",
+        channel: "C_CHAN",
+        text: "Also posted to channel",
+        ts: "1234567890.222222",
+        thread_ts: "1234567890.000000",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "slack:C_CHAN:1234567890.000000",
+      expect.any(Function),
+      undefined
+    );
+  });
+
+  it("ignores message_changed subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores message_deleted subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_deleted",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores channel_join subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "channel_join",
+        user: "U_USER",
+        channel: "C_CHAN",
+        ts: "1234567890.111111",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // Slash Command Tests
 // ============================================================================
 
@@ -1789,6 +2013,31 @@ describe("postMessage", () => {
         unfurl_media: false,
       })
     );
+  });
+
+  it("returns early for file-only post with empty markdown", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "files.uploadV2",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    const chatPostMessage = vi.fn();
+    mockClientMethod(adapter, "chat.postMessage", chatPostMessage);
+
+    const result = await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown: "",
+      files: [{ data: Buffer.from("hello"), filename: "test.txt" }],
+    } as AdapterPostableMessage);
+
+    expect(result.id).toMatch(FILE_ID_PATTERN);
+    expect(chatPostMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -3651,6 +3900,45 @@ describe("handleWebhook - assistant events", () => {
       expect.objectContaining({
         userId: "U_HOME_USER",
         channelId: "D_HOME_CHAN",
+        adapter,
+      }),
+      undefined
+    );
+  });
+
+  it("handles member_joined_channel event", async () => {
+    const state = createMockState();
+    const chatInstance = {
+      ...createMockChatInstance(state),
+      processMemberJoinedChannel: vi.fn(),
+    };
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "member_joined_channel",
+        user: "U_JOINED_USER",
+        channel: "C_TARGET_CHAN",
+        inviter: "U_INVITER",
+        event_ts: "1234567893.000000",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chatInstance.processMemberJoinedChannel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "U_JOINED_USER",
+        channelId: "slack:C_TARGET_CHAN:",
+        inviterId: "U_INVITER",
         adapter,
       }),
       undefined

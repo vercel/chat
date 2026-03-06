@@ -5,7 +5,7 @@ import {
   createTestMessage,
 } from "./mock-adapter";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message } from "./types";
+import type { Adapter, Message, StreamChunk } from "./types";
 
 describe("ThreadImpl", () => {
   describe("Per-thread state", () => {
@@ -222,11 +222,11 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
-      // Should edit with final content
+      // Should edit with final content wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "Hello World"
+        { markdown: "Hello World" }
       );
     });
 
@@ -242,11 +242,11 @@ describe("ThreadImpl", () => {
       ]);
       const result = await thread.post(textStream);
 
-      // Final edit should have all accumulated text
+      // Final edit should have all accumulated text wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "This is a test message."
+        { markdown: "This is a test message." }
       );
       expect(result.text).toBe("This is a test message.");
     });
@@ -282,11 +282,11 @@ describe("ThreadImpl", () => {
       await vi.advanceTimersByTimeAsync(2000);
       await postPromise;
 
-      // Should have final edit
+      // Should have final edit wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "ABCDE"
+        { markdown: "ABCDE" }
       );
 
       vi.useRealTimers();
@@ -316,11 +316,11 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
-      // Should edit with empty string (final content)
+      // Should edit with empty string wrapped as markdown (final content)
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        ""
+        { markdown: "" }
       );
     });
 
@@ -345,7 +345,7 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "Hi"
+        { markdown: "Hi" }
       );
     });
 
@@ -363,10 +363,10 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream([]);
       await threadNoPlaceholder.post(textStream);
 
-      // Should still post a message (empty) even with no chunks
+      // Should still post a message (empty) even with no chunks, wrapped as markdown
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        ""
+        { markdown: "" }
       );
       // No edit needed since post content matches accumulated
       expect(mockAdapter.editMessage).not.toHaveBeenCalled();
@@ -438,7 +438,9 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream(["hello.", "\n\n", "how are you?"]);
       const result = await thread.post(textStream);
 
-      expect(result.text).toBe("hello.\n\nhow are you?");
+      // Plain text extraction from parsed markdown joins paragraphs without separator
+      // (mdast-util-to-string behavior). The formatted AST preserves paragraph structure.
+      expect(result.text).toBe("hello.how are you?");
       expect(capturedChunks).toEqual(["hello.", "\n\n", "how are you?"]);
     });
 
@@ -483,13 +485,47 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream(["hello.", "\n", "how are you?"]);
       const result = await thread.post(textStream);
 
-      // Final edit should have all accumulated text with newline preserved
+      // Final edit should have all accumulated text with newline preserved, wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "hello.\nhow are you?"
+        { markdown: "hello.\nhow are you?" }
       );
       expect(result.text).toBe("hello.\nhow are you?");
+    });
+
+    it("should close incomplete markdown in intermediate fallback edits", async () => {
+      mockAdapter.stream = undefined;
+
+      // Simulate streaming where intermediate state has unclosed bold marker
+      const textStream = createTextStream(["Hello **wor", "ld** done"], 50);
+
+      // Use short interval so intermediate edit fires between chunks
+      const threadWithInterval = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        streamingUpdateIntervalMs: 10,
+      });
+
+      const result = await threadWithInterval.post(textStream);
+
+      // Final result text is plain text (markdown formatting stripped)
+      expect(result.text).toBe("Hello world done");
+
+      // Check that intermediate edits used remend to close the bold marker
+      const editCalls = vi.mocked(mockAdapter.editMessage).mock.calls;
+      for (const [, , content] of editCalls) {
+        // Content should be wrapped as { markdown: string }
+        const markdownContent =
+          typeof content === "string"
+            ? content
+            : (content as { markdown: string }).markdown;
+        // Every intermediate edit should have balanced markdown (no dangling **)
+        const openCount = (markdownContent.match(/\*\*/g) || []).length;
+        expect(openCount % 2).toBe(0);
+      }
     });
 
     it("should pass stream options from current message context", async () => {
@@ -566,6 +602,141 @@ describe("ThreadImpl", () => {
           updateIntervalMs: 123,
           fallbackPlaceholderText: null,
         })
+      );
+    });
+  });
+
+  describe("streaming with StreamChunk objects", () => {
+    let thread: ThreadImpl;
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+    });
+
+    it("should pass StreamChunk objects through to adapter.stream", async () => {
+      let capturedChunks: (string | StreamChunk)[] = [];
+      const mockStream = vi
+        .fn()
+        .mockImplementation(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | StreamChunk>
+          ) => {
+            capturedChunks = [];
+            for await (const chunk of stream) {
+              capturedChunks.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
+          }
+        );
+      mockAdapter.stream = mockStream;
+
+      async function* mixedStream() {
+        yield "Hello ";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "in_progress",
+        };
+        yield "world";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "complete",
+          output: "Done",
+        };
+      }
+
+      const result = await thread.post(mixedStream() as AsyncIterable<string>);
+
+      // Should have been called with the mixed stream
+      expect(mockStream).toHaveBeenCalled();
+
+      // All chunks (strings and objects) should pass through
+      expect(capturedChunks).toHaveLength(4);
+      expect(capturedChunks[0]).toBe("Hello ");
+      expect(capturedChunks[1]).toEqual(
+        expect.objectContaining({ type: "task_update", status: "in_progress" })
+      );
+      expect(capturedChunks[2]).toBe("world");
+      expect(capturedChunks[3]).toEqual(
+        expect.objectContaining({ type: "task_update", status: "complete" })
+      );
+
+      // Accumulated text should only include strings, not task_update chunks
+      expect(result.text).toBe("Hello world");
+    });
+
+    it("should accumulate text from markdown_text StreamChunks", async () => {
+      let capturedChunks: (string | StreamChunk)[] = [];
+      const mockStream = vi
+        .fn()
+        .mockImplementation(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | StreamChunk>
+          ) => {
+            capturedChunks = [];
+            for await (const chunk of stream) {
+              capturedChunks.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
+          }
+        );
+      mockAdapter.stream = mockStream;
+
+      async function* mdChunkStream() {
+        yield { type: "markdown_text" as const, text: "Hello " };
+        yield { type: "plan_update" as const, title: "Analyzing code" };
+        yield { type: "markdown_text" as const, text: "World" };
+      }
+
+      const result = await thread.post(
+        mdChunkStream() as AsyncIterable<string>
+      );
+
+      // markdown_text chunks contribute to accumulated text; plan_update does not
+      expect(result.text).toBe("Hello World");
+    });
+
+    it("should extract only text for fallback streaming when chunks are present", async () => {
+      // No native stream — falls back to post+edit
+      mockAdapter.stream = undefined;
+
+      async function* mixedStream() {
+        yield "Hello";
+        yield {
+          type: "task_update" as const,
+          id: "tool-1",
+          title: "Running bash",
+          status: "in_progress",
+        };
+        yield " World";
+      }
+
+      await thread.post(mixedStream() as AsyncIterable<string>);
+
+      // Should post placeholder then edit with text-only content
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
       );
     });
   });
@@ -1509,11 +1680,11 @@ describe("ThreadImpl", () => {
       await vi.advanceTimersByTimeAsync(5000);
       await postPromise;
 
-      // Final text should be accumulated
+      // Final text should be accumulated, wrapped as markdown
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "ABC"
+        { markdown: "ABC" }
       );
 
       vi.useRealTimers();
@@ -1556,7 +1727,7 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
-        "X"
+        { markdown: "X" }
       );
 
       vi.useRealTimers();

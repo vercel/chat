@@ -15,20 +15,20 @@ import {
   BaseFormatConverter,
   type Content,
   getNodeChildren,
-  getNodeValue,
   isBlockquoteNode,
   isCodeNode,
   isDeleteNode,
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
   parseMarkdown,
   type Root,
+  tableToAscii,
 } from "chat";
 
 export class SlackFormatConverter extends BaseFormatConverter {
@@ -159,21 +159,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "•";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToMrkdwn(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToMrkdwn(child))
-        .join("");
+      return this.renderList(node, 0, (child) => this.nodeToMrkdwn(child), "•");
     }
 
     if (node.type === "break") {
@@ -184,12 +170,11 @@ export class SlackFormatConverter extends BaseFormatConverter {
       return "---";
     }
 
-    // For unsupported nodes, try to extract text
-    const children = getNodeChildren(node);
-    if (children.length > 0) {
-      return children.map((child) => this.nodeToMrkdwn(child)).join("");
+    if (isTableNode(node)) {
+      return `\`\`\`\n${tableToAscii(node)}\n\`\`\``;
     }
-    return getNodeValue(node);
+
+    return this.defaultNodeToText(node, (child) => this.nodeToMrkdwn(child));
   }
 }
 

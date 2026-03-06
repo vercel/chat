@@ -148,6 +148,15 @@ export function createMockState(): MockStateAdapter {
     set: vi.fn().mockImplementation(async (key: string, value: unknown) => {
       cache.set(key, value);
     }),
+    setIfNotExists: vi
+      .fn()
+      .mockImplementation(async (key: string, value: unknown) => {
+        if (cache.has(key)) {
+          return false;
+        }
+        cache.set(key, value);
+        return true;
+      }),
     delete: vi.fn().mockImplementation(async (key: string) => {
       cache.delete(key);
     }),

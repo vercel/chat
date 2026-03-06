@@ -229,7 +229,7 @@ describe("GitHubAdapter", () => {
             userName: "bot",
             logger: mockLogger,
           } as never)
-      ).toThrow("GitHubAdapter requires either token or appId/privateKey");
+      ).toThrow("Authentication is required");
     });
 
     it("should set botUserId when provided in config", () => {

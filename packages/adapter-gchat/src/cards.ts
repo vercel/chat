@@ -19,8 +19,10 @@ import type {
   ImageElement,
   LinkButtonElement,
   SectionElement,
+  TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText, tableElementToAscii } from "chat";
 
 /**
  * Convert emoji placeholders in text to GChat format (Unicode).
@@ -203,8 +205,15 @@ function convertChildToWidgets(
           },
         },
       ];
-    default:
+    case "table":
+      return [convertTableToWidget(child)];
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [{ textParagraph: { text } }];
+      }
       return [];
+    }
   }
 }
 
@@ -334,6 +343,14 @@ function convertSectionToWidgets(
     widgets.push(...convertChildToWidgets(child, endpointUrl));
   }
   return widgets;
+}
+
+function convertTableToWidget(element: TableElement): GoogleChatWidget {
+  // Render as monospace text (ASCII table) in a TextParagraph widget
+  const ascii = tableElementToAscii(element.headers, element.rows);
+  return {
+    textParagraph: { text: `<font face="monospace">${ascii}</font>` },
+  };
 }
 
 function convertFieldsToWidgets(element: FieldsElement): GoogleChatWidget[] {

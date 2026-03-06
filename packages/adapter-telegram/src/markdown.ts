@@ -20,14 +20,29 @@ import {
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
   parseMarkdown,
   type Root,
+  tableToAscii,
+  walkAst,
 } from "chat";
 
 export class TelegramFormatConverter extends BaseFormatConverter {
   fromAst(ast: Root): string {
-    return this.fromAstWithNodeConverter(ast, (node) =>
+    // Replace table nodes with code blocks since Telegram HTML
+    // does not support tables natively.
+    const transformed = walkAst(structuredClone(ast), (node: Content) => {
+      if (isTableNode(node)) {
+        return {
+          type: "code" as const,
+          value: tableToAscii(node),
+          lang: undefined,
+        } as Content;
+      }
+      return node;
+    });
+    return this.fromAstWithNodeConverter(transformed, (node) =>
       this.nodeToTelegramHtml(node)
     ).trim();
   }

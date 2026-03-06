@@ -1,5 +1,55 @@
 # @chat-adapter/slack
 
+## 4.17.0
+
+### Patch Changes
+
+- 10b0e6b: fix: Slack silently drops file_share messages, blocking file uploads from reaching processMessage
+- d3db36e: fix: Slack postMessage hasText check causes no_text error for file-only posts
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
+## 4.16.1
+
+### Patch Changes
+
+- f0dfa4d: Fix nested list rendering in Markdown-to-platform converters
+
+  All adapters (Slack, Discord, Teams, Google Chat) were flattening nested
+  lists during `fromAst()` conversion, causing child items to be concatenated
+  directly onto the parent item without any indentation or newline separation.
+
+  The `nodeToX()` list handler now accepts a `depth` parameter and uses it to
+  produce platform-appropriate indentation (`"  ".repeat(depth)`) for nested
+  lists. Each list item's children are processed in order: paragraph content
+  is prefixed with the bullet/number at the correct indent level, and nested
+  list nodes are rendered recursively at `depth + 1`.
+
+- f27c89b: Improve StreamChunk type safety with discriminated union and fix url_verification security bypass
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+  - @chat-adapter/shared@4.16.1
+
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+- f0c7050: add onMemberJoinedChannel on slack adapter
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - @chat-adapter/shared@4.16.0
+  - chat@4.16.0
+
 ## 4.15.0
 
 ### Minor Changes

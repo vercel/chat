@@ -66,7 +66,13 @@ const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
 const TELEGRAM_HTML_PARSE_MODE = "HTML";
-const TRAILING_SLASHES_REGEX = /\/+$/;
+const trimTrailingSlashes = (url: string): string => {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") {
+    end--;
+  }
+  return url.slice(0, end);
+};
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
 const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
@@ -141,20 +147,36 @@ export class TelegramAdapter
     return this._runtimeMode;
   }
 
-  constructor(
-    config: TelegramAdapterConfig & { logger: Logger; userName?: string }
-  ) {
-    this.botToken = config.botToken;
-    this.apiBaseUrl = (config.apiBaseUrl ?? TELEGRAM_API_BASE).replace(
-      TRAILING_SLASHES_REGEX,
-      ""
+  constructor(config: TelegramAdapterConfig = {}) {
+    const botToken = config.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      throw new ValidationError(
+        "telegram",
+        "botToken is required. Set TELEGRAM_BOT_TOKEN or provide it in config."
+      );
+    }
+
+    this.botToken = botToken;
+    this.apiBaseUrl = trimTrailingSlashes(
+      config.apiBaseUrl ??
+        process.env.TELEGRAM_API_BASE_URL ??
+        TELEGRAM_API_BASE
     );
-    this.secretToken = config.secretToken;
-    this.logger = config.logger;
-    this._userName = this.normalizeUserName(config.userName ?? "bot");
-    this.hasExplicitUserName = Boolean(config.userName);
+    this.secretToken =
+      config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    this.logger = config.logger ?? new ConsoleLogger("info").child("telegram");
+    const userName = config.userName ?? process.env.TELEGRAM_BOT_USERNAME;
+    this._userName = this.normalizeUserName(userName ?? "bot");
+    this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
     this.longPolling = config.longPolling;
+
+    if (!["auto", "webhook", "polling"].includes(this.mode)) {
+      throw new ValidationError(
+        "telegram",
+        `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
+      );
+    }
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -232,7 +254,14 @@ export class TelegramAdapter
       return new Response("OK", { status: 200 });
     }
 
-    this.processUpdate(update, options);
+    try {
+      this.processUpdate(update, options);
+    } catch (error) {
+      this.logger.warn("Failed to process Telegram webhook update", {
+        error: String(error),
+        updateId: update.update_id,
+      });
+    }
 
     return new Response("OK", { status: 200 });
   }
@@ -1758,6 +1787,8 @@ export class TelegramAdapter
     config: ResolvedTelegramLongPollingConfig
   ): Promise<void> {
     let offset: number | undefined;
+    let consecutiveFailures = 0;
+    const MAX_BACKOFF_MS = 30_000;
 
     while (this.pollingActive) {
       this.pollingAbortController = new AbortController();
@@ -1773,6 +1804,8 @@ export class TelegramAdapter
           },
           { signal: this.pollingAbortController.signal }
         );
+
+        consecutiveFailures = 0;
 
         for (const update of updates) {
           offset = update.update_id + 1;
@@ -1791,16 +1824,23 @@ export class TelegramAdapter
           return;
         }
 
+        consecutiveFailures++;
+        const backoffMs = Math.min(
+          config.retryDelayMs * 2 ** (consecutiveFailures - 1),
+          MAX_BACKOFF_MS
+        );
+
         this.logger.warn("Telegram polling request failed", {
           error: String(error),
-          retryDelayMs: config.retryDelayMs,
+          retryDelayMs: backoffMs,
+          consecutiveFailures,
         });
 
         if (!this.pollingActive) {
           return;
         }
 
-        await this.sleep(config.retryDelayMs);
+        await this.sleep(backoffMs);
       } finally {
         this.pollingAbortController = null;
       }
@@ -1967,43 +2007,9 @@ export class TelegramAdapter
 }
 
 export function createTelegramAdapter(
-  config?: Partial<
-    TelegramAdapterConfig & { logger: Logger; userName?: string }
-  >
+  config?: TelegramAdapterConfig
 ): TelegramAdapter {
-  const botToken = config?.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    throw new ValidationError(
-      "telegram",
-      "botToken is required. Set TELEGRAM_BOT_TOKEN or provide it in config."
-    );
-  }
-
-  const apiBaseUrl =
-    config?.apiBaseUrl ??
-    process.env.TELEGRAM_API_BASE_URL ??
-    TELEGRAM_API_BASE;
-  const secretToken =
-    config?.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
-  const userName = config?.userName ?? process.env.TELEGRAM_BOT_USERNAME;
-  const mode = config?.mode ?? "auto";
-
-  if (!["auto", "webhook", "polling"].includes(mode)) {
-    throw new ValidationError(
-      "telegram",
-      `Invalid mode: ${mode}. Expected "auto", "webhook", or "polling".`
-    );
-  }
-
-  return new TelegramAdapter({
-    botToken,
-    apiBaseUrl,
-    mode,
-    longPolling: config?.longPolling,
-    secretToken,
-    logger: config?.logger ?? new ConsoleLogger("info").child("telegram"),
-    userName,
-  });
+  return new TelegramAdapter(config ?? {});
 }
 
 export { TelegramFormatConverter } from "./markdown";

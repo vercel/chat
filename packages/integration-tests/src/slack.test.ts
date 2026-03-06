@@ -794,7 +794,7 @@ describe("Slack Integration", () => {
       const handlerMock = vi.fn();
       chat.onAction("approve", async (event) => {
         handlerMock(event.actionId, event.value, event.user.userId);
-        await event.thread.post("Action received!");
+        await event.thread?.post("Action received!");
       });
 
       const request = createSlackBlockActionsRequest({

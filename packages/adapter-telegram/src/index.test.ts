@@ -165,6 +165,69 @@ describe("createTelegramAdapter", () => {
   });
 });
 
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("TELEGRAM_")) {
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when botToken is missing and env var not set", () => {
+    expect(() => new TelegramAdapter({})).toThrow("botToken is required");
+  });
+
+  it("should resolve botToken from TELEGRAM_BOT_TOKEN env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    const adapter = new TelegramAdapter();
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should resolve secretToken from TELEGRAM_WEBHOOK_SECRET_TOKEN env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "env-secret";
+    const adapter = new TelegramAdapter();
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should resolve userName from TELEGRAM_BOT_USERNAME env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_BOT_USERNAME = "env_bot_name";
+    const adapter = new TelegramAdapter();
+    expect(adapter.userName).toBe("env_bot_name");
+  });
+
+  it("should resolve apiBaseUrl from TELEGRAM_API_BASE_URL env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_API_BASE_URL = "https://custom-api.example.com";
+    const adapter = new TelegramAdapter();
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    const adapter = new TelegramAdapter();
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-token";
+    process.env.TELEGRAM_BOT_USERNAME = "env-name";
+    const adapter = new TelegramAdapter({
+      botToken: "config-token",
+      userName: "config-name",
+    });
+    expect(adapter.userName).toBe("config-name");
+  });
+});
+
 describe("TelegramAdapter", () => {
   it("encodes and decodes thread IDs", () => {
     const adapter = createTelegramAdapter({

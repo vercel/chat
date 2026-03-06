@@ -44,6 +44,7 @@
  * ```
  */
 
+import { tableElementToAscii } from "./markdown";
 import type { RadioSelectElement, SelectElement } from "./modals";
 
 // ============================================================================
@@ -149,6 +150,20 @@ export interface FieldsElement {
   type: "fields";
 }
 
+/** Column alignment for table elements */
+export type TableAlignment = "left" | "center" | "right";
+
+/** Table element for structured data display */
+export interface TableElement {
+  /** Column alignment */
+  align?: TableAlignment[];
+  /** Column header labels */
+  headers: string[];
+  /** Data rows (each row is an array of cell strings) */
+  rows: string[][];
+  type: "table";
+}
+
 /** Union of all card child element types */
 export type CardChild =
   | TextElement
@@ -157,7 +172,8 @@ export type CardChild =
   | ActionsElement
   | SectionElement
   | FieldsElement
-  | LinkElement;
+  | LinkElement
+  | TableElement;
 
 /** Union of all element types (including nested children) */
 type AnyCardElement =
@@ -428,6 +444,39 @@ export function Fields(children: FieldElement[]): FieldsElement {
   };
 }
 
+/** Options for Table */
+export interface TableOptions {
+  /** Column alignment */
+  align?: TableAlignment[];
+  /** Column header labels */
+  headers: string[];
+  /** Data rows */
+  rows: string[][];
+}
+
+/**
+ * Create a Table element for structured data display.
+ *
+ * @example
+ * ```ts
+ * Table({
+ *   headers: ["Name", "Age", "Role"],
+ *   rows: [
+ *     ["Alice", "30", "Engineer"],
+ *     ["Bob", "25", "Designer"],
+ *   ],
+ * })
+ * ```
+ */
+export function Table(options: TableOptions): TableElement {
+  return {
+    type: "table",
+    headers: options.headers,
+    rows: options.rows,
+    align: options.align,
+  };
+}
+
 /**
  * Create a CardLink element for inline hyperlinks.
  *
@@ -488,6 +537,7 @@ const componentMap = new Map<unknown, string>([
   [CardLink, "CardLink"],
   [Field, "Field"],
   [Fields, "Fields"],
+  [Table, "Table"],
 ]);
 
 /**
@@ -639,6 +689,13 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         convertedChildren.filter((c): c is FieldElement => c.type === "field")
       );
 
+    case "Table":
+      return Table({
+        headers: props.headers as string[],
+        rows: props.rows as string[][],
+        align: props.align as TableAlignment[] | undefined,
+      });
+
     default:
       return null;
   }
@@ -697,7 +754,7 @@ export function cardToFallbackText(card: CardElement): string {
   const parts: string[] = [];
 
   if (card.title) {
-    parts.push(card.title);
+    parts.push(`**${card.title}**`);
   }
 
   if (card.subtitle) {
@@ -705,7 +762,7 @@ export function cardToFallbackText(card: CardElement): string {
   }
 
   for (const child of card.children) {
-    const text = childToFallbackText(child);
+    const text = cardChildToFallbackText(child);
     if (text) {
       parts.push(text);
     }
@@ -716,8 +773,9 @@ export function cardToFallbackText(card: CardElement): string {
 
 /**
  * Generate fallback text from a card child element.
+ * Exported so adapter card converters can call it for unknown types.
  */
-function childToFallbackText(child: CardChild): string | null {
+export function cardChildToFallbackText(child: CardChild): string | null {
   switch (child.type) {
     case "text":
       return child.content;
@@ -729,9 +787,11 @@ function childToFallbackText(child: CardChild): string | null {
       // Actions are interactive-only — exclude from fallback text.
       // See: https://docs.slack.dev/reference/methods/chat.postMessage
       return null;
+    case "table":
+      return tableElementToAscii(child.headers, child.rows);
     case "section":
       return child.children
-        .map((c) => childToFallbackText(c))
+        .map((c) => cardChildToFallbackText(c))
         .filter(Boolean)
         .join("\n");
     default:

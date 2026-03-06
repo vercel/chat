@@ -22,6 +22,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "chat": ["../../packages/chat/src/index.ts"],
+      "chat/jsx-runtime": ["../../packages/chat/src/jsx-runtime.ts"],
+      "chat/jsx-dev-runtime": ["../../packages/chat/src/jsx-runtime.ts"],
       "@chat-adapter/slack": ["../../packages/adapter-slack/src/index.ts"],
       "@chat-adapter/gchat": ["../../packages/adapter-gchat/src/index.ts"],
       "@chat-adapter/teams": ["../../packages/adapter-teams/src/index.ts"],

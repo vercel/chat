@@ -13,6 +13,7 @@ import {
   Field,
   Fields,
   Section,
+  Table,
 } from "./cards";
 import {
   BaseFormatConverter,
@@ -32,6 +33,9 @@ import {
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableCellNode,
+  isTableNode,
+  isTableRowNode,
   isTextNode,
   link,
   markdownToPlainText,
@@ -41,6 +45,8 @@ import {
   strikethrough,
   stringifyMarkdown,
   strong,
+  tableElementToAscii,
+  tableToAscii,
   text,
   toPlainText,
   walkAst,
@@ -556,6 +562,25 @@ describe("BaseFormatConverter", () => {
       // @ts-expect-error Testing invalid input
       expect(() => converter.renderPostable({ invalid: true })).toThrow();
     });
+
+    it("handles card with table element", () => {
+      const card = Card({
+        children: [
+          Table({
+            headers: ["Name", "Age"],
+            rows: [
+              ["Alice", "30"],
+              ["Bob", "25"],
+            ],
+          }),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Name");
+      expect(result).toContain("Age");
+      expect(result).toContain("Alice");
+      expect(result).toContain("30");
+    });
   });
 
   describe("deprecated toPlainText method", () => {
@@ -662,6 +687,121 @@ describe("BaseFormatConverter", () => {
       expect(result).toContain("Second");
       expect(result).toContain("Third");
     });
+  });
+});
+
+// ============================================================================
+// Table Parsing and Rendering Tests
+// ============================================================================
+
+describe("parseMarkdown (tables)", () => {
+  it("parses GFM tables", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    expect(ast.children[0].type).toBe("table");
+  });
+
+  it("parses table with multiple rows", () => {
+    const md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |";
+    const ast = parseMarkdown(md);
+    const table = ast.children[0] as import("mdast").Table;
+    expect(table.type).toBe("table");
+    expect(table.children).toHaveLength(3); // header + 2 data rows
+  });
+});
+
+describe("table type guards", () => {
+  it("isTableNode identifies table nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const tableNode = ast.children[0] as import("mdast").Content;
+    expect(isTableNode(tableNode)).toBe(true);
+    expect(isTableNode({ type: "paragraph" } as import("mdast").Content)).toBe(
+      false
+    );
+  });
+
+  it("isTableRowNode identifies table row nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const row = table.children[0] as import("mdast").Content;
+    expect(isTableRowNode(row)).toBe(true);
+  });
+
+  it("isTableCellNode identifies table cell nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const row = table.children[0];
+    const cell = row.children[0] as import("mdast").Content;
+    expect(isTableCellNode(cell)).toBe(true);
+  });
+});
+
+describe("tableToAscii", () => {
+  it("renders a simple table", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const result = tableToAscii(table);
+    expect(result).toContain("A");
+    expect(result).toContain("B");
+    expect(result).toContain("1");
+    expect(result).toContain("2");
+    // Separator line with dashes
+    expect(result).toContain("-|");
+  });
+
+  it("pads columns to equal width", () => {
+    const md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |";
+    const ast = parseMarkdown(md);
+    const table = ast.children[0] as import("mdast").Table;
+    const result = tableToAscii(table);
+    const lines = result.split("\n");
+    // Header
+    expect(lines[0]).toBe("Name  | Age");
+    // Separator
+    expect(lines[1]).toBe("------|----");
+    // Data rows
+    expect(lines[2]).toBe("Alice | 30");
+    expect(lines[3]).toBe("Bob   | 25");
+  });
+
+  it("handles empty table", () => {
+    const table: import("mdast").Table = {
+      type: "table",
+      children: [],
+    };
+    expect(tableToAscii(table)).toBe("");
+  });
+});
+
+describe("tableElementToAscii", () => {
+  it("renders headers and rows", () => {
+    const result = tableElementToAscii(
+      ["Name", "Age"],
+      [
+        ["Alice", "30"],
+        ["Bob", "25"],
+      ]
+    );
+    const lines = result.split("\n");
+    expect(lines).toHaveLength(4); // header + separator + 2 data rows
+    expect(lines[0]).toContain("Name");
+    expect(lines[0]).toContain("Age");
+    expect(lines[1]).toContain("---");
+    expect(lines[2]).toContain("Alice");
+    expect(lines[3]).toContain("Bob");
+  });
+
+  it("pads columns correctly", () => {
+    const result = tableElementToAscii(
+      ["Name", "Age", "Role"],
+      [
+        ["Alice", "30", "Engineer"],
+        ["Bob", "25", "Designer"],
+      ]
+    );
+    const lines = result.split("\n");
+    expect(lines[0]).toBe("Name  | Age | Role");
+    expect(lines[2]).toBe("Alice | 30  | Engineer");
+    expect(lines[3]).toBe("Bob   | 25  | Designer");
   });
 });
 

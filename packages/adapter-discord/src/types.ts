@@ -2,6 +2,7 @@
  * Discord adapter types.
  */
 
+import type { Logger } from "chat";
 import type {
   APIEmbed,
   APIMessage,
@@ -14,14 +15,18 @@ import type {
  * Discord adapter configuration.
  */
 export interface DiscordAdapterConfig {
-  /** Discord application ID */
-  applicationId: string;
-  /** Discord bot token */
-  botToken: string;
-  /** Role IDs that should trigger mention handlers (in addition to direct user mentions) */
+  /** Discord application ID. Defaults to DISCORD_APPLICATION_ID env var. */
+  applicationId?: string;
+  /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
+  botToken?: string;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
+  /** Role IDs that should trigger mention handlers (in addition to direct user mentions). Defaults to DISCORD_MENTION_ROLE_IDS env var (comma-separated). */
   mentionRoleIds?: string[];
-  /** Discord application public key for webhook signature verification */
-  publicKey: string;
+  /** Discord application public key for webhook signature verification. Defaults to DISCORD_PUBLIC_KEY env var. */
+  publicKey?: string;
+  /** Override bot username (optional) */
+  userName?: string;
 }
 
 /**

@@ -6,7 +6,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
 import { InteractionType } from "discord-api-types/v10";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -104,6 +104,81 @@ describe("createDiscordAdapter", () => {
       userName: "custombot",
     });
     expect(adapter.userName).toBe("custombot");
+  });
+});
+
+// ============================================================================
+// Constructor env var resolution
+// ============================================================================
+
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("DISCORD_")) {
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when botToken is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({})).toThrow("botToken is required");
+  });
+
+  it("should throw when publicKey is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({ botToken: "test" })).toThrow(
+      "publicKey is required"
+    );
+  });
+
+  it("should throw when applicationId is missing and env var not set", () => {
+    expect(
+      () => new DiscordAdapter({ botToken: "test", publicKey: testPublicKey })
+    ).toThrow("applicationId is required");
+  });
+
+  it("should resolve all fields from env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+    expect(adapter.userName).toBe("bot");
+  });
+
+  it("should resolve mentionRoleIds from DISCORD_MENTION_ROLE_IDS env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_MENTION_ROLE_IDS = "role1, role2, role3";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      userName: "mybot",
+    });
+    expect(adapter.userName).toBe("mybot");
   });
 });
 
@@ -777,6 +852,102 @@ describe("parseMessage", () => {
     expect(message.metadata?.editedAt).toEqual(
       new Date("2021-01-01T00:01:00.000Z")
     );
+  });
+
+  it("uses referenced_message content for thread starter messages", () => {
+    const rawMessage = {
+      id: "starter123",
+      channel_id: "thread456",
+      guild_id: "guild789",
+      author: {
+        id: "system",
+        username: "system",
+        discriminator: "0000",
+        bot: true,
+      },
+      content: "",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 21,
+      message_reference: {
+        message_id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+      },
+      referenced_message: {
+        id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+        author: {
+          id: "user123",
+          username: "parent-author",
+          discriminator: "0001",
+          global_name: "Parent Author",
+        },
+        content: "Parent message content",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+    };
+
+    const message = adapter.parseMessage(rawMessage);
+
+    expect(message.id).toBe("parent123");
+    expect(message.text).toBe("Parent message content");
+    expect(message.author.userId).toBe("user123");
+    expect(message.threadId).toBe("discord:guild789:thread456");
+  });
+
+  it("falls back gracefully when thread starter has no referenced_message", () => {
+    const rawMessage = {
+      id: "starter123",
+      channel_id: "thread456",
+      guild_id: "guild789",
+      author: {
+        id: "system",
+        username: "system",
+        discriminator: "0000",
+        bot: true,
+      },
+      content: "",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 21,
+      message_reference: {
+        message_id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+      },
+      referenced_message: null,
+    };
+
+    const message = adapter.parseMessage(rawMessage);
+
+    expect(message.id).toBe("starter123");
+    expect(message.text).toBe("");
+    expect(message.author.userId).toBe("system");
   });
 
   it("parses message with attachments", () => {
@@ -2526,6 +2697,99 @@ describe("listThreads", () => {
 
     // Should only have 1 thread (deduplicated)
     expect(result.threads).toHaveLength(1);
+
+    spy.mockRestore();
+  });
+
+  it("uses referenced_message when thread root is a THREAD_STARTER_MESSAGE", async () => {
+    const activeThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            total_message_sent: 5,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({ threads: [] }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const threadMsgResponse = new Response(
+      JSON.stringify([
+        {
+          id: "starter-msg",
+          channel_id: "thread1",
+          content: "",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 21,
+          author: {
+            id: "system",
+            username: "system",
+            discriminator: "0000",
+            bot: true,
+          },
+          message_reference: {
+            message_id: "parent-msg",
+            channel_id: "channel456",
+            guild_id: "guild1",
+          },
+          referenced_message: {
+            id: "parent-msg",
+            channel_id: "channel456",
+            guild_id: "guild1",
+            content: "Parent root content",
+            timestamp: "2021-01-01T00:00:00.000Z",
+            edited_timestamp: null,
+            tts: false,
+            mention_everyone: false,
+            mentions: [],
+            mention_roles: [],
+            attachments: [],
+            embeds: [],
+            pinned: false,
+            type: 0,
+            author: {
+              id: "user1",
+              username: "testuser",
+              discriminator: "0001",
+            },
+          },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      return Promise.resolve(threadMsgResponse.clone());
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456");
+
+    expect(result.threads).toHaveLength(1);
+    expect(result.threads[0].rootMessage.id).toBe("parent-msg");
+    expect(result.threads[0].rootMessage.text).toBe("Parent root content");
 
     spy.mockRestore();
   });

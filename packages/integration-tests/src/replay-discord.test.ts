@@ -65,7 +65,7 @@ describe("Discord Replay Tests", () => {
         {
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Hello, ${event.user.fullName}!`);
+            await event.thread?.post(`Hello, ${event.user.fullName}!`);
           },
         }
       );
@@ -97,6 +97,9 @@ describe("Discord Replay Tests", () => {
         {
           onAction: async (event) => {
             capturedAction = event;
+            if (!event.thread) {
+              return;
+            }
             // Simulate the fetchMessages action from bot.tsx
             const result = await event.thread.adapter.fetchMessages(
               event.thread.id,
@@ -133,7 +136,7 @@ describe("Discord Replay Tests", () => {
         {
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(
+            await event.thread?.post(
               `User: ${event.user.fullName}, Platform: ${event.adapter.name}`
             );
           },
@@ -165,7 +168,7 @@ describe("Discord Replay Tests", () => {
         {
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(
+            await event.thread?.post(
               `Goodbye, ${event.user.fullName}! See you later.`
             );
           },
@@ -201,7 +204,7 @@ describe("Discord Replay Tests", () => {
         {
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post("DM received!");
+            await event.thread?.post("DM received!");
           },
         }
       );
@@ -219,7 +222,7 @@ describe("Discord Replay Tests", () => {
       });
 
       // DM thread ID format: discord:@me:{dmChannelId}
-      expect(capturedAction?.thread.id).toBe("discord:@me:DM_CHANNEL_123");
+      expect(capturedAction?.thread?.id).toBe("discord:@me:DM_CHANNEL_123");
     });
 
     it("should extract user info from DM interaction (user field, not member.user)", async () => {
@@ -253,7 +256,7 @@ describe("Discord Replay Tests", () => {
               userId: event.user.userId,
               actionId: event.actionId,
             });
-            await event.thread.post(`Hello, ${event.user.fullName}!`);
+            await event.thread?.post(`Hello, ${event.user.fullName}!`);
           },
         }
       );
@@ -306,10 +309,10 @@ describe("Discord Replay Tests", () => {
       // Thread ID format: discord:{guildId}:{parentChannelId}:{threadId}
       // When the interaction happens in a thread, the parent channel is included
       const REAL_CHANNEL_ID = discordFixtures.metadata.channelId;
-      expect(capturedAction?.thread.id).toBe(
+      expect(capturedAction?.thread?.id).toBe(
         `discord:${REAL_GUILD_ID}:${REAL_CHANNEL_ID}:${REAL_THREAD_ID}`
       );
-      expect(capturedAction?.threadId).toBe(capturedAction?.thread.id);
+      expect(capturedAction?.threadId).toBe(capturedAction?.thread?.id);
     });
 
     it("should maintain consistent thread ID across multiple actions", async () => {
@@ -319,6 +322,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: (event) => {
+            if (!event.thread) {
+              return;
+            }
             threadIds.push(event.thread.id);
           },
         }
@@ -340,6 +346,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             const msg = await event.thread.post("Processing...");
             await msg.edit("Done!");
           },
@@ -361,8 +370,8 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
-            await event.thread.startTyping();
-            await event.thread.post("Done typing!");
+            await event.thread?.startTyping();
+            await event.thread?.post("Done typing!");
           },
         }
       );
@@ -378,6 +387,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             const msg = await event.thread.post("React to this!");
             await msg.addReaction("thumbsup");
           },
@@ -395,6 +407,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             const msg = await event.thread.post("Temporary message");
             await msg.delete();
           },
@@ -512,18 +527,18 @@ describe("Discord Replay Tests", () => {
           onAction: async (event) => {
             actionLog.push(event.actionId);
             if (event.actionId === "hello") {
-              await event.thread.post(`Hello, ${event.user.fullName}!`);
+              await event.thread?.post(`Hello, ${event.user.fullName}!`);
             } else if (event.actionId === "info") {
-              await event.thread.post(
-                `Platform: ${event.adapter.name}, Thread: ${event.thread.id}`
+              await event.thread?.post(
+                `Platform: ${event.adapter.name}, Thread: ${event.thread?.id}`
               );
             } else if (event.actionId === "messages") {
-              await event.thread.adapter.fetchMessages(event.thread.id, {
+              await event.thread?.adapter.fetchMessages(event.thread?.id, {
                 limit: 5,
               });
-              await event.thread.post("Fetched messages");
+              await event.thread?.post("Fetched messages");
             } else if (event.actionId === "goodbye") {
-              await event.thread.post("Goodbye!");
+              await event.thread?.post("Goodbye!");
             }
           },
         }
@@ -567,6 +582,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             // Post initial message
             const msg = await event.thread.post("Thinking...");
             // Then edit with final content (simulates streaming completion)
@@ -599,6 +617,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             const msg = await event.thread.post("Processing...");
             editCount.value++;
             await msg.edit(`Completed step ${editCount.value}`);
@@ -632,6 +653,9 @@ describe("Discord Replay Tests", () => {
         { botName: "Chat SDK Demo", applicationId: REAL_BOT_ID },
         {
           onAction: async (event) => {
+            if (!event.thread) {
+              return;
+            }
             const msg = await event.thread.post("Step 1...");
             await msg.edit("Step 1... Step 2...");
             await msg.edit("Step 1... Step 2... Done!");

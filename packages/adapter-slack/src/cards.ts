@@ -23,8 +23,10 @@ import type {
   RadioSelectElement,
   SectionElement,
   SelectElement,
+  TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText, tableElementToAscii } from "chat";
 
 /**
  * Convert emoji placeholders in text to Slack format.
@@ -149,8 +151,15 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
       return [convertFieldsToBlock(child)];
     case "link":
       return [convertLinkToBlock(child)];
-    default:
+    case "table":
+      return convertTableToBlocks(child);
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [{ type: "section", text: { type: "mrkdwn", text } }];
+      }
       return [];
+    }
   }
 }
 
@@ -343,6 +352,52 @@ function convertRadioSelectToElement(
     }
   }
   return element;
+}
+
+/**
+ * Convert a table element to Slack Block Kit blocks.
+ * Uses Block Kit Table block for tables within limits (100 rows, 20 columns),
+ * falls back to code block for larger tables.
+ */
+function convertTableToBlocks(element: TableElement): SlackBlock[] {
+  const MAX_ROWS = 100;
+  const MAX_COLS = 20;
+
+  if (element.rows.length > MAX_ROWS || element.headers.length > MAX_COLS) {
+    // Fall back to ASCII table in a code block
+    return [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `\`\`\`\n${tableElementToAscii(element.headers, element.rows)}\n\`\`\``,
+        },
+      },
+    ];
+  }
+
+  const columns = element.headers.map((header, i) => ({
+    id: `col_${i}`,
+    header: {
+      type: "plain_text",
+      text: convertEmoji(header),
+    },
+  }));
+
+  const rows = element.rows.map((row) => ({
+    cells: row.map((cell) => ({
+      type: "plain_text" as const,
+      text: convertEmoji(cell),
+    })),
+  }));
+
+  return [
+    {
+      type: "table",
+      columns,
+      rows,
+    },
+  ];
 }
 
 function convertSectionToBlocks(element: SectionElement): SlackBlock[] {

@@ -120,7 +120,7 @@ describe("Discord Integration", () => {
       const handlerMock = vi.fn();
       chat.onAction("approve", async (event) => {
         handlerMock(event.actionId, event.user.userId);
-        await event.thread.post("Action received!");
+        await event.thread?.post("Action received!");
       });
 
       const request = createDiscordButtonRequest({
@@ -271,7 +271,7 @@ describe("Discord Integration", () => {
   describe("message posting", () => {
     it("should post messages to Discord channels", async () => {
       chat.onAction("test", async (event) => {
-        await event.thread.post("Hello Discord!");
+        await event.thread?.post("Hello Discord!");
       });
 
       const request = createDiscordButtonRequest({
@@ -294,6 +294,9 @@ describe("Discord Integration", () => {
 
     it("should edit messages", async () => {
       chat.onAction("edit", async (event) => {
+        if (!event.thread) {
+          return;
+        }
         const msg = await event.thread.post("Original message");
         await msg.edit("Edited message");
       });
@@ -319,6 +322,9 @@ describe("Discord Integration", () => {
 
     it("should add reactions to messages", async () => {
       chat.onAction("react", async (event) => {
+        if (!event.thread) {
+          return;
+        }
         const msg = await event.thread.post("React to this!");
         await msg.addReaction("thumbsup");
       });
@@ -341,7 +347,7 @@ describe("Discord Integration", () => {
   describe("markdown formatting", () => {
     it("should convert markdown to Discord format in posted messages", async () => {
       chat.onAction("markdown", async (event) => {
-        await event.thread.post({
+        await event.thread?.post({
           markdown: "**Bold** and *italic* and `code`",
         });
       });
@@ -366,7 +372,7 @@ describe("Discord Integration", () => {
 
     it("should convert @mentions to Discord format in posted messages", async () => {
       chat.onAction("mention", async (event) => {
-        await event.thread.post("Hey @john, check this out!");
+        await event.thread?.post("Hey @john, check this out!");
       });
 
       const request = createDiscordButtonRequest({
@@ -392,8 +398,8 @@ describe("Discord Integration", () => {
   describe("thread operations", () => {
     it("should handle typing indicator", async () => {
       chat.onAction("typing", async (event) => {
-        await event.thread.startTyping();
-        await event.thread.post("Done typing!");
+        await event.thread?.startTyping();
+        await event.thread?.post("Done typing!");
       });
 
       const request = createDiscordButtonRequest({
@@ -456,7 +462,7 @@ describe("Discord Integration", () => {
       const handlerMock = vi.fn();
       chat.onAction("dm-action", async (event) => {
         handlerMock(event.threadId);
-        await event.thread.post("DM response!");
+        await event.thread?.post("DM response!");
       });
 
       const request = createDiscordButtonRequest({
@@ -482,16 +488,19 @@ describe("Discord Integration", () => {
 
       chat.onAction("step1", async (event) => {
         actionLog.push("step1");
-        await event.thread.post("Step 1 complete");
+        await event.thread?.post("Step 1 complete");
       });
 
       chat.onAction("step2", async (event) => {
         actionLog.push("step2");
-        await event.thread.post("Step 2 complete");
+        await event.thread?.post("Step 2 complete");
       });
 
       chat.onAction("step3", async (event) => {
         actionLog.push("step3");
+        if (!event.thread) {
+          return;
+        }
         const msg = await event.thread.post("All steps complete!");
         await msg.addReaction("checkmark");
       });
@@ -562,7 +571,7 @@ describe("Discord Integration", () => {
           userActions[userId] = [];
         }
         userActions[userId].push(event.actionId);
-        await event.thread.post(`${userId}: ${event.actionId}`);
+        await event.thread?.post(`${userId}: ${event.actionId}`);
       });
 
       // User A clicks button

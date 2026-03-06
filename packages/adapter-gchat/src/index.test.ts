@@ -1,6 +1,6 @@
 import { AdapterRateLimitError } from "@chat-adapter/shared";
 import type { ChatInstance, Lock, Logger, StateAdapter } from "chat";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGoogleChatAdapter,
   GoogleChatAdapter,
@@ -245,6 +245,20 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("constructor / initialization", () => {
+    const savedEnv = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("GOOGLE_CHAT_")) {
+          delete process.env[key];
+        }
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...savedEnv };
+    });
+
     it("should use provided userName", () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
@@ -278,6 +292,13 @@ describe("GoogleChatAdapter", () => {
       expect(adapter.name).toBe("gchat");
     });
 
+    it("should default logger when not provided", () => {
+      const adapter = new GoogleChatAdapter({
+        useApplicationDefaultCredentials: true,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
     it("should restore bot user ID from state on initialize", async () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
@@ -306,6 +327,62 @@ describe("GoogleChatAdapter", () => {
       await adapter.initialize(mockChat);
 
       expect(adapter.botUserId).toBe("users/EXISTING");
+    });
+  });
+
+  describe("constructor env var resolution", () => {
+    const savedEnv = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("GOOGLE_CHAT_")) {
+          delete process.env[key];
+        }
+      }
+    });
+
+    afterEach(() => {
+      process.env = { ...savedEnv };
+    });
+
+    it("should throw when no auth is configured and no env vars set", () => {
+      expect(() => new GoogleChatAdapter()).toThrow(
+        "Authentication is required"
+      );
+    });
+
+    it("should resolve credentials from GOOGLE_CHAT_CREDENTIALS env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve ADC from GOOGLE_CHAT_USE_ADC env var", () => {
+      process.env.GOOGLE_CHAT_USE_ADC = "true";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve pubsubTopic from GOOGLE_CHAT_PUBSUB_TOPIC env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_PUBSUB_TOPIC = "projects/test/topics/test";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve impersonateUser from GOOGLE_CHAT_IMPERSONATE_USER env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_IMPERSONATE_USER = "user@example.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should prefer config credentials over env vars", () => {
+      process.env.GOOGLE_CHAT_USE_ADC = "true";
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
   });
 
@@ -416,6 +493,108 @@ describe("GoogleChatAdapter", () => {
       expect(msg.attachments).toHaveLength(2);
       expect(msg.attachments[0].type).toBe("video");
       expect(msg.attachments[1].type).toBe("audio");
+    });
+
+    it("should use media.download API when attachmentDataRef is present", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi.fn().mockResolvedValue({
+        data: new ArrayBuffer(4),
+      });
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            downloadUri: "https://example.com/photo.png",
+            attachmentDataRef: {
+              resourceName: "spaces/ABC123/attachments/att1",
+            },
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+
+      const data = await msg.attachments[0].fetchData?.();
+      expect(data).toBeInstanceOf(Buffer);
+      expect(mockDownload).toHaveBeenCalledWith(
+        { resourceName: "spaces/ABC123/attachments/att1" },
+        { responseType: "arraybuffer" }
+      );
+    });
+
+    it("should provide fetchData when only attachmentDataRef is present (no downloadUri)", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi.fn().mockResolvedValue({
+        data: new ArrayBuffer(4),
+      });
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            attachmentDataRef: {
+              resourceName: "spaces/ABC123/attachments/att1",
+            },
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+
+      const data = await msg.attachments[0].fetchData?.();
+      expect(data).toBeInstanceOf(Buffer);
+      expect(mockDownload).toHaveBeenCalledWith(
+        { resourceName: "spaces/ABC123/attachments/att1" },
+        { responseType: "arraybuffer" }
+      );
+    });
+
+    it("should fall back to direct URL fetch when no attachmentDataRef", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            downloadUri: "https://example.com/photo.png",
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeDefined();
+      // fetchData is present because downloadUri exists
+      expect(msg.attachments[0].url).toBe("https://example.com/photo.png");
+    });
+
+    it("should not provide fetchData when neither resourceName nor downloadUri exist", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "unknown.bin",
+            contentType: "application/octet-stream",
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      expect(msg.attachments[0].fetchData).toBeUndefined();
     });
   });
 

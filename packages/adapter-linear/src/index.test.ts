@@ -421,9 +421,7 @@ describe("constructor", () => {
           userName: "my-bot",
           logger: createMockLogger(),
         } as never)
-    ).toThrow(
-      "LinearAdapter requires either apiKey, accessToken, or clientId/clientSecret"
-    );
+    ).toThrow("Authentication is required");
   });
 
   it("should have undefined botUserId before initialization", () => {

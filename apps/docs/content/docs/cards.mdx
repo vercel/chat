@@ -177,6 +177,30 @@ Radio button group for mutually exclusive choices.
 </Actions>
 ```
 
+### Table
+
+Structured data display with column headers and rows. Renders as a native table on platforms that support it (Teams, GitHub, Linear) and as padded ASCII text elsewhere.
+
+```tsx title="lib/bot.tsx" lineNumbers
+<Table
+  headers={["Name", "Age", "Role"]}
+  rows={[
+    ["Alice", "30", "Engineer"],
+    ["Bob", "25", "Designer"],
+  ]}
+/>
+```
+
+Optional column alignment:
+
+```tsx title="lib/bot.tsx"
+<Table
+  headers={["Name", "Amount"]}
+  rows={[["Alice", "$100"], ["Bob", "$200"]]}
+  align={["left", "right"]}
+/>
+```
+
 ### Image
 
 Embeds an image in the card.

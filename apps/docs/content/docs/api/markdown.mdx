@@ -11,6 +11,7 @@ import {
   root, paragraph, text, strong, emphasis, strikethrough,
   inlineCode, codeBlock, link, blockquote,
   parseMarkdown, stringifyMarkdown, toPlainText, walkAst,
+  tableToAscii, tableElementToAscii,
 } from "chat";
 ```
 
@@ -204,6 +205,9 @@ Functions for checking node types:
 | `isBlockquoteNode(node)` | Blockquote |
 | `isListNode(node)` | List |
 | `isListItemNode(node)` | List item |
+| `isTableNode(node)` | Table |
+| `isTableRowNode(node)` | Table row |
+| `isTableCellNode(node)` | Table cell |
 
 ### getNodeChildren / getNodeValue
 
@@ -212,6 +216,43 @@ Safely access node properties without type narrowing.
 ```typescript
 const children = getNodeChildren(node); // Content[] | undefined
 const value = getNodeValue(node);       // string | undefined
+```
+
+## Table utilities
+
+### tableToAscii
+
+Render an mdast `Table` node as a padded ASCII table string. Used by adapters that lack native table support (Slack, Google Chat, Discord, Telegram).
+
+```typescript
+import { parseMarkdown, tableToAscii, isTableNode } from "chat";
+
+const ast = parseMarkdown("| Name | Role |\n|------|------|\n| Alice | Engineer |");
+// Find the table node and convert it
+```
+
+Output:
+
+```
+Name  | Role
+------|--------
+Alice | Engineer
+```
+
+### tableElementToAscii
+
+Render a table from headers and string row arrays as a padded ASCII table. Used for card `TableElement` fallback rendering.
+
+```typescript
+import { tableElementToAscii } from "chat";
+
+const ascii = tableElementToAscii(
+  ["Name", "Age", "Role"],
+  [
+    ["Alice", "30", "Engineer"],
+    ["Bob", "25", "Designer"],
+  ]
+);
 ```
 
 ## Platform formatting
@@ -228,6 +269,7 @@ The SDK uses mdast as the canonical format and each adapter converts it to the p
 | Links | `<url\|text>` | `[text](url)` | `[text](url)` |
 | Lists | Supported | Supported | Supported |
 | Blockquotes | `>` | `>` | Simulated with `>` prefix |
+| Tables | ASCII fallback | Native GFM | ASCII fallback |
 | Mentions | `<@USER>` | `<at>name</at>` | `<users/{id}>` |
 
 <Callout type="info">
