@@ -1,5 +1,14 @@
 # @chat-adapter/discord
 
+## 4.17.0
+
+### Patch Changes
+
+- 5f32506: Use `referenced_message` content when parsing Discord thread starter messages so thread roots preserve the original parent message text and metadata.
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
 ## 4.16.1
 
 ### Patch Changes

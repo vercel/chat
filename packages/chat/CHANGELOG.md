@@ -1,5 +1,11 @@
 # chat
 
+## 4.17.0
+
+### Patch Changes
+
+- cc65dc3: fix: non-atomic message deduplication causes app_mention events to be silently dropped
+
 ## 4.16.1
 
 ### Patch Changes

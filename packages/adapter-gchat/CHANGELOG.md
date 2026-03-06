@@ -1,5 +1,13 @@
 # @chat-adapter/gchat
 
+## 4.17.0
+
+### Patch Changes
+
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
 ## 4.16.1
 
 ### Patch Changes

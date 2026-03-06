@@ -1,5 +1,15 @@
 # @chat-adapter/slack
 
+## 4.17.0
+
+### Patch Changes
+
+- 10b0e6b: fix: Slack silently drops file_share messages, blocking file uploads from reaching processMessage
+- d3db36e: fix: Slack postMessage hasText check causes no_text error for file-only posts
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
 ## 4.16.1
 
 ### Patch Changes

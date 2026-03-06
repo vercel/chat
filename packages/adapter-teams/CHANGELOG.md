@@ -1,5 +1,17 @@
 # @chat-adapter/teams
 
+## 4.17.0
+
+### Minor Changes
+
+- a3f8656: Add certificate and federated (workload identity) auth support for Teams adapter
+
+### Patch Changes
+
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
 ## 4.16.1
 
 ### Patch Changes
