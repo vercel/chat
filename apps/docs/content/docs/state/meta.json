@@ -1,4 +1,4 @@
 {
   "title": "State",
-  "pages": ["index", "redis", "ioredis", "memory"]
+  "pages": ["index", "redis", "ioredis", "postgres", "memory"]
 }
