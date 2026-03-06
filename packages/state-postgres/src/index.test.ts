@@ -210,6 +210,16 @@ describe("PostgresStateAdapter", () => {
       );
     });
 
+    it("should throw when calling setIfNotExists before connect", async () => {
+      const adapter = new PostgresStateAdapter({
+        client: createMockSql(),
+        logger: mockLogger,
+      });
+      await expect(adapter.setIfNotExists("key", "value")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
     it("should throw when calling delete before connect", async () => {
       const adapter = new PostgresStateAdapter({
         client: createMockSql(),
@@ -397,6 +407,24 @@ describe("PostgresStateAdapter", () => {
 
       it("should set a value with TTL without throwing", async () => {
         await adapter.set("key", "value", 5000);
+      });
+
+      it("should return true when setIfNotExists inserts a new key", async () => {
+        queryResults = [{ cache_key: "key" }];
+        const result = await adapter.setIfNotExists("key", "value");
+        expect(result).toBe(true);
+      });
+
+      it("should return false when setIfNotExists finds existing key", async () => {
+        queryResults = [];
+        const result = await adapter.setIfNotExists("key", "value");
+        expect(result).toBe(false);
+      });
+
+      it("should support setIfNotExists with TTL", async () => {
+        queryResults = [{ cache_key: "key" }];
+        const result = await adapter.setIfNotExists("key", "value", 5000);
+        expect(result).toBe(true);
       });
 
       it("should delete a value without throwing", async () => {

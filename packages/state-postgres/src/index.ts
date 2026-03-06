@@ -219,6 +219,26 @@ export class PostgresStateAdapter implements StateAdapter {
     `;
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const serialized = JSON.stringify(value);
+    const expiresAt = ttlMs ? new Date(Date.now() + ttlMs) : null;
+
+    const rows = await this.client`
+      insert into chat_state_cache (key_prefix, cache_key, value, expires_at)
+      values (${this.keyPrefix}, ${key}, ${serialized}, ${expiresAt})
+      on conflict (key_prefix, cache_key) do nothing
+      returning cache_key
+    `;
+
+    return rows.length > 0;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
 
