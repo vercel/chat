@@ -105,6 +105,7 @@ const WHATSAPP_METHODS = [
   "postMessage",
   "addReaction",
   "removeReaction",
+  "startTyping",
   "openDM",
   "fetchMessages",
 ];
