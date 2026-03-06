@@ -33,26 +33,47 @@ import {
   Section as _Section,
   Table as _Table,
 } from "./cards";
+import type {
+  ActionsComponent,
+  ButtonComponent,
+  CardComponent,
+  CardLinkComponent,
+  DividerComponent,
+  FieldComponent,
+  FieldsComponent,
+  ImageComponent,
+  LinkButtonComponent,
+  ModalComponent,
+  RadioSelectComponent,
+  SectionComponent,
+  SelectComponent,
+  SelectOptionComponent,
+  TextComponent,
+  TextInputComponent,
+} from "./jsx-runtime";
 import {
   isJSX as _isJSX,
   toCardElement as _toCardElement,
   toModalElement as _toModalElement,
 } from "./jsx-runtime";
-export const Actions = _Actions;
-export const Button = _Button;
-export const Card = _Card;
+
+// Cast to JSX-compatible overloaded types.
+// The `as unknown as` is safe — JSX never calls these directly; the jsx factory handles resolution.
+export const Actions = _Actions as unknown as ActionsComponent;
+export const Button = _Button as unknown as ButtonComponent;
+export const Card = _Card as unknown as CardComponent;
 export const cardChildToFallbackText = _cardChildToFallbackText;
-export const CardLink = _CardLink;
-export const CardText = _CardText;
-export const Divider = _Divider;
-export const Field = _Field;
-export const Fields = _Fields;
+export const CardLink = _CardLink as unknown as CardLinkComponent;
+export const CardText = _CardText as unknown as TextComponent;
+export const Divider = _Divider as unknown as DividerComponent;
+export const Field = _Field as unknown as FieldComponent;
+export const Fields = _Fields as unknown as FieldsComponent;
 export const fromReactElement = _fromReactElement;
-export const Image = _Image;
+export const Image = _Image as unknown as ImageComponent;
 export const isCardElement = _isCardElement;
 export const isJSX = _isJSX;
-export const LinkButton = _LinkButton;
-export const Section = _Section;
+export const LinkButton = _LinkButton as unknown as LinkButtonComponent;
+export const Section = _Section as unknown as SectionComponent;
 export const Table = _Table;
 export const toCardElement = _toCardElement;
 export const toModalElement = _toModalElement;
@@ -69,11 +90,11 @@ import {
 } from "./modals";
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
-export const Modal = _Modal;
-export const RadioSelect = _RadioSelect;
-export const Select = _Select;
-export const SelectOption = _SelectOption;
-export const TextInput = _TextInput;
+export const Modal = _Modal as unknown as ModalComponent;
+export const RadioSelect = _RadioSelect as unknown as RadioSelectComponent;
+export const Select = _Select as unknown as SelectComponent;
+export const SelectOption = _SelectOption as unknown as SelectOptionComponent;
+export const TextInput = _TextInput as unknown as TextInputComponent;
 
 // Card types
 export type {
@@ -111,16 +132,37 @@ export {
 } from "./emoji";
 // JSX types
 export type {
+  ActionsComponent,
+  ButtonComponent,
   ButtonProps,
+  CardComponent,
   CardJSXElement,
   CardJSXProps,
+  CardLinkComponent,
   CardLinkProps,
   CardProps,
+  ChatElement,
   ContainerProps,
+  DividerComponent,
   DividerProps,
+  FieldComponent,
   FieldProps,
+  FieldsComponent,
+  ImageComponent,
   ImageProps,
+  LinkButtonComponent,
   LinkButtonProps,
+  ModalComponent,
+  ModalProps,
+  RadioSelectComponent,
+  SectionComponent,
+  SelectComponent,
+  SelectOptionComponent,
+  SelectOptionProps,
+  SelectProps,
+  TextComponent,
+  TextInputComponent,
+  TextInputProps,
   TextProps,
 } from "./jsx-runtime";
 // Re-export mdast types for adapters

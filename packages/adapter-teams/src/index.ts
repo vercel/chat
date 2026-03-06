@@ -1,4 +1,9 @@
-import { ClientSecretCredential } from "@azure/identity";
+import type { TokenCredential } from "@azure/identity";
+import {
+  ClientCertificateCredential,
+  ClientSecretCredential,
+  DefaultAzureCredential,
+} from "@azure/identity";
 import { Client } from "@microsoft/microsoft-graph-client";
 import {
   TokenCredentialAuthenticationProvider,
@@ -12,6 +17,10 @@ import {
   TeamsInfo,
   type TurnContext,
 } from "botbuilder";
+import {
+  CertificateServiceClientCredentialsFactory,
+  FederatedServiceClientCredentialsFactory,
+} from "botframework-connector";
 
 /** Extended CloudAdapter that exposes processActivity for serverless environments */
 class ServerlessCloudAdapter extends CloudAdapter {
@@ -99,6 +108,24 @@ interface GraphChatMessage {
   replyToId?: string; // ID of parent message for channel threads
 }
 
+/** Certificate-based authentication config */
+export interface TeamsAuthCertificate {
+  /** PEM-encoded certificate private key */
+  certificatePrivateKey: string;
+  /** Hex-encoded certificate thumbprint (optional when x5c is provided) */
+  certificateThumbprint?: string;
+  /** Public certificate for subject-name validation (optional) */
+  x5c?: string;
+}
+
+/** Federated (workload identity) authentication config */
+export interface TeamsAuthFederated {
+  /** Audience for the federated credential (defaults to api://AzureADTokenExchange) */
+  clientAudience?: string;
+  /** Client ID for the managed identity assigned to the bot */
+  clientId: string;
+}
+
 export interface TeamsAdapterConfig {
   /** Microsoft App ID. Defaults to TEAMS_APP_ID env var. */
   appId?: string;
@@ -108,6 +135,10 @@ export interface TeamsAdapterConfig {
   appTenantId?: string;
   /** Microsoft App Type */
   appType?: "MultiTenant" | "SingleTenant";
+  /** Certificate-based authentication */
+  certificate?: TeamsAuthCertificate;
+  /** Federated (workload identity) authentication */
+  federated?: TeamsAuthFederated;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Override bot username (optional) */
@@ -138,9 +169,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private readonly formatConverter = new TeamsFormatConverter();
-  private readonly config: Required<
-    Pick<TeamsAdapterConfig, "appId" | "appPassword">
-  > &
+  private readonly config: Required<Pick<TeamsAdapterConfig, "appId">> &
     TeamsAdapterConfig;
 
   constructor(config: TeamsAdapterConfig = {}) {
@@ -151,13 +180,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         "appId is required. Set TEAMS_APP_ID or provide it in config."
       );
     }
-    const appPassword = config.appPassword ?? process.env.TEAMS_APP_PASSWORD;
-    if (!appPassword) {
-      throw new ValidationError(
-        "teams",
-        "appPassword is required. Set TEAMS_APP_PASSWORD or provide it in config."
-      );
-    }
+    const hasExplicitAuth =
+      config.appPassword || config.certificate || config.federated;
+    const appPassword = hasExplicitAuth
+      ? config.appPassword
+      : (config.appPassword ?? process.env.TEAMS_APP_PASSWORD);
     const appTenantId = config.appTenantId ?? process.env.TEAMS_APP_TENANT_ID;
 
     this.config = {
@@ -169,6 +196,26 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.logger = config.logger ?? new ConsoleLogger("info").child("teams");
     this.userName = config.userName || "bot";
 
+    const authMethodCount = [
+      appPassword,
+      config.certificate,
+      config.federated,
+    ].filter(Boolean).length;
+
+    if (authMethodCount === 0) {
+      throw new ValidationError(
+        "teams",
+        "One of appPassword, certificate, or federated must be provided"
+      );
+    }
+
+    if (authMethodCount > 1) {
+      throw new ValidationError(
+        "teams",
+        "Only one of appPassword, certificate, or federated can be provided"
+      );
+    }
+
     if (config.appType === "SingleTenant" && !appTenantId) {
       throw new ValidationError(
         "teams",
@@ -176,27 +223,87 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       );
     }
 
-    // Pass empty config object, credentials go via factory
-    const auth = new ConfigurationBotFrameworkAuthentication({
+    // Build Bot Framework auth based on credential type
+    const botFrameworkConfig = {
       MicrosoftAppId: appId,
-      MicrosoftAppPassword: appPassword,
       MicrosoftAppType: config.appType || "MultiTenant",
       MicrosoftAppTenantId:
         config.appType === "SingleTenant" ? appTenantId : undefined,
-    });
+    };
 
-    this.botAdapter = new ServerlessCloudAdapter(auth);
+    let credentialsFactory:
+      | CertificateServiceClientCredentialsFactory
+      | FederatedServiceClientCredentialsFactory
+      | undefined;
+    let graphCredential: TokenCredential | undefined;
 
-    // Initialize Microsoft Graph client for message history (requires tenant ID)
-    if (appTenantId) {
-      const credential = new ClientSecretCredential(
+    if (config.certificate) {
+      const { certificatePrivateKey, certificateThumbprint, x5c } =
+        config.certificate;
+
+      if (x5c) {
+        credentialsFactory = new CertificateServiceClientCredentialsFactory(
+          appId,
+          x5c,
+          certificatePrivateKey,
+          appTenantId
+        );
+      } else if (certificateThumbprint) {
+        credentialsFactory = new CertificateServiceClientCredentialsFactory(
+          appId,
+          certificateThumbprint,
+          certificatePrivateKey,
+          appTenantId
+        );
+      } else {
+        throw new ValidationError(
+          "teams",
+          "Certificate auth requires either certificateThumbprint or x5c"
+        );
+      }
+
+      if (appTenantId) {
+        graphCredential = new ClientCertificateCredential(
+          appTenantId,
+          appId,
+          { certificate: certificatePrivateKey }
+        );
+      }
+    } else if (config.federated) {
+      credentialsFactory = new FederatedServiceClientCredentialsFactory(
+        appId,
+        config.federated.clientId,
+        appTenantId,
+        config.federated.clientAudience
+      );
+
+      if (appTenantId) {
+        graphCredential = new DefaultAzureCredential();
+      }
+    } else if (appPassword && appTenantId) {
+      graphCredential = new ClientSecretCredential(
         appTenantId,
         appId,
         appPassword
       );
+    }
 
+    const auth = new ConfigurationBotFrameworkAuthentication(
+      {
+        ...botFrameworkConfig,
+        ...(appPassword
+          ? { MicrosoftAppPassword: appPassword }
+          : {}),
+      },
+      credentialsFactory
+    );
+
+    this.botAdapter = new ServerlessCloudAdapter(auth);
+
+    // Initialize Microsoft Graph client for message history (requires tenant ID)
+    if (graphCredential) {
       const authProvider = new TokenCredentialAuthenticationProvider(
-        credential,
+        graphCredential,
         {
           scopes: ["https://graph.microsoft.com/.default"],
         } as TokenCredentialAuthenticationProviderOptions

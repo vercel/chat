@@ -45,6 +45,7 @@ import {
   GatewayIntentBits,
   Partials,
 } from "discord.js";
+import { MessageType } from "discord-api-types/v9";
 import {
   type APIEmbed,
   type APIMessage,
@@ -1482,9 +1483,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Parse a Discord API message into normalized format.
    */
   private parseDiscordMessage(
-    msg: APIMessage,
+    raw: APIMessage,
     threadId: string
   ): Message<unknown> {
+    // use original message instead of empty thread starter message if available
+    const msg =
+      raw.type === MessageType.ThreadStarterMessage && raw.referenced_message
+        ? raw.referenced_message
+        : raw;
+
     const author = msg.author;
     const isBot = author.bot ?? false;
     const isMe = author.id === this.botUserId;
@@ -1494,7 +1501,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadId,
       text: this.formatConverter.extractPlainText(msg.content),
       formatted: this.formatConverter.toAst(msg.content),
-      raw: msg,
+      raw,
       author: {
         userId: author.id,
         userName: author.username,

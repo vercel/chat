@@ -1163,9 +1163,32 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // Skip message subtypes we don't handle (edits, deletes, etc.)
-    // Note: bot_message subtype is allowed through - Chat class filters via isMe
-    if (event.subtype && event.subtype !== "bot_message") {
+    // Skip message subtypes that are system/meta events (edits, deletes, joins, etc.)
+    // Allow through: bot_message, file_share, thread_broadcast, me_message, and
+    // any other content-carrying subtypes. Chat class handles isMe filtering.
+    const ignoredSubtypes = new Set([
+      "message_changed",
+      "message_deleted",
+      "message_replied",
+      "channel_join",
+      "channel_leave",
+      "channel_topic",
+      "channel_purpose",
+      "channel_name",
+      "channel_archive",
+      "channel_unarchive",
+      "group_join",
+      "group_leave",
+      "group_topic",
+      "group_purpose",
+      "group_name",
+      "group_archive",
+      "group_unarchive",
+      "ekm_access_denied",
+      "tombstone",
+    ]);
+
+    if (event.subtype && ignoredSubtypes.has(event.subtype)) {
       this.logger.debug("Ignoring message subtype", {
         subtype: event.subtype,
       });
@@ -1666,7 +1689,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           typeof message === "string" ||
           (typeof message === "object" &&
             message !== null &&
-            ("raw" in message || "markdown" in message || "ast" in message));
+            (("raw" in message && message.raw) ||
+              ("markdown" in message && message.markdown) ||
+              ("ast" in message && message.ast)));
         const card = extractCard(message);
 
         if (!(hasText || card)) {

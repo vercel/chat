@@ -1,7 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
-import { type CardJSXElement, isJSX, toCardElement } from "./jsx-runtime";
+import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
   paragraph,
   parseMarkdown,
@@ -240,7 +240,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   }
 
   async post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage> {
     // Handle AsyncIterable (streaming) — not supported at channel level,
     // fall through to postMessage
@@ -280,7 +280,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
   async postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null> {
     const { fallbackToDM } = options;
@@ -395,7 +395,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
       },
 
       async edit(
-        newContent: string | PostableMessage | CardJSXElement
+        newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
         let editPostable: string | AdapterPostableMessage = newContent as
           | string

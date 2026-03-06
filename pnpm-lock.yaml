@@ -403,6 +403,9 @@ importers:
       botbuilder:
         specifier: ^4.23.1
         version: 4.23.3
+      botframework-connector:
+        specifier: ^4.23.3
+        version: 4.23.3
       chat:
         specifier: workspace:*
         version: link:../chat
@@ -8371,7 +8374,7 @@ snapshots:
       '@azure/identity': 4.13.0
       '@azure/msal-node': 2.16.3
       '@types/jsonwebtoken': 9.0.6
-      axios: 1.13.2
+      axios: 1.13.6
       base64url: 3.0.1
       botbuilder-stdlib: 4.23.3-internal
       botframework-schema: 4.23.3

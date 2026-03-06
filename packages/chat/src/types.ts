@@ -4,7 +4,7 @@
 
 import type { Root } from "mdast";
 import type { CardElement } from "./cards";
-import type { CardJSXElement } from "./jsx-runtime";
+import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
@@ -532,6 +532,9 @@ export interface StateAdapter {
   /** Set a cached value with optional TTL in milliseconds */
   set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void>;
 
+  /** Atomically set a value only if the key does not already exist. Returns true if set, false if key existed. */
+  setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean>;
+
   /** Subscribe to a thread (persists across restarts) */
   subscribe(threadId: string): Promise<void>;
 
@@ -582,7 +585,7 @@ export interface Postable<
    * Post a message.
    */
   post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -590,7 +593,7 @@ export interface Postable<
    */
   postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
 
@@ -772,7 +775,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -805,7 +808,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    */
   postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
 
@@ -987,7 +990,7 @@ export interface SentMessage<TRawMessage = unknown>
   delete(): Promise<void>;
   /** Edit this message with text, a PostableMessage, or a JSX Card element */
   edit(
-    newContent: string | PostableMessage | CardJSXElement
+    newContent: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
@@ -1484,7 +1487,7 @@ export interface ActionEvent<TRawMessage = unknown> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement
+    modal: ModalElement | ChatElement
   ): Promise<{ viewId: string } | undefined>;
   /** Platform-specific raw event data */
   raw: unknown;
@@ -1693,7 +1696,7 @@ export interface SlashCommandEvent<TState = Record<string, unknown>> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement
+    modal: ModalElement | ChatElement
   ): Promise<{ viewId: string } | undefined>;
 
   /** Platform-specific raw payload */

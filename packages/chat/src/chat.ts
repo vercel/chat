@@ -1498,18 +1498,21 @@ export class Chat<
       return;
     }
 
-    // Deduplicate messages - same message can arrive via multiple paths
+    // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
     const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
-    const alreadyProcessed = await this._stateAdapter.get<boolean>(dedupeKey);
-    if (alreadyProcessed) {
+    const isFirstProcess = await this._stateAdapter.setIfNotExists(
+      dedupeKey,
+      true,
+      this._dedupeTtlMs
+    );
+    if (!isFirstProcess) {
       this.logger.debug("Skipping duplicate message", {
         adapter: adapter.name,
         messageId: message.id,
       });
       return;
     }
-    await this._stateAdapter.set(dedupeKey, true, this._dedupeTtlMs);
 
     // Try to acquire lock on thread
     const lock = await this._stateAdapter.acquireLock(
