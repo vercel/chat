@@ -37,7 +37,6 @@ const DEFAULT_API_VERSION = "v21.0";
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
 
-
 // Re-export types
 export type {
   WhatsAppAdapterConfig,
