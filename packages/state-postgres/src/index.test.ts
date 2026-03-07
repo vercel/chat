@@ -1,19 +1,17 @@
 import type { Lock, Logger } from "chat";
-import type { Sql } from "postgres";
+import type pg from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEnd = vi.fn().mockResolvedValue(undefined);
+const mockQuery = vi.fn().mockResolvedValue({ rows: [] });
 
-vi.mock("postgres", () => ({
-  default: () => {
-    const sql = (
-      _strings: TemplateStringsArray,
-      ..._values: unknown[]
-    ): Promise<unknown[]> => Promise.resolve([]);
-    sql.end = mockEnd;
-    return sql;
-  },
-}));
+vi.mock("pg", () => {
+  class MockPool {
+    query = mockQuery;
+    end = mockEnd;
+  }
+  return { default: { Pool: MockPool } };
+});
 
 const { createPostgresState, PostgresStateAdapter } = await import("./index");
 
@@ -24,18 +22,20 @@ const mockLogger: Logger = {
   error: vi.fn(),
 };
 
-function createMockSql(queryFn?: (query: string) => unknown[]) {
-  const defaultQueryFn = () => [] as unknown[];
+function createMockPool(
+  queryFn?: (text: string, params?: unknown[]) => { rows: unknown[] }
+) {
+  const defaultQueryFn = () => ({ rows: [] as unknown[] });
   const resolvedQueryFn = queryFn ?? defaultQueryFn;
 
-  const sql = (strings: TemplateStringsArray, ..._values: unknown[]) => {
-    const query = strings.join("?");
-    return Promise.resolve(resolvedQueryFn(query));
-  };
-
-  sql.end = vi.fn().mockResolvedValue(undefined);
-
-  return sql as unknown as Sql;
+  return {
+    query: vi
+      .fn()
+      .mockImplementation((text: string, params?: unknown[]) =>
+        Promise.resolve(resolvedQueryFn(text, params))
+      ),
+    end: vi.fn().mockResolvedValue(undefined),
+  } as unknown as pg.Pool;
 }
 
 describe("PostgresStateAdapter", () => {
@@ -66,7 +66,7 @@ describe("PostgresStateAdapter", () => {
     });
 
     it("should create an adapter with an existing client", () => {
-      const client = createMockSql();
+      const client = createMockPool();
       const adapter = createPostgresState({ client, logger: mockLogger });
       expect(adapter).toBeInstanceOf(PostgresStateAdapter);
     });
@@ -124,7 +124,7 @@ describe("PostgresStateAdapter", () => {
   describe("ensureConnected", () => {
     it("should throw when calling subscribe before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.subscribe("thread1")).rejects.toThrow(
@@ -134,7 +134,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling unsubscribe before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.unsubscribe("thread1")).rejects.toThrow(
@@ -144,7 +144,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling isSubscribed before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.isSubscribed("thread1")).rejects.toThrow(
@@ -154,7 +154,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling acquireLock before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.acquireLock("thread1", 5000)).rejects.toThrow(
@@ -164,7 +164,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling releaseLock before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       const fakeLock: Lock = {
@@ -179,7 +179,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling extendLock before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       const fakeLock: Lock = {
@@ -194,7 +194,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling get before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.get("key")).rejects.toThrow("not connected");
@@ -202,7 +202,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling set before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.set("key", "value")).rejects.toThrow(
@@ -212,7 +212,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling setIfNotExists before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.setIfNotExists("key", "value")).rejects.toThrow(
@@ -222,7 +222,7 @@ describe("PostgresStateAdapter", () => {
 
     it("should throw when calling delete before connect", async () => {
       const adapter = new PostgresStateAdapter({
-        client: createMockSql(),
+        client: createMockPool(),
         logger: mockLogger,
       });
       await expect(adapter.delete("key")).rejects.toThrow("not connected");
@@ -230,14 +230,15 @@ describe("PostgresStateAdapter", () => {
   });
 
   describe("with mock client", () => {
-    let adapter: PostgresStateAdapter;
-    let queryResults: unknown[];
+    let adapter: InstanceType<typeof PostgresStateAdapter>;
+    let queryRows: unknown[];
+    let pool: pg.Pool;
 
     beforeEach(async () => {
-      queryResults = [];
-      const client = createMockSql(() => queryResults);
+      queryRows = [];
+      pool = createMockPool(() => ({ rows: queryRows }));
       adapter = new PostgresStateAdapter({
-        client,
+        client: pool,
         logger: mockLogger,
       });
       await adapter.connect();
@@ -254,7 +255,7 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should deduplicate concurrent connect calls", async () => {
-        const client = createMockSql();
+        const client = createMockPool();
         const a = new PostgresStateAdapter({ client, logger: mockLogger });
         await Promise.all([a.connect(), a.connect()]);
       });
@@ -264,15 +265,15 @@ describe("PostgresStateAdapter", () => {
         await adapter.disconnect();
       });
 
-      it("should not call client.end() when using external client", async () => {
-        const client = createMockSql();
+      it("should not call pool.end() when using external client", async () => {
+        const client = createMockPool();
         const a = new PostgresStateAdapter({ client, logger: mockLogger });
         await a.connect();
         await a.disconnect();
         expect(client.end).not.toHaveBeenCalled();
       });
 
-      it("should call client.end() when adapter owns the client", async () => {
+      it("should call pool.end() when adapter owns the client", async () => {
         mockEnd.mockClear();
         const a = new PostgresStateAdapter({
           url: "postgres://localhost:5432/test",
@@ -284,16 +285,13 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should handle connect failure", async () => {
-        const failClient = ((
-          _strings: TemplateStringsArray,
-          ..._values: unknown[]
-        ) => {
-          return Promise.reject(new Error("connection refused"));
-        }) as unknown as Sql;
-        failClient.end = vi.fn() as Sql["end"];
+        const failPool = {
+          query: vi.fn().mockRejectedValue(new Error("connection refused")),
+          end: vi.fn(),
+        } as unknown as pg.Pool;
 
         const a = new PostgresStateAdapter({
-          client: failClient,
+          client: failPool,
           logger: mockLogger,
         });
         await expect(a.connect()).rejects.toThrow("connection refused");
@@ -314,13 +312,13 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should return true when subscribed", async () => {
-        queryResults = [{ "?column?": 1 }];
+        queryRows = [{ "?column?": 1 }];
         const result = await adapter.isSubscribed("slack:C123:1234.5678");
         expect(result).toBe(true);
       });
 
       it("should return false when not subscribed", async () => {
-        queryResults = [];
+        queryRows = [];
         const result = await adapter.isSubscribed("slack:C123:1234.5678");
         expect(result).toBe(false);
       });
@@ -329,7 +327,7 @@ describe("PostgresStateAdapter", () => {
     describe("locking", () => {
       it("should acquire a lock when row is returned", async () => {
         const expiresAt = new Date(Date.now() + 5000);
-        queryResults = [
+        queryRows = [
           {
             thread_id: "thread1",
             token: "pg_test-token",
@@ -345,7 +343,7 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should return null when lock is already held", async () => {
-        queryResults = [];
+        queryRows = [];
         const lock = await adapter.acquireLock("thread1", 5000);
         expect(lock).toBeNull();
       });
@@ -360,7 +358,7 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should return true when lock is extended", async () => {
-        queryResults = [{ thread_id: "thread1" }];
+        queryRows = [{ thread_id: "thread1" }];
         const lock: Lock = {
           threadId: "thread1",
           token: "pg_test-token",
@@ -371,7 +369,7 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should return false when lock extension fails", async () => {
-        queryResults = [];
+        queryRows = [];
         const lock: Lock = {
           threadId: "thread1",
           token: "pg_test-token",
@@ -384,19 +382,19 @@ describe("PostgresStateAdapter", () => {
 
     describe("cache", () => {
       it("should return parsed JSON value on cache hit", async () => {
-        queryResults = [{ value: '{"foo":"bar"}' }];
+        queryRows = [{ value: '{"foo":"bar"}' }];
         const result = await adapter.get("key");
         expect(result).toEqual({ foo: "bar" });
       });
 
       it("should return raw value when JSON parsing fails", async () => {
-        queryResults = [{ value: "not-json" }];
+        queryRows = [{ value: "not-json" }];
         const result = await adapter.get("key");
         expect(result).toBe("not-json");
       });
 
       it("should return null and clean up on cache miss", async () => {
-        queryResults = [];
+        queryRows = [];
         const result = await adapter.get("key");
         expect(result).toBeNull();
       });
@@ -410,19 +408,19 @@ describe("PostgresStateAdapter", () => {
       });
 
       it("should return true when setIfNotExists inserts a new key", async () => {
-        queryResults = [{ cache_key: "key" }];
+        queryRows = [{ cache_key: "key" }];
         const result = await adapter.setIfNotExists("key", "value");
         expect(result).toBe(true);
       });
 
       it("should return false when setIfNotExists finds existing key", async () => {
-        queryResults = [];
+        queryRows = [];
         const result = await adapter.setIfNotExists("key", "value");
         expect(result).toBe(false);
       });
 
       it("should support setIfNotExists with TTL", async () => {
-        queryResults = [{ cache_key: "key" }];
+        queryRows = [{ cache_key: "key" }];
         const result = await adapter.setIfNotExists("key", "value", 5000);
         expect(result).toBe(true);
       });

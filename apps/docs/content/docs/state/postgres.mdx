@@ -1,12 +1,12 @@
 ---
 title: PostgreSQL
-description: Production state adapter using postgres.
+description: Production state adapter using pg (node-postgres).
 type: reference
 prerequisites:
   - /docs/getting-started
 ---
 
-Production PostgreSQL state adapter built with [postgres](https://www.npmjs.com/package/postgres). Use this when PostgreSQL is your primary datastore and you want state persistence without a separate Redis dependency.
+Production PostgreSQL state adapter built with [pg](https://www.npmjs.com/package/pg) (node-postgres). Use this when PostgreSQL is your primary datastore and you want state persistence without a separate Redis dependency.
 
 ## Installation
 
@@ -40,9 +40,9 @@ const state = createPostgresState({
 ### Using an existing client
 
 ```typescript title="lib/bot.ts" lineNumbers
-import postgres from "postgres";
+import pg from "pg";
 
-const client = postgres(process.env.POSTGRES_URL!);
+const client = new pg.Pool({ connectionString: process.env.POSTGRES_URL! });
 const state = createPostgresState({ client });
 ```
 
@@ -51,7 +51,7 @@ const state = createPostgresState({ client });
 | Option | Required | Description |
 |--------|----------|-------------|
 | `url` | No* | Postgres connection URL |
-| `client` | No | Existing `postgres` client |
+| `client` | No | Existing `pg.Pool` instance |
 | `keyPrefix` | No | Prefix for all state rows (default: `"chat-sdk"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info").child("postgres")`) |
 

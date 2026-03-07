@@ -1,6 +1,6 @@
 import type { Lock, Logger, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
-import postgres, { type Sql } from "postgres";
+import pg from "pg";
 
 export interface PostgresStateAdapterOptions {
   /** Key prefix for all rows (default: "chat-sdk") */
@@ -12,8 +12,8 @@ export interface PostgresStateAdapterOptions {
 }
 
 export interface PostgresStateClientOptions {
-  /** Existing postgres client instance */
-  client: Sql;
+  /** Existing pg.Pool instance */
+  client: pg.Pool;
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
@@ -23,11 +23,11 @@ export interface PostgresStateClientOptions {
 export type CreatePostgresStateOptions =
   | (Partial<PostgresStateAdapterOptions> & { client?: never })
   | (Partial<Omit<PostgresStateClientOptions, "client">> & {
-      client: Sql;
+      client: pg.Pool;
     });
 
 export class PostgresStateAdapter implements StateAdapter {
-  private readonly client: Sql;
+  private readonly pool: pg.Pool;
   private readonly keyPrefix: string;
   private readonly logger: Logger;
   private readonly ownsClient: boolean;
@@ -38,10 +38,10 @@ export class PostgresStateAdapter implements StateAdapter {
     options: PostgresStateAdapterOptions | PostgresStateClientOptions
   ) {
     if ("client" in options) {
-      this.client = options.client;
+      this.pool = options.client;
       this.ownsClient = false;
     } else {
-      this.client = postgres(options.url);
+      this.pool = new pg.Pool({ connectionString: options.url });
       this.ownsClient = true;
     }
 
@@ -57,7 +57,7 @@ export class PostgresStateAdapter implements StateAdapter {
     if (!this.connectPromise) {
       this.connectPromise = (async () => {
         try {
-          await this.client`select 1`;
+          await this.pool.query("SELECT 1");
           await this.ensureSchema();
           this.connected = true;
         } catch (error) {
@@ -77,7 +77,7 @@ export class PostgresStateAdapter implements StateAdapter {
     }
 
     if (this.ownsClient) {
-      await this.client.end();
+      await this.pool.end();
     }
 
     this.connected = false;
@@ -87,34 +87,35 @@ export class PostgresStateAdapter implements StateAdapter {
   async subscribe(threadId: string): Promise<void> {
     this.ensureConnected();
 
-    await this.client`
-      insert into chat_state_subscriptions (key_prefix, thread_id)
-      values (${this.keyPrefix}, ${threadId})
-      on conflict do nothing
-    `;
+    await this.pool.query(
+      `INSERT INTO chat_state_subscriptions (key_prefix, thread_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [this.keyPrefix, threadId]
+    );
   }
 
   async unsubscribe(threadId: string): Promise<void> {
     this.ensureConnected();
 
-    await this.client`
-      delete from chat_state_subscriptions
-      where key_prefix = ${this.keyPrefix}
-        and thread_id = ${threadId}
-    `;
+    await this.pool.query(
+      `DELETE FROM chat_state_subscriptions
+       WHERE key_prefix = $1 AND thread_id = $2`,
+      [this.keyPrefix, threadId]
+    );
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
     this.ensureConnected();
 
-    const rows = await this.client`
-      select 1 from chat_state_subscriptions
-      where key_prefix = ${this.keyPrefix}
-        and thread_id = ${threadId}
-      limit 1
-    `;
+    const result = await this.pool.query(
+      `SELECT 1 FROM chat_state_subscriptions
+       WHERE key_prefix = $1 AND thread_id = $2
+       LIMIT 1`,
+      [this.keyPrefix, threadId]
+    );
 
-    return rows.length > 0;
+    return result.rows.length > 0;
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -123,83 +124,84 @@ export class PostgresStateAdapter implements StateAdapter {
     const token = generateToken();
     const expiresAt = new Date(Date.now() + ttlMs);
 
-    const rows = await this.client`
-      insert into chat_state_locks (key_prefix, thread_id, token, expires_at)
-      values (${this.keyPrefix}, ${threadId}, ${token}, ${expiresAt})
-      on conflict (key_prefix, thread_id) do update
-        set token = excluded.token,
-            expires_at = excluded.expires_at,
-            updated_at = now()
-        where chat_state_locks.expires_at <= now()
-      returning thread_id, token, expires_at
-    `;
+    const result = await this.pool.query(
+      `INSERT INTO chat_state_locks (key_prefix, thread_id, token, expires_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key_prefix, thread_id) DO UPDATE
+         SET token = EXCLUDED.token,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = now()
+         WHERE chat_state_locks.expires_at <= now()
+       RETURNING thread_id, token, expires_at`,
+      [this.keyPrefix, threadId, token, expiresAt]
+    );
 
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       return null;
     }
 
     return {
-      threadId: rows[0].thread_id as string,
-      token: rows[0].token as string,
-      expiresAt: (rows[0].expires_at as Date).getTime(),
+      threadId: result.rows[0].thread_id as string,
+      token: result.rows[0].token as string,
+      expiresAt: (result.rows[0].expires_at as Date).getTime(),
     };
   }
 
   async releaseLock(lock: Lock): Promise<void> {
     this.ensureConnected();
 
-    await this.client`
-      delete from chat_state_locks
-      where key_prefix = ${this.keyPrefix}
-        and thread_id = ${lock.threadId}
-        and token = ${lock.token}
-    `;
+    await this.pool.query(
+      `DELETE FROM chat_state_locks
+       WHERE key_prefix = $1 AND thread_id = $2 AND token = $3`,
+      [this.keyPrefix, lock.threadId, lock.token]
+    );
   }
 
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
     this.ensureConnected();
 
-    const rows = await this.client`
-      update chat_state_locks
-      set expires_at = now() + ${ttlMs} * interval '1 millisecond',
-          updated_at = now()
-      where key_prefix = ${this.keyPrefix}
-        and thread_id = ${lock.threadId}
-        and token = ${lock.token}
-        and expires_at > now()
-      returning thread_id
-    `;
+    const result = await this.pool.query(
+      `UPDATE chat_state_locks
+       SET expires_at = now() + $1 * interval '1 millisecond',
+           updated_at = now()
+       WHERE key_prefix = $2
+         AND thread_id = $3
+         AND token = $4
+         AND expires_at > now()
+       RETURNING thread_id`,
+      [ttlMs, this.keyPrefix, lock.threadId, lock.token]
+    );
 
-    return rows.length > 0;
+    return result.rows.length > 0;
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
     this.ensureConnected();
 
-    const rows = await this.client`
-      select value from chat_state_cache
-      where key_prefix = ${this.keyPrefix}
-        and cache_key = ${key}
-        and (expires_at is null or expires_at > now())
-      limit 1
-    `;
+    const result = await this.pool.query(
+      `SELECT value FROM chat_state_cache
+       WHERE key_prefix = $1 AND cache_key = $2
+         AND (expires_at IS NULL OR expires_at > now())
+       LIMIT 1`,
+      [this.keyPrefix, key]
+    );
 
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       // Opportunistic cleanup of expired entry
-      await this.client`
-        delete from chat_state_cache
-        where key_prefix = ${this.keyPrefix}
-          and cache_key = ${key}
-          and expires_at <= now()
-      `;
+      await this.pool.query(
+        `DELETE FROM chat_state_cache
+         WHERE key_prefix = $1 AND cache_key = $2
+           AND expires_at <= now()`,
+        [this.keyPrefix, key]
+      );
 
       return null;
     }
 
     try {
-      return JSON.parse(rows[0].value as string) as T;
+      return JSON.parse(result.rows[0].value as string) as T;
     } catch {
-      return rows[0].value as unknown as T;
+      return result.rows[0].value as unknown as T;
     }
   }
 
@@ -209,14 +211,15 @@ export class PostgresStateAdapter implements StateAdapter {
     const serialized = JSON.stringify(value);
     const expiresAt = ttlMs ? new Date(Date.now() + ttlMs) : null;
 
-    await this.client`
-      insert into chat_state_cache (key_prefix, cache_key, value, expires_at)
-      values (${this.keyPrefix}, ${key}, ${serialized}, ${expiresAt})
-      on conflict (key_prefix, cache_key) do update
-        set value = excluded.value,
-            expires_at = excluded.expires_at,
-            updated_at = now()
-    `;
+    await this.pool.query(
+      `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key_prefix, cache_key) DO UPDATE
+         SET value = EXCLUDED.value,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = now()`,
+      [this.keyPrefix, key, serialized, expiresAt]
+    );
   }
 
   async setIfNotExists(
@@ -229,67 +232,68 @@ export class PostgresStateAdapter implements StateAdapter {
     const serialized = JSON.stringify(value);
     const expiresAt = ttlMs ? new Date(Date.now() + ttlMs) : null;
 
-    const rows = await this.client`
-      insert into chat_state_cache (key_prefix, cache_key, value, expires_at)
-      values (${this.keyPrefix}, ${key}, ${serialized}, ${expiresAt})
-      on conflict (key_prefix, cache_key) do nothing
-      returning cache_key
-    `;
+    const result = await this.pool.query(
+      `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key_prefix, cache_key) DO NOTHING
+       RETURNING cache_key`,
+      [this.keyPrefix, key, serialized, expiresAt]
+    );
 
-    return rows.length > 0;
+    return result.rows.length > 0;
   }
 
   async delete(key: string): Promise<void> {
     this.ensureConnected();
 
-    await this.client`
-      delete from chat_state_cache
-      where key_prefix = ${this.keyPrefix}
-        and cache_key = ${key}
-    `;
+    await this.pool.query(
+      `DELETE FROM chat_state_cache
+       WHERE key_prefix = $1 AND cache_key = $2`,
+      [this.keyPrefix, key]
+    );
   }
 
-  getClient(): Sql {
-    return this.client;
+  getClient(): pg.Pool {
+    return this.pool;
   }
 
   private async ensureSchema(): Promise<void> {
-    await this.client`
-      create table if not exists chat_state_subscriptions (
-        key_prefix text not null,
-        thread_id text not null,
-        created_at timestamptz not null default now(),
-        primary key (key_prefix, thread_id)
-      )
-    `;
-    await this.client`
-      create table if not exists chat_state_locks (
-        key_prefix text not null,
-        thread_id text not null,
-        token text not null,
-        expires_at timestamptz not null,
-        updated_at timestamptz not null default now(),
-        primary key (key_prefix, thread_id)
-      )
-    `;
-    await this.client`
-      create table if not exists chat_state_cache (
-        key_prefix text not null,
-        cache_key text not null,
-        value text not null,
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
+        key_prefix text NOT NULL,
+        thread_id text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (key_prefix, thread_id)
+      )`
+    );
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS chat_state_locks (
+        key_prefix text NOT NULL,
+        thread_id text NOT NULL,
+        token text NOT NULL,
+        expires_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (key_prefix, thread_id)
+      )`
+    );
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS chat_state_cache (
+        key_prefix text NOT NULL,
+        cache_key text NOT NULL,
+        value text NOT NULL,
         expires_at timestamptz,
-        updated_at timestamptz not null default now(),
-        primary key (key_prefix, cache_key)
-      )
-    `;
-    await this.client`
-      create index if not exists chat_state_locks_expires_idx
-      on chat_state_locks (expires_at)
-    `;
-    await this.client`
-      create index if not exists chat_state_cache_expires_idx
-      on chat_state_cache (expires_at)
-    `;
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (key_prefix, cache_key)
+      )`
+    );
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
+       ON chat_state_locks (expires_at)`
+    );
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
+       ON chat_state_cache (expires_at)`
+    );
   }
 
   private ensureConnected(): void {

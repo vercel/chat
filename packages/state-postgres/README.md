@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/state-postgres)](https://www.npmjs.com/package/@chat-adapter/state-postgres)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-postgres)](https://www.npmjs.com/package/@chat-adapter/state-postgres)
 
-PostgreSQL state adapter for [Chat SDK](https://chat-sdk.dev/docs) using [postgres](https://www.npmjs.com/package/postgres). Suitable for production when PostgreSQL is your primary data store.
+PostgreSQL state adapter for [Chat SDK](https://chat-sdk.dev/docs) using [pg](https://www.npmjs.com/package/pg) (node-postgres). Suitable for production when PostgreSQL is your primary data store.
 
 ## Installation
 
