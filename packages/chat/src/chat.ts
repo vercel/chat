@@ -1619,6 +1619,9 @@ export class Chat<
     // Check if this is a DM
     const isDM = adapter.isDM?.(threadId) ?? false;
 
+    // Check if this is an external/shared channel (e.g., Slack Connect)
+    const isExternalChannel = adapter.isExternalChannel?.(threadId) ?? false;
+
     return new ThreadImpl<TState>({
       id: threadId,
       adapter,
@@ -1627,6 +1630,7 @@ export class Chat<
       initialMessage,
       isSubscribedContext,
       isDM,
+      isExternalChannel,
       currentMessage: initialMessage,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
