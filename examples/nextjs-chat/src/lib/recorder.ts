@@ -109,7 +109,9 @@ class Recorder {
     this.enabled = process.env.RECORDING_ENABLED === "true";
     this.sessionId =
       process.env.RECORDING_SESSION_ID ||
-      `session-${process.env.VERCEL_GIT_COMMIT_SHA || "local"}`;
+      `session-${process.env.VERCEL_GIT_COMMIT_REF || "local"}-${
+        process.env.VERCEL_GIT_COMMIT_SHA || "local"
+      }`;
 
     if (this.enabled && process.env.REDIS_URL) {
       this.redis = createClient({ url: process.env.REDIS_URL });

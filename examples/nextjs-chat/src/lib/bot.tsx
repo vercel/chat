@@ -52,7 +52,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-4.5-sonnet",
+  model: "anthropic/claude-4.5-haiku",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -81,8 +81,17 @@ bot.onNewMention(async (thread, message) => {
 
     // Also respond to the initial message with AI
     await thread.startTyping("Thinking...");
-    const result = await agent.stream({ prompt: message.text });
-    await thread.post(result.fullStream);
+    try {
+      const result = await agent.stream({ prompt: message.text });
+      await thread.post(result.fullStream);
+    } catch (err) {
+      console.error("Error in AI response:", err);
+      await thread.post(
+        `${emoji.warning} Error in AI response: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
+      );
+    }
     return;
   }
 
