@@ -30,35 +30,64 @@ export async function* fromFullStream(
 ): AsyncIterable<string | StreamChunk> {
   let needsSeparator = false;
   let hasEmittedText = false;
+  let eventCount = 0;
+  let yieldedCount = 0;
+  let skippedTypes: string[] = [];
 
-  for await (const event of stream) {
-    // Plain string chunk (e.g. from AI SDK textStream)
-    if (typeof event === "string") {
-      yield event;
-      continue;
-    }
+  try {
+    for await (const event of stream) {
+      eventCount++;
 
-    // Skip non-objects
-    if (event === null || typeof event !== "object" || !("type" in event)) {
-      continue;
-    }
-    const typed = event as { textDelta?: unknown; type: string };
-
-    // Pass through StreamChunk objects (task_update, plan_update, markdown_text)
-    if (STREAM_CHUNK_TYPES.has(typed.type)) {
-      yield event as StreamChunk;
-      continue;
-    }
-
-    if (typed.type === "text-delta" && typeof typed.textDelta === "string") {
-      if (needsSeparator && hasEmittedText) {
-        yield "\n\n";
+      // Plain string chunk (e.g. from AI SDK textStream)
+      if (typeof event === "string") {
+        yieldedCount++;
+        yield event;
+        continue;
       }
-      needsSeparator = false;
-      hasEmittedText = true;
-      yield typed.textDelta;
-    } else if (typed.type === "step-finish") {
-      needsSeparator = true;
+
+      // Skip non-objects
+      if (event === null || typeof event !== "object" || !("type" in event)) {
+        const desc =
+          event === null
+            ? "null"
+            : `${typeof event}${typeof event === "object" ? `(keys:${Object.keys(event as object).join(",")})` : ""}`;
+        skippedTypes.push(desc);
+        continue;
+      }
+      const typed = event as { textDelta?: unknown; type: string };
+
+      // Pass through StreamChunk objects (task_update, plan_update, markdown_text)
+      if (STREAM_CHUNK_TYPES.has(typed.type)) {
+        yieldedCount++;
+        yield event as StreamChunk;
+        continue;
+      }
+
+      if (typed.type === "text-delta" && typeof typed.textDelta === "string") {
+        if (needsSeparator && hasEmittedText) {
+          yield "\n\n";
+        }
+        needsSeparator = false;
+        hasEmittedText = true;
+        yieldedCount++;
+        yield typed.textDelta;
+      } else if (typed.type === "step-finish") {
+        needsSeparator = true;
+      } else {
+        skippedTypes.push(typed.type);
+      }
+    }
+  } catch (error) {
+    console.error("[fromFullStream] Stream error after", eventCount, "events:", error);
+    throw error;
+  } finally {
+    if (eventCount === 0 || yieldedCount === 0) {
+      console.warn(
+        `[fromFullStream] Stream ended: ${eventCount} events received, ${yieldedCount} yielded.` +
+          (skippedTypes.length > 0
+            ? ` Skipped types: ${skippedTypes.join(", ")}`
+            : "")
+      );
     }
   }
 }
