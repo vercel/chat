@@ -759,23 +759,42 @@ describe("cardToBlockKit with CardLink", () => {
     const blocks = cardToBlockKit(card);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe("table");
-    expect(blocks[0].columns).toEqual([
-      { id: "col_0", header: { type: "plain_text", text: "Name" } },
-      { id: "col_1", header: { type: "plain_text", text: "Age" } },
-    ]);
+    // First row is headers, subsequent rows are data
     expect(blocks[0].rows).toEqual([
-      {
-        cells: [
-          { type: "plain_text", text: "Alice" },
-          { type: "plain_text", text: "30" },
-        ],
-      },
-      {
-        cells: [
-          { type: "plain_text", text: "Bob" },
-          { type: "plain_text", text: "25" },
-        ],
-      },
+      [
+        { type: "raw_text", text: "Name" },
+        { type: "raw_text", text: "Age" },
+      ],
+      [
+        { type: "raw_text", text: "Alice" },
+        { type: "raw_text", text: "30" },
+      ],
+      [
+        { type: "raw_text", text: "Bob" },
+        { type: "raw_text", text: "25" },
+      ],
     ]);
+  });
+
+  it("falls back to ASCII for second table in same card", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["A"],
+          rows: [["1"]],
+        }),
+        Table({
+          headers: ["B"],
+          rows: [["2"]],
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe("table");
+    // Second table falls back to ASCII in a section block
+    expect(blocks[1].type).toBe("section");
+    expect(blocks[1].text.text).toContain("```");
   });
 });
