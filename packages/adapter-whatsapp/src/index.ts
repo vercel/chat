@@ -784,18 +784,17 @@ export class WhatsAppAdapter
   /**
    * Edit a message. Not supported by WhatsApp Cloud API.
    *
-   * WhatsApp does not support editing sent messages. This method
-   * sends a new message as a fallback.
+   * WhatsApp does not support editing sent messages. Callers should
+   * use postMessage directly if they want to send a follow-up.
    */
   async editMessage(
-    threadId: string,
+    _threadId: string,
     _messageId: string,
-    message: AdapterPostableMessage
+    _message: AdapterPostableMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
-    this.logger.warn(
-      "WhatsApp does not support editing messages. Sending a new message instead."
+    throw new Error(
+      "WhatsApp does not support editing messages. Use postMessage to send a new message instead."
     );
-    return this.postMessage(threadId, message);
   }
 
   /**
