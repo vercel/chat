@@ -71,6 +71,8 @@ export function decodeWhatsAppCallbackData(data?: string): {
     return { actionId: "whatsapp_callback", value: undefined };
   }
 
+  // Passthrough for legacy or externally-generated button IDs that don't
+  // use the chat: prefix — treat the raw string as both actionId and value.
   if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
     return { actionId: data, value: data };
   }
@@ -87,9 +89,10 @@ export function decodeWhatsAppCallbackData(data?: string): {
       };
     }
   } catch {
-    // Fall back to passthrough behavior below.
+    // Malformed JSON after prefix — fall back to passthrough.
   }
 
+  // Same passthrough as non-prefixed data: treat raw string as both fields.
   return { actionId: data, value: data };
 }
 
