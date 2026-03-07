@@ -181,6 +181,7 @@ export class Chat<
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
   private readonly _dedupeTtlMs: number;
+  private readonly _onLockConflict: ChatConfig["onLockConflict"];
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
@@ -214,6 +215,7 @@ export class Chat<
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
+    this._onLockConflict = config.onLockConflict;
 
     // Initialize logger
     if (typeof config.logger === "string") {
@@ -1474,15 +1476,29 @@ export class Chat<
     await this._stateAdapter.set(dedupeKey, true, this._dedupeTtlMs);
 
     // Try to acquire lock on thread
-    const lock = await this._stateAdapter.acquireLock(
+    let lock = await this._stateAdapter.acquireLock(
       threadId,
       DEFAULT_LOCK_TTL_MS
     );
     if (!lock) {
-      this.logger.warn("Could not acquire lock on thread", { threadId });
-      throw new LockError(
-        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
-      );
+      const resolution =
+        typeof this._onLockConflict === "function"
+          ? this._onLockConflict(threadId, message)
+          : (this._onLockConflict ?? "drop");
+      if (resolution === "force") {
+        this.logger.info("Force-releasing lock on thread", { threadId });
+        await this._stateAdapter.forceReleaseLock(threadId);
+        lock = await this._stateAdapter.acquireLock(
+          threadId,
+          DEFAULT_LOCK_TTL_MS
+        );
+      }
+      if (!lock) {
+        this.logger.warn("Could not acquire lock on thread", { threadId });
+        throw new LockError(
+          `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
+        );
+      }
     }
 
     this.logger.debug("Lock acquired", { threadId, token: lock.token });

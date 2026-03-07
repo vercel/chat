@@ -53,6 +53,16 @@ export interface ChatConfig<
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
+  /**
+   * Behavior when a thread lock cannot be acquired (another handler is processing).
+   * - `'drop'` (default) — throw `LockError`, preserving current behavior
+   * - `'force'` — force-release the existing lock and re-acquire
+   * - callback — custom logic receiving `(threadId, message)`, return `'force'` or `'drop'`
+   */
+  onLockConflict?:
+    | "force"
+    | "drop"
+    | ((threadId: string, message: Message) => "force" | "drop");
   /** Default bot username across all adapters */
   userName: string;
 }
@@ -471,6 +481,9 @@ export interface StateAdapter {
 
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
+
+  /** Force-release a lock on a thread, regardless of ownership token. Enables interrupt/steerability. */
+  forceReleaseLock(threadId: string): Promise<void>;
 
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;

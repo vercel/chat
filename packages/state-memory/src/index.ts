@@ -88,6 +88,11 @@ export class MemoryStateAdapter implements StateAdapter {
     return lock;
   }
 
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+    this.locks.delete(threadId);
+  }
+
   async releaseLock(lock: Lock): Promise<void> {
     this.ensureConnected();
 
