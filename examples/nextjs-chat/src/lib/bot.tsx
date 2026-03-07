@@ -18,6 +18,7 @@ import {
   Section,
   Select,
   SelectOption,
+  Table,
   CardText as Text,
   TextInput,
 } from "chat";
@@ -130,6 +131,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="feedback">Send Feedback</Button>
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
+        <Button id="show-table">Show Table</Button>
         <Button id="report" value="bug">
           Report Bug
         </Button>
@@ -321,6 +323,27 @@ bot.onAction("goodbye", async (event) => {
   }
   await event.thread.post(
     `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
+  );
+});
+
+bot.onAction("show-table", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post(
+    <Card title={`${emoji.memo} Team Directory`}>
+      <Text>Here's the current team roster:</Text>
+      <Table
+        headers={["Name", "Role", "Location", "Status"]}
+        rows={[
+          ["Alice Chen", "Engineering Lead", "San Francisco", "Active"],
+          ["Bob Smith", "Designer", "New York", "Active"],
+          ["Carol Wu", "Product Manager", "London", "On Leave"],
+          ["Dan Lee", "Backend Engineer", "Tokyo", "Active"],
+          ["Eve Park", "Frontend Engineer", "Seoul", "Active"],
+        ]}
+      />
+    </Card>
   );
 });
 
