@@ -38,6 +38,23 @@ export async function* fromFullStream(
     for await (const event of stream) {
       eventCount++;
 
+      // Log first 3 events as raw JSON to debug shape mismatches
+      if (eventCount <= 3) {
+        try {
+          const keys =
+            event !== null && typeof event === "object"
+              ? Object.keys(event)
+              : [];
+          console.warn(
+            `[fromFullStream] Event #${eventCount}: type=${typeof event}, keys=[${keys.join(",")}], json=${JSON.stringify(event).slice(0, 300)}`
+          );
+        } catch {
+          console.warn(
+            `[fromFullStream] Event #${eventCount}: type=${typeof event} (not serializable)`
+          );
+        }
+      }
+
       // Plain string chunk (e.g. from AI SDK textStream)
       if (typeof event === "string") {
         yieldedCount++;
