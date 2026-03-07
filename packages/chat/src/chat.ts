@@ -1427,22 +1427,6 @@ export class Chat<
    * Infer which adapter to use based on the userId format.
    */
   private inferAdapterFromUserId(userId: string): Adapter {
-    // Signal: signal:+15551234567 or signal:<uuid>
-    if (SIGNAL_PREFIX_REGEX.test(userId)) {
-      const adapter = this.adapters.get("signal");
-      if (adapter) {
-        return adapter;
-      }
-    }
-
-    // Signal: E.164 phone number (+15551234567)
-    if (SIGNAL_PHONE_NUMBER_REGEX.test(userId)) {
-      const adapter = this.adapters.get("signal");
-      if (adapter) {
-        return adapter;
-      }
-    }
-
     // Google Chat: users/123456789
     if (userId.startsWith("users/")) {
       const adapter = this.adapters.get("gchat");
@@ -1475,8 +1459,24 @@ export class Chat<
       }
     }
 
+    // Signal: signal:+15551234567 or signal:<uuid>
+    if (SIGNAL_PREFIX_REGEX.test(userId)) {
+      const adapter = this.adapters.get("signal");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
+    // Signal: E.164 phone number (+15551234567)
+    if (SIGNAL_PHONE_NUMBER_REGEX.test(userId)) {
+      const adapter = this.adapters.get("signal");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
     throw new ChatError(
-      `Cannot infer adapter from userId "${userId}". Expected format: Signal (signal:... or +E.164), Slack (U...), Teams (29:...), Google Chat (users/...), or Discord (numeric snowflake).`,
+      `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), Discord (numeric snowflake), or Signal (signal:... or +E.164).`,
       "UNKNOWN_USER_ID_FORMAT"
     );
   }
