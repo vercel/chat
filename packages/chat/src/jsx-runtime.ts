@@ -55,6 +55,8 @@ import {
   type LinkElement,
   Section,
   type SectionElement,
+  Table,
+  type TableElement,
   Text,
   type TextElement,
   type TextStyle,
@@ -184,6 +186,12 @@ export interface SelectOptionProps {
   value: string;
 }
 
+/** Props for Table component in JSX */
+export interface TableProps {
+  headers: string[];
+  rows: string[][];
+}
+
 /** Union of all valid JSX props */
 export type CardJSXProps =
   | CardProps
@@ -198,7 +206,8 @@ export type CardJSXProps =
   | ModalProps
   | TextInputProps
   | SelectProps
-  | SelectOptionProps;
+  | SelectOptionProps
+  | TableProps;
 
 /** Component function type with proper overloads */
 type CardComponentFunction =
@@ -217,7 +226,8 @@ type CardComponentFunction =
   | typeof TextInput
   | typeof Select
   | typeof RadioSelect
-  | typeof SelectOption;
+  | typeof SelectOption
+  | typeof Table;
 
 /**
  * Represents a JSX element from the chat JSX runtime.
@@ -699,6 +709,14 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       label: props.label,
       value: props.value,
       description: props.description,
+    });
+  }
+
+  if (type === Table) {
+    const tableProps = props as { headers: string[]; rows: string[][] };
+    return Table({
+      headers: tableProps.headers,
+      rows: tableProps.rows,
     });
   }
 
