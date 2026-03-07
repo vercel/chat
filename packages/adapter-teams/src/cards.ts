@@ -20,8 +20,10 @@ import type {
   ImageElement,
   LinkButtonElement,
   SectionElement,
+  TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText } from "chat";
 
 /**
  * Convert emoji placeholders in text to Teams format.
@@ -145,8 +147,18 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
         ],
         actions: [],
       };
-    default:
+    case "table":
+      return { elements: [convertTableToElement(child)], actions: [] };
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return {
+          elements: [{ type: "TextBlock", text, wrap: true }],
+          actions: [],
+        };
+      }
       return { elements: [], actions: [] };
+    }
   }
 }
 
@@ -256,6 +268,47 @@ function convertSectionToElements(element: SectionElement): ConvertResult {
   }
 
   return { elements, actions };
+}
+
+function convertTableToElement(element: TableElement): AdaptiveCardElement {
+  // Adaptive Cards Table element
+  const columns = element.headers.map((header) => ({
+    type: "Column",
+    width: "stretch",
+    items: [
+      {
+        type: "TextBlock",
+        text: convertEmoji(header),
+        weight: "bolder",
+        wrap: true,
+      },
+    ],
+  }));
+
+  const headerRow = {
+    type: "ColumnSet",
+    columns,
+  };
+
+  const dataRows = element.rows.map((row) => ({
+    type: "ColumnSet",
+    columns: row.map((cell) => ({
+      type: "Column",
+      width: "stretch",
+      items: [
+        {
+          type: "TextBlock",
+          text: convertEmoji(cell),
+          wrap: true,
+        },
+      ],
+    })),
+  }));
+
+  return {
+    type: "Container",
+    items: [headerRow, ...dataRows],
+  };
 }
 
 function convertFieldsToElement(element: FieldsElement): AdaptiveCardElement {

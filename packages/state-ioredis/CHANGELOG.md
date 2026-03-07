@@ -1,5 +1,33 @@
 # @chat-adapter/state-ioredis
 
+## 4.17.0
+
+### Patch Changes
+
+- cc65dc3: fix: non-atomic message deduplication causes app_mention events to be silently dropped
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+
+## 4.16.1
+
+### Patch Changes
+
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+
+## 4.16.0
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - chat@4.16.0
+
 ## 4.15.0
 
 ### Patch Changes

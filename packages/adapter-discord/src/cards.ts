@@ -6,6 +6,7 @@
  * @see https://discord.com/developers/docs/interactions/message-components
  */
 
+import { renderGfmTable } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -16,7 +17,11 @@ import type {
   SectionElement,
   TextElement,
 } from "chat";
-import { convertEmojiPlaceholders } from "chat";
+import {
+  cardChildToFallbackText,
+  convertEmojiPlaceholders,
+  tableElementToAscii,
+} from "chat";
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
 import type { DiscordActionRow, DiscordButton } from "./types";
@@ -118,8 +123,18 @@ function processChild(
     case "link":
       textParts.push(`[${convertEmoji(child.label)}](${child.url})`);
       break;
-    default:
+    case "table": {
+      // Render as GFM markdown table in embed description
+      textParts.push(renderGfmTable(child).join("\n"));
       break;
+    }
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        textParts.push(text);
+      }
+      break;
+    }
   }
 }
 
@@ -175,6 +190,10 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
     label: button.label,
     custom_id: button.id,
   };
+
+  if (button.disabled) {
+    discordButton.disabled = true;
+  }
 
   return discordButton;
 }
@@ -280,9 +299,11 @@ function childToFallbackText(child: CardChild): string | null {
         .map((c) => childToFallbackText(c))
         .filter(Boolean)
         .join("\n");
+    case "table":
+      return `\`\`\`\n${tableElementToAscii(child.headers, child.rows)}\n\`\`\``;
     case "divider":
       return "---";
     default:
-      return null;
+      return cardChildToFallbackText(child);
   }
 }

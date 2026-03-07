@@ -7,7 +7,7 @@ type: reference
 `PostableMessage` is the union of all message formats accepted by `thread.post()` and `sent.edit()`.
 
 ```typescript
-type PostableMessage = AdapterPostableMessage | AsyncIterable<string>;
+type PostableMessage = AdapterPostableMessage | AsyncIterable<string | StreamChunk | StreamEvent>;
 ```
 
 ## String
@@ -135,14 +135,22 @@ await thread.post({
 
 ## AsyncIterable (streaming)
 
-An async iterable of strings, like the AI SDK's `textStream`. The SDK streams the message in real time using platform-native APIs where available.
+An async iterable of strings, `StreamChunk` objects, or stream events. The SDK streams the message in real time using platform-native APIs where available.
+
+You can yield structured `StreamChunk` objects for rich content like task progress cards on platforms that support it (Slack). See [Streaming](/docs/streaming#structured-streaming-chunks-slack-only) for details.
+
+Both AI SDK stream types are supported:
 
 ```typescript
-import { streamText } from "ai";
+// fullStream (recommended) — preserves step boundaries in multi-step agents
+const result = await agent.stream({ prompt: message.text });
+await thread.post(result.fullStream);
 
-const result = streamText({ model, prompt: message.text });
+// textStream — plain string chunks
 await thread.post(result.textStream);
 ```
+
+When using `fullStream`, the SDK auto-detects `text-delta` and `step-finish` events, extracting text and inserting paragraph breaks between agent steps.
 
 ## FileUpload
 

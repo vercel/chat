@@ -54,8 +54,8 @@ await thread.post({ ast: root([paragraph([text("Hello")])]) });
 // Card
 await thread.post(Card({ title: "Hi", children: [Text("Hello")] }));
 
-// Stream
-await thread.post(result.textStream);
+// Stream (fullStream recommended for multi-step agents)
+await thread.post(result.fullStream);
 ```
 
 **Parameters:** `message: string | PostableMessage | CardJSXElement`

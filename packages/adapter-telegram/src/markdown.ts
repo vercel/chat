@@ -9,14 +9,30 @@
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
+  type Content,
+  isTableNode,
   parseMarkdown,
   type Root,
   stringifyMarkdown,
+  tableToAscii,
+  walkAst,
 } from "chat";
 
 export class TelegramFormatConverter extends BaseFormatConverter {
   fromAst(ast: Root): string {
-    return stringifyMarkdown(ast).trim();
+    // Check for table nodes and replace them with code blocks,
+    // since Telegram renders raw pipe syntax as garbled text.
+    const transformed = walkAst(structuredClone(ast), (node: Content) => {
+      if (isTableNode(node)) {
+        return {
+          type: "code" as const,
+          value: tableToAscii(node),
+          lang: undefined,
+        } as Content;
+      }
+      return node;
+    });
+    return stringifyMarkdown(transformed).trim();
   }
 
   toAst(text: string): Root {

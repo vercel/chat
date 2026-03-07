@@ -1,5 +1,32 @@
 # chat
 
+## 4.17.0
+
+### Patch Changes
+
+- cc65dc3: fix: non-atomic message deduplication causes app_mention events to be silently dropped
+
+## 4.16.1
+
+### Patch Changes
+
+- 130e780: Fix openModal crash when action has no thread context (e.g. home tab buttons)
+- ff954f9: Better streaming for AI SDK
+- f27c89b: Improve StreamChunk type safety with discriminated union and fix url_verification security bypass
+
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+- f0c7050: add onMemberJoinedChannel on slack adapter
+
+### Patch Changes
+
+- 9522b04: Add `disabled` prop to `Button()` for Google Chat and Discord
+- f5a75c9: Add `fallbackStreamingPlaceholderText` config option to suppress the initial "..." placeholder in post+edit fallback streaming
+- 73de82d: Add remend for streaming markdown healing
+
 ## 4.15.0
 
 ### Minor Changes

@@ -84,7 +84,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+        run: pnpm turbo build --filter='!example-nextjs-chat'
 
       - name: Test
         run: pnpm test

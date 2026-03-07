@@ -16,20 +16,20 @@ import {
   BaseFormatConverter,
   type Content,
   getNodeChildren,
-  getNodeValue,
   isBlockquoteNode,
   isCodeNode,
   isDeleteNode,
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
   parseMarkdown,
   type Root,
+  tableToAscii,
 } from "chat";
 
 export class GoogleChatFormatConverter extends BaseFormatConverter {
@@ -126,21 +126,7 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "•";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToGChat(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToGChat(child))
-        .join("");
+      return this.renderList(node, 0, (child) => this.nodeToGChat(child), "•");
     }
 
     if (node.type === "break") {
@@ -151,11 +137,10 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
       return "---";
     }
 
-    // For unsupported nodes, try to extract text
-    const children = getNodeChildren(node);
-    if (children.length > 0) {
-      return children.map((child) => this.nodeToGChat(child)).join("");
+    if (isTableNode(node)) {
+      return `\`\`\`\n${tableToAscii(node)}\n\`\`\``;
     }
-    return getNodeValue(node);
+
+    return this.defaultNodeToText(node, (child) => this.nodeToGChat(child));
   }
 }

@@ -140,6 +140,41 @@ describe("cardToDiscordPayload", () => {
     });
   });
 
+  it("sets disabled on button when specified", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({
+            id: "cancel",
+            label: "Cancelled",
+            style: "danger",
+            disabled: true,
+          }),
+          Button({ id: "retry", label: "Retry" }),
+        ]),
+      ],
+    });
+    const { components } = cardToDiscordPayload(card);
+
+    const buttons = components[0].components;
+    expect(buttons).toHaveLength(2);
+
+    expect(buttons[0]).toEqual({
+      type: 2,
+      style: ButtonStyle.Danger,
+      label: "Cancelled",
+      custom_id: "cancel",
+      disabled: true,
+    });
+
+    expect(buttons[1]).toEqual({
+      type: 2,
+      style: ButtonStyle.Secondary,
+      label: "Retry",
+      custom_id: "retry",
+    });
+  });
+
   it("converts link buttons using Link style", () => {
     const card = Card({
       children: [

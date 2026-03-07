@@ -2,16 +2,60 @@
  * Telegram adapter types.
  */
 
+import type { Logger } from "chat";
+
 /**
  * Telegram adapter configuration.
  */
 export interface TelegramAdapterConfig {
-  /** Optional custom API base URL (defaults to https://api.telegram.org). */
+  /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
-  /** Telegram bot token from BotFather. */
-  botToken: string;
-  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. */
+  /** Telegram bot token from BotFather. Defaults to TELEGRAM_BOT_TOKEN env var. */
+  botToken?: string;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
+  /** Optional long-polling configuration for getUpdates flow. */
+  longPolling?: TelegramLongPollingConfig;
+  /**
+   * Adapter runtime mode:
+   * - auto: choose webhook vs polling based on webhook registration/runtime (default)
+   * - webhook: webhook-only mode
+   * - polling: polling-only mode
+   */
+  mode?: TelegramAdapterMode;
+  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
+  /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
+  userName?: string;
+}
+
+export type TelegramAdapterMode = "auto" | "webhook" | "polling";
+
+/**
+ * Telegram long-polling configuration.
+ * @see https://core.telegram.org/bots/api#getupdates
+ */
+export interface TelegramLongPollingConfig {
+  /** Allowed update types passed to getUpdates. */
+  allowedUpdates?: string[];
+  /**
+   * Delete webhook before polling starts.
+   * Telegram requires this when switching from webhook mode to getUpdates.
+   * @default true
+   */
+  deleteWebhook?: boolean;
+  /** Passed to deleteWebhook as drop_pending_updates when deleting webhook. */
+  dropPendingUpdates?: boolean;
+  /**
+   * Maximum number of updates per getUpdates call.
+   * Telegram range: 1-100.
+   * @default 100
+   */
+  limit?: number;
+  /** Delay before retrying polling after errors. @default 1000 */
+  retryDelayMs?: number;
+  /** Long-poll timeout in seconds for getUpdates. @default 30 */
+  timeout?: number;
 }
 
 /**
@@ -198,6 +242,21 @@ export interface TelegramApiResponse<TResult> {
     retry_after?: number;
   };
   result?: TResult;
+}
+
+/**
+ * Telegram webhook info response.
+ * @see https://core.telegram.org/bots/api#getwebhookinfo
+ */
+export interface TelegramWebhookInfo {
+  allowed_updates?: string[];
+  has_custom_certificate: boolean;
+  ip_address?: string;
+  last_error_date?: number;
+  last_error_message?: string;
+  max_connections?: number;
+  pending_update_count: number;
+  url: string;
 }
 
 export type TelegramRawMessage = TelegramMessage;

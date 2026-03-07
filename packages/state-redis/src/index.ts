@@ -181,6 +181,23 @@ export class RedisStateAdapter implements StateAdapter {
     }
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const cacheKey = this.key("cache", key);
+    const serialized = JSON.stringify(value);
+
+    const result = ttlMs
+      ? await this.client.set(cacheKey, serialized, { NX: true, PX: ttlMs })
+      : await this.client.set(cacheKey, serialized, { NX: true });
+
+    return result !== null;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
 
