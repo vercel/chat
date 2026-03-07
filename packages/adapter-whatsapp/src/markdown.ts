@@ -63,11 +63,13 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
   /**
    * Convert standard markdown to WhatsApp format.
    * **bold** -> *bold*, ~~strike~~ -> ~strike~
+   *
+   * Unlike fromWhatsAppFormat, these regexes don't need newline guards
+   * because the standard markdown parser never produces **bold** or
+   * ~~strike~~ spans that cross line boundaries.
    */
   private toWhatsAppFormat(text: string): string {
-    // Convert **bold** to *bold* (avoid converting already single *)
     let result = text.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ to ~strikethrough~
     result = result.replace(/~~(.+?)~~/g, "~$1~");
     return result;
   }
