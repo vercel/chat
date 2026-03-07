@@ -13,6 +13,7 @@ export default defineConfig({
       "packages/adapter-teams",
       "packages/state-ioredis",
       "packages/state-memory",
+      "packages/adapter-linq",
       "packages/state-redis",
     ],
   },
