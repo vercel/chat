@@ -442,6 +442,54 @@ export function withRecording<T extends object>(
         typeof value === "function" &&
         methodsToRecord.includes(prop as string)
       ) {
+        // Stream methods need special handling: wrap the async iterable
+        // to capture chunks, since iterables serialize as {} in JSON.
+        if (prop === "stream") {
+          return async (...args: unknown[]) => {
+            const [threadId, textStream, ...rest] = args;
+            const chunks: unknown[] = [];
+            const iterable = textStream as AsyncIterable<unknown>;
+
+            // Wrap the async iterable to collect chunks for recording
+            const wrappedStream: AsyncIterable<unknown> = {
+              [Symbol.asyncIterator]: () => {
+                const iter = iterable[Symbol.asyncIterator]();
+                return {
+                  async next() {
+                    const result = await iter.next();
+                    if (!result.done) {
+                      chunks.push(result.value);
+                    }
+                    return result;
+                  },
+                };
+              },
+            };
+
+            let response: unknown;
+            let error: Error | undefined;
+            try {
+              response = await value.apply(target, [
+                threadId,
+                wrappedStream,
+                ...rest,
+              ]);
+              return response;
+            } catch (err) {
+              error = err as Error;
+              throw err;
+            } finally {
+              await recorder.recordApiCall(
+                platform,
+                prop as string,
+                [threadId, { streamChunks: chunks }, ...rest],
+                response,
+                error
+              );
+            }
+          };
+        }
+
         return async (...args: unknown[]) => {
           let response: unknown;
           let error: Error | undefined;
