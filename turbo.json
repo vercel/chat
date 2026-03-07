@@ -11,7 +11,10 @@
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "LINQ_API_TOKEN",
+    "LINQ_SIGNING_SECRET",
+    "LINQ_PHONE_NUMBER"
   ],
   "tasks": {
     "build": {
