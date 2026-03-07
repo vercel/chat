@@ -30,6 +30,8 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import { SignalMessageCache } from "./cache";
+import { SignalIdentityMap } from "./identity";
 import { SignalFormatConverter } from "./markdown";
 import type {
   SignalAdapterConfig,
@@ -65,7 +67,6 @@ const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
 const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
 const SIGNAL_MESSAGE_LIMIT = 4096;
-const SIGNAL_PHONE_NUMBER_PATTERN = /^\+[1-9]\d{6,14}$/;
 const BASE64_OR_BASE64URL_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
 const TRAILING_BASE64_PADDING_PATTERN = /=+$/;
 
@@ -83,7 +84,7 @@ interface SignalParsedMessageOptions {
   messageIdTimestamp?: number;
 }
 
-export interface SignalPollingOptions {
+interface SignalPollingOptions {
   intervalMs?: number;
   timeoutSeconds?: number;
   webhookOptions?: WebhookOptions;
@@ -101,11 +102,8 @@ export class SignalAdapter
   private readonly configuredTextMode?: SignalTextMode;
   private readonly logger: Logger;
   private readonly formatConverter = new SignalFormatConverter();
-  private readonly messageCache = new Map<
-    string,
-    Message<SignalRawMessage>[]
-  >();
-  private readonly identifierAliases = new Map<string, string>();
+  private readonly messageCache = new SignalMessageCache();
+  private readonly identityMap = new SignalIdentityMap();
 
   private chat: ChatInstance | null = null;
   private pollingTask: Promise<void> | null = null;
@@ -202,10 +200,12 @@ export class SignalAdapter
       return;
     }
 
-    const intervalMs = this.normalizePositiveInteger(
-      options.intervalMs,
-      DEFAULT_POLLING_INTERVAL_MS,
-      MIN_POLLING_INTERVAL_MS
+    const intervalMs = Math.max(
+      MIN_POLLING_INTERVAL_MS,
+      this.normalizePositiveInteger(
+        options.intervalMs,
+        DEFAULT_POLLING_INTERVAL_MS
+      )
     );
 
     const timeoutSeconds =
@@ -324,7 +324,7 @@ export class SignalAdapter
       timestamp: sentTimestamp,
     });
 
-    this.cacheMessage(outgoingMessage);
+    this.messageCache.cache(outgoingMessage);
 
     return {
       id: outgoingMessage.id,
@@ -394,10 +394,8 @@ export class SignalAdapter
     );
 
     const existing =
-      (this.messageCache.get(resultingThreadId) ?? []).find(
-        (cachedMessage) => cachedMessage.id === messageId
-      ) ??
-      this.findCachedMessageByTimestamp(
+      this.messageCache.findById(resultingThreadId, messageId) ??
+      this.messageCache.findByTimestamp(
         resultingThreadId,
         decodedMessageId.timestamp
       );
@@ -423,7 +421,7 @@ export class SignalAdapter
           timestamp: decodedMessageId.timestamp,
         });
 
-    this.cacheMessage(updatedMessage);
+    this.messageCache.cache(updatedMessage);
 
     return {
       id: updatedMessage.id,
@@ -450,8 +448,8 @@ export class SignalAdapter
       "deleteMessage"
     );
 
-    this.deleteCachedMessage(messageId);
-    this.deleteCachedMessagesByTimestamp(
+    this.messageCache.deleteById(messageId);
+    this.messageCache.deleteByTimestamp(
       this.encodeThreadId(parsedThread),
       decodedMessageId.timestamp
     );
@@ -538,11 +536,8 @@ export class SignalAdapter
       this.resolveThreadId(threadId)
     );
 
-    const messages = [...(this.messageCache.get(resolvedThreadId) ?? [])].sort(
-      (a, b) => this.compareMessages(a, b)
-    );
-
-    return this.paginateMessages(messages, options);
+    const messages = this.messageCache.getThread(resolvedThreadId);
+    return this.messageCache.paginate(messages, options);
   }
 
   async fetchChannelMessages(
@@ -561,14 +556,9 @@ export class SignalAdapter
       this.resolveThreadId(threadId)
     );
 
-    const threadMessages = this.messageCache.get(normalizedThreadId) ?? [];
-    const directMatch = threadMessages.find(
-      (message) => message.id === messageId
-    );
-
     return (
-      directMatch ??
-      this.findCachedMessageByTimestamp(
+      this.messageCache.findById(normalizedThreadId, messageId) ??
+      this.messageCache.findByTimestamp(
         normalizedThreadId,
         this.decodeMessageId(messageId).timestamp
       ) ??
@@ -663,7 +653,7 @@ export class SignalAdapter
     );
     const chatId = this.isGroupChatId(normalizedChatId)
       ? this.normalizeGroupId(normalizedChatId)
-      : this.canonicalizeIdentifier(normalizedChatId);
+      : this.identityMap.canonicalize(normalizedChatId);
 
     return `${SIGNAL_THREAD_PREFIX}${chatId}`;
   }
@@ -689,13 +679,13 @@ export class SignalAdapter
     return {
       chatId: this.isGroupChatId(normalizedChatId)
         ? this.normalizeGroupId(normalizedChatId)
-        : this.canonicalizeIdentifier(normalizedChatId),
+        : this.identityMap.canonicalize(normalizedChatId),
     };
   }
 
   parseMessage(raw: SignalRawMessage): Message<SignalRawMessage> {
     const message = this.messageFromRaw(raw);
-    this.cacheMessage(message);
+    this.messageCache.cache(message);
     return message;
   }
 
@@ -818,7 +808,7 @@ export class SignalAdapter
       }
     );
 
-    this.cacheMessage(message);
+    this.messageCache.cache(message);
     this.chat.processMessage(this, threadId, message, options);
   }
 
@@ -848,7 +838,7 @@ export class SignalAdapter
       }
     );
 
-    this.cacheMessage(message);
+    this.messageCache.cache(message);
     this.chat.processMessage(this, threadId, message, options);
   }
 
@@ -862,7 +852,7 @@ export class SignalAdapter
     }
 
     const threadId = this.threadIdFromEnvelope(update.envelope, dataMessage);
-    this.deleteCachedMessagesByTimestamp(threadId, remoteDelete.timestamp);
+    this.messageCache.deleteByTimestamp(threadId, remoteDelete.timestamp);
   }
 
   private handleIncomingSyncSentMessage(
@@ -871,7 +861,7 @@ export class SignalAdapter
     options?: WebhookOptions
   ): void {
     const message = this.createMessageFromSyncSentMessage(update, sentMessage);
-    this.cacheMessage(message);
+    this.messageCache.cache(message);
 
     if (!this.chat) {
       return;
@@ -892,7 +882,7 @@ export class SignalAdapter
 
     const threadId = this.threadIdFromEnvelope(update.envelope, dataMessage);
     const targetAuthor = this.resolveReactionTargetAuthor(reaction);
-    const cachedTargetMessage = this.findCachedMessageByTimestamp(
+    const cachedTargetMessage = this.messageCache.findByTimestamp(
       threadId,
       reaction.targetSentTimestamp
     );
@@ -1024,8 +1014,8 @@ export class SignalAdapter
     }
 
     const existingMessage = options.edited
-      ? (this.findCachedMessageByTimestamp(threadId, messageIdTimestamp) ??
-        this.findCachedMessageByTimestampAcrossThreads(messageIdTimestamp))
+      ? (this.messageCache.findByTimestamp(threadId, messageIdTimestamp) ??
+        this.messageCache.findByTimestampAcrossThreads(messageIdTimestamp))
       : undefined;
 
     const existingMessageAuthor = existingMessage
@@ -1269,7 +1259,7 @@ export class SignalAdapter
   private resolveEnvelopeSourceIdentifier(
     envelope: SignalEnvelope
   ): string | undefined {
-    return this.registerIdentifierAliases(
+    return this.identityMap.registerAliases(
       envelope.sourceNumber ?? undefined,
       envelope.sourceUuid,
       envelope.source
@@ -1279,7 +1269,7 @@ export class SignalAdapter
   private resolveReactionTargetAuthor(
     reaction: SignalReaction
   ): string | undefined {
-    return this.registerIdentifierAliases(
+    return this.identityMap.registerAliases(
       reaction.targetAuthorNumber ?? undefined,
       reaction.targetAuthorUuid,
       reaction.targetAuthor
@@ -1414,10 +1404,7 @@ export class SignalAdapter
   ): { author: string; timestamp: number } {
     const decoded = this.decodeMessageId(messageId);
 
-    const threadMessages = this.messageCache.get(threadId) ?? [];
-    const fromCache = threadMessages.find(
-      (message) => message.id === messageId
-    );
+    const fromCache = this.messageCache.findById(threadId, messageId);
     if (fromCache) {
       const cachedDecoded = this.decodeMessageIdRaw(fromCache.id);
       if (cachedDecoded.author) {
@@ -1428,7 +1415,7 @@ export class SignalAdapter
       }
     }
 
-    const fromTimestamp = this.findCachedMessageByTimestamp(
+    const fromTimestamp = this.messageCache.findByTimestamp(
       threadId,
       decoded.timestamp
     );
@@ -1457,7 +1444,7 @@ export class SignalAdapter
 
   private encodeMessageId(author: string, timestamp: number): string {
     return this.encodeMessageIdRaw(
-      this.canonicalizeIdentifier(author),
+      this.identityMap.canonicalize(author),
       timestamp
     );
   }
@@ -1476,7 +1463,7 @@ export class SignalAdapter
     }
 
     return {
-      author: this.canonicalizeIdentifier(decoded.author),
+      author: this.identityMap.canonicalize(decoded.author),
       timestamp: decoded.timestamp,
     };
   }
@@ -1508,14 +1495,6 @@ export class SignalAdapter
       SIGNAL_ADAPTER_NAME,
       `Invalid Signal message ID: ${messageId}`
     );
-  }
-
-  private messageTimestamp(messageId: string): number {
-    try {
-      return this.decodeMessageIdRaw(messageId).timestamp;
-    } catch {
-      return 0;
-    }
   }
 
   private signalTimestampToDate(timestamp: number): Date {
@@ -1555,7 +1534,7 @@ export class SignalAdapter
     return {
       chatId: this.isGroupChatId(normalized)
         ? this.normalizeGroupId(normalized)
-        : this.canonicalizeIdentifier(normalized),
+        : this.identityMap.canonicalize(normalized),
     };
   }
 
@@ -1566,11 +1545,11 @@ export class SignalAdapter
         )
       : this.normalizeSignalIdentifier(userId);
 
-    return this.canonicalizeIdentifier(normalized);
+    return this.identityMap.canonicalize(normalized);
   }
 
   private toSignalUserId(userId: string): string {
-    const normalized = this.canonicalizeIdentifier(userId);
+    const normalized = this.identityMap.canonicalize(userId);
     return `${SIGNAL_THREAD_PREFIX}${normalized}`;
   }
 
@@ -1667,61 +1646,6 @@ export class SignalAdapter
     return value.trim();
   }
 
-  private canonicalizeIdentifier(value: string): string {
-    const normalized = this.normalizeSignalIdentifier(value);
-    if (!normalized) {
-      return normalized;
-    }
-
-    const visited = new Set<string>();
-    let current = normalized;
-
-    while (!visited.has(current)) {
-      visited.add(current);
-      const aliased = this.identifierAliases.get(current);
-      if (!aliased || aliased === current) {
-        return current;
-      }
-      current = aliased;
-    }
-
-    return current;
-  }
-
-  private registerIdentifierAliases(
-    ...identifiers: Array<string | null | undefined>
-  ): string | undefined {
-    const normalized = identifiers
-      .map((identifier) =>
-        identifier ? this.normalizeSignalIdentifier(identifier) : undefined
-      )
-      .filter((identifier): identifier is string => Boolean(identifier));
-
-    if (normalized.length === 0) {
-      return undefined;
-    }
-
-    const canonicalCandidate =
-      normalized.find((identifier) => this.isPhoneNumber(identifier)) ??
-      normalized[0];
-
-    if (!canonicalCandidate) {
-      return undefined;
-    }
-
-    const canonical = this.canonicalizeIdentifier(canonicalCandidate);
-
-    for (const identifier of normalized) {
-      this.identifierAliases.set(identifier, canonical);
-    }
-
-    return canonical;
-  }
-
-  private isPhoneNumber(value: string): boolean {
-    return SIGNAL_PHONE_NUMBER_PATTERN.test(value);
-  }
-
   private normalizeUserName(value: string): string {
     return value.replace(LEADING_AT_PATTERN, "").trim() || "bot";
   }
@@ -1736,135 +1660,6 @@ export class SignalAdapter
     }
 
     return `${text.slice(0, SIGNAL_MESSAGE_LIMIT - 3)}...`;
-  }
-
-  private compareMessages(
-    a: Message<SignalRawMessage>,
-    b: Message<SignalRawMessage>
-  ): number {
-    const timestampDifference =
-      a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
-    if (timestampDifference !== 0) {
-      return timestampDifference;
-    }
-
-    return this.messageTimestamp(a.id) - this.messageTimestamp(b.id);
-  }
-
-  private cacheMessage(message: Message<SignalRawMessage>): void {
-    const existing = this.messageCache.get(message.threadId) ?? [];
-    const index = existing.findIndex((item) => item.id === message.id);
-
-    if (index >= 0) {
-      existing[index] = message;
-    } else {
-      existing.push(message);
-    }
-
-    existing.sort((a, b) => this.compareMessages(a, b));
-    this.messageCache.set(message.threadId, existing);
-  }
-
-  private findCachedMessageByTimestamp(
-    threadId: string,
-    timestamp: number
-  ): Message<SignalRawMessage> | undefined {
-    const messages = this.messageCache.get(threadId) ?? [];
-    return messages.find(
-      (message) => this.messageTimestamp(message.id) === timestamp
-    );
-  }
-
-  private findCachedMessageByTimestampAcrossThreads(
-    timestamp: number
-  ): Message<SignalRawMessage> | undefined {
-    for (const messages of this.messageCache.values()) {
-      const matchedMessage = messages.find(
-        (message) => this.messageTimestamp(message.id) === timestamp
-      );
-      if (matchedMessage) {
-        return matchedMessage;
-      }
-    }
-
-    return undefined;
-  }
-
-  private deleteCachedMessage(messageId: string): void {
-    for (const [threadId, messages] of this.messageCache.entries()) {
-      const filtered = messages.filter((message) => message.id !== messageId);
-      if (filtered.length === 0) {
-        this.messageCache.delete(threadId);
-      } else if (filtered.length !== messages.length) {
-        this.messageCache.set(threadId, filtered);
-      }
-    }
-  }
-
-  private deleteCachedMessagesByTimestamp(
-    threadId: string,
-    timestamp: number
-  ): void {
-    const messages = this.messageCache.get(threadId);
-    if (!messages) {
-      return;
-    }
-
-    const filtered = messages.filter(
-      (message) => this.messageTimestamp(message.id) !== timestamp
-    );
-
-    if (filtered.length === 0) {
-      this.messageCache.delete(threadId);
-      return;
-    }
-
-    if (filtered.length !== messages.length) {
-      this.messageCache.set(threadId, filtered);
-    }
-  }
-
-  private paginateMessages(
-    messages: Message<SignalRawMessage>[],
-    options: FetchOptions
-  ): FetchResult<SignalRawMessage> {
-    const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
-    const direction = options.direction ?? "backward";
-
-    if (messages.length === 0) {
-      return { messages: [] };
-    }
-
-    const indexById = new Map(
-      messages.map((message, index) => [message.id, index])
-    );
-
-    if (direction === "backward") {
-      const end =
-        options.cursor && indexById.has(options.cursor)
-          ? (indexById.get(options.cursor) ?? messages.length)
-          : messages.length;
-      const start = Math.max(0, end - limit);
-      const page = messages.slice(start, end);
-
-      return {
-        messages: page,
-        nextCursor: start > 0 ? page[0]?.id : undefined,
-      };
-    }
-
-    const start =
-      options.cursor && indexById.has(options.cursor)
-        ? (indexById.get(options.cursor) ?? -1) + 1
-        : 0;
-
-    const end = Math.min(messages.length, start + limit);
-    const page = messages.slice(start, end);
-
-    return {
-      messages: page,
-      nextCursor: end < messages.length ? page.at(-1)?.id : undefined,
-    };
   }
 
   private toSignalReactionEmoji(emoji: EmojiValue | string): string {
@@ -1904,14 +1699,13 @@ export class SignalAdapter
 
   private normalizePositiveInteger(
     value: number | undefined,
-    fallback: number,
-    minimum = 1
+    fallback: number
   ): number {
     if (typeof value !== "number" || !Number.isFinite(value)) {
       return fallback;
     }
 
-    return Math.max(minimum, Math.trunc(value));
+    return Math.max(1, Math.trunc(value));
   }
 
   private async assertSignalServiceHealth(): Promise<void> {
