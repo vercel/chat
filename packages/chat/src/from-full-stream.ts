@@ -33,35 +33,23 @@ export async function* fromFullStream(
   let eventCount = 0;
   let yieldedCount = 0;
   let skippedTypes: string[] = [];
-  let loggedTextDelta = false;
 
   try {
     for await (const event of stream) {
       eventCount++;
 
-      // Log first 3 events + first text-delta as raw JSON to debug shape mismatches
-      const isTextDelta =
-        event !== null &&
-        typeof event === "object" &&
-        "type" in event &&
-        (event as { type: unknown }).type === "text-delta";
-      if (eventCount <= 3 || (isTextDelta && !loggedTextDelta)) {
-        if (isTextDelta) {
-          loggedTextDelta = true;
-        }
-        try {
-          const keys =
-            event !== null && typeof event === "object"
-              ? Object.keys(event)
-              : [];
-          console.warn(
-            `[fromFullStream] Event #${eventCount}: type=${typeof event}, keys=[${keys.join(",")}], json=${JSON.stringify(event).slice(0, 500)}`
-          );
-        } catch {
-          console.warn(
-            `[fromFullStream] Event #${eventCount}: type=${typeof event} (not serializable)`
-          );
-        }
+      try {
+        const keys =
+          event !== null && typeof event === "object"
+            ? Object.keys(event)
+            : [];
+        console.warn(
+          `[fromFullStream] Event #${eventCount}: type=${typeof event}, keys=[${keys.join(",")}], json=${JSON.stringify(event).slice(0, 500)}`
+        );
+      } catch {
+        console.warn(
+          `[fromFullStream] Event #${eventCount}: type=${typeof event} (not serializable)`
+        );
       }
 
       // Plain string chunk (e.g. from AI SDK textStream)
