@@ -70,6 +70,7 @@ export async function* fromFullStream(
       }
       const typed = event as {
         delta?: unknown;
+        text?: unknown;
         textDelta?: unknown;
         type: string;
       };
@@ -81,8 +82,8 @@ export async function* fromFullStream(
         continue;
       }
 
-      // AI SDK v5 uses `textDelta`, v6 uses `delta`
-      const textContent = typed.delta ?? typed.textDelta;
+      // AI SDK v5 uses `textDelta`, v6 uses `text` (or `delta`)
+      const textContent = typed.text ?? typed.delta ?? typed.textDelta;
       if (typed.type === "text-delta" && typeof textContent === "string") {
         if (needsSeparator && hasEmittedText) {
           yield "\n\n";
