@@ -22,6 +22,8 @@ import type { Logger } from "chat";
 export interface WhatsAppAdapterConfig {
   /** Access token (System User token) for WhatsApp Cloud API calls */
   accessToken: string;
+  /** Meta Graph API version (default: "v21.0") */
+  apiVersion?: string;
   /** Meta App Secret for webhook HMAC-SHA256 signature verification */
   appSecret: string;
   /** Logger instance for error reporting */

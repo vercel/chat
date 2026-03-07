@@ -31,8 +31,8 @@ import type {
   WhatsAppWebhookPayload,
 } from "./types";
 
-/** Graph API base URL */
-const GRAPH_API_URL = "https://graph.facebook.com/v21.0";
+/** Default Graph API version */
+const DEFAULT_API_VERSION = "v21.0";
 
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
@@ -77,6 +77,7 @@ export class WhatsAppAdapter
   private readonly appSecret: string;
   private readonly phoneNumberId: string;
   private readonly verifyToken: string;
+  private readonly graphApiUrl: string;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private _botUserId: string | null = null;
@@ -94,6 +95,8 @@ export class WhatsAppAdapter
     this.verifyToken = config.verifyToken;
     this.logger = config.logger;
     this.userName = config.userName;
+    const apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
+    this.graphApiUrl = `https://graph.facebook.com/${apiVersion}`;
   }
 
   /**
@@ -620,7 +623,7 @@ export class WhatsAppAdapter
    */
   async downloadMedia(mediaId: string): Promise<Buffer> {
     // Step 1: Get the media URL
-    const metaResponse = await fetch(`${GRAPH_API_URL}/${mediaId}`, {
+    const metaResponse = await fetch(`${this.graphApiUrl}/${mediaId}`, {
       headers: { Authorization: `Bearer ${this.accessToken}` },
     });
 
@@ -1041,7 +1044,7 @@ export class WhatsAppAdapter
     path: string,
     body: unknown
   ): Promise<T> {
-    const response = await fetch(`${GRAPH_API_URL}${path}`, {
+    const response = await fetch(`${this.graphApiUrl}${path}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -1086,6 +1089,7 @@ export class WhatsAppAdapter
  */
 export function createWhatsAppAdapter(config?: {
   accessToken?: string;
+  apiVersion?: string;
   appSecret?: string;
   logger?: Logger;
   phoneNumberId?: string;
@@ -1132,6 +1136,7 @@ export function createWhatsAppAdapter(config?: {
 
   return new WhatsAppAdapter({
     accessToken,
+    apiVersion: config?.apiVersion,
     appSecret,
     phoneNumberId,
     verifyToken,
