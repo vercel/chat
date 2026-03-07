@@ -569,6 +569,38 @@ describe("ThreadImpl", () => {
         expect.objectContaining({
           recipientUserId: "U456",
           recipientTeamId: "T123",
+          updateIntervalMs: 500,
+          fallbackPlaceholderText: "...",
+        })
+      );
+    });
+
+    it("should pass custom fallback stream config to native stream adapters", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const configuredThread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        streamingUpdateIntervalMs: 123,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      const textStream = createTextStream(["Hello"]);
+      await configuredThread.post(textStream);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          updateIntervalMs: 123,
+          fallbackPlaceholderText: null,
         })
       );
     });

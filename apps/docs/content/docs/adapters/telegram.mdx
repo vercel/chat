@@ -141,7 +141,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Reactions (add/remove) | Yes |
 | Cards | Text fallback + inline keyboard buttons/link buttons |
 | Modals | No |
-| Streaming | Post+Edit fallback |
+| Streaming | `sendMessageDraft` in DMs + Post+Edit fallback |
 | DMs | Yes |
 | Ephemeral messages | No |
 | File uploads | Single file (`sendDocument`) |
@@ -159,3 +159,5 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
 - Other rich card elements (images/select menus/radios) render as fallback text only.
+- Native draft streaming (`sendMessageDraft`) is currently available in private chats; groups/channels use post+edit fallback.
+- `{ markdown: ... }` and `{ ast: ... }` messages are sent with Telegram HTML parse mode for formatting support; plain strings and `{ raw: ... }` are sent as plain text.

@@ -867,10 +867,17 @@ describe("TelegramAdapter", () => {
 
     const sendMessageBody = JSON.parse(
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
-    ) as { chat_id: string; text: string };
+    ) as { chat_id: string; text: string; parse_mode?: string };
+    const editMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string; parse_mode?: string };
 
     expect(sendMessageBody.chat_id).toBe("123");
     expect(sendMessageBody.text).toBe("hello");
+    expect(sendMessageBody.parse_mode).toBe("HTML");
+    expect(editMessageBody.chat_id).toBe("123");
+    expect(editMessageBody.text).toBe("updated");
+    expect(editMessageBody.parse_mode).toBeUndefined();
   });
 
   it("posts cards with inline keyboard buttons", async () => {
@@ -920,6 +927,8 @@ describe("TelegramAdapter", () => {
     const sendMessageBody = JSON.parse(
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as {
+      text: string;
+      parse_mode?: string;
       reply_markup?: {
         inline_keyboard: Array<
           Array<{ text: string; callback_data?: string; url?: string }>
@@ -929,7 +938,8 @@ describe("TelegramAdapter", () => {
 
     const row = sendMessageBody.reply_markup?.inline_keyboard[0];
     expect(row).toBeDefined();
-    expect(sendMessageBody.parse_mode).toBe("Markdown");
+    expect(sendMessageBody.parse_mode).toBe("HTML");
+    expect(sendMessageBody.text).toContain("<b>Approval needed</b>");
     expect(row?.[0]).toEqual({
       text: "Approve",
       callback_data: encodeTelegramCallbackData("approve", "request-123"),
@@ -938,6 +948,451 @@ describe("TelegramAdapter", () => {
       text: "View",
       url: "https://example.com",
     });
+  });
+
+  it("streams in private chats using sendMessageDraft", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: "hello world",
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "hello";
+      yield " world";
+    })();
+
+    const result = await adapter.stream("telegram:123", stream, {
+      updateIntervalMs: 0,
+    });
+
+    expect(result.id).toBe("123:11");
+    expect(result.threadId).toBe("telegram:123");
+
+    const draftUrl1 = String(mockFetch.mock.calls[1]?.[0]);
+    const draftUrl2 = String(mockFetch.mock.calls[2]?.[0]);
+    const finalSendUrl = String(mockFetch.mock.calls[3]?.[0]);
+
+    expect(draftUrl1).toContain("/sendMessageDraft");
+    expect(draftUrl2).toContain("/sendMessageDraft");
+    expect(finalSendUrl).toContain("/sendMessage");
+
+    const draftBody1 = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as {
+      chat_id: string;
+      draft_id: string;
+      text: string;
+      parse_mode?: string;
+    };
+    const draftBody2 = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    ) as {
+      chat_id: string;
+      draft_id: string;
+      text: string;
+      parse_mode?: string;
+    };
+    const finalBody = JSON.parse(
+      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string; parse_mode?: string };
+
+    expect(draftBody1.chat_id).toBe("123");
+    expect(draftBody2.chat_id).toBe("123");
+    expect(draftBody1.text).toBe("hello");
+    expect(draftBody2.text).toBe("hello world");
+    expect(draftBody1.parse_mode).toBe("HTML");
+    expect(draftBody2.parse_mode).toBe("HTML");
+    expect(draftBody1.draft_id).toBe(draftBody2.draft_id);
+    expect(finalBody.chat_id).toBe("123");
+    expect(finalBody.text).toBe("hello world");
+    expect(finalBody.parse_mode).toBe("HTML");
+  });
+
+  it("falls back to post+edit streaming in non-DM chats", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "...",
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "hello",
+            edit_date: 1735689700,
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "hello";
+    })();
+
+    const result = await adapter.stream("telegram:-100123", stream, {
+      updateIntervalMs: 0,
+    });
+
+    expect(result.id).toBe("-100123:11");
+    expect(result.threadId).toBe("telegram:-100123");
+
+    const postUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const editUrl = String(mockFetch.mock.calls[2]?.[0]);
+
+    expect(postUrl).toContain("/sendMessage");
+    expect(editUrl).toContain("/editMessageText");
+    expect(postUrl).not.toContain("/sendMessageDraft");
+    expect(editUrl).not.toContain("/sendMessageDraft");
+
+    const postBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string };
+    const editBody = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string; parse_mode?: string };
+
+    expect(postBody.chat_id).toBe("-100123");
+    expect(postBody.text).toBe("...");
+    expect(editBody.chat_id).toBe("-100123");
+    expect(editBody.text).toBe("hello");
+    expect(editBody.parse_mode).toBe("HTML");
+  });
+
+  it("falls back to post+edit when sendMessageDraft is unavailable", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramError(404, 404, "Not Found"))
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: "...",
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: "hello",
+            edit_date: 1735689700,
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "hello";
+    })();
+
+    const result = await adapter.stream("telegram:123", stream, {
+      updateIntervalMs: 0,
+    });
+
+    expect(result.id).toBe("123:11");
+    expect(result.threadId).toBe("telegram:123");
+
+    const draftUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const postUrl = String(mockFetch.mock.calls[2]?.[0]);
+    const editUrl = String(mockFetch.mock.calls[3]?.[0]);
+
+    expect(draftUrl).toContain("/sendMessageDraft");
+    expect(postUrl).toContain("/sendMessage");
+    expect(editUrl).toContain("/editMessageText");
+  });
+
+  it("falls back to post+edit when sendMessageDraft returns method-not-found validation", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramError(400, 400, "Bad Request: method not found")
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: "...",
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: "hello",
+            edit_date: 1735689700,
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "hello";
+    })();
+
+    const result = await adapter.stream("telegram:123", stream, {
+      updateIntervalMs: 0,
+    });
+
+    expect(result.id).toBe("123:11");
+    expect(result.threadId).toBe("telegram:123");
+
+    const draftUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const postUrl = String(mockFetch.mock.calls[2]?.[0]);
+    const editUrl = String(mockFetch.mock.calls[3]?.[0]);
+
+    expect(draftUrl).toContain("/sendMessageDraft");
+    expect(postUrl).toContain("/sendMessage");
+    expect(editUrl).toContain("/editMessageText");
+  });
+
+  it("renders markdown with Telegram HTML parse mode", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      markdown:
+        "**Bold** _italic_ [Docs](https://example.com) `code`\n\n> Quote",
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { text: string; parse_mode?: string };
+
+    expect(sendMessageBody.parse_mode).toBe("HTML");
+    expect(sendMessageBody.text).toContain("<b>Bold</b>");
+    expect(sendMessageBody.text).toContain("<i>italic</i>");
+    expect(sendMessageBody.text).toContain(
+      '<a href="https://example.com">Docs</a>'
+    );
+    expect(sendMessageBody.text).toContain("<code>code</code>");
+    expect(sendMessageBody.text).toContain("<blockquote>Quote</blockquote>");
+  });
+
+  it("supports disabling fallback placeholder in non-DM stream fallback", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "hello",
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "hello";
+    })();
+
+    await adapter.stream("telegram:-100123", stream, {
+      updateIntervalMs: 0,
+      fallbackPlaceholderText: null,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const sendMessageUrl = String(mockFetch.mock.calls[1]?.[0]);
+    expect(sendMessageUrl).toContain("/sendMessage");
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string; parse_mode?: string };
+
+    expect(sendMessageBody.chat_id).toBe("-100123");
+    expect(sendMessageBody.text).toBe("hello");
+    expect(sendMessageBody.parse_mode).toBe("HTML");
+  });
+
+  it("streams markdown drafts with Telegram HTML parse mode", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "done" })));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const stream = (async function* () {
+      yield "**bold";
+      yield "** text";
+    })();
+
+    await adapter.stream("telegram:123", stream, {
+      updateIntervalMs: 0,
+    });
+
+    const draftBody1 = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { text: string; parse_mode?: string };
+    const draftBody2 = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    ) as { text: string; parse_mode?: string };
+
+    expect(draftBody1.parse_mode).toBe("HTML");
+    expect(draftBody2.parse_mode).toBe("HTML");
+    expect(draftBody2.text).toContain("<b>bold</b>");
+  });
+
+  it("cleans up placeholder and throws when fallback stream is empty", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "...",
+          })
+        )
+      )
+      .mockResolvedValueOnce(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const emptyStream = (async function* () {
+      // empty by design
+    })();
+
+    await expect(
+      adapter.stream("telegram:-100123", emptyStream, {
+        updateIntervalMs: 0,
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    const postUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const deleteUrl = String(mockFetch.mock.calls[2]?.[0]);
+
+    expect(postUrl).toContain("/sendMessage");
+    expect(deleteUrl).toContain("/deleteMessage");
   });
 
   it("adds and removes reactions", async () => {

@@ -422,7 +422,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context
-    const options: StreamOptions = {};
+    const options: StreamOptions = {
+      updateIntervalMs: this._streamingUpdateIntervalMs,
+      fallbackPlaceholderText: this._fallbackStreamingPlaceholderText,
+    };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload
