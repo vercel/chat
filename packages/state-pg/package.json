@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-pg",
-  "version": "4.17.0",
+  "version": "4.18.0",
   "description": "Postgres state adapter for chat (production)",
   "type": "module",
   "main": "./dist/index.js",

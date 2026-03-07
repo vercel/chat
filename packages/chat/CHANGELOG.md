@@ -1,5 +1,11 @@
 # chat
 
+## 4.18.0
+
+### Patch Changes
+
+- a3cfc1a: AI SDK6 compat fixes and support for native slack tables
+
 ## 4.17.0
 
 ### Patch Changes

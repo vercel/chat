@@ -1,5 +1,14 @@
 # @chat-adapter/slack
 
+## 4.18.0
+
+### Patch Changes
+
+- a3cfc1a: AI SDK6 compat fixes and support for native slack tables
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+  - @chat-adapter/shared@4.18.0
+
 ## 4.17.0
 
 ### Patch Changes
