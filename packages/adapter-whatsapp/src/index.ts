@@ -843,10 +843,9 @@ export class WhatsAppAdapter
   }
 
   /**
-   * Edit a message. Not supported by WhatsApp Cloud API.
+   * Edit a message. Not supported by WhatsApp Cloud API — throws an error.
    *
-   * WhatsApp does not support editing sent messages. Callers should
-   * use postMessage directly if they want to send a follow-up.
+   * Callers should use postMessage directly if they want to send a follow-up.
    */
   async editMessage(
     _threadId: string,
@@ -859,10 +858,10 @@ export class WhatsAppAdapter
   }
 
   /**
-   * Delete a message. Not supported by WhatsApp Cloud API.
+   * Delete a message. Not supported by WhatsApp Cloud API — throws an error.
    */
   async deleteMessage(_threadId: string, _messageId: string): Promise<void> {
-    this.logger.warn("WhatsApp does not support deleting sent messages");
+    throw new Error("WhatsApp does not support deleting messages.");
   }
 
   /**

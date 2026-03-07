@@ -65,8 +65,8 @@ Card elements are automatically converted to WhatsApp interactive messages:
 
 ## Limitations
 
-- **No message editing** — `editMessage()` sends a new message as fallback
-- **No message deletion** — `deleteMessage()` is a no-op
+- **No message editing** — `editMessage()` throws (WhatsApp limitation)
+- **No message deletion** — `deleteMessage()` throws (WhatsApp limitation)
 - **No message history API** — `fetchMessages()` returns empty results
 
 ## Thread ID format
