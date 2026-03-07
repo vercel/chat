@@ -212,7 +212,7 @@ describe("Chat", () => {
       );
 
       expect(handler).toHaveBeenCalledTimes(2);
-      expect(mockState.set).toHaveBeenCalledWith(
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
         "dedupe:slack:msg-1:edited:1705313100000",
         true,
         300_000
