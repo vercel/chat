@@ -69,8 +69,18 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * ~~strike~~ spans that cross line boundaries.
    */
   private toWhatsAppFormat(text: string): string {
-    let result = text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+    // Temporarily replace escaped formatting chars so they survive conversion
+    const ESC_STAR = "%%ESC_STAR%%";
+    const ESC_TILDE = "%%ESC_TILDE%%";
+    let result = text.replace(/\\\*/g, ESC_STAR).replace(/\\~/g, ESC_TILDE);
+    // Convert **bold** to *bold*
+    result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
+    // Convert ~~strikethrough~~ to ~strikethrough~
     result = result.replace(/~~(.+?)~~/g, "~$1~");
+    // Restore escaped chars — use WhatsApp escapes so they render as literals
+    result = result
+      .replace(new RegExp(ESC_STAR, "g"), "\\*")
+      .replace(new RegExp(ESC_TILDE, "g"), "\\~");
     return result;
   }
 

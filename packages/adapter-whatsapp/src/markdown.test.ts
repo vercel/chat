@@ -67,6 +67,13 @@ describe("WhatsAppFormatConverter", () => {
       expect(result).toContain("~strikethrough~");
       expect(result).not.toContain("~~strikethrough~~");
     });
+
+    it("should preserve escaped asterisks and tildes as literals", () => {
+      const ast = converter.toAst("a \\* b and c \\~ d");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("\\*");
+      expect(result).toContain("\\~");
+    });
   });
 
   describe("renderPostable", () => {
