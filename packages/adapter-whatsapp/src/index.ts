@@ -37,6 +37,44 @@ const DEFAULT_API_VERSION = "v21.0";
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
 
+/**
+ * Split text into chunks that fit within WhatsApp's message limit,
+ * breaking on paragraph boundaries (\n\n) when possible, then line
+ * boundaries (\n), and finally at the character limit as a last resort.
+ */
+export function splitMessage(text: string): string[] {
+  if (text.length <= WHATSAPP_MESSAGE_LIMIT) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > WHATSAPP_MESSAGE_LIMIT) {
+    const slice = remaining.slice(0, WHATSAPP_MESSAGE_LIMIT);
+
+    // Try to break at a paragraph boundary
+    let breakIndex = slice.lastIndexOf("\n\n");
+    if (breakIndex === -1 || breakIndex < WHATSAPP_MESSAGE_LIMIT / 2) {
+      // Try a line boundary
+      breakIndex = slice.lastIndexOf("\n");
+    }
+    if (breakIndex === -1 || breakIndex < WHATSAPP_MESSAGE_LIMIT / 2) {
+      // Hard break at the limit
+      breakIndex = WHATSAPP_MESSAGE_LIMIT;
+    }
+
+    chunks.push(remaining.slice(0, breakIndex).trimEnd());
+    remaining = remaining.slice(breakIndex).trimStart();
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
+}
+
 // Re-export types
 export type {
   WhatsAppAdapterConfig,
@@ -693,18 +731,23 @@ export class WhatsAppAdapter
   }
 
   /**
-   * Send a text message via the Cloud API.
+   * Split text into chunks that fit within WhatsApp's message limit,
+   * breaking on paragraph boundaries (\n\n) when possible, then line
+   * boundaries (\n), and finally at the character limit as a last resort.
    */
-  private async sendTextMessage(
+  splitMessage(text: string): string[] {
+    return splitMessage(text);
+  }
+
+  /**
+   * Send a single text message via the Cloud API (must be within the
+   * 4096-character limit).
+   */
+  private async sendSingleTextMessage(
     threadId: string,
     to: string,
     text: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
-    const truncatedText =
-      text.length > WHATSAPP_MESSAGE_LIMIT
-        ? `${text.slice(0, WHATSAPP_MESSAGE_LIMIT - 3)}...`
-        : text;
-
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
       {
@@ -712,7 +755,7 @@ export class WhatsAppAdapter
         recipient_type: "individual",
         to,
         type: "text",
-        text: { preview_url: false, body: truncatedText },
+        text: { preview_url: false, body: text },
       }
     );
 
@@ -732,11 +775,30 @@ export class WhatsAppAdapter
           from: this.phoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type: "text",
-          text: { body: truncatedText },
+          text: { body: text },
         },
         phoneNumberId: this.phoneNumberId,
       },
     };
+  }
+
+  /**
+   * Send a text message, splitting into multiple messages if it exceeds
+   * WhatsApp's 4096-character limit. Returns the last message sent.
+   */
+  private async sendTextMessage(
+    threadId: string,
+    to: string,
+    text: string
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const chunks = this.splitMessage(text);
+    let result: RawMessage<WhatsAppRawMessage> | undefined;
+
+    for (const chunk of chunks) {
+      result = await this.sendSingleTextMessage(threadId, to, chunk);
+    }
+
+    return result as RawMessage<WhatsAppRawMessage>;
   }
 
   /**
