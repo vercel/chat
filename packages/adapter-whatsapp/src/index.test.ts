@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WhatsAppAdapter } from "./index";
+import { splitMessage, WhatsAppAdapter } from "./index";
 
 /**
  * Create a minimal WhatsAppAdapter for testing thread ID methods.
@@ -519,5 +519,76 @@ describe("handleWebhook - verification challenge", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(403);
+  });
+});
+
+describe("splitMessage", () => {
+  it("should return a single chunk for short messages", () => {
+    const result = splitMessage("Hello world");
+    expect(result).toEqual(["Hello world"]);
+  });
+
+  it("should return a single chunk for exactly 4096 chars", () => {
+    const text = "a".repeat(4096);
+    const result = splitMessage(text);
+    expect(result).toEqual([text]);
+  });
+
+  it("should split on paragraph boundaries when possible", () => {
+    const paragraph1 = "a".repeat(3000);
+    const paragraph2 = "b".repeat(3000);
+    const text = `${paragraph1}\n\n${paragraph2}`;
+    const result = splitMessage(text);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(paragraph1);
+    expect(result[1]).toBe(paragraph2);
+  });
+
+  it("should split on line boundaries when no paragraph break", () => {
+    const line1 = "a".repeat(3000);
+    const line2 = "b".repeat(3000);
+    const text = `${line1}\n${line2}`;
+    const result = splitMessage(text);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(line1);
+    expect(result[1]).toBe(line2);
+  });
+
+  it("should hard-break when no line boundaries exist", () => {
+    const text = "a".repeat(5000);
+    const result = splitMessage(text);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe("a".repeat(4096));
+    expect(result[1]).toBe("a".repeat(904));
+  });
+
+  it("should handle three chunks", () => {
+    const p1 = "a".repeat(4000);
+    const p2 = "b".repeat(4000);
+    const p3 = "c".repeat(4000);
+    const text = `${p1}\n\n${p2}\n\n${p3}`;
+    const result = splitMessage(text);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toBe(p1);
+    expect(result[1]).toBe(p2);
+    expect(result[2]).toBe(p3);
+  });
+
+  it("should not split on a break that is too early in the chunk", () => {
+    // A paragraph break at position 1000 (< 2048 = limit/2) should be skipped
+    const earlyPart = "a".repeat(1000);
+    const rest = "b".repeat(4500);
+    const text = `${earlyPart}\n\n${rest}`;
+    const result = splitMessage(text);
+    // Should fall through to line break, then hard break
+    expect(result).toHaveLength(2);
+    expect(result[0].length).toBe(4096);
+    expect(result[1].length).toBe(text.length - 4096);
+  });
+
+  it("should preserve all content across chunks", () => {
+    const text = "x".repeat(10000);
+    const result = splitMessage(text);
+    expect(result.join("")).toBe(text);
   });
 });
