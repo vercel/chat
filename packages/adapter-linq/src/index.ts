@@ -1,8 +1,10 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
   cardToFallbackText,
   extractCard,
+  extractFiles,
   NetworkError,
   ResourceNotFoundError,
   ValidationError,
@@ -204,13 +206,23 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       throw new ValidationError("linq", "Message text cannot be empty");
     }
 
+    const files = extractFiles(message);
+    const parts: unknown[] = [{ type: "text", value: text }];
+
+    for (const file of files) {
+      this.logger.warn(
+        "Linq adapter does not yet support file uploads, skipping attachment",
+        { filename: file.filename }
+      );
+    }
+
     const { data, error, response } = await this.client.POST(
       "/v3/chats/{chatId}/messages",
       {
         params: { path: { chatId } },
         body: {
           message: {
-            parts: [{ type: "text", value: text }],
+            parts: parts as [{ type: "text"; value: string }],
           },
         },
       }
@@ -373,6 +385,9 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     };
   }
 
+  // TODO: Linq chats can be group chats (is_group). This synchronous method
+  // can't call the API, so we default to true. Use fetchThread/fetchChannelInfo
+  // for accurate isDM values.
   isDM(_threadId: string): boolean {
     return true;
   }
@@ -448,6 +463,39 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     }
   }
 
+  async openDM(userId: string): Promise<string> {
+    if (!this.phoneNumber) {
+      throw new ValidationError(
+        "linq",
+        "phoneNumber is required for openDM. Set LINQ_PHONE_NUMBER or provide it in config."
+      );
+    }
+
+    const { data, error, response } = await this.client.POST("/v3/chats", {
+      body: {
+        from: this.phoneNumber,
+        to: [userId],
+        message: {
+          parts: [{ type: "text", value: " " }],
+        },
+      },
+    });
+
+    if (error || !data) {
+      this.handleApiError(response, "openDM");
+    }
+
+    return this.encodeThreadId({ chatId: data.chat.id });
+  }
+
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<LinqRawMessage>> {
+    const threadId = this.encodeThreadId({ chatId: channelId });
+    return this.postMessage(threadId, message);
+  }
+
   parseMessage(raw: LinqRawMessage): Message<LinqRawMessage> {
     const threadId = this.encodeThreadId({ chatId: raw.chat_id });
     return this.parseLinqMessage(raw, threadId);
@@ -469,7 +517,8 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
     switch (eventType) {
       case "message.received":
-      case "message.sent": {
+      case "message.sent":
+      case "message.edited": {
         this.handleMessageEvent(payload, options);
         break;
       }
@@ -507,7 +556,8 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
     const threadId = this.encodeThreadId({ chatId });
 
-    const message = this.parseWebhookMessage(eventData, threadId);
+    const isEdited = payload.event_type === "message.edited";
+    const message = this.parseWebhookMessage(eventData, threadId, isEdited);
 
     this.chat.processMessage(this, threadId, message, options);
   }
@@ -617,13 +667,14 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
         edited: false,
       },
       attachments,
-      isMention: false,
+      isMention: !isMe,
     });
   }
 
   private parseWebhookMessage(
     eventData: LinqMessageEventV2,
-    threadId: string
+    threadId: string,
+    isEdited = false
   ): Message<LinqRawMessage> {
     const parts = eventData.parts ?? [];
     const textParts: string[] = [];
@@ -694,7 +745,7 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       },
       metadata: {
         dateSent: eventData.sent_at ? new Date(eventData.sent_at) : new Date(),
-        edited: false,
+        edited: isEdited,
       },
       attachments,
       isMention: !isMe,
@@ -726,7 +777,14 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    return signature === expectedSignature;
+    try {
+      return timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      );
+    } catch {
+      return false;
+    }
   }
 
   private handleApiError(response: Response, operation: string): never {
@@ -735,7 +793,7 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     if (status === 401 || status === 403) {
       throw new AuthenticationError(
         "linq",
-        `${operation} failed: unauthorized`
+        `${operation} failed: unauthorized (${status})`
       );
     }
     if (status === 404) {

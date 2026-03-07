@@ -53,6 +53,47 @@ describe("LinqFormatConverter", () => {
       const result = converter.fromAst(ast);
       expect(result).toBe("Hello world");
     });
+
+    it("strips nested bold+italic formatting", () => {
+      const ast = parseMarkdown("**bold _italic_**");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("bold");
+      expect(result).toContain("italic");
+      expect(result).not.toContain("**");
+      expect(result).not.toContain("_");
+    });
+
+    it("strips fenced code blocks", () => {
+      const ast = parseMarkdown("```js\nconst x = 1;\n```");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("const x = 1;");
+    });
+
+    it("strips inline code", () => {
+      const ast = parseMarkdown("Use `foo()` here");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("Use foo() here");
+    });
+
+    it("handles unordered lists", () => {
+      const ast = parseMarkdown("- item one\n- item two");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("item one");
+      expect(result).toContain("item two");
+    });
+
+    it("handles ordered lists", () => {
+      const ast = parseMarkdown("1. first\n2. second");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("first");
+      expect(result).toContain("second");
+    });
+
+    it("handles blockquotes", () => {
+      const ast = parseMarkdown("> quoted text");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("quoted text");
+    });
   });
 
   describe("toAst", () => {

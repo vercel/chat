@@ -1,6 +1,8 @@
 import {
   AdapterRateLimitError,
   AuthenticationError,
+  NetworkError,
+  ResourceNotFoundError,
   ValidationError,
 } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
@@ -476,5 +478,534 @@ describe("isDM", () => {
       logger: mockLogger,
     });
     expect(adapter.isDM("linq:chat-123")).toBe(true);
+  });
+});
+
+describe("fetchMessages", () => {
+  it("fetches messages with pagination cursor", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        messages: [
+          {
+            id: "msg-1",
+            chat_id: "chat-123",
+            is_from_me: false,
+            is_delivered: true,
+            is_read: true,
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+            parts: [{ type: "text", value: "Hello", reactions: null }],
+            from_handle: {
+              id: "h1",
+              handle: "+15551234567",
+              service: "iMessage",
+              joined_at: "2025-01-01T00:00:00Z",
+            },
+          },
+        ],
+        next_cursor: "cursor-abc",
+      })
+    );
+
+    const result = await adapter.fetchMessages("linq:chat-123", {
+      cursor: "prev-cursor",
+      limit: 10,
+    });
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].text).toBe("Hello");
+    expect(result.nextCursor).toBe("cursor-abc");
+  });
+
+  it("returns undefined nextCursor when no more pages", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        messages: [],
+        next_cursor: null,
+      })
+    );
+
+    const result = await adapter.fetchMessages("linq:chat-123");
+    expect(result.messages).toHaveLength(0);
+    expect(result.nextCursor).toBeUndefined();
+  });
+});
+
+describe("fetchThread", () => {
+  it("fetches thread info from chat API", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        id: "chat-123",
+        display_name: "Test Chat",
+        is_group: false,
+        handles: [
+          {
+            id: "h1",
+            handle: "+15551234567",
+            service: "iMessage",
+            joined_at: "2025-01-01T00:00:00Z",
+          },
+        ],
+      })
+    );
+
+    const info = await adapter.fetchThread("linq:chat-123");
+    expect(info.id).toBe("linq:chat-123");
+    expect(info.channelId).toBe("chat-123");
+    expect(info.channelName).toBe("Test Chat");
+    expect(info.isDM).toBe(true);
+  });
+});
+
+describe("fetchChannelInfo", () => {
+  it("fetches channel info from chat API", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        id: "chat-123",
+        display_name: "Group Chat",
+        is_group: true,
+        handles: [
+          {
+            id: "h1",
+            handle: "+15551234567",
+            service: "iMessage",
+            joined_at: "2025-01-01T00:00:00Z",
+          },
+          {
+            id: "h2",
+            handle: "+15559876543",
+            service: "iMessage",
+            joined_at: "2025-01-01T00:00:00Z",
+          },
+        ],
+      })
+    );
+
+    const info = await adapter.fetchChannelInfo("chat-123");
+    expect(info.id).toBe("chat-123");
+    expect(info.name).toBe("Group Chat");
+    expect(info.isDM).toBe(false);
+    expect(info.memberCount).toBe(2);
+  });
+});
+
+describe("fetchMessage", () => {
+  it("fetches a single message", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        id: "msg-1",
+        chat_id: "chat-123",
+        is_from_me: false,
+        is_delivered: true,
+        is_read: true,
+        created_at: "2025-01-01T00:00:00Z",
+        updated_at: "2025-01-01T00:00:00Z",
+        parts: [{ type: "text", value: "Hi there", reactions: null }],
+        from_handle: {
+          id: "h1",
+          handle: "+15551234567",
+          service: "iMessage",
+          joined_at: "2025-01-01T00:00:00Z",
+        },
+      })
+    );
+
+    const message = await adapter.fetchMessage("linq:chat-123", "msg-1");
+    expect(message).not.toBeNull();
+    expect(message?.text).toBe("Hi there");
+    expect(message?.id).toBe("msg-1");
+  });
+
+  it("returns null on API error", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(linqError(404));
+
+    const message = await adapter.fetchMessage("linq:chat-123", "nonexistent");
+    expect(message).toBeNull();
+  });
+});
+
+describe("editMessage result", () => {
+  it("returns correct structure from edit", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk({
+        id: "msg-456",
+        chat_id: "chat-123",
+        is_from_me: true,
+        is_delivered: true,
+        is_read: false,
+        created_at: "2025-01-01T00:00:00Z",
+        updated_at: "2025-01-01T00:01:00Z",
+        parts: [{ type: "text", value: "Edited text", reactions: null }],
+      })
+    );
+
+    const result = await adapter.editMessage(
+      "linq:chat-123",
+      "msg-456",
+      "Edited text"
+    );
+    expect(result.id).toBe("msg-456");
+    expect(result.threadId).toBe("linq:chat-123");
+    expect(result.raw.chat_id).toBe("chat-123");
+  });
+});
+
+describe("webhook edge cases", () => {
+  it("rejects invalid signature", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    const body = JSON.stringify({
+      api_version: "v3",
+      webhook_version: "2026-02-03",
+      event_type: "message.received",
+      event_id: "evt-123",
+      created_at: new Date().toISOString(),
+      trace_id: "trace-1",
+      partner_id: "partner-1",
+      data: {
+        chat: { id: "chat-123" },
+        id: "msg-123",
+        direction: "inbound",
+        sender_handle: {
+          id: "h1",
+          handle: "+15551234567",
+          service: "iMessage",
+          joined_at: "2025-01-01T00:00:00Z",
+        },
+        parts: [{ type: "text", value: "Hello" }],
+        service: "iMessage",
+      },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body,
+      headers: {
+        "x-webhook-signature": "deadbeef1234567890abcdef",
+        "x-webhook-timestamp": timestamp,
+      },
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("routes reaction.removed events", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChat();
+    await adapter.initialize(mockChat);
+
+    const body = JSON.stringify({
+      api_version: "v3",
+      webhook_version: "2026-02-03",
+      event_type: "reaction.removed",
+      event_id: "evt-789",
+      created_at: new Date().toISOString(),
+      trace_id: "trace-3",
+      partner_id: "partner-1",
+      data: {
+        chat_id: "chat-123",
+        message_id: "msg-123",
+        reaction_type: "like",
+        is_from_me: false,
+        from_handle: {
+          id: "h1",
+          handle: "+15551234567",
+          service: "iMessage",
+          joined_at: "2025-01-01T00:00:00Z",
+        },
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(mockChat.processReaction).toHaveBeenCalledOnce();
+
+    const reactionCall = (mockChat.processReaction as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(reactionCall.added).toBe(false);
+    expect(reactionCall.emoji.name).toBe("thumbsup");
+  });
+
+  it("routes message.edited events", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChat();
+    await adapter.initialize(mockChat);
+
+    const body = JSON.stringify({
+      api_version: "v3",
+      webhook_version: "2026-02-03",
+      event_type: "message.edited",
+      event_id: "evt-edit-1",
+      created_at: new Date().toISOString(),
+      trace_id: "trace-4",
+      partner_id: "partner-1",
+      data: {
+        chat: { id: "chat-123" },
+        id: "msg-edited",
+        direction: "inbound",
+        sender_handle: {
+          id: "h1",
+          handle: "+15551234567",
+          service: "iMessage",
+          joined_at: "2025-01-01T00:00:00Z",
+        },
+        parts: [{ type: "text", value: "Edited content" }],
+        service: "iMessage",
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(mockChat.processMessage).toHaveBeenCalledOnce();
+
+    const messageCall = (mockChat.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    expect(messageCall.metadata.edited).toBe(true);
+  });
+
+  it("silently ignores unknown event types", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChat();
+    await adapter.initialize(mockChat);
+
+    const body = JSON.stringify({
+      api_version: "v3",
+      webhook_version: "2026-02-03",
+      event_type: "chat.typing_indicator.started",
+      event_id: "evt-unknown",
+      created_at: new Date().toISOString(),
+      trace_id: "trace-5",
+      partner_id: "partner-1",
+      data: {},
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(mockChat.processMessage).not.toHaveBeenCalled();
+    expect(mockChat.processReaction).not.toHaveBeenCalled();
+  });
+
+  it("parses media attachments from webhook message", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChat();
+    await adapter.initialize(mockChat);
+
+    const body = JSON.stringify({
+      api_version: "v3",
+      webhook_version: "2026-02-03",
+      event_type: "message.received",
+      event_id: "evt-media",
+      created_at: new Date().toISOString(),
+      trace_id: "trace-6",
+      partner_id: "partner-1",
+      data: {
+        chat: { id: "chat-123" },
+        id: "msg-media",
+        direction: "inbound",
+        sender_handle: {
+          id: "h1",
+          handle: "+15551234567",
+          service: "iMessage",
+          joined_at: "2025-01-01T00:00:00Z",
+        },
+        parts: [
+          { type: "text", value: "Check this out" },
+          {
+            type: "media",
+            id: "att-1",
+            url: "https://example.com/image.png",
+            filename: "image.png",
+            mime_type: "image/png",
+            size_bytes: 12345,
+          },
+        ],
+        service: "iMessage",
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const messageCall = (mockChat.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    expect(messageCall.text).toBe("Check this out");
+    expect(messageCall.attachments).toHaveLength(1);
+    expect(messageCall.attachments[0].type).toBe("image");
+    expect(messageCall.attachments[0].name).toBe("image.png");
+  });
+});
+
+describe("API error handling extended", () => {
+  it("throws ResourceNotFoundError on 404", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(linqError(404));
+
+    await expect(adapter.fetchThread("linq:chat-123")).rejects.toThrow(
+      ResourceNotFoundError
+    );
+  });
+
+  it("throws NetworkError on 500", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(linqError(500));
+
+    await expect(adapter.postMessage("linq:chat-123", "Hello")).rejects.toThrow(
+      NetworkError
+    );
+  });
+});
+
+describe("openDM", () => {
+  it("throws when phoneNumber is not configured", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+
+    await expect(adapter.openDM("+15559876543")).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  it("creates a chat and returns thread ID", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      phoneNumber: "+15551234567",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk(
+        {
+          chat: { id: "new-chat-id", display_name: "+15559876543" },
+          message: { id: "msg-init", status: "queued" },
+        },
+        201
+      )
+    );
+
+    const threadId = await adapter.openDM("+15559876543");
+    expect(threadId).toBe("linq:new-chat-id");
+  });
+});
+
+describe("postChannelMessage", () => {
+  it("delegates to postMessage with encoded thread ID", async () => {
+    const adapter = new LinqAdapter({
+      apiToken: "test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      linqOk(
+        {
+          chat_id: "chat-123",
+          message: {
+            id: "msg-789",
+            parts: [{ type: "text", value: "Channel msg" }],
+            status: "queued",
+            created_at: "2025-01-01T00:00:00Z",
+          },
+        },
+        202
+      )
+    );
+
+    const result = await adapter.postChannelMessage("chat-123", "Channel msg");
+    expect(result.id).toBe("msg-789");
+    expect(result.threadId).toBe("linq:chat-123");
   });
 });
