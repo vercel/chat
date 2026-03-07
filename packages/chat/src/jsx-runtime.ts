@@ -258,7 +258,8 @@ export type ChatElement =
   | TextInputElement
   | SelectElement
   | SelectOptionElement
-  | RadioSelectElement;
+  | RadioSelectElement
+  | TableElement;
 
 // ============================================================================
 // JSX Component Function Types
@@ -353,6 +354,11 @@ export interface SelectOptionComponent {
 export interface RadioSelectComponent {
   (options: RadioSelectOptions): RadioSelectElement;
   (props: SelectProps): ChatElement;
+}
+
+export interface TableComponent {
+  (options: { headers: string[]; rows: string[][] }): TableElement;
+  (props: TableProps): ChatElement;
 }
 
 // Internal alias for backwards compatibility

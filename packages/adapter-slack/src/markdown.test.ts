@@ -171,10 +171,9 @@ describe("SlackMarkdownConverter", () => {
         "| Name | Age |\n|------|-----|\n| Alice | 30 |"
       );
       const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).not.toBeNull();
-      expect(blocks!.length).toBe(1);
-      expect(blocks![0].type).toBe("table");
-      expect(blocks![0].rows).toEqual([
+      expect(blocks).toHaveLength(1);
+      expect(blocks?.[0].type).toBe("table");
+      expect(blocks?.[0].rows).toEqual([
         [
           { type: "raw_text", text: "Name" },
           { type: "raw_text", text: "Age" },
@@ -191,13 +190,12 @@ describe("SlackMarkdownConverter", () => {
         "Here are the results:\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAll done.";
       const ast = converter.toAst(markdown);
       const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).not.toBeNull();
-      expect(blocks!.length).toBe(3);
-      expect(blocks![0].type).toBe("section");
-      expect(blocks![0].text.text).toContain("Here are the results");
-      expect(blocks![1].type).toBe("table");
-      expect(blocks![2].type).toBe("section");
-      expect(blocks![2].text.text).toContain("All done");
+      expect(blocks).toHaveLength(3);
+      expect(blocks?.[0].type).toBe("section");
+      expect(blocks?.[0].text.text).toContain("Here are the results");
+      expect(blocks?.[1].type).toBe("table");
+      expect(blocks?.[2].type).toBe("section");
+      expect(blocks?.[2].text.text).toContain("All done");
     });
 
     it("should use native block for first table and ASCII for second", () => {
@@ -205,12 +203,11 @@ describe("SlackMarkdownConverter", () => {
         "| A | B |\n|---|---|\n| 1 | 2 |\n\n| C | D |\n|---|---|\n| 3 | 4 |";
       const ast = converter.toAst(markdown);
       const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).not.toBeNull();
-      expect(blocks!.length).toBe(2);
-      expect(blocks![0].type).toBe("table");
+      expect(blocks).toHaveLength(2);
+      expect(blocks?.[0].type).toBe("table");
       // Second table falls back to ASCII in section
-      expect(blocks![1].type).toBe("section");
-      expect(blocks![1].text.text).toContain("```");
+      expect(blocks?.[1].type).toBe("section");
+      expect(blocks?.[1].text.text).toContain("```");
     });
   });
 

@@ -133,10 +133,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
       const node = child as Content;
       if (isTableNode(node)) {
         flushText();
-        if (!usedNativeTable) {
-          blocks.push(mdastTableToSlackBlock(node, this.nodeToMrkdwn.bind(this)));
-          usedNativeTable = true;
-        } else {
+        if (usedNativeTable) {
           // Additional tables fall back to ASCII in a code block
           blocks.push({
             type: "section",
@@ -145,6 +142,11 @@ export class SlackFormatConverter extends BaseFormatConverter {
               text: `\`\`\`\n${tableToAscii(node)}\n\`\`\``,
             },
           });
+        } else {
+          blocks.push(
+            mdastTableToSlackBlock(node, this.nodeToMrkdwn.bind(this))
+          );
+          usedNativeTable = true;
         }
       } else {
         textBuffer.push(this.nodeToMrkdwn(node));

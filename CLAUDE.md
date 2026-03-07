@@ -15,7 +15,10 @@ pnpm build
 pnpm typecheck
 
 # Check all packages (linting and formatting)
-pnpm check
+pnpm -w run check
+
+# Auto-fix linting and formatting issues
+pnpm -w run check --write
 
 # Check for unused exports/dependencies
 pnpm knip

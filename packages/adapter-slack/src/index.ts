@@ -29,6 +29,7 @@ import type {
   ModalResponse,
   RawMessage,
   ReactionEvent,
+  Root,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -47,7 +48,7 @@ import {
   StreamingMarkdownRenderer,
   toModalElement,
 } from "chat";
-import { type SlackBlock, cardToBlockKit, cardToFallbackText } from "./cards";
+import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
   decodeKey,
@@ -1712,10 +1713,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private renderWithTableBlocks(
     message: AdapterPostableMessage
   ): { text: string; blocks: SlackBlock[] } | null {
-    let ast: import("chat").Root | null = null;
+    let ast: Root | null = null;
     if (typeof message === "object" && message !== null) {
       if ("ast" in message) {
-        ast = (message as { ast: import("chat").Root }).ast;
+        ast = (message as { ast: Root }).ast;
       } else if ("markdown" in message) {
         ast = parseMarkdown((message as { markdown: string }).markdown);
       }

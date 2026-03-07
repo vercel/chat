@@ -323,10 +323,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       const element = (
         <Card title="Report">
           <Text>Summary:</Text>
-          <Table
-            headers={["Metric", "Value"]}
-            rows={[["Users", "100"]]}
-          />
+          <Table headers={["Metric", "Value"]} rows={[["Users", "100"]]} />
         </Card>
       );
       const result = toCardElement(element);

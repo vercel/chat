@@ -127,9 +127,7 @@ describe("fromFullStream", () => {
         { type: "step-finish" },
         { type: "text-delta", id: "0", text: "step 2." },
       ]);
-      expect(await collect(fromFullStream(stream))).toBe(
-        "step 1.\n\nstep 2."
-      );
+      expect(await collect(fromFullStream(stream))).toBe("step 1.\n\nstep 2.");
     });
 
     it("prefers text over textDelta when both present", async () => {
