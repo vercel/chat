@@ -103,6 +103,8 @@ const TELEGRAM_METHODS = [
 ];
 const WHATSAPP_METHODS = [
   "postMessage",
+  "editMessage",
+  "deleteMessage",
   "addReaction",
   "removeReaction",
   "startTyping",
