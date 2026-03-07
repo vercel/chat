@@ -580,13 +580,17 @@ export class WhatsAppAdapter
 
     if (inbound.location) {
       const loc = inbound.location;
-      const mapUrl = `https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`;
-      attachments.push({
-        type: "file",
-        name: loc.name || "Location",
-        url: mapUrl,
-        mimeType: "application/geo+json",
-      });
+      const lat = Number(loc.latitude);
+      const lng = Number(loc.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+        attachments.push({
+          type: "file",
+          name: loc.name || "Location",
+          url: mapUrl,
+          mimeType: "application/geo+json",
+        });
+      }
     }
 
     return attachments;
