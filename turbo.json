@@ -11,7 +11,10 @@
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_PHONE_NUMBER"
   ],
   "tasks": {
     "build": {

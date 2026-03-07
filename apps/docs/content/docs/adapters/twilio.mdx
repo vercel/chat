@@ -1,0 +1,119 @@
+---
+title: Twilio
+description: Configure the Twilio adapter for SMS and MMS messaging.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/twilio
+```
+
+## Usage
+
+The adapter auto-detects `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` from environment variables:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTwilioAdapter } from "@chat-adapter/twilio";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    twilio: createTwilioAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+## Webhook route
+
+```typescript title="app/api/webhooks/twilio/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.twilio(request);
+}
+```
+
+Configure this URL as your Twilio webhook in the [Twilio Console](https://console.twilio.com/):
+
+1. Go to **Phone Numbers** > **Manage** > **Active Numbers**
+2. Select your phone number
+3. Under **Messaging Configuration**, set the webhook URL for "A message comes in" to `https://your-domain.com/api/webhooks/twilio`
+4. Set the HTTP method to **POST**
+
+## Configuration
+
+All options are auto-detected from environment variables when not provided.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `accountSid` | No* | Twilio Account SID. Auto-detected from `TWILIO_ACCOUNT_SID` |
+| `authToken` | No* | Twilio Auth Token. Auto-detected from `TWILIO_AUTH_TOKEN` |
+| `phoneNumber` | No* | Twilio phone number (E.164 format). Auto-detected from `TWILIO_PHONE_NUMBER` |
+| `webhookUrl` | No | Override webhook URL for signature validation (useful behind proxies) |
+| `userName` | No | Bot username (defaults to `"bot"`) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*These options are required — either via config or environment variables.
+
+## Environment variables
+
+```bash title=".env.local"
+TWILIO_ACCOUNT_SID=AC_your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_PHONE_NUMBER=+15551234567
+```
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Post message | Yes |
+| Edit message | No (SMS is immutable) |
+| Delete message | Yes (via Twilio API) |
+| Mentions | Yes (all inbound messages are treated as mentions) |
+| Reactions | No |
+| Cards | Text fallback |
+| Modals | No |
+| Streaming | No |
+| DMs | Yes (all SMS conversations are DMs) |
+| Ephemeral messages | No |
+| File uploads | No (MMS media URLs only) |
+| Typing indicator | No |
+| Fetch messages | Yes (bidirectional) |
+| Fetch single message | Yes |
+| Fetch thread info | Yes |
+
+## Thread ID format
+
+Twilio thread IDs follow the pattern `twilio:{twilioNumber}:{recipientNumber}`:
+
+```
+twilio:+15551234567:+15559876543
+```
+
+Each unique pair of phone numbers represents a conversation thread.
+
+## MMS media
+
+Inbound MMS messages include media attachments (images, videos, audio, files). These are parsed automatically from Twilio's `MediaUrl` and `MediaContentType` webhook fields.
+
+Outbound MMS is supported when your message includes media URLs via the `files` property with URL-based files. Binary file uploads are not supported — Twilio's API only accepts public media URLs.
+
+## Notes
+
+- SMS body is limited to 1600 characters. Messages exceeding this limit are truncated and a warning is logged.
+- All SMS conversations are treated as DMs (`isDM` always returns `true`).
+- There are no channels, threads-within-threads, or slash commands in SMS.
+- Twilio status callback webhooks (delivery receipts) are automatically detected and acknowledged without processing.
+- `editMessage` throws `NotImplementedError` — Twilio's `update()` API only supports redacting message bodies or canceling scheduled messages, not real content edits.
+- `fetchMessages` returns messages from both directions (inbound and outbound), sorted chronologically.
+- Webhook signature validation uses `twilio.validateRequest`. If your app is behind a reverse proxy, set the `webhookUrl` config option to the public-facing URL.

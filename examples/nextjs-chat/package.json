@@ -19,6 +19,7 @@
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
     "@chat-adapter/telegram": "workspace:*",
+    "@chat-adapter/twilio": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
     "ai": "^6.0.5",
     "chat": "workspace:*",
