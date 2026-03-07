@@ -1,0 +1,92 @@
+import { parseMarkdown, stringifyMarkdown } from "chat";
+import { describe, expect, it } from "vitest";
+import { LinqFormatConverter } from "./markdown";
+
+const converter = new LinqFormatConverter();
+
+describe("LinqFormatConverter", () => {
+  describe("fromAst", () => {
+    it("strips bold formatting", () => {
+      const ast = parseMarkdown("**bold text**");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("bold text");
+    });
+
+    it("strips italic formatting", () => {
+      const ast = parseMarkdown("*italic text*");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("italic text");
+    });
+
+    it("strips strikethrough formatting", () => {
+      const ast = parseMarkdown("~~deleted~~");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("deleted");
+    });
+
+    it("converts links to text with URL", () => {
+      const ast = parseMarkdown("[click here](https://example.com)");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("click here");
+      expect(result).toContain("https://example.com");
+    });
+
+    it("strips header formatting", () => {
+      const ast = parseMarkdown("# Header\n\nContent");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("Header");
+      expect(result).not.toContain("#");
+    });
+
+    it("converts tables to ASCII", () => {
+      const markdown = "| A | B |\n| --- | --- |\n| 1 | 2 |";
+      const ast = parseMarkdown(markdown);
+      const result = converter.fromAst(ast);
+      expect(result).toContain("A");
+      expect(result).toContain("B");
+      expect(result).toContain("1");
+      expect(result).toContain("2");
+    });
+
+    it("handles plain text passthrough", () => {
+      const ast = parseMarkdown("Hello world");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("Hello world");
+    });
+  });
+
+  describe("toAst", () => {
+    it("parses plain text", () => {
+      const ast = converter.toAst("Hello world");
+      const markdown = stringifyMarkdown(ast).trim();
+      expect(markdown).toBe("Hello world");
+    });
+
+    it("parses markdown text", () => {
+      const ast = converter.toAst("**bold** and *italic*");
+      expect(ast.type).toBe("root");
+      expect(ast.children.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("renderPostable", () => {
+    it("renders string messages", () => {
+      expect(converter.renderPostable("Hello")).toBe("Hello");
+    });
+
+    it("renders raw messages", () => {
+      expect(converter.renderPostable({ raw: "raw text" })).toBe("raw text");
+    });
+
+    it("renders markdown messages", () => {
+      const result = converter.renderPostable({ markdown: "**bold**" });
+      expect(result).toBe("bold");
+    });
+
+    it("renders AST messages", () => {
+      const ast = parseMarkdown("plain text");
+      const result = converter.renderPostable({ ast });
+      expect(result).toBe("plain text");
+    });
+  });
+});

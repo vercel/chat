@@ -8,6 +8,7 @@ import {
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
+import { createLinqAdapter, type LinqAdapter } from "@chat-adapter/linq";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
@@ -29,6 +30,7 @@ export interface Adapters {
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
+  linq?: LinqAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
@@ -89,6 +91,15 @@ const LINEAR_METHODS = [
   "editMessage",
   "deleteMessage",
   "addReaction",
+  "fetchMessages",
+];
+const LINQ_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
   "fetchMessages",
 ];
 const TELEGRAM_METHODS = [
@@ -218,6 +229,18 @@ export function buildAdapters(): Adapters {
         "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
       );
     }
+  }
+
+  // Linq adapter (optional) - env vars: LINQ_API_TOKEN, LINQ_SIGNING_SECRET, LINQ_PHONE_NUMBER
+  if (process.env.LINQ_API_TOKEN) {
+    adapters.linq = withRecording(
+      createLinqAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("linq"),
+      }),
+      "linq",
+      LINQ_METHODS
+    );
   }
 
   // Telegram adapter (optional) - env vars: TELEGRAM_BOT_TOKEN
