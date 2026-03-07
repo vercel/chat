@@ -11,7 +11,7 @@ Production PostgreSQL state adapter built with [pg](https://www.npmjs.com/packag
 ## Installation
 
 ```sh title="Terminal"
-pnpm add @chat-adapter/state-postgres
+pnpm add @chat-adapter/state-pg
 ```
 
 ## Usage
@@ -20,7 +20,7 @@ pnpm add @chat-adapter/state-postgres
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
-import { createPostgresState } from "@chat-adapter/state-postgres";
+import { createPostgresState } from "@chat-adapter/state-pg";
 
 const bot = new Chat({
   userName: "mybot",

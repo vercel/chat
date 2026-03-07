@@ -566,7 +566,7 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
-  packages/state-postgres:
+  packages/state-pg:
     dependencies:
       chat:
         specifier: workspace:*

@@ -88,8 +88,8 @@ function createTempProject(codeBlocks: string[]): string {
         "@chat-adapter/state-ioredis": [
           join(import.meta.dirname, "../../state-ioredis/src/index.ts"),
         ],
-        "@chat-adapter/state-postgres": [
-          join(import.meta.dirname, "../../state-postgres/src/index.ts"),
+        "@chat-adapter/state-pg": [
+          join(import.meta.dirname, "../../state-pg/src/index.ts"),
         ],
         "@chat-adapter/state-memory": [
           join(import.meta.dirname, "../../state-memory/src/index.ts"),
@@ -273,7 +273,7 @@ describe("Package README code examples", () => {
               "@chat-adapter/linear",
               "@chat-adapter/state-redis",
               "@chat-adapter/state-ioredis",
-              "@chat-adapter/state-postgres",
+              "@chat-adapter/state-pg",
               "@chat-adapter/state-memory",
               "next/server",
               "redis",
