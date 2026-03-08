@@ -378,6 +378,20 @@ describe("PostgresStateAdapter", () => {
         const result = await adapter.extendLock(lock, 5000);
         expect(result).toBe(false);
       });
+
+      it("should force-release a lock without checking token", async () => {
+        await adapter.forceReleaseLock("thread1");
+        expect(pool.query).toHaveBeenCalledWith(
+          expect.stringContaining("DELETE FROM chat_state_locks"),
+          ["chat-sdk", "thread1"]
+        );
+      });
+
+      it("should no-op when force-releasing a non-existent lock", async () => {
+        await expect(
+          adapter.forceReleaseLock("nonexistent")
+        ).resolves.toBeUndefined();
+      });
     });
 
     describe("cache", () => {

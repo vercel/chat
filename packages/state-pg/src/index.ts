@@ -147,6 +147,16 @@ export class PostgresStateAdapter implements StateAdapter {
     };
   }
 
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+
+    await this.pool.query(
+      `DELETE FROM chat_state_locks
+       WHERE key_prefix = $1 AND thread_id = $2`,
+      [this.keyPrefix, threadId]
+    );
+  }
+
   async releaseLock(lock: Lock): Promise<void> {
     this.ensureConnected();
 
