@@ -117,7 +117,7 @@ describe("WhatsAppFormatConverter", () => {
     it("should convert thematic breaks to text separator", () => {
       const ast = converter.toAst("above\n\n---\n\nbelow");
       const result = converter.fromAst(ast);
-      expect(result).toContain("---");
+      expect(result).toContain("━━━");
       expect(result).toContain("above");
       expect(result).toContain("below");
     });
@@ -152,6 +152,51 @@ describe("WhatsAppFormatConverter", () => {
       const ast = converter.toAst("Hello from AST");
       const result = converter.renderPostable({ ast });
       expect(result).toContain("Hello from AST");
+    });
+
+    it("should correctly convert a complex AI-style markdown response", () => {
+      const markdown = [
+        "# The Answer: **It Depends!**",
+        "",
+        "There's no universal *better* choice.",
+        "",
+        "## **Choose React if:**",
+        "- Building **large-scale** apps",
+        "- Need the biggest *ecosystem*",
+        "- **Examples:** Facebook, Netflix",
+        "",
+        "## **Choose Vue if:**",
+        "- Want *faster* learning curve",
+        "- Prefer ~~complex~~ cleaner templates",
+        "",
+        "---",
+        "",
+        "## Real Talk:",
+        "**All three are excellent.** Learn *React* first!",
+      ].join("\n");
+
+      const result = converter.renderPostable({ markdown });
+
+      expect(result).toBe(`*The Answer: It Depends!*
+
+There's no universal _better_ choice.
+
+*Choose React if:*
+
+- Building *large-scale* apps
+- Need the biggest _ecosystem_
+- *Examples:* Facebook, Netflix
+
+*Choose Vue if:*
+
+- Want _faster_ learning curve
+- Prefer ~complex~ cleaner templates
+
+━━━
+
+*Real Talk:*
+
+*All three are excellent.* Learn _React_ first!`);
     });
   });
 });

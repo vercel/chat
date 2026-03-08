@@ -48,7 +48,7 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       if (node.type === "thematicBreak") {
         return {
           type: "paragraph",
-          children: [{ type: "text", value: "---" }],
+          children: [{ type: "text", value: "━━━" }],
         } as Content;
       }
       // Tables -> code blocks (same as Telegram)
