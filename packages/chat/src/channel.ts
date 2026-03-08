@@ -1,6 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
+import { fromFullStream } from "./from-full-stream";
 import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
   paragraph,
@@ -248,8 +249,10 @@ export class ChannelImpl<TState = Record<string, unknown>>
     if (isAsyncIterable(message)) {
       // For channel-level streaming, accumulate and post as single message
       let accumulated = "";
-      for await (const chunk of message) {
-        accumulated += chunk;
+      for await (const chunk of fromFullStream(message)) {
+        if (typeof chunk === "string") {
+          accumulated += chunk;
+        }
       }
       return this.postSingleMessage(accumulated);
     }
