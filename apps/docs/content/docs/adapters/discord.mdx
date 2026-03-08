@@ -68,11 +68,13 @@ bot.onNewMention(async (thread, message) => {
 Discord has two ways to receive events:
 
 **HTTP Interactions (default):**
+
 - Receives button clicks, slash commands, and verification pings
 - Works out of the box with serverless
 - Does **not** receive regular messages
 
 **Gateway WebSocket (required for messages):**
+
 - Receives regular messages and reactions
 - Requires a persistent connection
 - In serverless environments, use a cron job to maintain the connection
@@ -100,6 +102,8 @@ export async function GET(request: Request): Promise<Response> {
 
   const durationMs = 600 * 1000;
   const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/discord`;
+
+  await bot.initialize();
 
   return bot.adapters.discord.startGatewayListener(
     { waitUntil: (task) => after(() => task) },
@@ -150,15 +154,15 @@ Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string in your environmen
 
 All options are auto-detected from environment variables when not provided.
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
-| `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
-| `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
-| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
-| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+| Option           | Required | Description                                                                                                      |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `botToken`       | No\*     | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN`                                                        |
+| `publicKey`      | No\*     | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY`                                                  |
+| `applicationId`  | No\*     | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID`                                              |
+| `mentionRoleIds` | No       | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `logger`         | No       | Logger instance (defaults to `ConsoleLogger("info")`)                                                            |
 
-*`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
+\*`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
 
 ## Environment variables
 
@@ -172,19 +176,19 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 
 ## Features
 
-| Feature | Supported |
-|---------|-----------|
-| Slash Commands | Yes |
-| Mentions | Yes |
-| Reactions (add/remove) | Yes |
-| Cards (Embeds) | Yes |
-| Modals | No |
-| Streaming | Post+Edit fallback |
-| DMs | Yes |
-| Ephemeral messages | No (DM fallback) |
-| File uploads | Yes |
-| Typing indicator | Yes |
-| Message history | Yes |
+| Feature                | Supported          |
+| ---------------------- | ------------------ |
+| Slash Commands         | Yes                |
+| Mentions               | Yes                |
+| Reactions (add/remove) | Yes                |
+| Cards (Embeds)         | Yes                |
+| Modals                 | No                 |
+| Streaming              | Post+Edit fallback |
+| DMs                    | Yes                |
+| Ephemeral messages     | No (DM fallback)   |
+| File uploads           | Yes                |
+| Typing indicator       | Yes                |
+| Message history        | Yes                |
 
 ## Testing
 
