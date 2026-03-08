@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Card } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import {
   createMockAdapter,
@@ -6,7 +7,13 @@ import {
   createTestMessage,
 } from "./mock-adapter";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message, ThreadSummary } from "./types";
+import type {
+  Adapter,
+  Message,
+  ScheduledMessage,
+  ThreadSummary,
+} from "./types";
+import { NotImplementedError } from "./types";
 
 describe("ChannelImpl", () => {
   describe("basic properties", () => {
@@ -1031,5 +1038,152 @@ describe("thread.messages (newest first)", () => {
     expect(recent[0].text).toBe("Newest");
     expect(recent[1].text).toBe("Very Recent");
     expect(recent[2].text).toBe("Recent");
+  });
+
+  describe("schedule()", () => {
+    const futureDate = new Date("2030-01-01T00:00:00Z");
+
+    function mockScheduleResult(
+      overrides?: Partial<ScheduledMessage>
+    ): ScheduledMessage {
+      return {
+        scheduledMessageId: "Q123",
+        channelId: "C123",
+        postAt: futureDate,
+        raw: { ok: true },
+        cancel: vi.fn().mockResolvedValue(undefined),
+        ...overrides,
+      };
+    }
+
+    it("should throw NotImplementedError when adapter has no scheduleMessage", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      await expect(
+        channel.schedule("Hello", { postAt: futureDate })
+      ).rejects.toThrow(NotImplementedError);
+    });
+
+    it("should include 'scheduling' as the feature in NotImplementedError", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      try {
+        await channel.schedule("Hello", { postAt: futureDate });
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(NotImplementedError);
+        expect((err as NotImplementedError).feature).toBe("scheduling");
+      }
+    });
+
+    it("should delegate to adapter.scheduleMessage with channel id", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      await channel.schedule("Hello", { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        "slack:C123",
+        "Hello",
+        { postAt: futureDate }
+      );
+    });
+
+    it("should return the ScheduledMessage from adapter", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      const expected = mockScheduleResult();
+      mockAdapter.scheduleMessage = vi.fn().mockResolvedValue(expected);
+
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      const result = await channel.schedule("Hello", { postAt: futureDate });
+      expect(result).toBe(expected);
+    });
+
+    it("should convert JSX Card elements to CardElement", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      const jsxCard = Card({ title: "Scheduled Card" });
+      await channel.schedule(jsxCard, { postAt: futureDate });
+
+      const passedMessage = (
+        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1];
+      expect(passedMessage).toHaveProperty("type", "card");
+      expect(passedMessage).toHaveProperty("title", "Scheduled Card");
+    });
+
+    it("should propagate errors from adapter.scheduleMessage", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockRejectedValue(new Error("API failure"));
+
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      await expect(
+        channel.schedule("Hello", { postAt: futureDate })
+      ).rejects.toThrow("API failure");
+    });
+
+    it("should not call postMessage or postChannelMessage when scheduling", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+
+      await channel.schedule("Hello", { postAt: futureDate });
+
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.postChannelMessage).not.toHaveBeenCalled();
+    });
   });
 });

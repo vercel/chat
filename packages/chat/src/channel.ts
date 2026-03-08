@@ -19,11 +19,12 @@ import type {
   EphemeralMessage,
   PostableMessage,
   PostEphemeralOptions,
+  ScheduledMessage,
   SentMessage,
   StateAdapter,
   ThreadSummary,
 } from "./types";
-import { THREAD_STATE_TTL_MS } from "./types";
+import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /** State key prefix for channel state */
 const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
@@ -317,6 +318,31 @@ export class ChannelImpl<TState = Record<string, unknown>>
     }
 
     return null;
+  }
+
+  async schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    let postable: AdapterPostableMessage;
+    if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    if (!this.adapter.scheduleMessage) {
+      throw new NotImplementedError(
+        "Scheduled messages are not supported by this adapter",
+        "scheduling"
+      );
+    }
+
+    return this.adapter.scheduleMessage(this.id, postable, options);
   }
 
   async startTyping(status?: string): Promise<void> {

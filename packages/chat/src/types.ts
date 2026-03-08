@@ -316,6 +316,23 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
 
+  /**
+   * Schedule a message for future delivery.
+   *
+   * Optional — only supported by adapters with native scheduling APIs (e.g., Slack).
+   * Thread.schedule() will throw NotImplementedError if this method is absent.
+   *
+   * @param threadId - The thread to post in
+   * @param message - The message content
+   * @param options - Scheduling options including the target delivery time
+   * @returns A ScheduledMessage with cancel() capability
+   */
+  scheduleMessage?(
+    threadId: string,
+    message: AdapterPostableMessage,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage<TRawMessage>>;
+
   /** Show typing indicator */
   startTyping(threadId: string, status?: string): Promise<void>;
 
@@ -621,6 +638,31 @@ export interface Postable<
     message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage<TRawMessage> | null>;
+
+  /**
+   * Schedule a message for future delivery.
+   *
+   * Currently only supported by the Slack adapter. Other adapters
+   * will throw NotImplementedError.
+   *
+   * @param message - The message content (streaming not supported)
+   * @param options - Scheduling options including the target delivery time
+   * @returns A ScheduledMessage with cancel() capability
+   *
+   * @example
+   * ```typescript
+   * const scheduled = await thread.schedule("Reminder: standup!", {
+   *   postAt: new Date("2026-03-09T09:00:00Z"),
+   * });
+   *
+   * // Cancel before it's sent
+   * await scheduled.cancel();
+   * ```
+   */
+  schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage<TRawMessage>>;
 
   /**
    * Set the state. Merges with existing state by default.
@@ -1053,6 +1095,29 @@ export interface PostEphemeralOptions {
    * - `false`: Returns `null` if native ephemeral is not supported
    */
   fallbackToDM: boolean;
+}
+
+// =============================================================================
+// Scheduled Message (returned from thread.schedule())
+// =============================================================================
+
+/**
+ * Result of scheduling a message for future delivery.
+ *
+ * Currently only supported by the Slack adapter via `chat.scheduleMessage`.
+ * Other adapters will throw `NotImplementedError` when `schedule()` is called.
+ */
+export interface ScheduledMessage<TRawMessage = unknown> {
+  /** Cancel the scheduled message before it's sent */
+  cancel(): Promise<void>;
+  /** Channel ID where the message will be posted */
+  channelId: string;
+  /** When the message will be sent */
+  postAt: Date;
+  /** Platform-specific raw response */
+  raw: TRawMessage;
+  /** Platform-specific scheduled message ID */
+  scheduledMessageId: string;
 }
 
 // =============================================================================

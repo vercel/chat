@@ -31,6 +31,7 @@ import type {
   RawMessage,
   ReactionEvent,
   Root,
+  ScheduledMessage,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -1991,6 +1992,117 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         threadId,
         usedFallback: false,
         raw: result,
+      };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  async scheduleMessage(
+    threadId: string,
+    message: AdapterPostableMessage,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const postAtUnix = Math.floor(options.postAt.getTime() / 1000);
+
+    if (postAtUnix <= Math.floor(Date.now() / 1000)) {
+      throw new ValidationError("slack", "postAt must be in the future");
+    }
+
+    // File uploads are not supported by chat.scheduleMessage
+    const files = extractFiles(message);
+    if (files.length > 0) {
+      throw new ValidationError(
+        "slack",
+        "File uploads are not supported in scheduled messages"
+      );
+    }
+
+    // Capture token now so cancel() works outside request context
+    const token = this.getToken();
+
+    try {
+      const card = extractCard(message);
+
+      if (card) {
+        const blocks = cardToBlockKit(card);
+        const fallbackText = cardToFallbackText(card);
+
+        this.logger.debug("Slack API: chat.scheduleMessage (blocks)", {
+          channel,
+          threadTs,
+          postAt: postAtUnix,
+          blockCount: blocks.length,
+        });
+
+        const result = await this.client.chat.scheduleMessage({
+          token,
+          channel,
+          thread_ts: threadTs || undefined,
+          post_at: postAtUnix,
+          text: fallbackText,
+          blocks,
+          unfurl_links: false,
+          unfurl_media: false,
+        });
+
+        const scheduledMessageId = result.scheduled_message_id as string;
+        const adapter = this;
+
+        return {
+          scheduledMessageId,
+          channelId: channel,
+          postAt: options.postAt,
+          raw: result,
+          async cancel() {
+            await adapter.client.chat.deleteScheduledMessage({
+              token,
+              channel,
+              scheduled_message_id: scheduledMessageId,
+            });
+          },
+        };
+      }
+
+      // Regular text message
+      const text = convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "slack"
+      );
+
+      this.logger.debug("Slack API: chat.scheduleMessage", {
+        channel,
+        threadTs,
+        postAt: postAtUnix,
+        textLength: text.length,
+      });
+
+      const result = await this.client.chat.scheduleMessage({
+        token,
+        channel,
+        thread_ts: threadTs || undefined,
+        post_at: postAtUnix,
+        text,
+        unfurl_links: false,
+        unfurl_media: false,
+      });
+
+      const scheduledMessageId = result.scheduled_message_id as string;
+      const adapter = this;
+
+      return {
+        scheduledMessageId,
+        channelId: channel,
+        postAt: options.postAt,
+        raw: result,
+        async cancel() {
+          await adapter.client.chat.deleteScheduledMessage({
+            token,
+            channel,
+            scheduled_message_id: scheduledMessageId,
+          });
+        },
       };
     } catch (error) {
       this.handleSlackError(error);

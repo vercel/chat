@@ -23,6 +23,7 @@ import type {
   EphemeralMessage,
   PostableMessage,
   PostEphemeralOptions,
+  ScheduledMessage,
   SentMessage,
   StateAdapter,
   StreamChunk,
@@ -30,7 +31,7 @@ import type {
   StreamOptions,
   Thread,
 } from "./types";
-import { THREAD_STATE_TTL_MS } from "./types";
+import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /**
  * Serialized thread data for passing to external systems (e.g., workflow engines).
@@ -409,6 +410,32 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // No DM support either - return null
     return null;
+  }
+
+  async schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    // Convert JSX to card if needed
+    let postable: AdapterPostableMessage;
+    if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    if (!this.adapter.scheduleMessage) {
+      throw new NotImplementedError(
+        "Scheduled messages are not supported by this adapter",
+        "scheduling"
+      );
+    }
+
+    return this.adapter.scheduleMessage(this.id, postable, options);
   }
 
   /**

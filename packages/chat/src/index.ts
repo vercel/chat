@@ -300,6 +300,7 @@ export type {
   RawMessage,
   ReactionEvent,
   ReactionHandler,
+  ScheduledMessage,
   SentMessage,
   SlashCommandEvent,
   SlashCommandHandler,
