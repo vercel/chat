@@ -1,5 +1,12 @@
 # chat
 
+## 4.19.0
+
+### Minor Changes
+
+- eb49b2a: Add `forceReleaseLock` to StateAdapter and `onLockConflict` config option for interrupt/steerability of long-running handlers
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+
 ## 4.18.0
 
 ### Patch Changes
