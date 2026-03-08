@@ -56,8 +56,12 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    const standardMarkdown = stringifyMarkdown(transformed).trim();
-    return this.toWhatsAppFormat(standardMarkdown);
+    // Use _ for emphasis and - for bullets so the only * in output is **strong**
+    const markdown = stringifyMarkdown(transformed, {
+      emphasis: "_",
+      bullet: "-",
+    }).trim();
+    return this.toWhatsAppFormat(markdown);
   }
 
   /**
@@ -91,24 +95,16 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
   }
 
   /**
-   * Convert standard markdown to WhatsApp format.
-   * **bold** -> *bold*, *italic* -> _italic_, ~~strike~~ -> ~strike~
+   * Convert remaining standard markdown markers to WhatsApp format.
+   * The stringifier already outputs _italic_ and - bullets.
+   * This only converts **bold** -> *bold* and ~~strike~~ -> ~strike~.
    */
   private toWhatsAppFormat(text: string): string {
-    // Protect escaped formatting chars
-    const ESC_STAR = "%%ESC_STAR%%";
-    const ESC_TILDE = "%%ESC_TILDE%%";
-    let result = text.replace(/\\\*/g, ESC_STAR).replace(/\\~/g, ESC_TILDE);
-    // First: convert *italic* -> _italic_ (single * not adjacent to another *)
-    result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "_$1_");
-    // Then: convert **bold** -> *bold*
+    let result = text;
+    // Convert **bold** -> *bold*
     result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
     // Convert ~~strikethrough~~ -> ~strikethrough~
     result = result.replace(/~~(.+?)~~/g, "~$1~");
-    // Restore escaped chars
-    result = result
-      .replace(new RegExp(ESC_STAR, "g"), "\\*")
-      .replace(new RegExp(ESC_TILDE, "g"), "\\~");
     return result;
   }
 
