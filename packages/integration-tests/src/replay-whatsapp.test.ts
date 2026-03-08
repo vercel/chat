@@ -151,7 +151,7 @@ describe("Replay Tests - WhatsApp DM", () => {
     captured.message = null;
 
     await sendWebhook(fixtures.secondMessage);
-    expect(captured.message?.text).toBe("Tell me more");
+    expect((captured as CapturedDM).message?.text).toBe("Tell me more");
     expect(mockApi.sentMessages).toHaveLength(1);
     expect(mockApi.sentMessages[0].text).toContain("Echo: Tell me more");
   });
