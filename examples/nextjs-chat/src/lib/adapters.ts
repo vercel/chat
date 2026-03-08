@@ -231,17 +231,30 @@ export function buildAdapters(): Adapters {
   }
 
   // WhatsApp adapter (optional) - env vars: WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+  console.log("[chat] WhatsApp env check:", {
+    hasAccessToken: !!process.env.WHATSAPP_ACCESS_TOKEN,
+    hasAppSecret: !!process.env.WHATSAPP_APP_SECRET,
+    hasPhoneNumberId: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+    hasVerifyToken: !!process.env.WHATSAPP_VERIFY_TOKEN,
+  });
   if (
     process.env.WHATSAPP_ACCESS_TOKEN &&
     process.env.WHATSAPP_PHONE_NUMBER_ID
   ) {
-    adapters.whatsapp = withRecording(
-      createWhatsAppAdapter({
-        logger: logger.child("whatsapp"),
-      }),
-      "whatsapp",
-      WHATSAPP_METHODS
-    );
+    try {
+      adapters.whatsapp = withRecording(
+        createWhatsAppAdapter({
+          logger: logger.child("whatsapp"),
+        }),
+        "whatsapp",
+        WHATSAPP_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create whatsapp adapter:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   return adapters;
