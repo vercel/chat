@@ -98,6 +98,22 @@ describe("WhatsAppFormatConverter", () => {
       expect(result).not.toContain("#");
     });
 
+    it("should flatten bold inside headings to avoid triple asterisks", () => {
+      const result = converter.renderPostable({
+        markdown: "## **Choose React if:**",
+      });
+      expect(result).toContain("*Choose React if:*");
+      expect(result).not.toContain("***");
+    });
+
+    it("should handle headings with mixed text and bold", () => {
+      const result = converter.renderPostable({
+        markdown: "# The Honest Answer: **It Depends!** 🤷‍♂️",
+      });
+      expect(result).toContain("*The Honest Answer: It Depends! 🤷‍♂️*");
+      expect(result).not.toContain("**");
+    });
+
     it("should convert thematic breaks to text separator", () => {
       const ast = converter.toAst("above\n\n---\n\nbelow");
       const result = converter.fromAst(ast);

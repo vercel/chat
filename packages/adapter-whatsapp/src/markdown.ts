@@ -31,12 +31,17 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    */
   fromAst(ast: Root): string {
     const transformed = walkAst(structuredClone(ast), (node: Content) => {
-      // Headings -> bold paragraph
+      // Headings -> bold paragraph (flatten nested strong to avoid ***)
       if (node.type === "heading") {
         const heading = node as Content & { children: Content[] };
+        const children = heading.children.flatMap((child) =>
+          child.type === "strong"
+            ? (child as Content & { children: Content[] }).children
+            : [child]
+        );
         return {
           type: "paragraph",
-          children: [{ type: "strong", children: heading.children }],
+          children: [{ type: "strong", children }],
         } as Content;
       }
       // Thematic breaks -> text separator
