@@ -861,7 +861,8 @@ export class TelegramAdapter
   }
 
   channelIdFromThreadId(threadId: string): string {
-    return this.resolveThreadId(threadId).chatId;
+    const { chatId } = this.resolveThreadId(threadId);
+    return `telegram:${chatId}`;
   }
 
   async openDM(userId: string): Promise<string> {

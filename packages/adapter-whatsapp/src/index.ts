@@ -1050,11 +1050,10 @@ export class WhatsAppAdapter
 
   /**
    * Derive channel ID from a WhatsApp thread ID.
-   * whatsapp:{phoneNumberId}:{userWaId} -> whatsapp:{phoneNumberId}
+   * On WhatsApp every conversation is a 1:1 DM, so channel === thread.
    */
   channelIdFromThreadId(threadId: string): string {
-    const { phoneNumberId } = this.decodeThreadId(threadId);
-    return `whatsapp:${phoneNumberId}`;
+    return threadId;
   }
 
   /**
