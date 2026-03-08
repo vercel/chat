@@ -146,11 +146,13 @@ bot.onMemberJoinedChannel(async (event) => {
 
 // Handle direct messages — AI conversation by default
 // This fires on every DM, regardless of subscription status
-bot.onDirectMessage(async (thread, message, _channel) => {
-  await thread.startTyping("Thinking...");
+bot.onDirectMessage(async (_thread, message, channel) => {
+  await channel.startTyping("Thinking...");
   let history: { role: "user" | "assistant"; content: string }[];
   try {
-    const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
+    const result = await channel.adapter.fetchMessages(channel.id, {
+      limit: 20,
+    });
     if (result.messages.length > 0) {
       history = toAiMessages(result.messages);
     } else {
@@ -161,10 +163,10 @@ bot.onDirectMessage(async (thread, message, _channel) => {
   }
   try {
     const result = await agent.stream({ prompt: history });
-    await thread.post(result.fullStream);
+    await channel.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
-    await thread.post(
+    await channel.post(
       `${emoji.warning} Error: ${
         err instanceof Error ? err.message : "Unknown error"
       }`
