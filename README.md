@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, and Linear. Write your bot logic once, deploy everywhere.
+A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, Signal, GitHub, and Linear. Write your bot logic once, deploy everywhere.
 
 ## Installation
 
@@ -15,7 +15,7 @@ npm install chat
 Install adapters for your platforms:
 
 ```bash
-npm install @chat-adapter/slack @chat-adapter/teams @chat-adapter/gchat @chat-adapter/discord @chat-adapter/telegram
+npm install @chat-adapter/slack @chat-adapter/teams @chat-adapter/gchat @chat-adapter/discord @chat-adapter/telegram @chat-adapter/signal
 ```
 
 ## Usage
@@ -54,6 +54,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Google Chat | `@chat-adapter/gchat` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
+| Signal | `@chat-adapter/signal` | Yes | Yes | Fallback text | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
 
@@ -80,6 +81,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | `@chat-adapter/gchat` | [Google Chat adapter](https://chat-sdk.dev/docs/adapters/gchat) |
 | `@chat-adapter/discord` | [Discord adapter](https://chat-sdk.dev/docs/adapters/discord) |
 | `@chat-adapter/telegram` | [Telegram adapter](https://chat-sdk.dev/docs/adapters/telegram) |
+| `@chat-adapter/signal` | [Signal adapter](https://chat-sdk.dev/docs/adapters/signal) |
 | `@chat-adapter/github` | [GitHub adapter](https://chat-sdk.dev/docs/adapters/github) |
 | `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/docs/adapters/linear) |
 | `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
