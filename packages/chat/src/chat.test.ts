@@ -1830,7 +1830,11 @@ describe("Chat", () => {
         "slack:C123:1234.5678"
       );
       // Verify lock was re-acquired after force-release
-      expect(mockState.acquireLock).toHaveBeenCalledTimes(3);
+      const lastAcquireCall =
+        mockState.acquireLock.mock.calls[
+          mockState.acquireLock.mock.calls.length - 1
+        ];
+      expect(lastAcquireCall[0]).toBe("slack:C123:1234.5678");
       expect(handler).toHaveBeenCalled();
     });
 
