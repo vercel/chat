@@ -455,7 +455,7 @@ describe("parseMessage - media attachments", () => {
 });
 
 describe("parseMessage - isMention and threadId", () => {
-  it("should set isMention to true for all messages", () => {
+  it("should not set isMention for DMs (handled by Chat SDK)", () => {
     const adapter = createTestAdapter();
     const raw = {
       message: {
@@ -468,7 +468,7 @@ describe("parseMessage - isMention and threadId", () => {
       phoneNumberId: "123456789",
     };
     const message = adapter.parseMessage(raw);
-    expect(message.isMention).toBe(true);
+    expect(message.isMention).toBeUndefined();
   });
 
   it("should encode threadId from phoneNumberId and sender", () => {
