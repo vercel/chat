@@ -138,6 +138,9 @@ export function createMockState(): MockStateAdapter {
         locks.set(threadId, lock);
         return lock;
       }),
+    forceReleaseLock: vi.fn().mockImplementation(async (threadId: string) => {
+      locks.delete(threadId);
+    }),
     releaseLock: vi.fn().mockImplementation(async (lock: Lock) => {
       locks.delete(lock.threadId);
     }),
