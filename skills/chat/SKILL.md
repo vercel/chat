@@ -31,7 +31,7 @@ Key docs to read based on task:
 - `docs/actions.mdx` — button/dropdown handlers
 - `docs/modals.mdx` — form dialogs (Slack only)
 - `docs/adapters/*.mdx` — platform-specific adapter setup
-- `docs/state/*.mdx` — state adapter config (Redis, ioredis, memory)
+- `docs/state/*.mdx` — state adapter config (Redis, ioredis, PostgreSQL, memory)
 
 Also read the TypeScript types from `node_modules/chat/dist/` to understand the full API surface.
 
@@ -67,7 +67,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 - **Chat** — main entry point, coordinates adapters and routes events
 - **Adapters** — platform-specific (Slack, Teams, GChat, Discord, GitHub, Linear)
-- **State** — pluggable persistence (Redis for prod, memory for dev)
+- **State** — pluggable persistence (Redis or PostgreSQL for prod, memory for dev)
 - **Thread** — conversation thread with `post()`, `subscribe()`, `startTyping()`
 - **Message** — normalized format with `text`, `formatted` (mdast AST), `raw`
 - **Channel** — container for threads, supports listing and posting
@@ -128,6 +128,7 @@ await thread.post(
 | `@chat-adapter/linear` | Linear Issues |
 | `@chat-adapter/state-redis` | Redis state (production) |
 | `@chat-adapter/state-ioredis` | ioredis state (alternative) |
+| `@chat-adapter/state-pg` | PostgreSQL state (production) |
 | `@chat-adapter/state-memory` | In-memory state (development) |
 
 ## Changesets (Release Flow)
