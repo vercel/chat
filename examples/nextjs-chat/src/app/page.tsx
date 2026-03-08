@@ -22,6 +22,9 @@ export default function Home() {
           <code>/api/webhooks/telegram</code> - Telegram bot updates
         </li>
         <li>
+          <code>/api/webhooks/signal</code> - Signal bot updates
+        </li>
+        <li>
           <code>/api/webhooks/github</code> - GitHub PR comment events
         </li>
         <li>
@@ -76,6 +79,15 @@ DISCORD_APPLICATION_ID=...`}
       <pre>
         {`TELEGRAM_BOT_TOKEN=...
 TELEGRAM_WEBHOOK_SECRET_TOKEN=...`}
+      </pre>
+
+      <h3>Signal</h3>
+      <pre>
+        {`SIGNAL_PHONE_NUMBER=+1234567890
+SIGNAL_SERVICE_URL=http://localhost:8080
+
+# Configure signal-cli-rest-api to forward updates:
+RECEIVE_WEBHOOK_URL=https://your-app.com/api/webhooks/signal`}
       </pre>
 
       <h3>GitHub</h3>

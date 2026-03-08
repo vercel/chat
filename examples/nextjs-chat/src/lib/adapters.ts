@@ -8,6 +8,7 @@ import {
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
+import { createSignalAdapter, type SignalAdapter } from "@chat-adapter/signal";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
@@ -25,6 +26,7 @@ export interface Adapters {
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
+  signal?: SignalAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
@@ -84,6 +86,16 @@ const LINEAR_METHODS = [
   "editMessage",
   "deleteMessage",
   "addReaction",
+  "fetchMessages",
+];
+const SIGNAL_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
+  "openDM",
   "fetchMessages",
 ];
 const TELEGRAM_METHODS = [
@@ -202,6 +214,19 @@ export function buildAdapters(): Adapters {
         "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
       );
     }
+  }
+
+  // Signal adapter (optional) - env vars: SIGNAL_PHONE_NUMBER (+ optional SIGNAL_SERVICE_URL)
+  if (process.env.SIGNAL_PHONE_NUMBER) {
+    adapters.signal = withRecording(
+      createSignalAdapter({
+        phoneNumber: process.env.SIGNAL_PHONE_NUMBER,
+        baseUrl: process.env.SIGNAL_SERVICE_URL ?? process.env.SIGNAL_SERVICE,
+        logger: logger.child("signal"),
+      }),
+      "signal",
+      SIGNAL_METHODS
+    );
   }
 
   // Telegram adapter (optional) - env vars: TELEGRAM_BOT_TOKEN

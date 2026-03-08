@@ -49,6 +49,8 @@ import { ChatError, ConsoleLogger, LockError } from "./types";
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
 const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
+const SIGNAL_PREFIX_REGEX = /^signal:(.+)$/i;
+const SIGNAL_PHONE_NUMBER_REGEX = /^\+[1-9]\d{6,14}$/;
 /** TTL for message deduplication entries */
 const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -1339,6 +1341,7 @@ export class Chat<
    * - Teams: `29:...` (e.g., "29:198PbJuw...")
    * - Google Chat: `users/...` (e.g., "users/100000000000000000001")
    * - Discord: numeric snowflake (e.g., "1033044521375764530")
+   * - Signal: `signal:...` or E.164 phone numbers (e.g., "+15551234567")
    *
    * @param user - Platform-specific user ID string, or an Author object
    * @returns A Thread that can be used to post messages
@@ -1456,8 +1459,24 @@ export class Chat<
       }
     }
 
+    // Signal: signal:+15551234567 or signal:<uuid>
+    if (SIGNAL_PREFIX_REGEX.test(userId)) {
+      const adapter = this.adapters.get("signal");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
+    // Signal: E.164 phone number (+15551234567)
+    if (SIGNAL_PHONE_NUMBER_REGEX.test(userId)) {
+      const adapter = this.adapters.get("signal");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
     throw new ChatError(
-      `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), or Discord (numeric snowflake).`,
+      `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), Discord (numeric snowflake), or Signal (signal:... or +E.164).`,
       "UNKNOWN_USER_ID_FORMAT"
     );
   }
@@ -1500,7 +1519,11 @@ export class Chat<
 
     // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
-    const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
+    const editDedupeSuffix =
+      message.metadata.edited && message.metadata.editedAt
+        ? `:edited:${message.metadata.editedAt.getTime()}`
+        : "";
+    const dedupeKey = `dedupe:${adapter.name}:${message.id}${editDedupeSuffix}`;
     const isFirstProcess = await this._stateAdapter.setIfNotExists(
       dedupeKey,
       true,

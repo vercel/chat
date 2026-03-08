@@ -181,6 +181,44 @@ describe("Chat", () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
+    it("should treat edited messages as distinct dedupe events", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const original = createTestMessage("msg-1", "Hey @slack-bot help", {
+        metadata: {
+          dateSent: new Date("2024-01-15T10:00:00.000Z"),
+          edited: false,
+        },
+      });
+
+      const edited = createTestMessage("msg-1", "Hey @slack-bot help", {
+        metadata: {
+          dateSent: new Date("2024-01-15T10:00:00.000Z"),
+          edited: true,
+          editedAt: new Date("2024-01-15T10:05:00.000Z"),
+        },
+      });
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        original
+      );
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        edited
+      );
+
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
+        "dedupe:slack:msg-1:edited:1705313100000",
+        true,
+        300_000
+      );
+    });
+
     it("should use default dedupe TTL of 5 minutes", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
       chat.onNewMention(handler);
@@ -1240,6 +1278,46 @@ describe("Chat", () => {
       expect(mockAdapter.openDM).toHaveBeenCalledWith("U789ABC");
       expect(thread).toBeDefined();
       expect(thread.id).toBe("slack:DU789ABC:");
+    });
+
+    it("should infer Signal adapter from signal:-prefixed userId", async () => {
+      const signalAdapter = createMockAdapter("signal");
+      signalAdapter.openDM = vi.fn().mockResolvedValue("signal:+15551234567");
+
+      const signalChat = new Chat({
+        userName: "testbot",
+        adapters: { signal: signalAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      await signalChat.webhooks.signal(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const thread = await signalChat.openDM("signal:+15551234567");
+
+      expect(signalAdapter.openDM).toHaveBeenCalledWith("signal:+15551234567");
+      expect(thread.id).toBe("signal:+15551234567");
+    });
+
+    it("should infer Signal adapter from E.164 phone number", async () => {
+      const signalAdapter = createMockAdapter("signal");
+      signalAdapter.openDM = vi.fn().mockResolvedValue("signal:+15551234567");
+
+      const signalChat = new Chat({
+        userName: "testbot",
+        adapters: { signal: signalAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      await signalChat.webhooks.signal(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      await signalChat.openDM("+15551234567");
+      expect(signalAdapter.openDM).toHaveBeenCalledWith("+15551234567");
     });
 
     it("should throw error for unknown userId format", async () => {

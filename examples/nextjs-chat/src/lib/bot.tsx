@@ -655,7 +655,13 @@ bot.onNewMessage(/help/i, async (thread, message) => {
 
 // Handle messages in subscribed threads
 bot.onSubscribedMessage(async (thread, message) => {
-  if (!(thread.adapter.name === "telegram" || message.isMention)) {
+  if (
+    !(
+      thread.adapter.name === "telegram" ||
+      thread.adapter.name === "signal" ||
+      message.isMention
+    )
+  ) {
     return;
   }
   // Get thread state to check AI mode
