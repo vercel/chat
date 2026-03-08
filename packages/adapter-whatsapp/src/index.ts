@@ -544,8 +544,6 @@ export class WhatsAppAdapter
       formatted,
       raw,
       author,
-      // All WhatsApp messages are DMs directly to the bot
-      isMention: true,
       metadata: {
         dateSent: new Date(Number.parseInt(inbound.timestamp, 10) * 1000),
         edited: false,
@@ -1104,7 +1102,6 @@ export class WhatsAppAdapter
         isBot: false,
         isMe: raw.message.from === this._botUserId,
       },
-      isMention: true,
       metadata: {
         dateSent: new Date(Number.parseInt(raw.message.timestamp, 10) * 1000),
         edited: false,

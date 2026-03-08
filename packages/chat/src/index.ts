@@ -277,6 +277,7 @@ export type {
   MarkdownTextChunk,
   MemberJoinedChannelEvent,
   MemberJoinedChannelHandler,
+  DirectMessageHandler,
   MentionHandler,
   MessageHandler,
   MessageMetadata,

@@ -1230,7 +1230,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Node.js AsyncLocalStorage propagates context to async continuations as long as
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
-    const isMention = isDM || event.type === "app_mention";
+    const isMention = event.type === "app_mention";
     const factory = async (): Promise<Message<unknown>> => {
       const msg = await this.parseSlackMessage(event, threadId);
       if (isMention) {

@@ -435,6 +435,81 @@ describe("Chat", () => {
     });
   });
 
+  describe("onDirectMessage", () => {
+    it("should route DMs to directMessage handler", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(dmHandler).toHaveBeenCalled();
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
+
+    it("should fall through to onNewMention when no DM handlers registered", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+    });
+
+    it("should route subscribed DM threads to onSubscribedMessage", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const subscribedHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onSubscribedMessage(subscribedHandler);
+
+      await mockState.subscribe("slack:DU123:1234.5678");
+      const message = createTestMessage("msg-1", "Follow up DM");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(subscribedHandler).toHaveBeenCalled();
+      expect(dmHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not route non-DM mentions to directMessage handler", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+      expect(dmHandler).not.toHaveBeenCalled();
+    });
+  });
+
   describe("thread.isSubscribed()", () => {
     it("should return true for subscribed threads", async () => {
       let capturedThread: { isSubscribed: () => Promise<boolean> } | null =
