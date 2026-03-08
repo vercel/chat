@@ -6,18 +6,7 @@ prerequisites:
   - /docs/getting-started
 ---
 
-State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance.
-
-## Packages
-
-| Adapter | Package | Use case |
-|---------|---------|----------|
-| [Redis](/adapters/redis) | `@chat-adapter/state-redis` | Production (recommended) |
-| [ioredis](/adapters/ioredis) | `@chat-adapter/state-ioredis` | Production (Cluster/Sentinel) |
-| [PostgreSQL](/adapters/postgres) | `@chat-adapter/state-pg` | Production (SQL-first stack) |
-| [Memory](/adapters/memory) | `@chat-adapter/state-memory` | Development and testing |
-
-Each adapter page includes a full feature matrix covering persistence, multi-instance support, and platform-specific capabilities.
+State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance. Browse all available state adapters on the [Adapters](/adapters) page.
 
 ## What state adapters manage
 
