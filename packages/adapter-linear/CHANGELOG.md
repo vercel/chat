@@ -1,5 +1,15 @@
 # @chat-adapter/linear
 
+## 4.19.0
+
+### Patch Changes
+
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+- Updated dependencies [eb49b2a]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
 ## 4.18.0
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @chat-adapter/telegram
 
+## 4.19.0
+
+### Patch Changes
+
+- Updated dependencies [eb49b2a]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
 ## 4.18.0
 
 ### Patch Changes
