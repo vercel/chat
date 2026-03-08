@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger } from "chat";
+import { Chat, type Logger, Plan } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockSlackClient,
@@ -451,6 +451,54 @@ describe("Slack Integration", () => {
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ text: "Done typing!" })
+      );
+    });
+
+    it("should render plan/task blocks and update in-place", async () => {
+      chat.onNewMention(async (thread) => {
+        const plan = new Plan({ initialMessage: "Working..." });
+        await thread.post(plan);
+        await plan.addTask({
+          title: "Fetch data",
+          children: ["Call API"],
+        });
+        await plan.updateTask("Received response");
+        await plan.complete({ completeMessage: "Done" });
+      });
+
+      const event = createSlackEvent({
+        type: "app_mention",
+        text: `@${SLACK_BOT_USERNAME} plan test`,
+        userId: "U_USER_123",
+        messageTs: "1234567890.111111",
+        threadTs: TEST_THREAD_TS,
+        channel: TEST_CHANNEL,
+      });
+
+      await chat.webhooks.slack(createSlackWebhookRequest(event), {
+        waitUntil: tracker.waitUntil,
+      });
+      await tracker.waitForAll();
+
+      expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: [
+            expect.objectContaining({
+              type: "plan",
+              title: "Working...",
+            }),
+          ],
+        })
+      );
+      expect(mockClient.chat.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: [
+            expect.objectContaining({
+              type: "plan",
+              title: "Done",
+            }),
+          ],
+        })
       );
     });
   });

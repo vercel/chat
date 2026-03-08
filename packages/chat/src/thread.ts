@@ -13,6 +13,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
+import { isPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type {
   Adapter,
@@ -22,6 +23,7 @@ import type {
   Channel,
   EphemeralMessage,
   PostableMessage,
+  PostableObject,
   PostEphemeralOptions,
   SentMessage,
   StateAdapter,
@@ -332,9 +334,22 @@ export class ThreadImpl<TState = Record<string, unknown>>
     await this._stateAdapter.unsubscribe(this.id);
   }
 
+  async post<T extends PostableObject>(message: T): Promise<T>;
+  async post(
+    message:
+      | string
+      | AdapterPostableMessage
+      | AsyncIterable<string>
+      | ChatElement
+  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage> {
+  ): Promise<SentMessage | PostableObject> {
+    if (isPostableObject(message)) {
+      await this.handlePostableObject(message);
+      return message;
+    }
+
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
       return this.handleStream(message);
@@ -362,6 +377,32 @@ export class ThreadImpl<TState = Record<string, unknown>>
       rawMessage.threadId
     );
     return result;
+  }
+
+  private async handlePostableObject(obj: PostableObject): Promise<void> {
+    const adapter = this.adapter;
+
+    if (obj.isSupported(adapter) && adapter.postObject) {
+      const raw = await adapter.postObject(
+        this.id,
+        obj.kind,
+        obj.getPostData()
+      );
+      obj.onPosted({
+        adapter,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
+      });
+    } else {
+      // Adapter doesn't support this object type - post fallback text
+      const fallbackText = obj.getFallbackText();
+      const raw = await this.adapter.postMessage(this.id, fallbackText);
+      obj.onPosted({
+        adapter,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
+      });
+    }
   }
 
   async postEphemeral(
