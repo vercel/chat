@@ -1182,6 +1182,19 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 ) => void | Promise<void>;
 
 /**
+ * Handler for direct messages (1:1 conversations with the bot).
+ *
+ * Registered via `chat.onDirectMessage(handler)`. Called when a message
+ * is received in a DM thread that is not subscribed. If no `onDirectMessage`
+ * handlers are registered, DMs fall through to `onNewMention` for backward
+ * compatibility.
+ */
+export type DirectMessageHandler<TState = Record<string, unknown>> = (
+  thread: Thread<TState>,
+  message: Message
+) => void | Promise<void>;
+
+/**
  * Handler for messages matching a regex pattern.
  *
  * Registered via `chat.onNewMessage(pattern, handler)`. Called when a message

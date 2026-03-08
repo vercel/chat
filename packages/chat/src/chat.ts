@@ -27,6 +27,7 @@ import type {
   LogLevel,
   MemberJoinedChannelEvent,
   MemberJoinedChannelHandler,
+  DirectMessageHandler,
   MentionHandler,
   MessageHandler,
   ModalCloseEvent,
@@ -186,6 +187,7 @@ export class Chat<
   private readonly _dedupeTtlMs: number;
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
@@ -353,6 +355,28 @@ export class Chat<
   onNewMention(handler: MentionHandler<TState>): void {
     this.mentionHandlers.push(handler);
     this.logger.debug("Registered mention handler");
+  }
+
+  /**
+   * Register a handler for direct messages.
+   *
+   * Called when a message is received in a DM thread that is not subscribed.
+   * If no `onDirectMessage` handlers are registered, DMs fall through to
+   * `onNewMention` for backward compatibility.
+   *
+   * @param handler - Handler called for DM messages
+   *
+   * @example
+   * ```typescript
+   * chat.onDirectMessage(async (thread, message) => {
+   *   await thread.subscribe();
+   *   await thread.post("Thanks for the DM!");
+   * });
+   * ```
+   */
+  onDirectMessage(handler: DirectMessageHandler<TState>): void {
+    this.directMessageHandlers.push(handler);
+    this.logger.debug("Registered direct message handler");
   }
 
   /**
@@ -1557,6 +1581,22 @@ export class Chat<
         });
         await this.runHandlers(this.subscribedMessageHandlers, thread, message);
         return;
+      }
+
+      // Check for DM - route to direct message handlers if registered
+      const isDM = adapter.isDM?.(threadId) ?? false;
+      if (isDM && this.directMessageHandlers.length > 0) {
+        this.logger.debug("Direct message received - calling handlers", {
+          threadId,
+          handlerCount: this.directMessageHandlers.length,
+        });
+        await this.runHandlers(this.directMessageHandlers, thread, message);
+        return;
+      }
+
+      // Backward compat: treat DMs as mentions when no DM handlers registered
+      if (isDM) {
+        message.isMention = true;
       }
 
       // Check for @-mention of bot
