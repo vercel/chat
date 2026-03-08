@@ -38,7 +38,14 @@ export function toAiMessages(
 ): AiMessage[] {
   const includeNames = options?.includeNames ?? false;
 
-  return messages
+  // Sort chronologically (oldest first) so AI sees conversation in order
+  const sorted = [...messages].sort(
+    (a, b) =>
+      (a.metadata.dateSent?.getTime() ?? 0) -
+      (b.metadata.dateSent?.getTime() ?? 0)
+  );
+
+  return sorted
     .filter((msg) => msg.text.trim())
     .map((msg) => {
       const role: "user" | "assistant" = msg.author.isMe ? "assistant" : "user";
