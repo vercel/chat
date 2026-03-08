@@ -13,6 +13,7 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  CardElement,
   ChannelInfo,
   ChatInstance,
   EmojiValue,
@@ -21,6 +22,7 @@ import type {
   FormattedContent,
   Logger,
   RawMessage,
+  StreamOptions,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -63,7 +65,7 @@ const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
-const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
+const TELEGRAM_HTML_PARSE_MODE = "HTML";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -82,6 +84,8 @@ const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
 const TELEGRAM_MAX_POLLING_TIMEOUT_SECONDS = 300;
+const TELEGRAM_STREAM_PLACEHOLDER = "...";
+const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 350;
 interface TelegramMessageAuthor {
   fullName: string;
   isBot: boolean | "unknown";
@@ -555,14 +559,11 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const rendered = card
+      ? this.renderTelegramCardText(card)
+      : this.renderTelegramText(message);
     const text = this.truncateMessage(
-      convertEmojiPlaceholders(
-        card
-          ? cardToFallbackText(card)
-          : this.formatConverter.renderPostable(message),
-        "gchat"
-      )
+      convertEmojiPlaceholders(rendered.text, "gchat")
     );
 
     const files = extractFiles(message);
@@ -585,7 +586,7 @@ export class TelegramAdapter
         file,
         text,
         replyMarkup,
-        parseMode
+        rendered.parseMode
       );
     } else {
       if (!text.trim()) {
@@ -597,7 +598,7 @@ export class TelegramAdapter
         message_thread_id: parsedThread.messageThreadId,
         text,
         reply_markup: replyMarkup,
-        parse_mode: parseMode,
+        parse_mode: rendered.parseMode,
       });
     }
 
@@ -642,14 +643,11 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const rendered = card
+      ? this.renderTelegramCardText(card)
+      : this.renderTelegramText(message);
     const text = this.truncateMessage(
-      convertEmojiPlaceholders(
-        card
-          ? cardToFallbackText(card)
-          : this.formatConverter.renderPostable(message),
-        "gchat"
-      )
+      convertEmojiPlaceholders(rendered.text, "gchat")
     );
 
     if (!text.trim()) {
@@ -663,7 +661,7 @@ export class TelegramAdapter
         message_id: telegramMessageId,
         text,
         reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
-        parse_mode: parseMode,
+        parse_mode: rendered.parseMode,
       }
     );
 
@@ -768,6 +766,105 @@ export class TelegramAdapter
     });
   }
 
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string>,
+    options?: StreamOptions
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    const parsedThread = this.resolveThreadId(threadId);
+
+    // Telegram drafts are currently private-chat only, so keep post+edit for groups/topics.
+    if (parsedThread.messageThreadId || !this.isDM(threadId)) {
+      return this.streamViaPostEdit(threadId, textStream, options);
+    }
+
+    const updateIntervalMs = this.resolveStreamUpdateInterval(options);
+
+    const iterator = textStream[Symbol.asyncIterator]();
+    const draftId = this.createDraftId();
+    let rawAccumulated = "";
+    let renderedAccumulated = "";
+    let lastDraftText = "";
+    let lastDraftSentAt = 0;
+    let draftUpdatesSent = 0;
+
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        break;
+      }
+
+      rawAccumulated += next.value;
+
+      const now = Date.now();
+      const intervalElapsed =
+        draftUpdatesSent === 0 || now - lastDraftSentAt >= updateIntervalMs;
+
+      if (!intervalElapsed) {
+        continue;
+      }
+
+      renderedAccumulated = this.renderStreamMarkdown(rawAccumulated);
+
+      if (
+        !renderedAccumulated.trim() ||
+        renderedAccumulated === lastDraftText
+      ) {
+        continue;
+      }
+
+      try {
+        await this.sendDraftMessage(
+          parsedThread.chatId,
+          draftId,
+          renderedAccumulated
+        );
+        lastDraftText = renderedAccumulated;
+        lastDraftSentAt = now;
+        draftUpdatesSent += 1;
+      } catch (error) {
+        const isUnsupported =
+          draftUpdatesSent === 0 && this.isDraftMethodUnsupported(error);
+
+        this.logger[isUnsupported ? "info" : "warn"](
+          `Telegram: sendMessageDraft ${isUnsupported ? "unavailable" : "failed during stream"}, falling back to post+edit streaming`,
+          isUnsupported ? undefined : { error: String(error) }
+        );
+
+        const resumedTextStream = this.resumeStreamFrom(
+          rawAccumulated,
+          iterator
+        );
+
+        return this.streamViaPostEdit(threadId, resumedTextStream, options);
+      }
+    }
+
+    if (!rawAccumulated.trim()) {
+      throw new ValidationError("telegram", "Message text cannot be empty");
+    }
+
+    renderedAccumulated = this.renderStreamMarkdown(rawAccumulated);
+    if (renderedAccumulated !== lastDraftText) {
+      try {
+        await this.sendDraftMessage(
+          parsedThread.chatId,
+          draftId,
+          renderedAccumulated
+        );
+      } catch (error) {
+        this.logger.warn(
+          "Telegram: final sendMessageDraft update failed; sending final message anyway",
+          {
+            error: String(error),
+          }
+        );
+      }
+    }
+
+    return this.postMessage(threadId, { markdown: rawAccumulated });
+  }
+
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}
@@ -869,6 +966,9 @@ export class TelegramAdapter
 
   isDM(threadId: string): boolean {
     const { chatId } = this.resolveThreadId(threadId);
+    // Telegram group/supergroup/channel chat IDs are always negative.
+    // Private (DM) chat IDs are positive. This heuristic is reliable
+    // because Telegram never assigns negative IDs to private chats.
     return !chatId.startsWith("-");
   }
 
@@ -1383,6 +1483,221 @@ export class TelegramAdapter
     return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  private async streamViaPostEdit(
+    threadId: string,
+    textStream: AsyncIterable<string>,
+    options?: StreamOptions
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    const intervalMs = this.resolveStreamUpdateInterval(options);
+    const placeholderText = this.resolveFallbackPlaceholderText(options);
+    let posted =
+      placeholderText === null
+        ? null
+        : await this.postMessage(threadId, placeholderText);
+    let threadIdForEdits = posted?.threadId || threadId;
+
+    let rawAccumulated = "";
+    let lastRendered = placeholderText ?? "";
+    let lastEditAt = Date.now();
+
+    for await (const chunk of textStream) {
+      rawAccumulated += chunk;
+      const now = Date.now();
+
+      if (!posted) {
+        const rendered = this.renderStreamMarkdown(rawAccumulated);
+        if (!rendered.trim()) {
+          continue;
+        }
+
+        posted = await this.postMessage(threadId, {
+          markdown: rawAccumulated,
+        });
+        threadIdForEdits = posted.threadId || threadId;
+        lastRendered = rendered;
+        lastEditAt = now;
+        continue;
+      }
+
+      if (now - lastEditAt < intervalMs) {
+        continue;
+      }
+
+      const rendered = this.renderStreamMarkdown(rawAccumulated);
+      if (!rendered.trim() || rendered === lastRendered) {
+        continue;
+      }
+
+      try {
+        await this.editMessage(threadIdForEdits, posted.id, {
+          markdown: rawAccumulated,
+        });
+        lastRendered = rendered;
+        lastEditAt = now;
+      } catch (error) {
+        this.logger.debug("Telegram: intermediate stream edit failed", {
+          error: String(error),
+          threadId: threadIdForEdits,
+          messageId: posted.id,
+        });
+      }
+    }
+
+    if (!rawAccumulated.trim()) {
+      if (posted) {
+        try {
+          await this.deleteMessage(threadIdForEdits, posted.id);
+        } catch (error) {
+          this.logger.debug(
+            "Telegram: failed to cleanup empty stream placeholder",
+            {
+              error: String(error),
+              threadId: threadIdForEdits,
+              messageId: posted.id,
+            }
+          );
+        }
+      }
+      throw new ValidationError("telegram", "Message text cannot be empty");
+    }
+
+    if (!posted) {
+      return this.postMessage(threadId, {
+        markdown: rawAccumulated,
+      });
+    }
+
+    const finalRendered = this.renderStreamMarkdown(rawAccumulated);
+    if (finalRendered.trim() && finalRendered !== lastRendered) {
+      return this.editMessage(threadIdForEdits, posted.id, {
+        markdown: rawAccumulated,
+      });
+    }
+
+    return posted;
+  }
+
+  private resolveStreamUpdateInterval(options?: StreamOptions): number {
+    return Math.max(
+      0,
+      options?.updateIntervalMs ?? TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS
+    );
+  }
+
+  private resolveFallbackPlaceholderText(
+    options?: StreamOptions
+  ): string | null {
+    return options?.fallbackPlaceholderText === undefined
+      ? TELEGRAM_STREAM_PLACEHOLDER
+      : options.fallbackPlaceholderText;
+  }
+
+  private resumeStreamFrom(
+    consumed: string,
+    remaining: AsyncIterator<string>
+  ): AsyncIterable<string> {
+    return (async function* () {
+      if (consumed) {
+        yield consumed;
+      }
+
+      while (true) {
+        const item = await remaining.next();
+        if (item.done) {
+          return;
+        }
+        yield item.value;
+      }
+    })();
+  }
+
+  private createDraftId(): string {
+    return (
+      globalThis.crypto?.randomUUID?.() ??
+      `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    );
+  }
+
+  private async sendDraftMessage(
+    chatId: string,
+    draftId: string,
+    text: string
+  ): Promise<void> {
+    await this.telegramFetch<boolean>("sendMessageDraft", {
+      chat_id: chatId,
+      draft_id: draftId,
+      text,
+      parse_mode: TELEGRAM_HTML_PARSE_MODE,
+    });
+  }
+
+  private isDraftMethodUnsupported(error: unknown): boolean {
+    if (
+      error instanceof ResourceNotFoundError &&
+      error.resourceType === "sendMessageDraft"
+    ) {
+      return true;
+    }
+
+    if (error instanceof ValidationError) {
+      const lower = error.message.toLowerCase();
+      return (
+        lower.includes("sendmessagedraft") ||
+        lower.includes("method not found") ||
+        lower.includes("unknown method") ||
+        lower.includes("method is not available")
+      );
+    }
+
+    return false;
+  }
+
+  private renderStreamMarkdown(rawText: string): string {
+    return this.truncateMessage(this.formatConverter.fromMarkdown(rawText));
+  }
+
+  private renderTelegramCardText(card: CardElement): {
+    text: string;
+    parseMode: string;
+  } {
+    return {
+      text: this.formatConverter.fromMarkdown(
+        cardToFallbackText(card, { boldFormat: "**" })
+      ),
+      parseMode: TELEGRAM_HTML_PARSE_MODE,
+    };
+  }
+
+  private renderTelegramText(message: AdapterPostableMessage): {
+    text: string;
+    parseMode?: string;
+  } {
+    if (typeof message === "string") {
+      return { text: message };
+    }
+
+    if ("raw" in message) {
+      return { text: message.raw };
+    }
+
+    if ("markdown" in message) {
+      return {
+        text: this.formatConverter.fromMarkdown(message.markdown),
+        parseMode: TELEGRAM_HTML_PARSE_MODE,
+      };
+    }
+
+    if ("ast" in message) {
+      return {
+        text: this.formatConverter.fromAst(message.ast),
+        parseMode: TELEGRAM_HTML_PARSE_MODE,
+      };
+    }
+
+    return {
+      text: this.formatConverter.renderPostable(message),
+    };
+  }
   private normalizeUserName(value: unknown): string {
     if (typeof value !== "string") {
       return "bot";

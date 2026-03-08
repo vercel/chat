@@ -53,14 +53,14 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Microsoft Teams | `@chat-adapter/teams` | Yes | Read-only | Yes | No | Post+Edit | Yes |
 | Google Chat | `@chat-adapter/gchat` | Yes | Yes | Yes | No | Post+Edit | Yes |
 | Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
-| Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
+| Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Draft API (DMs) + Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
 
 ## Features
 
 - [**Event handlers**](https://chat-sdk.dev/docs/usage) — mentions, messages, reactions, button clicks, slash commands, modals
-- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack streaming and post+edit fallback
+- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack/Telegram DM streaming and post+edit fallback
 - [**Cards**](https://chat-sdk.dev/docs/cards) — JSX-based interactive cards (Block Kit, Adaptive Cards, Google Chat Cards)
 - [**Actions**](https://chat-sdk.dev/docs/actions) — handle button clicks and dropdown selections
 - [**Modals**](https://chat-sdk.dev/docs/modals) — form dialogs with text inputs, dropdowns, and validation

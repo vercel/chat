@@ -1,27 +1,37 @@
 /**
  * Telegram format conversion.
  *
- * Telegram supports Markdown/HTML parse modes, but to avoid
- * platform-specific escaping pitfalls this adapter emits normalized
- * markdown text as plain message text.
+ * Telegram supports parse modes for rich formatting.
+ * We emit Telegram-compatible HTML for formatted messages.
  */
 
 import {
-  type AdapterPostableMessage,
   BaseFormatConverter,
   type Content,
+  getNodeChildren,
+  getNodeValue,
+  isBlockquoteNode,
+  isCodeNode,
+  isDeleteNode,
+  isEmphasisNode,
+  isInlineCodeNode,
+  isLinkNode,
+  isListItemNode,
+  isListNode,
+  isParagraphNode,
+  isStrongNode,
   isTableNode,
+  isTextNode,
   parseMarkdown,
   type Root,
-  stringifyMarkdown,
   tableToAscii,
   walkAst,
 } from "chat";
 
 export class TelegramFormatConverter extends BaseFormatConverter {
   fromAst(ast: Root): string {
-    // Check for table nodes and replace them with code blocks,
-    // since Telegram renders raw pipe syntax as garbled text.
+    // Replace table nodes with code blocks since Telegram HTML
+    // does not support tables natively.
     const transformed = walkAst(structuredClone(ast), (node: Content) => {
       if (isTableNode(node)) {
         return {
@@ -32,26 +42,123 @@ export class TelegramFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    return stringifyMarkdown(transformed).trim();
+    return this.fromAstWithNodeConverter(transformed, (node) =>
+      this.nodeToTelegramHtml(node)
+    ).trim();
   }
 
   toAst(text: string): Root {
     return parseMarkdown(text);
   }
 
-  override renderPostable(message: AdapterPostableMessage): string {
-    if (typeof message === "string") {
-      return message;
+  private nodeToTelegramHtml(node: Content): string {
+    if (isParagraphNode(node)) {
+      return getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
     }
-    if ("raw" in message) {
-      return message.raw;
+
+    if (isTextNode(node)) {
+      return this.escapeHtmlText(node.value);
     }
-    if ("markdown" in message) {
-      return this.fromMarkdown(message.markdown);
+
+    if (isStrongNode(node)) {
+      const content = getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+      return `<b>${content}</b>`;
     }
-    if ("ast" in message) {
-      return this.fromAst(message.ast);
+
+    if (isEmphasisNode(node)) {
+      const content = getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+      return `<i>${content}</i>`;
     }
-    return super.renderPostable(message);
+
+    if (isDeleteNode(node)) {
+      const content = getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+      return `<s>${content}</s>`;
+    }
+
+    if (isInlineCodeNode(node)) {
+      return `<code>${this.escapeHtmlText(node.value)}</code>`;
+    }
+
+    if (isCodeNode(node)) {
+      const language = node.lang?.trim();
+      const escapedCode = this.escapeHtmlText(node.value);
+      if (language) {
+        return `<pre><code class="language-${this.escapeHtmlAttribute(language)}">${escapedCode}</code></pre>`;
+      }
+      return `<pre>${escapedCode}</pre>`;
+    }
+
+    if (isLinkNode(node)) {
+      const text = getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+      const label = text || this.escapeHtmlText(node.url);
+      return `<a href="${this.escapeHtmlAttribute(node.url)}">${label}</a>`;
+    }
+
+    if (isBlockquoteNode(node)) {
+      const content = getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+      return `<blockquote>${content}</blockquote>`;
+    }
+
+    if (isListNode(node)) {
+      return getNodeChildren(node)
+        .map((item, index) => {
+          const prefix = node.ordered ? `${index + 1}.` : "•";
+          const content = getNodeChildren(item)
+            .map((child) => this.nodeToTelegramHtml(child))
+            .join("");
+          return `${prefix} ${content}`;
+        })
+        .join("\n");
+    }
+
+    if (isListItemNode(node)) {
+      return getNodeChildren(node)
+        .map((child) => this.nodeToTelegramHtml(child))
+        .join("");
+    }
+
+    if (node.type === "break") {
+      return "\n";
+    }
+
+    if (node.type === "thematicBreak") {
+      return "──────────";
+    }
+
+    if (node.type === "html") {
+      return this.escapeHtmlText(node.value);
+    }
+
+    const children = getNodeChildren(node);
+    if (children.length > 0) {
+      return children.map((child) => this.nodeToTelegramHtml(child)).join("");
+    }
+
+    return this.escapeHtmlText(getNodeValue(node));
+  }
+
+  private escapeHtmlText(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  private escapeHtmlAttribute(value: string): string {
+    return this.escapeHtmlText(value)
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 }

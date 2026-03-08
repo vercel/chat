@@ -62,6 +62,7 @@ await thread.post(stream);
 | Teams | Post + Edit | Posts a message then edits it as chunks arrive |
 | Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |
+| Telegram | Draft API (DMs) + Post + Edit | Uses `sendMessageDraft` in private chats, falls back to post+edit in other chats |
 
 The post+edit fallback throttles edits to avoid rate limits. Configure the update interval when creating your `Chat` instance:
 
