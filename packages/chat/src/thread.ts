@@ -247,6 +247,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         adapter: this.adapter,
         stateAdapter: this._stateAdapter,
         isDM: this.isDM,
+        messageHistory: this._messageHistory,
       });
     }
     return this._channel;

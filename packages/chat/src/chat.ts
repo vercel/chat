@@ -1550,7 +1550,12 @@ export class Chat<
     // If the lock is already held (e.g., bot is processing a previous message),
     // we still want to save this message to history so it's not lost.
     if (adapter.persistMessageHistory) {
-      await this._messageHistory.append(threadId, message);
+      const channelId = adapter.channelIdFromThreadId(threadId);
+      const appends = [this._messageHistory.append(threadId, message)];
+      if (channelId !== threadId) {
+        appends.push(this._messageHistory.append(channelId, message));
+      }
+      await Promise.all(appends);
     }
 
     // Try to acquire lock on thread

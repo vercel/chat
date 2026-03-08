@@ -11,6 +11,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
+import type { MessageHistoryCache } from "./message-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -47,6 +48,7 @@ interface ChannelImplConfigWithAdapter {
   adapter: Adapter;
   id: string;
   isDM?: boolean;
+  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
 }
 
@@ -86,6 +88,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
+  private readonly _messageHistory?: MessageHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
@@ -96,6 +99,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
+      this._messageHistory = config.messageHistory;
     }
   }
 
@@ -163,10 +167,12 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
+    const messageHistory = this._messageHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
         let cursor: string | undefined;
+        let yieldedAny = false;
 
         while (true) {
           const fetchOptions = { cursor, direction: "backward" as const };
@@ -178,6 +184,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           // but we want newest first, so reverse the page
           const reversed = [...result.messages].reverse();
           for (const message of reversed) {
+            yieldedAny = true;
             yield message;
           }
 
@@ -186,6 +193,15 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
 
           cursor = result.nextCursor;
+        }
+
+        // Fall back to cached history if adapter returned nothing
+        if (!yieldedAny && messageHistory) {
+          const cached = await messageHistory.getMessages(channelId);
+          // Yield newest first
+          for (let i = cached.length - 1; i >= 0; i--) {
+            yield cached[i];
+          }
         }
       },
     };
@@ -279,7 +295,17 @@ export class ChannelImpl<TState = Record<string, unknown>>
       ? await this.adapter.postChannelMessage(this.id, postable)
       : await this.adapter.postMessage(this.id, postable);
 
-    return this.createSentMessage(rawMessage.id, postable, rawMessage.threadId);
+    const sent = this.createSentMessage(
+      rawMessage.id,
+      postable,
+      rawMessage.threadId
+    );
+
+    if (this._messageHistory) {
+      await this._messageHistory.append(this.id, new Message(sent));
+    }
+
+    return sent;
   }
 
   async postEphemeral(
