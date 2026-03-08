@@ -13,6 +13,8 @@ import type {
   Logger,
   RawMessage,
   ReactionEvent,
+  StreamChunk,
+  StreamOptions,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -871,6 +873,26 @@ export class WhatsAppAdapter
     throw new Error(
       "WhatsApp does not support editing messages. Use postMessage to send a new message instead."
     );
+  }
+
+  /**
+   * Stream a message by buffering all chunks and sending as a single message.
+   * WhatsApp doesn't support message editing, so we can't do incremental updates.
+   */
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    _options?: StreamOptions
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    let accumulated = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        accumulated += chunk;
+      } else if (chunk.type === "markdown_text") {
+        accumulated += chunk.text;
+      }
+    }
+    return this.postMessage(threadId, { markdown: accumulated });
   }
 
   /**

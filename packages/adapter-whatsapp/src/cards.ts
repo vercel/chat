@@ -318,11 +318,12 @@ function extractReplyButtons(actions: ActionsElement): ButtonElement[] | null {
     // Link buttons can't be WhatsApp reply buttons — skip them
   }
 
-  if (buttons.length === 0 || buttons.length > MAX_REPLY_BUTTONS) {
+  if (buttons.length === 0) {
     return null;
   }
 
-  return buttons;
+  // WhatsApp allows max 3 reply buttons — take the first 3
+  return buttons.slice(0, MAX_REPLY_BUTTONS);
 }
 
 /**
