@@ -128,6 +128,8 @@ export function buildAdapters(): Adapters {
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
+        botToken: process.env.SLACK_BOT_TOKEN,
+        clientSecret: process.env.SLACK_CLIENT_SECRET,
       }),
       "slack",
       SLACK_METHODS

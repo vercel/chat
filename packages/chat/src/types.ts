@@ -4,7 +4,7 @@
 
 import type { Root } from "mdast";
 import type { CardElement } from "./cards";
-import type { CardJSXElement } from "./jsx-runtime";
+import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
@@ -41,6 +41,14 @@ export interface ChatConfig<
    * cause platform retries that arrive after the default TTL expires.
    */
   dedupeTtlMs?: number;
+  /**
+   * Placeholder text for fallback streaming (post + edit) adapters.
+   * Defaults to `"..."`.
+   *
+   * Set to `null` to avoid posting an initial placeholder message and instead
+   * wait until some real text has been streamed before creating the message.
+   */
+  fallbackStreamingPlaceholderText?: string | null;
   /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
@@ -317,18 +325,53 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * The adapter consumes the async iterable and handles the entire streaming lifecycle.
    * Only available on platforms with native streaming support (e.g., Slack).
    *
+   * The stream can yield plain strings (text chunks) or {@link StreamChunk} objects
+   * for rich content like task progress cards. Adapters that don't support structured
+   * chunks will extract text from `markdown_text` chunks and ignore other types.
+   *
    * @param threadId - The thread to stream to
-   * @param textStream - Async iterable of text chunks (e.g., from AI SDK)
+   * @param textStream - Async iterable of text chunks or structured StreamChunk objects
    * @param options - Platform-specific streaming options
    * @returns The raw message after streaming completes
    */
   stream?(
     threadId: string,
-    textStream: AsyncIterable<string>,
+    textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TRawMessage>>;
   /** Bot username (can override global userName) */
   readonly userName: string;
+}
+
+/**
+ * A structured streaming chunk for platform-native rich content.
+ *
+ * On Slack, these map directly to streaming chunk types:
+ * - `markdown_text`: Streamed text content
+ * - `task_update`: Tool/step progress cards (pending → in_progress → complete → error)
+ * - `plan_update`: Plan title updates
+ *
+ * Adapters that don't support structured chunks will extract `text` from
+ * `markdown_text` chunks and ignore other types gracefully.
+ */
+export type StreamChunk = MarkdownTextChunk | TaskUpdateChunk | PlanUpdateChunk;
+
+export interface MarkdownTextChunk {
+  text: string;
+  type: "markdown_text";
+}
+
+export interface TaskUpdateChunk {
+  id: string;
+  output?: string;
+  status: "pending" | "in_progress" | "complete" | "error";
+  title: string;
+  type: "task_update";
+}
+
+export interface PlanUpdateChunk {
+  title: string;
+  type: "plan_update";
 }
 
 /**
@@ -342,6 +385,12 @@ export interface StreamOptions {
   recipientUserId?: string;
   /** Block Kit elements to attach when stopping the stream (Slack only, via chat.stopStream) */
   stopBlocks?: unknown[];
+  /**
+   * Slack: Controls how task_update chunks are displayed.
+   * - `"timeline"` — individual task cards shown inline with text (default)
+   * - `"plan"` — all tasks grouped into a single plan block
+   */
+  taskDisplayMode?: "timeline" | "plan";
   /** Minimum interval between updates in ms (default: 1000). Used for fallback mode (GChat/Teams). */
   updateIntervalMs?: number;
 }
@@ -387,6 +436,11 @@ export interface ChatInstance {
 
   processAssistantThreadStarted(
     event: AssistantThreadStartedEvent,
+    options?: WebhookOptions
+  ): void;
+
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
     options?: WebhookOptions
   ): void;
   /**
@@ -503,6 +557,9 @@ export interface StateAdapter {
   /** Set a cached value with optional TTL in milliseconds */
   set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void>;
 
+  /** Atomically set a value only if the key does not already exist. Returns true if set, false if key existed. */
+  setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean>;
+
   /** Subscribe to a thread (persists across restarts) */
   subscribe(threadId: string): Promise<void>;
 
@@ -553,7 +610,7 @@ export interface Postable<
    * Post a message.
    */
   post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -561,7 +618,7 @@ export interface Postable<
    */
   postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
 
@@ -743,7 +800,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -776,7 +833,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    */
   postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null>;
 
@@ -958,7 +1015,7 @@ export interface SentMessage<TRawMessage = unknown>
   delete(): Promise<void>;
   /** Edit this message with text, a PostableMessage, or a JSX Card element */
   edit(
-    newContent: string | PostableMessage | CardJSXElement
+    newContent: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
@@ -1024,8 +1081,22 @@ export type AdapterPostableMessage =
  * - `{ card: CardElement }` - Rich card with buttons (Block Kit / Adaptive Cards / GChat Cards)
  * - `CardElement` - Direct card element
  * - `AsyncIterable<string>` - Streaming text (e.g., from AI SDK's textStream)
+ * - `AsyncIterable<string | StreamEvent>` - AI SDK fullStream (auto-detected, extracts text with step separators)
  */
-export type PostableMessage = AdapterPostableMessage | AsyncIterable<string>;
+export type PostableMessage =
+  | AdapterPostableMessage
+  | AsyncIterable<string | StreamChunk | StreamEvent>;
+
+/**
+ * Duck-typed stream event compatible with AI SDK's `fullStream`.
+ * - `text-delta` events are extracted as text output.
+ * - `step-finish` events trigger paragraph separators between steps.
+ * - All other event types (tool-call, tool-result, etc.) are silently skipped.
+ */
+export type StreamEvent =
+  | { textDelta: string; type: "text-delta" }
+  | { type: "step-finish" }
+  | { type: string };
 
 export interface PostableRaw {
   /** File/image attachments */
@@ -1441,12 +1512,12 @@ export interface ActionEvent<TRawMessage = unknown> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement
+    modal: ModalElement | ChatElement
   ): Promise<{ viewId: string } | undefined>;
   /** Platform-specific raw event data */
   raw: unknown;
-  /** The thread where the action occurred */
-  thread: Thread<TRawMessage>;
+  /** The thread where the action occurred (null for view-based actions like home tab buttons) */
+  thread: Thread<TRawMessage> | null;
   /** The thread ID */
   threadId: string;
   /** Trigger ID for opening modals (required by some platforms, may expire quickly) */
@@ -1650,7 +1721,7 @@ export interface SlashCommandEvent<TState = Record<string, unknown>> {
    * @returns The view/dialog ID, or undefined if modals are not supported
    */
   openModal(
-    modal: ModalElement | CardJSXElement
+    modal: ModalElement | ChatElement
   ): Promise<{ viewId: string } | undefined>;
 
   /** Platform-specific raw payload */
@@ -1741,4 +1812,15 @@ export interface AppHomeOpenedEvent {
 
 export type AppHomeOpenedHandler = (
   event: AppHomeOpenedEvent
+) => void | Promise<void>;
+
+export interface MemberJoinedChannelEvent {
+  adapter: Adapter;
+  channelId: string;
+  inviterId?: string;
+  userId: string;
+}
+
+export type MemberJoinedChannelHandler = (
+  event: MemberJoinedChannelEvent
 ) => void | Promise<void>;

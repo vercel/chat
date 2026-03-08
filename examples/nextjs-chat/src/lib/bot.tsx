@@ -1,5 +1,5 @@
 /** @jsxImportSource chat */
-// @ts-nocheck - TypeScript doesn't understand custom JSX runtimes with per-file pragmas
+import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
 import {
@@ -18,6 +18,7 @@ import {
   Section,
   Select,
   SelectOption,
+  Table,
   CardText as Text,
   TextInput,
 } from "chat";
@@ -28,10 +29,12 @@ const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
 
-const state = createRedisState({
-  url: process.env.REDIS_URL || "",
-  keyPrefix: "chat-sdk-webhooks",
-});
+const state = process.env.REDIS_URL
+  ? createRedisState({
+      url: process.env.REDIS_URL,
+      keyPrefix: "chat-sdk-webhooks",
+    })
+  : createMemoryState();
 const adapters = buildAdapters();
 
 // Define thread state type
@@ -40,6 +43,7 @@ interface ThreadState {
 }
 
 // Create the bot instance with typed thread state
+// @ts-expect-error Adapters type lacks string index signature
 export const bot = new Chat<typeof adapters, ThreadState>({
   userName: process.env.BOT_USERNAME || "mybot",
   adapters,
@@ -61,25 +65,19 @@ bot.onNewMention(async (thread, message) => {
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    await thread.post(
-      <Card title={`${emoji.sparkles} AI Mode Enabled`}>
-        <Text>
-          I'm now in AI mode! I'll use Claude to respond to your messages in
-          this thread.
-        </Text>
-        <Text>Say "disable AI" to turn off AI mode.</Text>
-        <Divider />
-        <Fields>
-          <Field label="Platform" value={thread.adapter.name} />
-          <Field label="Mode" value="AI Assistant" />
-        </Fields>
-      </Card>
-    );
-
     // Also respond to the initial message with AI
     await thread.startTyping("Thinking...");
-    const result = await agent.stream({ prompt: message.text });
-    await thread.post(result.textStream);
+    try {
+      const result = await agent.stream({ prompt: message.text });
+      await thread.post(result.fullStream);
+    } catch (err) {
+      console.error("Error in AI response:", err);
+      await thread.post(
+        `${emoji.warning} Error in AI response: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
+      );
+    }
     return;
   }
 
@@ -118,6 +116,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="feedback">Send Feedback</Button>
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
+        <Button id="show-table">Show Table</Button>
         <Button id="report" value="bug">
           Report Bug
         </Button>
@@ -130,7 +129,43 @@ bot.onNewMention(async (thread, message) => {
   );
 });
 
+// Post a welcome message when the bot is added to a channel
+bot.onMemberJoinedChannel(async (event) => {
+  // Only post when the bot itself joins
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+
+  await event.adapter.postMessage(
+    event.channelId,
+    "*Chat SDK Bot is available in this channel.* Tag @Chat SDK Bot to begin."
+  );
+});
+
+bot.onAction("show_channel_help", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const platforms = Object.keys(adapters).join(", ") || "none configured";
+  await event.thread.post(
+    <Card title={`${emoji.question} Help`}>
+      <Text>{`Here's how I can help:`}</Text>
+      <Divider />
+      <Section>
+        <Text>{`${emoji.star} **Mention me** to start a conversation`}</Text>
+        <Text>{`${emoji.sparkles} **Mention me with "AI"** to enable AI assistant mode`}</Text>
+        <Text>{`${emoji.eyes} I'll respond to messages in threads where I'm mentioned`}</Text>
+        <Text>{`${emoji.fire} React to my messages and I'll react back!`}</Text>
+        <Text>{`${emoji.rocket} Active platforms: ${platforms}`}</Text>
+      </Section>
+    </Card>
+  );
+});
+
 bot.onAction("ephemeral", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.postEphemeral(
     event.user,
     <Card title={`${emoji.eyes} Ephemeral Message`}>
@@ -165,6 +200,7 @@ bot.onAction("ephemeral_modal", async (event) => {
   );
 });
 
+// @ts-expect-error async void handler vs ModalSubmitHandler return type
 bot.onModalSubmit("ephemeral_modal_form", async (event) => {
   await event.relatedMessage?.edit(
     <Card title={`${emoji.check} Submitted!`}>
@@ -175,6 +211,9 @@ bot.onModalSubmit("ephemeral_modal_form", async (event) => {
 });
 
 bot.onAction("quick_action", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const action = event.value;
   if (action === "greet") {
     await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
@@ -190,6 +229,9 @@ bot.onAction("quick_action", async (event) => {
 });
 
 bot.onAction("choose_plan", (event) => {
+  if (!event.thread) {
+    return;
+  }
   event.thread.post(
     <Card title="Choose Plan">
       <Actions>
@@ -220,6 +262,9 @@ bot.onAction("choose_plan", (event) => {
   );
 });
 bot.onAction("plan_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
   event.thread.post(
     <Card title={`${emoji.check} Plan Chosen!`}>
       <Text>You chose plan *{event.value}*</Text>
@@ -229,10 +274,16 @@ bot.onAction("plan_selected", (event) => {
 
 // Handle card button actions
 bot.onAction("hello", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
 });
 
 bot.onAction("info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const threadState = await event.thread.state;
   await event.thread.post(
     <Card title="Bot Information">
@@ -243,6 +294,7 @@ bot.onAction("info", async (event) => {
         <Field label="Thread ID" value={event.threadId} />
         <Field
           label="AI Mode"
+          // @ts-expect-error ThreadState generic not propagated through event
           value={threadState?.aiMode ? "Enabled" : "Disabled"}
         />
       </Fields>
@@ -251,8 +303,32 @@ bot.onAction("info", async (event) => {
 });
 
 bot.onAction("goodbye", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(
     `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
+  );
+});
+
+bot.onAction("show-table", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post(
+    <Card title={`${emoji.memo} Team Directory`}>
+      <Text>Here's the current team roster:</Text>
+      <Table
+        headers={["Name", "Role", "Location", "Status"]}
+        rows={[
+          ["Alice Chen", "Engineering Lead", "San Francisco", "Active"],
+          ["Bob Smith", "Designer", "New York", "Active"],
+          ["Carol Wu", "Product Manager", "London", "On Leave"],
+          ["Dan Lee", "Backend Engineer", "Tokyo", "Active"],
+          ["Eve Park", "Frontend Engineer", "Seoul", "Active"],
+        ]}
+      />
+    </Card>
   );
 });
 
@@ -289,6 +365,12 @@ const FeedbackModal = (
 // Open feedback modal
 bot.onAction("feedback", async (event) => {
   await event.openModal(FeedbackModal);
+});
+
+bot.onSlashCommand("/ping", async (event) => {
+  await event.channel.post(
+    `Pong! Command invoked by ${event.user.fullName}${event.text ? `: ${event.text}` : ""}`
+  );
 });
 
 // Opens feedback modal via /feedback
@@ -408,6 +490,9 @@ bot.onModalClose("feedback_form", (event) => {
 
 // Demonstrate fetchMessages and allMessages
 bot.onAction("messages", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const { thread } = event;
 
   // Helper to get display text for a message (handles empty text from cards)
@@ -503,6 +588,9 @@ bot.onAction("messages", async (event) => {
 
 // Demonstrate channel abstraction: read channel messages and post summary
 bot.onAction("channel-post", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const { thread } = event;
   const channel = thread.channel;
 
@@ -609,7 +697,7 @@ bot.onSubscribedMessage(async (thread, message) => {
     console.log("history", history);
     await thread.startTyping("Thinking...");
     const result = await agent.stream({ prompt: history });
-    await thread.post(result.textStream);
+    await thread.post(result.fullStream);
     return;
   }
 

@@ -25,6 +25,8 @@ import type {
   EmojiValue,
   Logger,
   LogLevel,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
   MessageHandler,
   ModalCloseEvent,
@@ -180,6 +182,7 @@ export class Chat<
   private readonly userName: string;
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
+  private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
 
@@ -197,6 +200,8 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
+    [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -214,6 +219,10 @@ export class Chat<
     this._stateAdapter = config.state;
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
+    this._fallbackStreamingPlaceholderText =
+      config.fallbackStreamingPlaceholderText !== undefined
+        ? config.fallbackStreamingPlaceholderText
+        : "...";
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
     this._onLockConflict = config.onLockConflict;
 
@@ -613,6 +622,11 @@ export class Chat<
     this.logger.debug("Registered app home opened handler");
   }
 
+  onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
+    this.memberJoinedChannelHandlers.push(handler);
+    this.logger.debug("Registered member joined channel handler");
+  }
+
   /**
    * Get an adapter by name with type safety.
    */
@@ -887,6 +901,27 @@ export class Chat<
     }
   }
 
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.memberJoinedChannelHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Member joined channel handler error", {
+        error: err,
+        channelId: event.channelId,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
   /**
    * Handle a slash command event internally.
    */
@@ -1096,7 +1131,7 @@ export class Chat<
           messageForThread,
           isSubscribed
         )
-      : (null as unknown as Thread<TState>);
+      : null;
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
@@ -1125,33 +1160,36 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
         let message: Message | undefined;
-        if (isEphemeralMessage) {
-          const recentMessage = thread.recentMessages[0];
-          if (recentMessage && typeof recentMessage.toJSON === "function") {
-            message = recentMessage as Message;
-          }
-        } else if (event.messageId && event.adapter.fetchMessage) {
-          const fetched = await event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch(() => null);
-          if (fetched) {
-            message = new Message(fetched);
-          } else {
+        if (thread) {
+          const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+          if (isEphemeralMessage) {
             const recentMessage = thread.recentMessages[0];
             if (recentMessage && typeof recentMessage.toJSON === "function") {
               message = recentMessage as Message;
             }
+          } else if (event.messageId && event.adapter.fetchMessage) {
+            const fetched = await event.adapter
+              .fetchMessage(event.threadId, event.messageId)
+              .catch(() => null);
+            if (fetched) {
+              message = new Message(fetched);
+            } else {
+              const recentMessage = thread.recentMessages[0];
+              if (recentMessage && typeof recentMessage.toJSON === "function") {
+                message = recentMessage as Message;
+              }
+            }
           }
         }
         const contextId = crypto.randomUUID();
-        const channel = (thread as ThreadImpl<TState>)
-          .channel as ChannelImpl<TState>;
+        const channel = thread
+          ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
+          : undefined;
         this.storeModalContext(
           event.adapter.name,
           contextId,
-          thread as ThreadImpl<TState>,
+          thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
           channel
         );
@@ -1462,18 +1500,21 @@ export class Chat<
       return;
     }
 
-    // Deduplicate messages - same message can arrive via multiple paths
+    // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
     const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
-    const alreadyProcessed = await this._stateAdapter.get<boolean>(dedupeKey);
-    if (alreadyProcessed) {
+    const isFirstProcess = await this._stateAdapter.setIfNotExists(
+      dedupeKey,
+      true,
+      this._dedupeTtlMs
+    );
+    if (!isFirstProcess) {
       this.logger.debug("Skipping duplicate message", {
         adapter: adapter.name,
         messageId: message.id,
       });
       return;
     }
-    await this._stateAdapter.set(dedupeKey, true, this._dedupeTtlMs);
 
     // Try to acquire lock on thread
     let lock = await this._stateAdapter.acquireLock(
@@ -1606,6 +1647,7 @@ export class Chat<
       isDM,
       currentMessage: initialMessage,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
+      fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
     });
   }
 

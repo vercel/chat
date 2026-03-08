@@ -3,7 +3,10 @@
   "pages": [
     "index",
     "getting-started",
+    "---Usage---",
     "usage",
+    "threads-messages-channels",
+    "handling-events",
     "posting-messages",
     "---Features---",
     "...",
@@ -15,6 +18,8 @@
     "---Guides---",
     "...guides",
     "---API Reference---",
-    "...api"
+    "...api",
+    "---Contributing---",
+    "...contributing"
   ]
 }
