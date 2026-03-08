@@ -436,7 +436,7 @@ describe("Chat", () => {
   });
 
   describe("onDirectMessage", () => {
-    it("should route DMs to directMessage handler", async () => {
+    it("should route DMs to directMessage handler with channel", async () => {
       const dmHandler = vi.fn().mockResolvedValue(undefined);
       const mentionHandler = vi.fn().mockResolvedValue(undefined);
 
@@ -453,6 +453,11 @@ describe("Chat", () => {
 
       expect(dmHandler).toHaveBeenCalled();
       expect(mentionHandler).not.toHaveBeenCalled();
+      // Verify channel is passed as third argument
+      const callArgs = dmHandler.mock.calls[0];
+      expect(callArgs).toHaveLength(3);
+      expect(callArgs[2]).toBeDefined();
+      expect(callArgs[2].id).toBe("slack:DU123");
     });
 
     it("should fall through to onNewMention when no DM handlers registered", async () => {

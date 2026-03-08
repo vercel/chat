@@ -146,7 +146,7 @@ bot.onMemberJoinedChannel(async (event) => {
 
 // Handle direct messages — AI conversation by default
 // This fires on every DM, regardless of subscription status
-bot.onDirectMessage(async (thread, message) => {
+bot.onDirectMessage(async (thread, message, _channel) => {
   await thread.startTyping("Thinking...");
   let history: { role: "user" | "assistant"; content: string }[];
   try {

@@ -1308,7 +1308,8 @@ export type MentionHandler<TState = Record<string, unknown>> = (
  */
 export type DirectMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  channel: Channel<TState>
 ) => void | Promise<void>;
 
 /**

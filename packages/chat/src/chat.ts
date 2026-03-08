@@ -1612,7 +1612,10 @@ export class Chat<
           threadId,
           handlerCount: this.directMessageHandlers.length,
         });
-        await this.runHandlers(this.directMessageHandlers, thread, message);
+        const channel = thread.channel;
+        for (const handler of this.directMessageHandlers) {
+          await handler(thread, message, channel);
+        }
         return;
       }
 
