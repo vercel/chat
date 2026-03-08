@@ -1,0 +1,157 @@
+---
+title: Telnyx
+description: Configure the Telnyx adapter for SMS and MMS messaging.
+type: integration
+prerequisites:
+  - /docs/getting-started
+---
+
+## Installation
+
+```sh title="Terminal"
+pnpm add @chat-adapter/telnyx
+```
+
+## Usage
+
+The adapter auto-detects `TELNYX_API_KEY`, `TELNYX_FROM_NUMBER`, and `TELNYX_PUBLIC_KEY` from environment variables:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTelnyxAdapter } from "@chat-adapter/telnyx";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    telnyx: createTelnyxAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+Every inbound SMS is treated as a mention, so `onNewMention` handlers fire for all incoming messages.
+
+## Webhook route
+
+```typescript title="app/api/webhooks/telnyx/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.telnyx(request);
+}
+```
+
+Configure this URL as your webhook in the [Telnyx Mission Control Portal](https://portal.telnyx.com/):
+
+1. Go to **Messaging** → **Programmable Messaging**
+2. Create or edit a messaging profile
+3. Set the **Webhook URL** to `https://your-domain.com/api/webhooks/telnyx`
+
+## Telnyx account setup
+
+### 1. Get your API key
+
+1. Go to [portal.telnyx.com](https://portal.telnyx.com/)
+2. Navigate to **Auth** → **API Keys**
+3. Create or copy your API key as `TELNYX_API_KEY`
+
+### 2. Get a phone number
+
+1. Go to **Numbers** → **Search & Buy**
+2. Purchase a number with SMS/MMS capability
+3. Copy the number (in E.164 format, e.g. `+15551234567`) as `TELNYX_FROM_NUMBER`
+
+### 3. Set up webhook verification (recommended)
+
+1. Go to **Auth** → **Public Key**
+2. Copy your public key as `TELNYX_PUBLIC_KEY`
+
+This enables Ed25519 signature verification on incoming webhooks, including replay attack prevention with a 5-minute timestamp window.
+
+### 4. Create a messaging profile
+
+1. Go to **Messaging** → **Programmable Messaging**
+2. Create a new messaging profile
+3. Assign your phone number to it
+4. Set the webhook URL to your route
+
+## Configuration
+
+All options are auto-detected from environment variables when not provided.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `apiKey` | No* | Telnyx API key. Auto-detected from `TELNYX_API_KEY` |
+| `phoneNumber` | No* | Phone number to send from (E.164 format). Auto-detected from `TELNYX_FROM_NUMBER` |
+| `publicKey` | No | Ed25519 public key for webhook signature verification. Auto-detected from `TELNYX_PUBLIC_KEY` |
+| `messagingProfileId` | No | Messaging profile ID for advanced routing |
+| `userName` | No | Bot username. Auto-detected from `BOT_USERNAME` |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`apiKey` and `phoneNumber` are required — either via config or env vars.
+
+## Environment variables
+
+```bash title=".env.local"
+TELNYX_API_KEY=KEY...
+TELNYX_FROM_NUMBER=+15559876543
+TELNYX_PUBLIC_KEY=...              # Optional, for webhook verification
+```
+
+## MMS support
+
+When posting a message with attachments that have public URLs, the adapter automatically sends an MMS instead of SMS:
+
+```typescript title="lib/bot.ts"
+await thread.post({
+  raw: "Check out this image",
+  attachments: [
+    {
+      type: "image",
+      mimeType: "image/jpeg",
+      url: "https://example.com/photo.jpg",
+    },
+  ],
+});
+```
+
+<Callout type="info">
+Telnyx MMS requires publicly-accessible URLs. Binary file uploads are not supported for MMS — only URL-based attachments.
+</Callout>
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Mentions | Yes (all inbound SMS) |
+| Reactions (add/remove) | No |
+| Cards | No |
+| Modals | No |
+| Streaming | No |
+| DMs | Yes (all SMS is DM) |
+| Ephemeral messages | No |
+| File uploads | ⚠️ MMS with public URLs only |
+| Typing indicator | No |
+| Message history | No |
+
+## Thread ID format
+
+Telnyx thread IDs follow the pattern `telnyx:{telnyxNumber}:{recipientNumber}`:
+
+```
+telnyx:+15559876543:+15551234567
+```
+
+Both numbers use E.164 format.
+
+## Notes
+
+- All inbound SMS messages set `isMention: true` since every SMS is a direct message to the bot.
+- SMS messages are truncated to 1,600 characters.
+- Telnyx does not provide a message history API, so `fetchMessages` returns an empty array.
+- Edit, delete, and reaction operations are not supported by SMS and throw `NotImplementedError`.
+- The adapter includes rate limit handling — if Telnyx returns HTTP 429, an `AdapterRateLimitError` is thrown with the `retry-after` value when available.
+- Webhook signature verification uses Ed25519 and includes a 5-minute staleness check to prevent replay attacks.

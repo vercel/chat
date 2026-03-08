@@ -11,7 +11,10 @@
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "TELNYX_API_KEY",
+    "TELNYX_PUBLIC_KEY",
+    "TELNYX_FROM_NUMBER"
   ],
   "tasks": {
     "build": {
