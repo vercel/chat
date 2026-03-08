@@ -397,6 +397,15 @@ describe("handleWebhook - event_callback", () => {
   });
 
   it("handles reaction_added events", async () => {
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [{ ts: "1234567890.123456" }],
+      })
+    );
+
     const body = JSON.stringify({
       type: "event_callback",
       event: {
@@ -417,6 +426,15 @@ describe("handleWebhook - event_callback", () => {
   });
 
   it("handles reaction_removed events", async () => {
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [{ ts: "1234567890.123456" }],
+      })
+    );
+
     const body = JSON.stringify({
       type: "event_callback",
       event: {
@@ -434,6 +452,52 @@ describe("handleWebhook - event_callback", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+
+  it("resolves parent thread_ts for reactions on threaded replies", async () => {
+    const parentTs = "1111111111.000000";
+    const replyTs = "1234567890.123456";
+
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [{ ts: replyTs, thread_ts: parentTs }],
+      })
+    );
+
+    const mockChat = {
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance;
+    (adapter as unknown as { chat: ChatInstance }).chat = mockChat;
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: {
+          type: "message",
+          channel: "C456",
+          ts: replyTs,
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+
+    await adapter.handleWebhook(request);
+    // Wait for async reaction processing
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockChat.processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: `slack:C456:${parentTs}`,
+        messageId: replyTs,
+      }),
+      undefined
+    );
   });
 });
 

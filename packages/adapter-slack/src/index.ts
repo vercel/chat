@@ -1245,10 +1245,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Handle reaction events from Slack (reaction_added, reaction_removed).
    */
-  private handleReactionEvent(
+  private async handleReactionEvent(
     event: SlackReactionEvent,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring reaction");
       return;
@@ -1262,10 +1262,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // Build thread ID from the reacted message
+    // Resolve the parent thread ts — when a reaction is on a reply,
+    // event.item.ts is the reply's ts, not the parent thread_ts.
+    let parentTs = event.item.ts;
+    try {
+      const result = await this.client.conversations.replies(
+        this.withToken({
+          channel: event.item.channel,
+          ts: event.item.ts,
+          limit: 1,
+        })
+      );
+      const firstMessage = (result.messages as { thread_ts?: string }[])?.[0];
+      if (firstMessage?.thread_ts) {
+        parentTs = firstMessage.thread_ts;
+      }
+    } catch (error) {
+      this.logger.warn(
+        "Failed to resolve parent thread for reaction, using message ts",
+        {
+          error: String(error),
+          channel: event.item.channel,
+          ts: event.item.ts,
+        }
+      );
+    }
+
+    // Build thread ID from the parent thread
     const threadId = this.encodeThreadId({
       channel: event.item.channel,
-      threadTs: event.item.ts,
+      threadTs: parentTs,
     });
 
     // Message ID is just the timestamp (Slack uses ts as message ID)
