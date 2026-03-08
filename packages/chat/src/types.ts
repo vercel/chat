@@ -51,6 +51,11 @@ export interface ChatConfig<
    * - `'drop'` (default) — throw `LockError`, preserving current behavior
    * - `'force'` — force-release the existing lock and re-acquire
    * - callback — custom logic receiving `(threadId, message)`, return `'force'` or `'drop'`
+   *
+   * When `'force'` is used, the previous handler continues executing — only the lock
+   * is released, not the handler itself. This means two handlers may run concurrently
+   * on the same thread. The old handler's `releaseLock()` call becomes a no-op since
+   * the token no longer matches.
    */
   onLockConflict?:
     | "force"
@@ -479,7 +484,11 @@ export interface StateAdapter {
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
 
-  /** Force-release a lock on a thread, regardless of ownership token. Enables interrupt/steerability. */
+  /**
+   * Force-release a lock on a thread, regardless of ownership token.
+   * The previous lock holder's handler continues running — only the lock is released.
+   * The old handler's `releaseLock()` becomes a no-op (token mismatch).
+   */
   forceReleaseLock(threadId: string): Promise<void>;
 
   /** Get a cached value by key */
