@@ -74,6 +74,44 @@ describe("WhatsAppFormatConverter", () => {
       expect(result).toContain("\\*");
       expect(result).toContain("\\~");
     });
+
+    it("should convert standard italic to WhatsApp underscore italic", () => {
+      // Standard markdown _italic_ renders as emphasis in the AST.
+      // WhatsApp uses *text* for bold, so emphasis must become _text_.
+      const result = converter.renderPostable({ markdown: "_italic text_" });
+      expect(result).toContain("_italic text_");
+      expect(result).not.toContain("*italic text*");
+    });
+
+    it("should handle bold and italic together", () => {
+      const result = converter.renderPostable({
+        markdown: "**bold** and _italic_",
+      });
+      expect(result).toContain("*bold*");
+      expect(result).toContain("_italic_");
+    });
+
+    it("should convert headings to bold text", () => {
+      const ast = converter.toAst("# Main heading");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("*Main heading*");
+      expect(result).not.toContain("#");
+    });
+
+    it("should convert thematic breaks to text separator", () => {
+      const ast = converter.toAst("above\n\n---\n\nbelow");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("---");
+      expect(result).toContain("above");
+      expect(result).toContain("below");
+    });
+
+    it("should convert tables to code blocks", () => {
+      const ast = converter.toAst("| A | B |\n| --- | --- |\n| 1 | 2 |");
+      const result = converter.fromAst(ast);
+      // Should be in a code block, not raw pipe syntax
+      expect(result).toContain("```");
+    });
   });
 
   describe("renderPostable", () => {

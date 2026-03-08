@@ -13,20 +13,50 @@
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
+  type Content,
+  isTableNode,
   parseMarkdown,
   type Root,
   stringifyMarkdown,
+  tableToAscii,
+  walkAst,
 } from "chat";
-
 export class WhatsAppFormatConverter extends BaseFormatConverter {
   /**
    * Convert an AST to WhatsApp markdown format.
    *
-   * Transforms standard markdown bold (**text**) to WhatsApp bold (*text*)
-   * and standard strikethrough (~~text~~) to WhatsApp strikethrough (~text~).
+   * Transforms unsupported nodes (headings, thematic breaks, tables)
+   * into WhatsApp-compatible equivalents, then converts standard markdown
+   * bold/strikethrough to WhatsApp syntax.
    */
   fromAst(ast: Root): string {
-    const standardMarkdown = stringifyMarkdown(ast).trim();
+    const transformed = walkAst(structuredClone(ast), (node: Content) => {
+      // Headings -> bold paragraph
+      if (node.type === "heading") {
+        const heading = node as Content & { children: Content[] };
+        return {
+          type: "paragraph",
+          children: [{ type: "strong", children: heading.children }],
+        } as Content;
+      }
+      // Thematic breaks -> text separator
+      if (node.type === "thematicBreak") {
+        return {
+          type: "paragraph",
+          children: [{ type: "text", value: "---" }],
+        } as Content;
+      }
+      // Tables -> code blocks (same as Telegram)
+      if (isTableNode(node)) {
+        return {
+          type: "code" as const,
+          value: tableToAscii(node),
+          lang: undefined,
+        } as Content;
+      }
+      return node;
+    });
+    const standardMarkdown = stringifyMarkdown(transformed).trim();
     return this.toWhatsAppFormat(standardMarkdown);
   }
 
@@ -62,22 +92,20 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
 
   /**
    * Convert standard markdown to WhatsApp format.
-   * **bold** -> *bold*, ~~strike~~ -> ~strike~
-   *
-   * Unlike fromWhatsAppFormat, these regexes don't need newline guards
-   * because the standard markdown parser never produces **bold** or
-   * ~~strike~~ spans that cross line boundaries.
+   * **bold** -> *bold*, *italic* -> _italic_, ~~strike~~ -> ~strike~
    */
   private toWhatsAppFormat(text: string): string {
-    // Temporarily replace escaped formatting chars so they survive conversion
+    // Protect escaped formatting chars
     const ESC_STAR = "%%ESC_STAR%%";
     const ESC_TILDE = "%%ESC_TILDE%%";
     let result = text.replace(/\\\*/g, ESC_STAR).replace(/\\~/g, ESC_TILDE);
-    // Convert **bold** to *bold*
+    // First: convert *italic* -> _italic_ (single * not adjacent to another *)
+    result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "_$1_");
+    // Then: convert **bold** -> *bold*
     result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ to ~strikethrough~
+    // Convert ~~strikethrough~~ -> ~strikethrough~
     result = result.replace(/~~(.+?)~~/g, "~$1~");
-    // Restore escaped chars — use WhatsApp escapes so they render as literals
+    // Restore escaped chars
     result = result
       .replace(new RegExp(ESC_STAR, "g"), "\\*")
       .replace(new RegExp(ESC_TILDE, "g"), "\\~");

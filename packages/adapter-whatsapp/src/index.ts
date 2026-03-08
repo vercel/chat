@@ -959,19 +959,8 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/mark-messages-as-read
    */
-  async startTyping(threadId: string, _status?: string): Promise<void> {
-    const { userWaId } = this.decodeThreadId(threadId);
-
-    try {
-      await this.graphApiRequest(`/${this.phoneNumberId}/messages`, {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: userWaId,
-        typing_indicator: { type: "text" },
-      });
-    } catch (error) {
-      this.logger.debug("Failed to send typing indicator", { error });
-    }
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
+    // WhatsApp Cloud API does not support typing indicators.
   }
 
   /**

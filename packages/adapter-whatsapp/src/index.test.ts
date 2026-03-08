@@ -112,12 +112,12 @@ describe("encodeThreadId / decodeThreadId roundtrip", () => {
 });
 
 describe("channelIdFromThreadId", () => {
-  it("should extract channel ID (phone number ID)", () => {
+  it("should return the full thread ID (channel === thread on WhatsApp)", () => {
     const adapter = createTestAdapter();
     const result = adapter.channelIdFromThreadId(
       "whatsapp:123456789:15551234567"
     );
-    expect(result).toBe("whatsapp:123456789");
+    expect(result).toBe("whatsapp:123456789:15551234567");
   });
 });
 
