@@ -1458,7 +1458,7 @@ describe("DM message handling", () => {
     );
   });
 
-  it("DM messages have isMention set to true", async () => {
+  it("DM messages do NOT have isMention set (routed via onDirectMessage)", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);
     // Capture the factory function to invoke it
@@ -1489,7 +1489,7 @@ describe("DM message handling", () => {
     const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
       .mock.calls[0][2];
     const message = await factory();
-    expect(message.isMention).toBe(true);
+    expect(message.isMention).toBeUndefined();
   });
 
   it("channel messages do NOT have isMention auto-set", async () => {

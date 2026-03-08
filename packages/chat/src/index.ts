@@ -1,5 +1,6 @@
 // Main exports
 
+export { type AiMessage, toAiMessages } from "./ai";
 export {
   ChannelImpl,
   deriveChannelId,
@@ -12,6 +13,10 @@ export {
   type MessageData,
   type SerializedMessage,
 } from "./message";
+export {
+  MessageHistoryCache,
+  type MessageHistoryConfig,
+} from "./message-history";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
@@ -260,6 +265,7 @@ export type {
   ChatConfig,
   ChatInstance,
   CustomEmojiMap,
+  DirectMessageHandler,
   Emoji,
   EmojiFormats,
   EmojiMapConfig,
@@ -277,7 +283,6 @@ export type {
   MarkdownTextChunk,
   MemberJoinedChannelEvent,
   MemberJoinedChannelHandler,
-  DirectMessageHandler,
   MentionHandler,
   MessageHandler,
   MessageMetadata,

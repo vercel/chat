@@ -22,6 +22,22 @@ describe("RedisStateAdapter", () => {
     expect(adapter).toBeInstanceOf(RedisStateAdapter);
   });
 
+  it("should have appendToList method", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.appendToList).toBe("function");
+  });
+
+  it("should have getList method", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.getList).toBe("function");
+  });
+
   // Note: Integration tests with a real Redis instance would go here
   // but require a running Redis server, so they're skipped by default
 

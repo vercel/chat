@@ -154,6 +154,65 @@ describe("MemoryStateAdapter", () => {
     });
   });
 
+  describe("appendToList / getList", () => {
+    it("should append and retrieve list items", async () => {
+      await adapter.appendToList("list1", { id: 1 });
+      await adapter.appendToList("list1", { id: 2 });
+
+      const result = await adapter.getList("list1");
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it("should return empty array for non-existent list", async () => {
+      const result = await adapter.getList("nonexistent");
+      expect(result).toEqual([]);
+    });
+
+    it("should trim to maxLength, keeping newest", async () => {
+      for (let i = 1; i <= 5; i++) {
+        await adapter.appendToList("list1", { id: i }, { maxLength: 3 });
+      }
+
+      const result = await adapter.getList("list1");
+      expect(result).toEqual([{ id: 3 }, { id: 4 }, { id: 5 }]);
+    });
+
+    it("should respect TTL on lists", async () => {
+      await adapter.appendToList("list1", { id: 1 }, { ttlMs: 10 });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const result = await adapter.getList("list1");
+      expect(result).toEqual([]);
+    });
+
+    it("should refresh TTL on subsequent appends", async () => {
+      await adapter.appendToList("list1", { id: 1 }, { ttlMs: 50 });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // Append again — refreshes TTL
+      await adapter.appendToList("list1", { id: 2 }, { ttlMs: 50 });
+
+      const result = await adapter.getList("list1");
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it("should keep lists isolated by key", async () => {
+      await adapter.appendToList("list-a", "a");
+      await adapter.appendToList("list-b", "b");
+
+      expect(await adapter.getList("list-a")).toEqual(["a"]);
+      expect(await adapter.getList("list-b")).toEqual(["b"]);
+    });
+
+    it("should start fresh after expired list", async () => {
+      await adapter.appendToList("list1", { id: 1 }, { ttlMs: 10 });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      await adapter.appendToList("list1", { id: 2 });
+      const result = await adapter.getList("list1");
+      expect(result).toEqual([{ id: 2 }]);
+    });
+  });
+
   describe("connection", () => {
     it("should throw when not connected", async () => {
       const newAdapter = createMemoryState();

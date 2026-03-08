@@ -24,6 +24,24 @@ describe("IoRedisStateAdapter", () => {
     adapter.getClient().disconnect();
   });
 
+  it("should have appendToList method", () => {
+    const adapter = createIoRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.appendToList).toBe("function");
+    adapter.getClient().disconnect();
+  });
+
+  it("should have getList method", () => {
+    const adapter = createIoRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.getList).toBe("function");
+    adapter.getClient().disconnect();
+  });
+
   // Note: Integration tests with a real Redis instance would go here
   // but require a running Redis server, so they're skipped by default
 

@@ -163,6 +163,25 @@ export function createMockState(): MockStateAdapter {
     delete: vi.fn().mockImplementation(async (key: string) => {
       cache.delete(key);
     }),
+    appendToList: vi
+      .fn()
+      .mockImplementation(
+        async (
+          key: string,
+          value: unknown,
+          options?: { maxLength?: number; ttlMs?: number }
+        ) => {
+          let list = (cache.get(key) as unknown[]) ?? [];
+          list.push(value);
+          if (options?.maxLength && list.length > options.maxLength) {
+            list = list.slice(list.length - options.maxLength);
+          }
+          cache.set(key, list);
+        }
+      ),
+    getList: vi.fn().mockImplementation(async (key: string) => {
+      return (cache.get(key) as unknown[]) ?? [];
+    }),
   };
 }
 

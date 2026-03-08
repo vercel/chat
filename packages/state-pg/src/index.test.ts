@@ -444,6 +444,55 @@ describe("PostgresStateAdapter", () => {
       });
     });
 
+    describe("appendToList / getList", () => {
+      it("should call INSERT for appendToList", async () => {
+        await adapter.appendToList("mylist", { foo: "bar" });
+        const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls;
+        const insertCall = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === "string" &&
+            c[0].includes("INSERT INTO chat_state_lists")
+        );
+        expect(insertCall).toBeTruthy();
+        expect(insertCall[1]).toContain("chat-sdk"); // keyPrefix
+        expect(insertCall[1]).toContain("mylist");
+        expect(insertCall[1]).toContain('{"foo":"bar"}');
+      });
+
+      it("should trim overflow when maxLength is specified", async () => {
+        await adapter.appendToList("mylist", { id: 1 }, { maxLength: 10 });
+        const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls;
+        const deleteCall = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === "string" &&
+            c[0].includes("DELETE FROM chat_state_lists")
+        );
+        expect(deleteCall).toBeTruthy();
+      });
+
+      it("should update TTL when ttlMs is specified", async () => {
+        await adapter.appendToList("mylist", { id: 1 }, { ttlMs: 60000 });
+        const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls;
+        const updateCall = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === "string" && c[0].includes("UPDATE chat_state_lists")
+        );
+        expect(updateCall).toBeTruthy();
+      });
+
+      it("should return parsed list items from getList", async () => {
+        queryRows = [{ value: '{"id":1}' }, { value: '{"id":2}' }];
+        const result = await adapter.getList("mylist");
+        expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+      });
+
+      it("should return empty array when no rows exist", async () => {
+        queryRows = [];
+        const result = await adapter.getList("mylist");
+        expect(result).toEqual([]);
+      });
+    });
+
     describe("getClient", () => {
       it("should return the underlying client", () => {
         const client = adapter.getClient();

@@ -116,6 +116,7 @@ export class WhatsAppAdapter
   implements Adapter<WhatsAppThreadId, WhatsAppRawMessage>
 {
   readonly name = "whatsapp";
+  readonly persistMessageHistory = true;
   readonly userName: string;
 
   private readonly accessToken: string;

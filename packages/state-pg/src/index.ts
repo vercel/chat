@@ -263,6 +263,68 @@ export class PostgresStateAdapter implements StateAdapter {
     );
   }
 
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const serialized = JSON.stringify(value);
+    const expiresAt = options?.ttlMs
+      ? new Date(Date.now() + options.ttlMs)
+      : null;
+
+    // Insert the new entry
+    await this.pool.query(
+      `INSERT INTO chat_state_lists (key_prefix, list_key, value, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [this.keyPrefix, key, serialized, expiresAt]
+    );
+
+    // Trim overflow if maxLength is specified
+    if (options?.maxLength) {
+      await this.pool.query(
+        `DELETE FROM chat_state_lists
+         WHERE key_prefix = $1 AND list_key = $2 AND seq IN (
+           SELECT seq FROM chat_state_lists
+           WHERE key_prefix = $1 AND list_key = $2
+           ORDER BY seq ASC
+           OFFSET 0
+           LIMIT GREATEST(
+             (SELECT count(*) FROM chat_state_lists WHERE key_prefix = $1 AND list_key = $2) - $3,
+             0
+           )
+         )`,
+        [this.keyPrefix, key, options.maxLength]
+      );
+    }
+
+    // Update TTL on all entries for this key
+    if (expiresAt) {
+      await this.pool.query(
+        `UPDATE chat_state_lists
+         SET expires_at = $3
+         WHERE key_prefix = $1 AND list_key = $2`,
+        [this.keyPrefix, key, expiresAt]
+      );
+    }
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const result = await this.pool.query(
+      `SELECT value FROM chat_state_lists
+       WHERE key_prefix = $1 AND list_key = $2
+         AND (expires_at IS NULL OR expires_at > now())
+       ORDER BY seq ASC`,
+      [this.keyPrefix, key]
+    );
+
+    return result.rows.map((row) => JSON.parse(row.value as string) as T);
+  }
+
   getClient(): pg.Pool {
     return this.pool;
   }
@@ -303,6 +365,20 @@ export class PostgresStateAdapter implements StateAdapter {
     await this.pool.query(
       `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
        ON chat_state_cache (expires_at)`
+    );
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS chat_state_lists (
+        key_prefix text NOT NULL,
+        list_key text NOT NULL,
+        seq bigserial NOT NULL,
+        value text NOT NULL,
+        expires_at timestamptz,
+        PRIMARY KEY (key_prefix, list_key, seq)
+      )`
+    );
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
+       ON chat_state_lists (expires_at)`
     );
   }
 

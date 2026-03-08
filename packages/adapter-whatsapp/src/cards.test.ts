@@ -213,7 +213,7 @@ describe("cardToWhatsApp", () => {
     }
   });
 
-  it("should fall back to text for more than 3 buttons", () => {
+  it("should truncate to first 3 buttons when more than 3 are provided", () => {
     const card: CardElement = {
       type: "card",
       title: "Too many buttons",
@@ -230,7 +230,11 @@ describe("cardToWhatsApp", () => {
       ],
     };
     const result = cardToWhatsApp(card);
-    expect(result.type).toBe("text");
+    expect(result.type).toBe("interactive");
+    const interactive = result as {
+      interactive: { action: { buttons: unknown[] } };
+    };
+    expect(interactive.interactive.action.buttons).toHaveLength(3);
   });
 
   it("should fall back to text for link-only buttons", () => {

@@ -105,6 +105,7 @@ export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
   readonly name = "telegram";
+  readonly persistMessageHistory = true;
 
   private readonly botToken: string;
   private readonly apiBaseUrl: string;
