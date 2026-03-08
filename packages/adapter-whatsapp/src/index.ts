@@ -16,7 +16,13 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import { ConsoleLogger, defaultEmojiResolver, getEmoji, Message } from "chat";
+import {
+  ConsoleLogger,
+  convertEmojiPlaceholders,
+  defaultEmojiResolver,
+  getEmoji,
+  Message,
+} from "chat";
 import { cardToWhatsApp, decodeWhatsAppCallbackData } from "./cards";
 import { WhatsAppFormatConverter } from "./markdown";
 import type {
@@ -716,17 +722,27 @@ export class WhatsAppAdapter
     if (card) {
       const result = cardToWhatsApp(card);
       if (result.type === "interactive") {
-        return this.sendInteractiveMessage(
-          threadId,
-          userWaId,
-          result.interactive
+        // Convert emoji placeholders in interactive message fields
+        const interactive = JSON.parse(
+          convertEmojiPlaceholders(
+            JSON.stringify(result.interactive),
+            "whatsapp"
+          )
         );
+        return this.sendInteractiveMessage(threadId, userWaId, interactive);
       }
-      return this.sendTextMessage(threadId, userWaId, result.text);
+      return this.sendTextMessage(
+        threadId,
+        userWaId,
+        convertEmojiPlaceholders(result.text, "whatsapp")
+      );
     }
 
     // Regular text message
-    const body = this.formatConverter.renderPostable(message);
+    const body = convertEmojiPlaceholders(
+      this.formatConverter.renderPostable(message),
+      "whatsapp"
+    );
     return this.sendTextMessage(threadId, userWaId, body);
   }
 
