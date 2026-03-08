@@ -14,6 +14,7 @@ import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
+import { createTwilioAdapter, type TwilioAdapter } from "@chat-adapter/twilio";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -28,6 +29,7 @@ export interface Adapters {
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
+  twilio?: TwilioAdapter;
 }
 
 // Methods to record for each adapter (outgoing API calls)
@@ -96,6 +98,7 @@ const TELEGRAM_METHODS = [
   "openDM",
   "fetchMessages",
 ];
+const TWILIO_METHODS = ["postMessage", "fetchMessages"];
 
 /**
  * Build type-safe adapters based on available environment variables.
@@ -212,6 +215,17 @@ export function buildAdapters(): Adapters {
       }),
       "telegram",
       TELEGRAM_METHODS
+    );
+  }
+
+  // Twilio SMS adapter (optional) - env vars: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+  if (process.env.TWILIO_ACCOUNT_SID) {
+    adapters.twilio = withRecording(
+      createTwilioAdapter({
+        logger: logger.child("twilio"),
+      }),
+      "twilio",
+      TWILIO_METHODS
     );
   }
 
