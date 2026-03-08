@@ -4,6 +4,7 @@ const HELP_REGEX = /help/i;
 
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
+import { LockError } from "./errors";
 import { jsx } from "./jsx-runtime";
 import {
   createMockAdapter,
@@ -1778,6 +1779,150 @@ describe("Chat", () => {
       expect(modalSubmitEvent?.relatedChannel?.id).toBe("slack:C789");
       expect(modalSubmitEvent?.relatedThread).toBeDefined();
       expect(modalSubmitEvent?.relatedThread?.id).toBe("slack:C789:1234.5678");
+    });
+  });
+
+  describe("onLockConflict", () => {
+    it("should drop by default when lock is held", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      // Acquire lock to simulate another handler
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-1", "Hey @slack-bot");
+
+      await expect(
+        chat.handleIncomingMessage(
+          mockAdapter,
+          "slack:C123:1234.5678",
+          message
+        )
+      ).rejects.toThrow(LockError);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should force-release lock when onLockConflict is 'force'", async () => {
+      const forceChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: "force",
+      });
+
+      await forceChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      forceChat.onNewMention(handler);
+
+      // Acquire lock to simulate another handler
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-2", "Hey @slack-bot");
+
+      await forceChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.forceReleaseLock).toHaveBeenCalledWith(
+        "slack:C123:1234.5678"
+      );
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should support callback returning 'force'", async () => {
+      const callbackChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: (_threadId, _message) => "force",
+      });
+
+      await callbackChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      callbackChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-3", "Hey @slack-bot");
+
+      await callbackChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should support callback returning 'drop'", async () => {
+      const callbackChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: (_threadId, _message) => "drop",
+      });
+
+      await callbackChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      callbackChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-4", "Hey @slack-bot");
+
+      await expect(
+        callbackChat.handleIncomingMessage(
+          mockAdapter,
+          "slack:C123:1234.5678",
+          message
+        )
+      ).rejects.toThrow(LockError);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should support async callback", async () => {
+      const asyncChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: async (_threadId, _message) => "force",
+      });
+
+      await asyncChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      asyncChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-5", "Hey @slack-bot");
+
+      await asyncChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalled();
     });
   });
 });

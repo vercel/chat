@@ -93,6 +93,23 @@ describe("MemoryStateAdapter", () => {
       expect(lock2).toBeNull();
     });
 
+    it("should force-release a lock regardless of token", async () => {
+      const lock = await adapter.acquireLock("thread1", 5000);
+      expect(lock).not.toBeNull();
+
+      await adapter.forceReleaseLock("thread1");
+
+      const lock2 = await adapter.acquireLock("thread1", 5000);
+      expect(lock2).not.toBeNull();
+      expect(lock2?.token).not.toBe(lock?.token);
+    });
+
+    it("should no-op when force-releasing a non-existent lock", async () => {
+      await expect(
+        adapter.forceReleaseLock("nonexistent")
+      ).resolves.toBeUndefined();
+    });
+
     it("should not extend an expired lock", async () => {
       const lock = await adapter.acquireLock("thread1", 10);
       expect(lock).not.toBeNull();
