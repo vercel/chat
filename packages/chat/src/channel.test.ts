@@ -449,7 +449,7 @@ describe("ChannelImpl", () => {
 
       expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
         "slack:C123",
-        "Hello World"
+        { markdown: "Hello World" }
       );
       expect(result.text).toBe("Hello World");
     });

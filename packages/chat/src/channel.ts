@@ -270,7 +270,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           accumulated += chunk;
         }
       }
-      return this.postSingleMessage(accumulated);
+      return this.postSingleMessage({ markdown: accumulated });
     }
 
     // Auto-convert JSX elements to CardElement
