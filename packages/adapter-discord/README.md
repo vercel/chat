@@ -173,20 +173,52 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Slash Commands | Yes |
-| Mentions | Yes |
-| Reactions (add/remove) | Yes |
-| Cards (Embeds) | Yes |
-| Modals | No |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | Yes |
 | Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Embeds |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | No |
+| Tables | GFM |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | Yes |
+| Mentions | Yes |
+| Add reactions | Yes |
+| Remove reactions | Yes |
+| Typing indicator | Yes |
 | DMs | Yes |
 | Ephemeral messages | No (DM fallback) |
-| File uploads | Yes |
-| Typing indicator | Yes |
-| Slash Commands | Yes |
-| Message history | Yes |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
 
 ## Testing
 

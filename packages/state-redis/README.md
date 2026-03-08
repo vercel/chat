@@ -91,10 +91,15 @@ For serverless deployments (Vercel, AWS Lambda), use a serverless-compatible Red
 
 ## Features
 
-- Persistent subscriptions across restarts
-- Distributed locking across multiple instances
-- Automatic reconnection
-- Key prefix namespacing
+| Feature | Supported |
+|---------|-----------|
+| Persistence | Yes |
+| Multi-instance | Yes |
+| Subscriptions | Yes |
+| Distributed locking | Yes |
+| Key-value caching | Yes |
+| Automatic reconnection | Yes |
+| Key prefix namespacing | Yes |
 
 ## License
 

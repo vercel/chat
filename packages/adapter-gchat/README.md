@@ -179,18 +179,52 @@ GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Mentions | Yes |
-| Reactions (add/remove) | Yes (via Workspace Events) |
-| Cards (Google Chat Cards) | Yes |
-| Modals | No |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | No |
 | Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Google Chat Cards |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | Yes |
+| Tables | ASCII |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | No |
+| Mentions | Yes |
+| Add reactions | Yes (via Workspace Events) |
+| Remove reactions | Yes (via Workspace Events) |
+| Typing indicator | No |
 | DMs | Yes (requires delegation) |
 | Ephemeral messages | Yes (native) |
-| File uploads | Yes |
-| Typing indicator | No |
-| Message history | Yes |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
 
 ## Limitations
 

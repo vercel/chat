@@ -211,18 +211,52 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Mentions | Yes |
-| Reactions (add/remove) | Read-only |
-| Cards (Adaptive Cards) | Yes |
-| Modals | No |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | Yes |
 | Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Adaptive Cards |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | No |
+| Tables | GFM |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | No |
+| Mentions | Yes |
+| Add reactions | No |
+| Remove reactions | No |
+| Typing indicator | No |
 | DMs | Yes |
 | Ephemeral messages | No (DM fallback) |
-| File uploads | Yes |
-| Typing indicator | No |
-| Message history | No |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
 
 ## Limitations
 

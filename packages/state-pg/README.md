@@ -74,10 +74,15 @@ All rows are namespaced by `key_prefix`.
 
 ## Features
 
-- Persistent subscriptions across restarts
-- Distributed locking across multiple instances
-- Key-value caching with TTL
-- Automatic table creation on first connect
+| Feature | Supported |
+|---------|-----------|
+| Persistence | Yes |
+| Multi-instance | Yes |
+| Subscriptions | Yes |
+| Distributed locking | Yes |
+| Key-value caching | Yes (with TTL) |
+| Automatic table creation | Yes |
+| Key prefix namespacing | Yes |
 
 ## Locking considerations
 

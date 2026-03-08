@@ -169,17 +169,57 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Mentions | Yes |
-| Reactions (add/remove) | Yes |
-| Cards | GFM Markdown |
-| Modals | No |
-| Streaming | No |
-| DMs | No |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
 | File uploads | No |
+| Streaming | No |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | GFM Markdown |
+| Buttons | No |
+| Link buttons | No |
+| Select menus | No |
+| Tables | GFM |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | No |
+| Mentions | Yes |
+| Add reactions | Yes |
+| Remove reactions | Partial |
 | Typing indicator | No |
-| Message history | Yes |
+| DMs | No |
+| Ephemeral messages | No |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | No |
+
+### Platform-specific
+
+| Feature | Supported |
+|---------|-----------|
 | Multi-tenant | Yes (GitHub App) |
 
 ## Limitations

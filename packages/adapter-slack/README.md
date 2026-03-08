@@ -204,19 +204,57 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Mentions | Yes |
-| Reactions (add/remove) | Yes |
-| Cards (Block Kit) | Yes |
-| Modals | Yes |
-| Slash commands | Yes |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | Yes |
 | Streaming | Native API |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Block Kit |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | Yes |
+| Tables | Block Kit |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | Yes |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | Yes |
+| Mentions | Yes |
+| Add reactions | Yes |
+| Remove reactions | Yes |
+| Typing indicator | Yes |
 | DMs | Yes |
 | Ephemeral messages | Yes (native) |
-| File uploads | Yes |
-| Typing indicator | Yes |
-| Message history | Yes |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | Yes |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
+
+### Platform-specific
+
+| Feature | Supported |
+|---------|-----------|
 | Assistants API | Yes |
 | Member joined channel | Yes |
 | App Home tab | Yes |

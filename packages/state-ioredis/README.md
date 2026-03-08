@@ -70,12 +70,17 @@ const state = createIORedisState({ client });
 
 ## Features
 
-- Persistent subscriptions across restarts
-- Distributed locking across multiple instances
-- Automatic reconnection
-- Redis Cluster support
-- Redis Sentinel support
-- Key prefix namespacing
+| Feature | Supported |
+|---------|-----------|
+| Persistence | Yes |
+| Multi-instance | Yes |
+| Subscriptions | Yes |
+| Distributed locking | Yes |
+| Key-value caching | Yes |
+| Automatic reconnection | Yes |
+| Redis Cluster support | Yes |
+| Redis Sentinel support | Yes |
+| Key prefix namespacing | Yes |
 
 ## License
 

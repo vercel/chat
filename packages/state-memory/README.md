@@ -30,9 +30,14 @@ No configuration options are needed.
 
 ## Features
 
-- Thread subscriptions (in-memory)
-- Locking (single-process only)
-- Zero configuration
+| Feature | Supported |
+|---------|-----------|
+| Persistence | No |
+| Multi-instance | No |
+| Subscriptions | Yes (in-memory) |
+| Locking | Yes (single-process only) |
+| Key-value caching | Yes (in-memory) |
+| Zero configuration | Yes |
 
 ## Limitations
 

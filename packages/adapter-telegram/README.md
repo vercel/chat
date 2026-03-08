@@ -135,18 +135,52 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 
 ## Features
 
+### Messaging
+
 | Feature | Supported |
 |---------|-----------|
-| Mentions | Yes |
-| Reactions (add/remove) | Yes |
-| Cards | Text fallback + inline keyboard buttons/link buttons |
-| Modals | No |
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | Single file (`sendDocument`) |
 | Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Markdown + inline keyboard buttons |
+| Buttons | Inline keyboard callbacks |
+| Link buttons | Inline keyboard URLs |
+| Select menus | No |
+| Tables | ASCII |
+| Fields | Yes |
+| Images in cards | No |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | No |
+| Mentions | Yes |
+| Add reactions | Yes |
+| Remove reactions | Yes |
+| Typing indicator | Yes |
 | DMs | Yes |
 | Ephemeral messages | No |
-| File uploads | Single file (`sendDocument`) |
-| Typing indicator | Yes |
-| Message history | Cached messages seen/sent by the adapter |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Cached |
+| Fetch single message | Cached |
+| Fetch thread info | Yes |
+| Fetch channel messages | Cached |
+| List threads | No |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
 
 ## Notes
 
