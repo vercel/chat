@@ -150,11 +150,19 @@ export async function subscribeUser(
     return { subscribed: true, alreadySubscribed: false };
   }
 
-  // Parse error response
-  const errorData = await response.json().catch(() => null);
-  const errorDetail =
-    (errorData as { errors?: Array<{ message?: string }> })?.errors?.[0]
-      ?.message ?? "";
+  // Parse error response -- X returns various shapes so try to extract useful info
+  const errorText = await response.text().catch(() => "");
+  let errorDetail = "";
+  try {
+    const errorData = JSON.parse(errorText);
+    errorDetail =
+      errorData?.errors?.[0]?.message ||
+      errorData?.detail ||
+      errorData?.title ||
+      errorText;
+  } catch {
+    errorDetail = errorText || response.statusText;
+  }
 
   // DuplicateSubscriptionFailed means already subscribed -- treat as success
   if (
@@ -164,7 +172,12 @@ export async function subscribeUser(
     return { subscribed: true, alreadySubscribed: true };
   }
 
+  const hint =
+    response.status === 403
+      ? " (Account Activity API requires Self-Serve Pro tier or higher)"
+      : "";
+
   throw new Error(
-    `X subscription failed (${response.status}): ${errorDetail || response.statusText}`,
+    `X subscription failed (${response.status}): ${errorDetail}${hint}`,
   );
 }
