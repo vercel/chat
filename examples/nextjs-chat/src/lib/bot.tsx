@@ -150,6 +150,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
   await channel.startTyping("Thinking...");
   let history: { role: "user" | "assistant"; content: string }[];
   try {
+    // channel.messages yields newest first; collect and reverse for chronological order
     const messages: (typeof message)[] = [];
     for await (const msg of channel.messages) {
       messages.push(msg);
@@ -157,6 +158,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
         break;
       }
     }
+    messages.reverse();
     history =
       messages.length > 0 ? toAiMessages(messages) : toAiMessages([message]);
   } catch {
