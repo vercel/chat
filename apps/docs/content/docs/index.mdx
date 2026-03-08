@@ -4,7 +4,7 @@ description: A unified SDK for building chat bots across Slack, Microsoft Teams,
 type: overview
 ---
 
-Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it to Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, and Linear.
+Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it to Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp.
 
 ## Why Chat SDK?
 
@@ -58,6 +58,7 @@ Each adapter factory auto-detects credentials from environment variables (`SLACK
 | Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+| WhatsApp | `@chat-adapter/whatsapp` | N/A | Yes | Partial | No | No | Yes |
 
 ## AI coding agent support
 
@@ -83,6 +84,7 @@ The SDK is distributed as a set of packages you install based on your needs:
 | `@chat-adapter/telegram` | Telegram adapter |
 | `@chat-adapter/github` | GitHub Issues adapter |
 | `@chat-adapter/linear` | Linear Issues adapter |
+| `@chat-adapter/whatsapp` | WhatsApp Business adapter |
 | `@chat-adapter/state-redis` | Redis state adapter (production) |
 | `@chat-adapter/state-ioredis` | ioredis state adapter (alternative) |
 | `@chat-adapter/state-pg` | PostgreSQL state adapter (production) |

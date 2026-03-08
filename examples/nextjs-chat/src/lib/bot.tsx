@@ -745,10 +745,15 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.startTyping();
   await delay(1000);
   const response = await thread.post(`${emoji.thinking} Processing...`);
-  await delay(2000);
-  await response.edit(`${emoji.eyes} Just a little bit...`);
-  await delay(1000);
-  await response.edit(`${emoji.check} Thanks for your message!`);
+  try {
+    await delay(2000);
+    await response.edit(`${emoji.eyes} Just a little bit...`);
+    await delay(1000);
+    await response.edit(`${emoji.check} Thanks for your message!`);
+  } catch {
+    // Some platforms (WhatsApp) don't support editing — send a follow-up instead
+    await thread.post(`${emoji.check} Thanks for your message!`);
+  }
 });
 
 // Handle emoji reactions - respond with a matching emoji or message
