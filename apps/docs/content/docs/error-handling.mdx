@@ -97,7 +97,7 @@ See the [feature matrix](/docs/adapters) for which features are supported on eac
 
 ### LockError
 
-Thrown when the SDK fails to acquire a distributed lock on a thread (used to prevent concurrent processing of messages in the same thread).
+Thrown when the SDK fails to acquire a distributed lock on a thread (used to prevent concurrent processing of messages in the same thread). You can control this behavior with the [`onLockConflict`](/docs/usage#configuration-options) option — set it to `'force'` to release the existing lock instead of throwing.
 
 <TypeTable
   type={{
