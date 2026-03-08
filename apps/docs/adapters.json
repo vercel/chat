@@ -90,6 +90,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-ioredis"
   },
   {
+    "name": "PostgreSQL",
+    "slug": "postgres",
+    "type": "state",
+    "description": "Production state adapter using PostgreSQL for persistence and distributed locking.",
+    "packageName": "@chat-adapter/state-pg",
+    "icon": "postgres",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-pg"
+  },
+  {
     "name": "Memory",
     "slug": "memory",
     "type": "state",
