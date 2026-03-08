@@ -28,20 +28,16 @@ export async function POST(
   });
 }
 
-// Health check endpoint
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ platform: string }> }
 ): Promise<Response> {
   const { platform } = await params;
 
-  const hasAdapter = bot.webhooks[platform as Platform] !== undefined;
-
-  if (hasAdapter) {
-    return new Response(`${platform} webhook endpoint is active`, {
-      status: 200,
-    });
+  const webhookHandler = bot.webhooks[platform as Platform];
+  if (!webhookHandler) {
+    return new Response(`${platform} adapter not configured`, { status: 404 });
   }
 
-  return new Response(`${platform} adapter not configured`, { status: 404 });
+  return webhookHandler(request);
 }
