@@ -1,5 +1,21 @@
 # @chat-adapter/slack
 
+## 4.19.0
+
+### Minor Changes
+
+- 5b41f08: Add `thread.schedule()` and `ScheduledMessage` type for scheduling messages to be sent at a future time. Slack adapter implements scheduling via `chat.scheduleMessage` API with `cancel()` support.
+
+### Patch Changes
+
+- 736880a: Resolve parent `thread_ts` for reaction events on threaded replies so `onReaction` gets the correct thread ID
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
 ## 4.18.0
 
 ### Patch Changes

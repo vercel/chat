@@ -1,5 +1,18 @@
 # @chat-adapter/state-memory
 
+## 4.19.0
+
+### Minor Changes
+
+- eb49b2a: Add `forceReleaseLock` to StateAdapter and `onLockConflict` config option for interrupt/steerability of long-running handlers
+
+### Patch Changes
+
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+
 ## 4.18.0
 
 ### Patch Changes
