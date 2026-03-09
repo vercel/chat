@@ -149,7 +149,7 @@ const result = await agent.stream({ prompt: message.text });
 await thread.post(result.fullStream);
 ```
 
-Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams.
+Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams. For Slack-specific streaming controls like `taskDisplayMode` or `stopBlocks`, pass a second argument: `await thread.post(result.fullStream, { stream: { taskDisplayMode: "plan" } })`.
 
 See the [Streaming](/docs/streaming) page for details on platform behavior and configuration.
 
