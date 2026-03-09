@@ -54,7 +54,9 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
 
       {filtered.length === 0 ? (
         <p className="py-12 text-center text-muted-foreground">
-          No adapters found matching &ldquo;{query}&rdquo;
+          {query
+            ? <>No adapters found matching &ldquo;{query}&rdquo;</>
+            : "No adapters found for this filter"}
         </p>
       ) : null}
 

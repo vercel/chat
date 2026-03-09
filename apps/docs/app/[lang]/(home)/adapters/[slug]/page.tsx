@@ -53,6 +53,7 @@ const AdapterPage = async ({
       {readme ? (
         <article className="relative max-w-none px-4 py-16">
           <a
+            aria-label="View on GitHub"
             className="absolute top-18 right-4"
             href={adapter.readme}
             rel="noopener noreferrer"
