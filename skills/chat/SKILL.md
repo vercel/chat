@@ -5,9 +5,10 @@ description: >
   (1) Build a Slack, Teams, Google Chat, Discord, GitHub, or Linear bot,
   (2) Use the Chat SDK to handle mentions, messages, reactions, slash commands, cards, modals, or streaming,
   (3) Set up webhook handlers for chat platforms,
-  (4) Send interactive cards or stream AI responses to chat platforms.
+  (4) Send interactive cards or stream AI responses to chat platforms,
+  (5) Build a custom adapter for a new chat platform.
   Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "discord bot", "@chat-adapter",
-  building bots that work across multiple chat platforms.
+  "custom adapter", "build adapter", building bots that work across multiple chat platforms.
 ---
 
 # Chat SDK
@@ -143,6 +144,16 @@ pnpm changeset
 ```
 
 This creates a file in `.changeset/` — commit it with the PR. When merged to `main`, the Changesets GitHub Action opens a "Version Packages" PR to bump versions and update CHANGELOGs. Merging that PR publishes to npm.
+
+## Building a custom adapter
+
+To create a community or vendor adapter, implement the `Adapter` interface from `chat` and read:
+
+- `docs/contributing/building.mdx` — full step-by-step guide (uses a Matrix adapter as example)
+- `docs/contributing/testing.mdx` — testing your adapter
+- `docs/contributing/publishing.mdx` — npm naming conventions and publishing
+
+The adapter must implement `handleWebhook`, `parseMessage`, `postMessage`, `editMessage`, `deleteMessage`, thread ID encoding/decoding, and a `FormatConverter` (extend `BaseFormatConverter` from `chat`). Use `@chat-adapter/shared` for error classes and message utilities.
 
 ## Webhook setup
 
