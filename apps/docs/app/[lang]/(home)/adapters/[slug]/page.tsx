@@ -26,8 +26,11 @@ const getReadme = async (repoUrl: string): Promise<string | undefined> => {
   const repoMatch = repoUrl.match(GITHUB_REPO_PATTERN);
   if (repoMatch) {
     const [, owner, repo] = repoMatch;
-    const url = `https://raw.githubusercontent.com/${owner}/${repo}/main/README.md`;
-    const response = await fetch(url, { next: { revalidate: 3600 } });
+    const url = `https://api.github.com/repos/${owner}/${repo}/readme`;
+    const response = await fetch(url, {
+      headers: { Accept: "application/vnd.github.raw+json" },
+      next: { revalidate: 3600 },
+    });
     if (response.ok) {
       return response.text();
     }
@@ -64,18 +67,21 @@ const AdapterPage = async ({
           <ReadmeContent>{readme}</ReadmeContent>
         </article>
       ) : (
-        <p className="px-4 pb-16 text-muted-foreground">
-          README not available. Visit the{" "}
-          <a
-            className="text-primary underline"
-            href={adapter.readme}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            GitHub repository
-          </a>{" "}
-          for documentation.
-        </p>
+        <div className="px-4 py-16">
+          <h1 className="mb-4 font-bold text-2xl">{adapter.name}</h1>
+          <p className="text-muted-foreground">
+            README not available. Visit the{" "}
+            <a
+              className="text-primary underline"
+              href={adapter.readme}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              GitHub repository
+            </a>{" "}
+            for documentation.
+          </p>
+        </div>
       )}
     </div>
   );
