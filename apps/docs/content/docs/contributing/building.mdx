@@ -542,6 +542,7 @@ These methods are not required but extend your adapter's capabilities:
 | `fetchMessage(threadId, messageId)` | Fetch a single message by ID |
 | `fetchChannelMessages(channelId)` | Fetch top-level channel messages |
 | `channelIdFromThreadId(threadId)` | Extract channel ID from a thread ID |
+| `scheduleMessage(threadId, message, options)` | Schedule a message for future delivery; return a `ScheduledMessage` with `cancel()` |
 
 Implement only the methods your platform supports. The SDK gracefully handles missing optional methods.
 

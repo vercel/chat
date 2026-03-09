@@ -93,6 +93,27 @@ await thread.postEphemeral(userId, "Only you can see this", {
 
 **Returns:** `Promise<EphemeralMessage | null>`
 
+## schedule
+
+Schedule a message for future delivery. Currently only supported by the Slack adapter — other adapters throw `NotImplementedError`.
+
+```typescript
+const scheduled = await thread.schedule("Reminder: standup in 5 minutes!", {
+  postAt: new Date("2026-03-09T09:00:00Z"),
+});
+
+// Cancel before it's sent
+await scheduled.cancel();
+```
+
+**Parameters:** `message: string | PostableMessage | CardJSXElement`, `options: { postAt: Date }`
+
+**Returns:** `Promise<ScheduledMessage>`
+
+<Callout type="warn">
+Streaming and file uploads are not supported in scheduled messages.
+</Callout>
+
 ## subscribe / unsubscribe
 
 Manage thread subscriptions. Subscribed threads route all messages to `onSubscribedMessage` handlers.
@@ -189,6 +210,35 @@ await data.thread.post("Hello from workflow!");
 ```
 
 Under the hood, the reviver calls `ThreadImpl.fromJSON()` and `Message.fromJSON()` for any serialized objects it encounters.
+
+## ScheduledMessage
+
+Returned by `thread.schedule()` and `channel.schedule()`.
+
+<TypeTable
+  type={{
+    scheduledMessageId: {
+      description: 'Platform-specific scheduled message ID.',
+      type: 'string',
+    },
+    channelId: {
+      description: 'Channel ID where the message will be posted.',
+      type: 'string',
+    },
+    postAt: {
+      description: 'When the message will be sent.',
+      type: 'Date',
+    },
+    raw: {
+      description: 'Platform-specific raw response.',
+      type: 'unknown',
+    },
+    'cancel()': {
+      description: 'Cancel the scheduled message before it is sent.',
+      type: '() => Promise<void>',
+    },
+  }}
+/>
 
 ## SentMessage
 

@@ -68,7 +68,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 - **Chat** — main entry point, coordinates adapters and routes events
 - **Adapters** — platform-specific (Slack, Teams, GChat, Discord, GitHub, Linear)
 - **State** — pluggable persistence (Redis or PostgreSQL for prod, memory for dev)
-- **Thread** — conversation thread with `post()`, `subscribe()`, `startTyping()`
+- **Thread** — conversation thread with `post()`, `schedule()`, `subscribe()`, `startTyping()`
 - **Message** — normalized format with `text`, `formatted` (mdast AST), `raw`
 - **Channel** — container for threads, supports listing and posting
 
