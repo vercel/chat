@@ -2,7 +2,6 @@ import {
   SiInstagram,
   SiMessenger,
   SiSignal,
-  SiWhatsapp,
   SiX,
 } from "@icons-pack/react-simple-icons";
 import { ExternalLinkIcon, VerifiedIcon } from "lucide-react";
@@ -27,6 +26,7 @@ import {
   slack,
   teams,
   telegram,
+  whatsapp,
 } from "@/lib/logos";
 
 const iconMap: Record<
@@ -44,7 +44,7 @@ const iconMap: Record<
   ioredis,
   postgres,
   memory,
-  whatsapp: SiWhatsapp,
+  whatsapp,
   instagram: SiInstagram,
   signal: SiSignal,
   x: SiX,

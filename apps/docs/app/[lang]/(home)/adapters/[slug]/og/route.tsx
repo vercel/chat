@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 import adapters from "@/adapters.json";
+// biome-ignore lint/performance/noNamespaceImport: "Required for Satori"
 import * as logos from "@/lib/logos";
 
 const logoSize = 160;
@@ -46,6 +47,7 @@ const adapterLogos: Record<
     width: Math.round(logoSize * (576 / 594)),
     height: logoSize,
   },
+  whatsapp: { component: logos.whatsapp, width: logoSize, height: logoSize },
 };
 
 const fontsDir = "app/[lang]/og/[...slug]";
@@ -113,12 +115,12 @@ export const GET = async (
       </div>
       {adapterLogo ? (
         <div
-          tw="absolute right-[80px] top-0 bottom-0 flex items-center justify-center"
           style={{ width: logoSize, height: 628 }}
+          tw="absolute right-[80px] top-0 bottom-0 flex items-center justify-center"
         >
           <adapterLogo.component
-            width={adapterLogo.width}
             height={adapterLogo.height}
+            width={adapterLogo.width}
           />
         </div>
       ) : null}

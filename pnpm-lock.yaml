@@ -539,6 +539,9 @@ importers:
       '@chat-adapter/telegram':
         specifier: workspace:*
         version: link:../adapter-telegram
+      '@chat-adapter/whatsapp':
+        specifier: workspace:*
+        version: link:../adapter-whatsapp
       chat:
         specifier: workspace:*
         version: link:../chat

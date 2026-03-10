@@ -132,7 +132,7 @@ describe("Replay Tests - Telegram", () => {
 
     expect(captured.followUpMessage).not.toBeNull();
     expect(captured.followUpMessage?.text).toBe("how are you");
-    expect(captured.followUpMessage?.isMention).toBe(false);
+    expect(captured.followUpMessage?.isMention).toBe(true);
     expect(captured.followUpThread?.id).toBe("telegram:7527593");
 
     expect(mockApi.sentMessages).toContainEqual(
