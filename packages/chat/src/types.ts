@@ -228,6 +228,17 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   isDM?(threadId: string): boolean;
 
   /**
+   * Check if a thread is in an external/shared channel (e.g., Slack Connect).
+   *
+   * External channels are shared between different organizations. Bots should
+   * be careful about what information they expose in external channels.
+   *
+   * @param threadId - The thread ID to check
+   * @returns True if the thread is in an external channel, false otherwise
+   */
+  isExternalChannel?(threadId: string): boolean;
+
+  /**
    * List threads in a channel.
    */
   listThreads?(
@@ -611,6 +622,8 @@ export interface Postable<
   readonly id: string;
   /** Whether this is a direct message conversation */
   readonly isDM: boolean;
+  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  readonly isExternalChannel: boolean;
 
   /**
    * Get a platform-specific mention string for a user.
@@ -730,6 +743,8 @@ export interface ThreadSummary<TRawMessage = unknown> {
 export interface ChannelInfo {
   id: string;
   isDM?: boolean;
+  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  isExternalChannel?: boolean;
   memberCount?: number;
   metadata: Record<string, unknown>;
   name?: string;
@@ -927,6 +942,8 @@ export interface ThreadInfo {
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
+  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  isExternalChannel?: boolean;
   /** Platform-specific metadata */
   metadata: Record<string, unknown>;
 }

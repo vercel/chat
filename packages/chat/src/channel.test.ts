@@ -621,6 +621,35 @@ describe("thread.channel", () => {
 
     expect(thread.channel.isDM).toBe(true);
   });
+
+  it("should inherit isExternalChannel from thread", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const thread = new ThreadImpl({
+      id: "slack:C123:1234.5678",
+      adapter: mockAdapter,
+      channelId: "C123",
+      stateAdapter: mockState,
+      isExternalChannel: true,
+    });
+
+    expect(thread.channel.isExternalChannel).toBe(true);
+  });
+
+  it("should default isExternalChannel to false", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const thread = new ThreadImpl({
+      id: "slack:C123:1234.5678",
+      adapter: mockAdapter,
+      channelId: "C123",
+      stateAdapter: mockState,
+    });
+
+    expect(thread.channel.isExternalChannel).toBe(false);
+  });
 });
 
 describe("ChannelImpl.postEphemeral", () => {

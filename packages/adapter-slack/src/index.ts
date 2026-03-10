@@ -220,6 +220,8 @@ interface SlackWebhookPayload {
     | SlackMemberJoinedChannelEvent;
   event_id?: string;
   event_time?: number;
+  /** Whether this event occurred in an externally shared channel (Slack Connect) */
+  is_ext_shared_channel?: boolean;
   team_id?: string;
   type: string;
 }
@@ -319,6 +321,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly formatConverter = new SlackFormatConverter();
   private static USER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+  /**
+   * Cache of channel IDs known to be external/shared (Slack Connect).
+   * Populated from `is_ext_shared_channel` in incoming webhook payloads.
+   */
+  private readonly _externalChannels = new Set<string>();
+
   // Multi-workspace support
   private readonly clientId: string | undefined;
   private readonly clientSecret: string | undefined;
@@ -327,6 +335,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
+    isExtSharedChannel?: boolean;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -788,6 +797,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): void {
     if (payload.type === "event_callback" && payload.event) {
       const event = payload.event;
+
+      // Track external/shared channel status from payload-level flag
+      if (payload.is_ext_shared_channel) {
+        let channelId: string | undefined;
+        if ("channel" in event) {
+          channelId = (event as SlackEvent).channel;
+        } else if ("item" in event) {
+          channelId = (event as SlackReactionEvent).item.channel;
+        }
+        if (channelId) {
+          this._externalChannels.add(channelId);
+        }
+      }
 
       if (event.type === "message" || event.type === "app_mention") {
         const slackEvent = event as SlackEvent;
@@ -2864,7 +2886,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.conversations.info(
         this.withToken({ channel })
       );
-      const channelInfo = result.channel as { name?: string } | undefined;
+      const channelInfo = result.channel as
+        | {
+            name?: string;
+            is_ext_shared?: boolean;
+          }
+        | undefined;
+
+      // Update external channel cache from API response
+      if (channelInfo?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
 
       this.logger.debug("Slack API: conversations.info response", {
         channelName: channelInfo?.name,
@@ -2875,6 +2907,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         id: threadId,
         channelId: channel,
         channelName: channelInfo?.name,
+        isExternalChannel: channelInfo?.is_ext_shared ?? false,
         metadata: {
           threadTs,
           channel: result.channel,
@@ -2928,6 +2961,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   isDM(threadId: string): boolean {
     const { channel } = this.decodeThreadId(threadId);
     return channel.startsWith("D");
+  }
+
+  /**
+   * Check if a thread is in an external/shared channel (Slack Connect).
+   * Uses the `is_ext_shared_channel` flag from incoming webhook payloads,
+   * cached per channel ID.
+   */
+  isExternalChannel(threadId: string): boolean {
+    const { channel } = this.decodeThreadId(threadId);
+    return this._externalChannels.has(channel);
   }
 
   decodeThreadId(threadId: string): SlackThreadId {
@@ -3241,15 +3284,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         name?: string;
         is_im?: boolean;
         is_mpim?: boolean;
+        is_ext_shared?: boolean;
         num_members?: number;
         purpose?: { value?: string };
         topic?: { value?: string };
       };
 
+      // Update external channel cache from API response
+      if (info?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
+
       return {
         id: channelId,
         name: info?.name ? `#${info.name}` : undefined,
         isDM: Boolean(info?.is_im || info?.is_mpim),
+        isExternalChannel: info?.is_ext_shared ?? false,
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,

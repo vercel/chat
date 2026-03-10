@@ -37,6 +37,7 @@ export interface SerializedChannel {
   adapterName: string;
   id: string;
   isDM: boolean;
+  isExternalChannel?: boolean;
 }
 
 /**
@@ -46,6 +47,7 @@ interface ChannelImplConfigWithAdapter {
   adapter: Adapter;
   id: string;
   isDM?: boolean;
+  isExternalChannel?: boolean;
   stateAdapter: StateAdapter;
 }
 
@@ -56,6 +58,7 @@ interface ChannelImplConfigLazy {
   adapterName: string;
   id: string;
   isDM?: boolean;
+  isExternalChannel?: boolean;
 }
 
 type ChannelImplConfig = ChannelImplConfigWithAdapter | ChannelImplConfigLazy;
@@ -80,6 +83,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
 {
   readonly id: string;
   readonly isDM: boolean;
+  readonly isExternalChannel: boolean;
 
   private _adapter?: Adapter;
   private readonly _adapterName?: string;
@@ -89,6 +93,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
     this.isDM = config.isDM ?? false;
+    this.isExternalChannel = config.isExternalChannel ?? false;
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
@@ -359,6 +364,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
       id: this.id,
       adapterName: this.adapter.name,
       isDM: this.isDM,
+      ...(this.isExternalChannel ? { isExternalChannel: true } : {}),
     };
   }
 
@@ -370,6 +376,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
       id: json.id,
       adapterName: json.adapterName,
       isDM: json.isDM,
+      isExternalChannel: json.isExternalChannel,
     });
     if (adapter) {
       channel._adapter = adapter;
