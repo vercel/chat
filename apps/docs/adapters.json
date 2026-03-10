@@ -70,6 +70,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-telegram"
   },
   {
+    "name": "WhatsApp",
+    "slug": "whatsapp",
+    "type": "platform",
+    "icon": "whatsapp",
+    "description": "Connect to WhatsApp Business for customer messaging and automated conversations.",
+    "packageName": "@chat-adapter/whatsapp",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",
@@ -171,18 +181,6 @@
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
     "readme": "https://github.com/rama-adi/chat-adapter-baileys"
-  },
-  {
-    "name": "WhatsApp",
-    "slug": "whatsapp",
-    "type": "platform",
-    "icon": "whatsapp",
-    "description": "Connect to WhatsApp Business for customer messaging and automated conversations.",
-    "comingSoon": true,
-    "prs": [
-      "https://github.com/vercel/chat/pull/102",
-      "https://github.com/vercel/chat/pull/104"
-    ]
   },
   {
     "name": "Instagram",
