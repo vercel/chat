@@ -10,6 +10,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
+import { isPostableObject } from "./postable-object";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -18,6 +19,7 @@ import type {
   ChannelInfo,
   EphemeralMessage,
   PostableMessage,
+  PostableObject,
   PostEphemeralOptions,
   ScheduledMessage,
   SentMessage,
@@ -240,9 +242,22 @@ export class ChannelImpl<TState = Record<string, unknown>>
     };
   }
 
+  async post<T extends PostableObject>(message: T): Promise<T>;
+  async post(
+    message:
+      | string
+      | AdapterPostableMessage
+      | AsyncIterable<string>
+      | ChatElement
+  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage> {
+  ): Promise<SentMessage | PostableObject> {
+    if (isPostableObject(message)) {
+      await this.handlePostableObject(message);
+      return message;
+    }
+
     // Handle AsyncIterable (streaming) — not supported at channel level,
     // fall through to postMessage
     if (isAsyncIterable(message)) {
@@ -267,6 +282,33 @@ export class ChannelImpl<TState = Record<string, unknown>>
     }
 
     return this.postSingleMessage(postable);
+  }
+
+  private async handlePostableObject(obj: PostableObject): Promise<void> {
+    const adapter = this.adapter;
+    if (obj.isSupported(adapter) && adapter.postObject) {
+      const raw = await adapter.postObject(
+        this.id,
+        obj.kind,
+        obj.getPostData()
+      );
+      obj.onPosted({
+        adapter,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
+      });
+    } else {
+      // Adapter doesn't support this object type - post fallback text
+      const fallbackText = obj.getFallbackText();
+      const raw = this.adapter.postChannelMessage
+        ? await this.adapter.postChannelMessage(this.id, fallbackText)
+        : await this.adapter.postMessage(this.id, fallbackText);
+      obj.onPosted({
+        adapter,
+        messageId: raw.id,
+        threadId: raw.threadId ?? this.id,
+      });
+    }
   }
 
   private async postSingleMessage(
