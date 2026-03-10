@@ -91,6 +91,8 @@ features:
       should_escape: false
 ```
 
+If you're starting from scratch rather than the Slack guide, make sure your app also has the `commands` and `chat:write` bot scopes in **OAuth & Permissions**, then reinstall the app after changing scopes.
+
 This guide keeps parsing simple by accepting an ISO timestamp like `2026-03-15T09:00:00Z`.
 
 ## Create the schedule table in Neon
@@ -226,12 +228,12 @@ export async function markScheduledPostSent(id: string) {
   );
 }
 
-export async function cancelScheduledPost(id: string) {
+export async function cancelScheduledPost(id: string, createdBy: string) {
   const result = await pool.query(
     `UPDATE scheduled_posts
      SET status = 'canceled', canceled_at = now()
-     WHERE id = $1 AND status = 'pending'`,
-    [id]
+     WHERE id = $1 AND created_by = $2 AND status = 'pending'`,
+    [id, createdBy]
   );
 
   return result.rowCount > 0;
@@ -373,7 +375,7 @@ bot.onSlashCommand("/remind-cancel", async (event) => {
     return;
   }
 
-  const canceled = await cancelScheduledPost(scheduleId);
+  const canceled = await cancelScheduledPost(scheduleId, event.user.userId);
 
   await event.channel.postEphemeral(
     event.user,
@@ -385,7 +387,9 @@ bot.onSlashCommand("/remind-cancel", async (event) => {
 });
 ```
 
-The cancellation path is intentionally simple. It only updates the database row. If the workflow wakes up later, it re-checks the row and exits without posting.
+The cancellation path is intentionally simple. It only updates the database row, and it only allows the creator of the schedule to cancel it. If the workflow wakes up later, it re-checks the row and exits without posting.
+
+If you want workspace admins or moderators to cancel other users' schedules, extend the cancellation query with your own permission rules instead of removing the ownership check.
 
 ## Create the webhook route
 

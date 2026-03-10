@@ -77,10 +77,12 @@ export const bot = new Chat<typeof adapters, ThreadState>({
   userName: "durable-bot",
   adapters,
   state: createRedisState(),
-});
+}).registerSingleton();
 ```
 
 `runId` will store the active workflow run for each subscribed thread.
+
+`registerSingleton()` matters here because Workflow may deserialize `Thread` objects again inside `"use step"` functions, and Chat SDK needs a registered singleton to resolve the adapter and state layer for those thread instances.
 
 ## Define a hook for follow-up turns
 
@@ -97,13 +99,34 @@ export const chatTurnHook = defineHook<{
 
 ## Create the durable session workflow
 
-The workflow receives the serialized thread and first message, restores them with `bot.reviver()`, and then keeps waiting for more turns through the hook:
+The workflow receives the serialized thread and first message, restores them with `bot.reviver()`, and then keeps waiting for more turns through the hook.
+
+The important detail is that the workflow only orchestrates. Chat SDK side effects such as `post()`, `unsubscribe()`, and `setState()` stay inside step helpers:
 
 ```typescript title="workflows/durable-chat-session.ts" lineNumbers
 import { Message, type Thread } from "chat";
 import { getWorkflowMetadata } from "workflow";
 import { bot, type ThreadState } from "@/lib/bot";
 import { chatTurnHook } from "@/workflows/chat-turn-hook";
+
+async function postAssistantMessage(
+  thread: Thread<ThreadState>,
+  text: string
+) {
+  "use step";
+
+  await bot.initialize();
+  await thread.post(text);
+}
+
+async function closeSession(thread: Thread<ThreadState>) {
+  "use step";
+
+  await bot.initialize();
+  await thread.post("Session closed.");
+  await thread.unsubscribe();
+  await thread.setState({}, { replace: true });
+}
 
 async function runTurn(text: string) {
   "use step";
@@ -119,20 +142,17 @@ async function processMessage(
   const text = message.text.trim();
 
   if (text.toLowerCase() === "done") {
-    await thread.post("Session closed.");
-    await thread.unsubscribe();
-    await thread.setState({}, { replace: true });
+    await closeSession(thread);
     return false;
   }
 
-  await thread.post(await runTurn(text));
+  const reply = await runTurn(text);
+  await postAssistantMessage(thread, reply);
   return true;
 }
 
 export async function durableChatSession(payload: string) {
   "use workflow";
-
-  await bot.initialize();
 
   const { workflowRunId } = getWorkflowMetadata();
   const { thread, message } = JSON.parse(payload, bot.reviver()) as {
@@ -142,7 +162,8 @@ export async function durableChatSession(payload: string) {
 
   using hook = chatTurnHook.create({ token: workflowRunId });
 
-  await thread.post(
+  await postAssistantMessage(
+    thread,
     "Durable session started. Reply in this thread and send `done` when you want to stop."
   );
 
@@ -166,8 +187,9 @@ This is the core integration:
 
 - `thread.toJSON()` and `message.toJSON()` cross the workflow boundary safely
 - `bot.reviver()` restores real Chat SDK objects inside the workflow
+- `bot.registerSingleton()` lets Workflow deserialize `Thread` objects again inside step functions
 - `chatTurnHook.create({ token: workflowRunId })` makes the workflow run itself the session identifier
-- `runTurn()` is a step, so it has full Node.js access for AI calls, databases, and HTTP clients
+- `runTurn()`, `postAssistantMessage()`, and `closeSession()` are steps, so adapter and state side effects stay outside the workflow sandbox
 
 ## Register Chat SDK event handlers
 
