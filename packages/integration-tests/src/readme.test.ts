@@ -279,6 +279,7 @@ describe("Package README code examples", () => {
               "next/server",
               "redis",
               "ioredis",
+              "pg",
               "postgres",
             ];
             const isValid =

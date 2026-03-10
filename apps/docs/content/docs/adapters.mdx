@@ -1,0 +1,56 @@
+---
+title: Platform Adapters
+description: Platform-specific adapters that connect your bot to any messaging platform.
+type: overview
+prerequisites:
+  - /docs/getting-started
+---
+
+Adapters handle webhook verification, message parsing, and API calls for each platform. Install only the adapters you need. Browse all available adapters — including community-built ones — on the [Adapters](/adapters) page.
+
+Ready to build your own? Follow the [building](/docs/contributing/building) guide.
+
+## How adapters work
+
+Each adapter implements a standard interface that the `Chat` class uses to route events and send messages. When a webhook arrives:
+
+1. The adapter verifies the request signature
+2. Parses the platform-specific payload into a normalized `Message`
+3. Routes to your handlers via the `Chat` class
+4. Converts outgoing messages from markdown/AST/cards to the platform's native format
+
+## Using multiple adapters
+
+Register multiple adapters and your event handlers work across all of them:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { createGoogleChatAdapter } from "@chat-adapter/gchat";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+    teams: createTeamsAdapter(),
+    gchat: createGoogleChatAdapter(),
+  },
+  state: createRedisState(),
+});
+
+// This handler fires for mentions on any platform
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello!");
+});
+```
+
+Each adapter auto-detects credentials from environment variables, so you only need to pass config when overriding defaults.
+
+<Callout type="info">
+  The examples above use Redis for state. See [State Adapters](/docs/state) for all available options.
+</Callout>
+
+Each adapter creates a webhook handler accessible via `bot.webhooks.<name>`.

@@ -1,27 +1,18 @@
 ---
-title: Overview
+title: State Adapters
 description: Pluggable state adapters for thread subscriptions, distributed locking, and caching.
 type: overview
 prerequisites:
   - /docs/getting-started
 ---
 
-State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance.
-
-## Comparison
-
-| Adapter | Package | Persistence | Multi-instance | Use case |
-|---------|---------|-------------|----------------|----------|
-| [Redis](/docs/state/redis) | `@chat-adapter/state-redis` | Yes | Yes | Production (recommended) |
-| [ioredis](/docs/state/ioredis) | `@chat-adapter/state-ioredis` | Yes | Yes | Production (Cluster/Sentinel) |
-| [PostgreSQL](/docs/state/postgres) | `@chat-adapter/state-pg` | Yes | Yes | Production (SQL-first stack) |
-| [Memory](/docs/state/memory) | `@chat-adapter/state-memory` | No | No | Development and testing |
+State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance. Browse all available state adapters on the [Adapters](/adapters) page.
 
 ## What state adapters manage
 
 ### Thread subscriptions
 
-When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On subsequent webhooks, the SDK checks subscriptions to route messages to `onSubscribedMessage` handlers. With Redis, subscriptions survive restarts and work across multiple instances.
+When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On subsequent webhooks, the SDK checks subscriptions to route messages to `onSubscribedMessage` handlers. With a production adapter, subscriptions survive restarts and work across multiple instances.
 
 ### Distributed locking
 

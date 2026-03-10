@@ -1,0 +1,221 @@
+[
+  {
+    "name": "Slack",
+    "slug": "slack",
+    "type": "platform",
+    "description": "Build bots for Slack workspaces with full support for threads, reactions, and interactive messages.",
+    "packageName": "@chat-adapter/slack",
+    "icon": "slack",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-slack"
+  },
+  {
+    "name": "Microsoft Teams",
+    "slug": "teams",
+    "type": "platform",
+    "description": "Deploy bots to Microsoft Teams with adaptive cards, mentions, and conversation threading.",
+    "packageName": "@chat-adapter/teams",
+    "icon": "teams",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-teams"
+  },
+  {
+    "name": "Google Chat",
+    "slug": "google-chat",
+    "type": "platform",
+    "description": "Integrate with Google Chat spaces for team collaboration and automated workflows.",
+    "packageName": "@chat-adapter/gchat",
+    "icon": "google-chat",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gchat"
+  },
+  {
+    "name": "Discord",
+    "slug": "discord",
+    "type": "platform",
+    "description": "Create Discord bots with slash commands, threads, and rich embeds.",
+    "packageName": "@chat-adapter/discord",
+    "icon": "discord",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-discord"
+  },
+  {
+    "name": "GitHub",
+    "slug": "github",
+    "type": "platform",
+    "description": "Build bots that respond to pull request and issue comment threads.",
+    "packageName": "@chat-adapter/github",
+    "icon": "github",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-github"
+  },
+  {
+    "name": "Linear",
+    "slug": "linear",
+    "type": "platform",
+    "description": "Automate Linear issue comment threads with bot responses and workflows.",
+    "packageName": "@chat-adapter/linear",
+    "icon": "linear",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-linear"
+  },
+  {
+    "name": "Telegram",
+    "slug": "telegram",
+    "type": "platform",
+    "description": "Connect to Telegram with support for groups, channels, and inline keyboards.",
+    "packageName": "@chat-adapter/telegram",
+    "icon": "telegram",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-telegram"
+  },
+  {
+    "name": "Redis",
+    "slug": "redis",
+    "type": "state",
+    "description": "Production-ready state adapter using Redis for persistence and distributed locking.",
+    "packageName": "@chat-adapter/state-redis",
+    "icon": "redis",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-redis"
+  },
+  {
+    "name": "ioredis",
+    "slug": "ioredis",
+    "type": "state",
+    "description": "Redis state adapter using ioredis with cluster and sentinel support.",
+    "packageName": "@chat-adapter/state-ioredis",
+    "icon": "ioredis",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-ioredis"
+  },
+  {
+    "name": "PostgreSQL",
+    "slug": "postgres",
+    "type": "state",
+    "description": "Production state adapter using PostgreSQL for persistence and distributed locking.",
+    "packageName": "@chat-adapter/state-pg",
+    "icon": "postgres",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-pg"
+  },
+  {
+    "name": "Memory",
+    "slug": "memory",
+    "type": "state",
+    "description": "In-memory state adapter for development and testing environments.",
+    "packageName": "@chat-adapter/state-memory",
+    "icon": "memory",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-memory"
+  },
+  {
+    "name": "Cloudflare Durable Objects",
+    "slug": "cloudflare-do",
+    "type": "state",
+    "community": true,
+    "description": "Cloudflare Durable Objects state adapter with SQLite-backed persistence, distributed locking, and caching.",
+    "packageName": "chat-state-cloudflare-do",
+    "author": "dcartertwo",
+    "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do"
+  },
+  {
+    "name": "Beeper Matrix",
+    "slug": "matrix",
+    "type": "platform",
+    "community": true,
+    "description": "Matrix adapter for Chat SDK, built and maintained by Beeper.",
+    "packageName": "@beeper/chat-adapter-matrix",
+    "author": "Beeper",
+    "readme": "https://github.com/beeper/chat-adapter-matrix",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Photon iMessage",
+    "slug": "imessage",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
+    "packageName": "chat-adapter-imessage",
+    "author": "Photon",
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Webex",
+    "slug": "webex",
+    "type": "platform",
+    "community": true,
+    "description": "Community Webex adapter for Chat SDK with support for spaces, threads, and adaptive cards.",
+    "packageName": "@bitbasti/chat-adapter-webex",
+    "author": "SebastianBodza",
+    "readme": "https://github.com/SebastianBodza/chat-adapter-webex"
+  },
+  {
+    "name": "Resend",
+    "slug": "resend",
+    "type": "platform",
+    "community": true,
+    "description": "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
+    "packageName": "@resend/chat-sdk-adapter",
+    "author": "Resend",
+    "readme": "https://github.com/resend/resend-chat-sdk",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Baileys WhatsApp",
+    "slug": "baileys",
+    "type": "platform",
+    "community": true,
+    "description": "Chat SDK adapter for Baileys (Unofficial WhatsApp API).",
+    "packageName": "chat-adapter-baileys",
+    "author": "rama-adi",
+    "readme": "https://github.com/rama-adi/chat-adapter-baileys"
+  },
+  {
+    "name": "WhatsApp",
+    "slug": "whatsapp",
+    "type": "platform",
+    "icon": "whatsapp",
+    "description": "Connect to WhatsApp Business for customer messaging and automated conversations.",
+    "comingSoon": true,
+    "prs": [
+      "https://github.com/vercel/chat/pull/102",
+      "https://github.com/vercel/chat/pull/104"
+    ]
+  },
+  {
+    "name": "Instagram",
+    "slug": "instagram",
+    "type": "platform",
+    "icon": "instagram",
+    "description": "Build bots for Instagram direct messages and automated customer interactions.",
+    "comingSoon": true
+  },
+  {
+    "name": "Signal",
+    "slug": "signal",
+    "type": "platform",
+    "icon": "signal",
+    "description": "Integrate with Signal for private, encrypted bot messaging.",
+    "comingSoon": true,
+    "prs": ["https://github.com/vercel/chat/pull/169"]
+  },
+  {
+    "name": "X",
+    "slug": "x",
+    "type": "platform",
+    "icon": "x",
+    "description": "Build bots for X direct messages and automated interactions.",
+    "comingSoon": true
+  },
+  {
+    "name": "Messenger",
+    "slug": "messenger",
+    "type": "platform",
+    "icon": "messenger",
+    "description": "Build bots for Facebook Messenger with rich messages and automated customer interactions.",
+    "comingSoon": true,
+    "prs": ["https://github.com/vercel/chat/pull/156"]
+  }
+]

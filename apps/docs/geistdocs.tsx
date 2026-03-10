@@ -16,7 +16,7 @@ export const nav = [
   },
   {
     label: "Adapters",
-    href: "/docs/adapters",
+    href: "/adapters",
   },
   {
     label: "Guides",
