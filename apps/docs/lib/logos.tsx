@@ -489,8 +489,8 @@ export const whatsapp = (props: ComponentProps<"svg">) => (
         y1="19.765"
         y2="124.29"
       >
-        <stop stop-color="#57D163" />
-        <stop offset="1" stop-color="#23B33A" />
+        <stop stopColor="#57D163" />
+        <stop offset="1" stopColor="#23B33A" />
       </linearGradient>
     </defs>
   </svg>
