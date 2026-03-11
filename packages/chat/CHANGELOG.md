@@ -1,5 +1,7 @@
 # chat
 
+## 4.20.0
+
 ## 4.19.0
 
 ### Minor Changes

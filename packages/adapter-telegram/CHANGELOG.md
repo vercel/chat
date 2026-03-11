@@ -1,5 +1,13 @@
 # @chat-adapter/telegram
 
+## 4.20.0
+
+### Patch Changes
+
+- ee1c025: Fix DM replies failing with "chat not found" due to double-prefixed channel ID in postChannelMessage
+  - chat@4.20.0
+  - @chat-adapter/shared@4.20.0
+
 ## 4.19.0
 
 ### Patch Changes

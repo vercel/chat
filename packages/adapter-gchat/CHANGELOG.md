@@ -1,5 +1,12 @@
 # @chat-adapter/gchat
 
+## 4.20.0
+
+### Patch Changes
+
+- chat@4.20.0
+- @chat-adapter/shared@4.20.0
+
 ## 4.19.0
 
 ### Patch Changes

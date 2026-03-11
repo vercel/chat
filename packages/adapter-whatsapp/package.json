@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/whatsapp",
-  "version": "4.14.0",
+  "version": "4.20.0",
   "description": "WhatsApp adapter for chat - WhatsApp Business Cloud API",
   "type": "module",
   "main": "./dist/index.js",
