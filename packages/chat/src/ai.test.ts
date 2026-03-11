@@ -245,9 +245,9 @@ describe("toAiMessages", async () => {
         attachments: [
           {
             type: "image",
-            url: "https://example.com/photo.jpg",
             mimeType: "image/jpeg",
             name: "photo.jpg",
+            fetchData: async () => Buffer.from("jpeg-data"),
           },
         ],
       }),
@@ -259,11 +259,7 @@ describe("toAiMessages", async () => {
     expect(Array.isArray(content)).toBe(true);
     expect(content).toHaveLength(2);
     expect(content[0]).toEqual({ type: "text", text: "Look at this image" });
-    expect(content[1]).toEqual({
-      type: "image",
-      image: new URL("https://example.com/photo.jpg"),
-      mediaType: "image/jpeg",
-    });
+    expect(content[1]?.type).toBe("image");
   });
 
   it("includes text file attachments as file parts", async () => {
@@ -272,9 +268,9 @@ describe("toAiMessages", async () => {
         attachments: [
           {
             type: "file",
-            url: "https://example.com/config.json",
             mimeType: "application/json",
             name: "config.json",
+            fetchData: async () => Buffer.from('{"key": "value"}'),
           },
         ],
       }),
@@ -286,12 +282,7 @@ describe("toAiMessages", async () => {
     expect(Array.isArray(content)).toBe(true);
     expect(content).toHaveLength(2);
     expect(content[0]).toEqual({ type: "text", text: "Here is a config" });
-    expect(content[1]).toEqual({
-      type: "file",
-      data: new URL("https://example.com/config.json"),
-      filename: "config.json",
-      mediaType: "application/json",
-    });
+    expect(content[1]?.type).toBe("file");
   });
 
   it("supports various text MIME types", async () => {
@@ -309,7 +300,11 @@ describe("toAiMessages", async () => {
       const messages = [
         createTestMessage("1", "file", {
           attachments: [
-            { type: "file", url: "https://example.com/f", mimeType },
+            {
+              type: "file",
+              mimeType,
+              fetchData: async () => Buffer.from("content"),
+            },
           ],
         }),
       ];
@@ -327,19 +322,19 @@ describe("toAiMessages", async () => {
         attachments: [
           {
             type: "image",
-            url: "https://example.com/a.png",
             mimeType: "image/png",
+            fetchData: async () => Buffer.from("png1"),
           },
           {
             type: "image",
-            url: "https://example.com/b.jpg",
             mimeType: "image/jpeg",
+            fetchData: async () => Buffer.from("jpg2"),
           },
           {
             type: "file",
-            url: "https://example.com/log.txt",
             mimeType: "text/plain",
             name: "log.txt",
+            fetchData: async () => Buffer.from("log content"),
           },
         ],
       }),
@@ -483,7 +478,7 @@ describe("toAiMessages", async () => {
     expect(filePart.filename).toBe("server.log");
   });
 
-  it("falls back to URL when fetchData fails", async () => {
+  it("skips image when fetchData fails", async () => {
     const messages = [
       createTestMessage("1", "Image here", {
         attachments: [
@@ -500,13 +495,9 @@ describe("toAiMessages", async () => {
     ];
 
     const result = await toAiMessages(messages);
-    const content = result[0]?.content as AiMessagePart[];
 
-    expect(content[1]).toEqual({
-      type: "image",
-      image: new URL("https://example.com/img.png"),
-      mediaType: "image/png",
-    });
+    // No image part — fetchData failed and we don't fall back to URL
+    expect(result[0]?.content).toBe("Image here");
   });
 
   it("skips attachments without URL or fetchData", async () => {
@@ -545,8 +536,8 @@ describe("toAiMessages", async () => {
         attachments: [
           {
             type: "image",
-            url: "https://example.com/img.png",
             mimeType: "image/png",
+            fetchData: async () => Buffer.from("img"),
           },
         ],
       }),

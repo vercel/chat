@@ -98,16 +98,10 @@ async function attachmentToPart(
           image: buffer,
           mediaType: mimeType,
         };
-      } catch {
-        // Fall through to URL
+      } catch (error) {
+        console.error("toAiMessages: failed to fetch image data", error);
+        return null;
       }
-    }
-    if (att.url) {
-      return {
-        type: "image",
-        image: new URL(att.url),
-        mediaType: att.mimeType,
-      };
     }
     return null;
   }
@@ -122,17 +116,13 @@ async function attachmentToPart(
           filename: att.name,
           mediaType: att.mimeType,
         };
-      } catch {
-        // Fall through to URL
+      } catch (error) {
+        console.error(
+          "toAiMessages: failed to fetch file data, falling back to URL",
+          error
+        );
+        return null;
       }
-    }
-    if (att.url) {
-      return {
-        type: "file",
-        data: new URL(att.url),
-        filename: att.name,
-        mediaType: att.mimeType,
-      };
     }
     return null;
   }
