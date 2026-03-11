@@ -78,18 +78,18 @@ export async function GET(request: Request): Promise<Response> {
         {
           webhookUrl: webhookUrl ? "configured" : "not configured",
           durationMs,
-        },
+        }
       );
 
       const response = await discord.startGatewayListener(
         { waitUntil: (task: Promise<unknown>) => after(() => task) },
         durationMs,
         abortSignal,
-        webhookUrl,
+        webhookUrl
       );
 
       console.log(
-        `[discord-gateway] Gateway listener ${listenerId} completed with status: ${response.status}`,
+        `[discord-gateway] Gateway listener ${listenerId} completed with status: ${response.status}`
       );
 
       return response;

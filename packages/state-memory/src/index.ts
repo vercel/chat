@@ -1,14 +1,14 @@
 import type { Lock, StateAdapter } from "chat";
 
 interface MemoryLock extends Lock {
+  expiresAt: number;
   threadId: string;
   token: string;
-  expiresAt: number;
 }
 
 interface CachedValue<T = unknown> {
-  value: T;
   expiresAt: number | null; // null = no expiry
+  value: T;
 }
 
 /**
@@ -18,9 +18,9 @@ interface CachedValue<T = unknown> {
  * Use RedisStateAdapter for production.
  */
 export class MemoryStateAdapter implements StateAdapter {
-  private subscriptions = new Set<string>();
-  private locks = new Map<string, MemoryLock>();
-  private cache = new Map<string, CachedValue>();
+  private readonly subscriptions = new Set<string>();
+  private readonly locks = new Map<string, MemoryLock>();
+  private readonly cache = new Map<string, CachedValue>();
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
@@ -35,7 +35,7 @@ export class MemoryStateAdapter implements StateAdapter {
         if (process.env.NODE_ENV === "production") {
           console.warn(
             "[chat] MemoryStateAdapter is not recommended for production. " +
-              "Consider using @chat-adapter/state-redis instead.",
+              "Consider using @chat-adapter/state-redis instead."
           );
         }
         this.connected = true;
@@ -67,21 +67,6 @@ export class MemoryStateAdapter implements StateAdapter {
     return this.subscriptions.has(threadId);
   }
 
-  async *listSubscriptions(adapterName?: string): AsyncIterable<string> {
-    this.ensureConnected();
-
-    for (const threadId of this.subscriptions) {
-      if (adapterName) {
-        // Thread ID format: "adapter:channel:thread"
-        if (threadId.startsWith(`${adapterName}:`)) {
-          yield threadId;
-        }
-      } else {
-        yield threadId;
-      }
-    }
-  }
-
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
     this.ensureConnected();
     this.cleanExpiredLocks();
@@ -101,6 +86,11 @@ export class MemoryStateAdapter implements StateAdapter {
 
     this.locks.set(threadId, lock);
     return lock;
+  }
+
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+    this.locks.delete(threadId);
   }
 
   async releaseLock(lock: Lock): Promise<void> {
@@ -157,15 +147,90 @@ export class MemoryStateAdapter implements StateAdapter {
     });
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const existing = this.cache.get(key);
+    if (existing) {
+      // Check if expired
+      if (existing.expiresAt !== null && existing.expiresAt <= Date.now()) {
+        this.cache.delete(key);
+      } else {
+        return false;
+      }
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: ttlMs ? Date.now() + ttlMs : null,
+    });
+    return true;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
     this.cache.delete(key);
   }
 
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    let list: unknown[];
+
+    if (cached && cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      // Expired — start fresh
+      list = [];
+    } else if (cached && Array.isArray(cached.value)) {
+      list = cached.value;
+    } else {
+      list = [];
+    }
+
+    list.push(value);
+
+    if (options?.maxLength && list.length > options.maxLength) {
+      list = list.slice(list.length - options.maxLength);
+    }
+
+    this.cache.set(key, {
+      value: list,
+      expiresAt: options?.ttlMs ? Date.now() + options.ttlMs : null,
+    });
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    if (!cached) {
+      return [];
+    }
+
+    if (cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      this.cache.delete(key);
+      return [];
+    }
+
+    if (Array.isArray(cached.value)) {
+      return cached.value as T[];
+    }
+
+    return [];
+  }
+
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
-        "MemoryStateAdapter is not connected. Call connect() first.",
+        "MemoryStateAdapter is not connected. Call connect() first."
       );
     }
   }

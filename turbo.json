@@ -10,13 +10,17 @@
     "GOOGLE_CHAT_CREDENTIALS",
     "GOOGLE_CHAT_PUBSUB_TOPIC",
     "GOOGLE_CHAT_IMPERSONATE_USER",
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_APP_SECRET",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "WHATSAPP_VERIFY_TOKEN",
     "BOT_USERNAME",
     "REDIS_URL"
   ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "outputs": ["dist/**", "docs/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {
       "cache": false,
@@ -28,9 +32,6 @@
     },
     "typecheck": {
       "dependsOn": ["^build"],
-      "outputs": []
-    },
-    "lint": {
       "outputs": []
     },
     "clean": {

@@ -1,0 +1,110 @@
+---
+title: Platform Adapters
+description: Platform-specific adapters that connect your bot to any messaging platform.
+type: overview
+prerequisites:
+  - /docs/getting-started
+---
+
+Adapters handle webhook verification, message parsing, and API calls for each platform. Install only the adapters you need. Browse all available adapters — including community-built ones — on the [Adapters](/adapters) page.
+
+Ready to build your own? Follow the [building](/docs/contributing/building) guide.
+
+## Feature matrix
+
+### Messaging
+
+| Feature | [Slack](/adapters/slack) | [Teams](/adapters/teams) | [Google Chat](/adapters/google-chat) | [Discord](/adapters/discord) | [Telegram](/adapters/telegram) | [GitHub](/adapters/github) | [Linear](/adapters/linear) | [WhatsApp](/adapters/whatsapp) |
+|---------|-------|-------|-------------|---------|---------|--------|--------|-----------|
+| Post message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Edit message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Delete message | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| File uploads | ✅ | ✅ | ❌ | ✅ | ⚠️ Single file | ❌ | ❌ | ✅ Images, audio, docs |
+| Streaming | ✅ Native | ⚠️ Post+Edit | ⚠️ Post+Edit | ⚠️ Post+Edit | ⚠️ Post+Edit | ❌ | ❌ | ❌ |
+| Scheduled messages | ✅ Native | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Rich content
+
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
+| Card format | Block Kit | Adaptive Cards | Google Chat Cards | Embeds | Markdown + inline keyboard buttons | GFM Markdown | Markdown | WhatsApp templates |
+| Buttons | ✅ | ✅ | ✅ | ✅ | ⚠️ Inline keyboard callbacks | ❌ | ❌ | ✅ Interactive replies |
+| Link buttons | ✅ | ✅ | ✅ | ✅ | ⚠️ Inline keyboard URLs | ❌ | ❌ | ❌ |
+| Select menus | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tables | ✅ Block Kit | ✅ GFM | ⚠️ ASCII | ✅ GFM | ⚠️ ASCII | ✅ GFM | ✅ GFM | ❌ |
+| Fields | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ Template variables |
+| Images in cards | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
+| Modals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Conversations
+
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
+| Slash commands | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Mentions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Add reactions | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Remove reactions | ✅ | ❌ | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ❌ |
+| Typing indicator | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| DMs | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| Ephemeral messages | ✅ Native | ❌ | ✅ Native | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+### Message history
+
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
+| Fetch messages | ✅ | ✅ | ✅ | ✅ | ⚠️ Cached | ✅ | ✅ | ⚠️ Cached sent messages only |
+| Fetch single message | ✅ | ❌ | ❌ | ❌ | ⚠️ Cached | ❌ | ❌ | ⚠️ Cached sent messages only |
+| Fetch thread info | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fetch channel messages | ✅ | ✅ | ✅ | ✅ | ⚠️ Cached | ✅ | ❌ | ⚠️ Cached sent messages only |
+| List threads | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Fetch channel info | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Post channel message | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+
+<Callout type="info">
+⚠️ indicates partial support — the feature works with limitations. See individual adapter pages for details.
+</Callout>
+
+## How adapters work
+
+Each adapter implements a standard interface that the `Chat` class uses to route events and send messages. When a webhook arrives:
+
+1. The adapter verifies the request signature
+2. Parses the platform-specific payload into a normalized `Message`
+3. Routes to your handlers via the `Chat` class
+4. Converts outgoing messages from markdown/AST/cards to the platform's native format
+
+## Using multiple adapters
+
+Register multiple adapters and your event handlers work across all of them:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { createGoogleChatAdapter } from "@chat-adapter/gchat";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+    teams: createTeamsAdapter(),
+    gchat: createGoogleChatAdapter(),
+  },
+  state: createRedisState(),
+});
+
+// This handler fires for mentions on any platform
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello!");
+});
+```
+
+Each adapter auto-detects credentials from environment variables, so you only need to pass config when overriding defaults.
+
+<Callout type="info">
+  The examples above use Redis for state. See [State Adapters](/docs/state) for all available options.
+</Callout>
+
+Each adapter creates a webhook handler accessible via `bot.webhooks.<name>`.

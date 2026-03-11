@@ -43,13 +43,13 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 
@@ -67,10 +67,10 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "info",
-        userId: "U03STHCA1JM",
-        userName: "malte",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         isDM: false,
       });
 
@@ -89,14 +89,52 @@ describe("Replay Tests - Actions & Reactions", () => {
         emojiName: "thumbs_up",
         rawEmoji: "+1",
         added: true,
-        userId: "U03STHCA1JM",
+        userId: "U00FAKEUSER1",
         adapterName: "slack",
-        channelId: "C0A511MBCUW",
+        channelId: "C00FAKECHAN1",
         messageId: "1767326126.896109",
         isDM: false,
       });
 
       expectSentMessage(ctx.mockClient, "Thanks for the");
+    });
+
+    it("should handle static_select action and extract value from selected_option", async () => {
+      await ctx.sendWebhook(slackFixtures.mention);
+      vi.clearAllMocks();
+
+      await ctx.sendSlackAction(slackFixtures.staticSelectAction);
+
+      expectValidAction(capturedAction, {
+        actionId: "quick_action",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
+        adapterName: "slack",
+        channelId: "C00FAKECHAN1",
+        isDM: false,
+      });
+
+      expect(capturedAction?.value).toBe("greet");
+      expectSentMessage(ctx.mockClient, "Action received: quick_action");
+    });
+
+    it("should handle radio_buttons action and extract value from selected_option", async () => {
+      await ctx.sendWebhook(slackFixtures.mention);
+      vi.clearAllMocks();
+
+      await ctx.sendSlackAction(slackFixtures.radioButtonsAction);
+
+      expectValidAction(capturedAction, {
+        actionId: "plan_selected",
+        userId: "U00FAKEUSER1",
+        userName: "testuser",
+        adapterName: "slack",
+        channelId: "C00FAKECHAN1",
+        isDM: false,
+      });
+
+      expect(capturedAction?.value).toBe("all_text");
+      expectSentMessage(ctx.mockClient, "Action received: plan_selected");
     });
   });
 
@@ -118,13 +156,13 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 
@@ -142,7 +180,7 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "info",
-        userName: "Malte Ubl",
+        userName: "Test User",
         adapterName: "teams",
         isDM: false,
       });
@@ -194,13 +232,13 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
-        },
+        }
       );
     });
 
@@ -218,8 +256,8 @@ describe("Replay Tests - Actions & Reactions", () => {
 
       expectValidAction(capturedAction, {
         actionId: "hello",
-        userId: "users/117994873354375860089",
-        userName: "Malte Ubl",
+        userId: "users/100000000000000000001",
+        userName: "Test User",
         adapterName: "gchat",
         isDM: false,
       });
@@ -242,7 +280,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         emojiName: "thumbs_up",
         rawEmoji: "👍",
         added: true,
-        userId: "users/117994873354375860089",
+        userId: "users/100000000000000000001",
         adapterName: "gchat",
       });
 

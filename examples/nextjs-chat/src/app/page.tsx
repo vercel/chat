@@ -16,6 +16,12 @@ export default function Home() {
           <code>/api/webhooks/gchat</code> - Google Chat events
         </li>
         <li>
+          <code>/api/webhooks/discord</code> - Discord interaction events
+        </li>
+        <li>
+          <code>/api/webhooks/telegram</code> - Telegram bot updates
+        </li>
+        <li>
           <code>/api/webhooks/github</code> - GitHub PR comment events
         </li>
         <li>
@@ -58,6 +64,19 @@ TEAMS_APP_PASSWORD=...`}
 
       <h3>Google Chat</h3>
       <pre>{`GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}`}</pre>
+
+      <h3>Discord</h3>
+      <pre>
+        {`DISCORD_BOT_TOKEN=...
+DISCORD_PUBLIC_KEY=...
+DISCORD_APPLICATION_ID=...`}
+      </pre>
+
+      <h3>Telegram</h3>
+      <pre>
+        {`TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_SECRET_TOKEN=...`}
+      </pre>
 
       <h3>GitHub</h3>
       <pre>

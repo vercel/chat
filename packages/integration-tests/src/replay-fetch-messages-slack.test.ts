@@ -6,7 +6,7 @@
  */
 
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { ThreadImpl } from "chat";
+import { type Message, ThreadImpl } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EXPECTED_NUMBERED_TEXTS,
@@ -30,12 +30,12 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     ctx = createSlackTestContext(
       { botName: "Chat SDK Bot", botUserId: SLACK_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock conversations.replies to return actual recorded messages
     ctx.mockClient.conversations.replies.mockImplementation(
-      async (params: {
+      (params: {
         channel: string;
         ts: string;
         limit?: number;
@@ -49,13 +49,13 @@ describe("fetchMessages Replay Tests - Slack", () => {
         if (params.oldest) {
           const oldest = params.oldest;
           messages = messages.filter(
-            (m) => Number.parseFloat(m.ts) > Number.parseFloat(oldest),
+            (m) => Number.parseFloat(m.ts) > Number.parseFloat(oldest)
           );
         }
         if (params.latest) {
           const latest = params.latest;
           messages = messages.filter(
-            (m) => Number.parseFloat(m.ts) < Number.parseFloat(latest),
+            (m) => Number.parseFloat(m.ts) < Number.parseFloat(latest)
           );
         }
 
@@ -70,30 +70,28 @@ describe("fetchMessages Replay Tests - Slack", () => {
             ? { next_cursor: "next-cursor" }
             : undefined,
         };
-      },
+      }
     );
 
     // Mock users.info for display name lookup
-    ctx.mockClient.users.info.mockImplementation(
-      async (params: { user: string }) => {
-        const users: Record<
-          string,
-          { name: string; real_name: string; is_bot?: boolean }
-        > = {
-          [SLACK_HUMAN_USER_ID]: { name: "malteubl", real_name: "Malte Ubl" },
-          [SLACK_BOT_USER_ID]: {
-            name: "chatsdkbot",
-            real_name: "Chat SDK Bot",
-            is_bot: true,
-          },
-        };
-        const user = users[params.user];
-        return {
-          ok: true,
-          user: user ? { id: params.user, ...user } : undefined,
-        };
-      },
-    );
+    ctx.mockClient.users.info.mockImplementation((params: { user: string }) => {
+      const users: Record<
+        string,
+        { name: string; real_name: string; is_bot?: boolean }
+      > = {
+        [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
+        [SLACK_BOT_USER_ID]: {
+          name: "chatsdkbot",
+          real_name: "Chat SDK Bot",
+          is_bot: true,
+        },
+      };
+      const user = users[params.user];
+      return {
+        ok: true,
+        user: user ? { id: params.user, ...user } : undefined,
+      };
+    });
   });
 
   afterEach(async () => {
@@ -113,7 +111,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
         ts: SLACK_THREAD_TS,
         limit: 25,
         cursor: undefined,
-      }),
+      })
     );
   });
 
@@ -132,7 +130,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
         limit: 200,
         latest: undefined,
         inclusive: false,
-      }),
+      })
     );
   });
 
@@ -147,7 +145,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     // Extract just the numbered messages
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
 
     // Should have exactly 14 numbered messages
@@ -168,7 +166,7 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     // Extract numbered messages and verify order
     const numberedMessages = result.messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     const texts = numberedMessages.map((m) => m.text);
     expect(texts).toEqual(EXPECTED_NUMBERED_TEXTS);
@@ -207,14 +205,14 @@ describe("fetchMessages Replay Tests - Slack", () => {
 
     // Human messages should have resolved display names
     const humanMessage = result.messages.find(
-      (m) => m.author.userId === SLACK_HUMAN_USER_ID,
+      (m) => m.author.userId === SLACK_HUMAN_USER_ID
     );
-    expect(humanMessage?.author.userName).toBe("Malte Ubl");
-    expect(humanMessage?.author.fullName).toBe("Malte Ubl");
+    expect(humanMessage?.author.userName).toBe("Test User");
+    expect(humanMessage?.author.fullName).toBe("Test User");
 
     // Bot messages should have bot name
     const botMessage = result.messages.find(
-      (m) => m.author.userId === SLACK_BOT_USER_ID,
+      (m) => m.author.userId === SLACK_BOT_USER_ID
     );
     expect(botMessage?.author.userName).toBe("Chat SDK Bot");
   });
@@ -242,12 +240,12 @@ describe("allMessages Replay Tests - Slack", () => {
 
     ctx = createSlackTestContext(
       { botName: "Chat SDK Bot", botUserId: SLACK_BOT_USER_ID },
-      {},
+      {}
     );
 
     // Mock conversations.replies to return actual recorded messages
     ctx.mockClient.conversations.replies.mockImplementation(
-      async (params: {
+      (params: {
         channel: string;
         ts: string;
         limit?: number;
@@ -260,13 +258,13 @@ describe("allMessages Replay Tests - Slack", () => {
         if (params.oldest) {
           const oldest = params.oldest;
           messages = messages.filter(
-            (m) => Number.parseFloat(m.ts) > Number.parseFloat(oldest),
+            (m) => Number.parseFloat(m.ts) > Number.parseFloat(oldest)
           );
         }
         if (params.latest) {
           const latest = params.latest;
           messages = messages.filter(
-            (m) => Number.parseFloat(m.ts) < Number.parseFloat(latest),
+            (m) => Number.parseFloat(m.ts) < Number.parseFloat(latest)
           );
         }
 
@@ -281,30 +279,28 @@ describe("allMessages Replay Tests - Slack", () => {
             ? { next_cursor: "next-cursor" }
             : undefined,
         };
-      },
+      }
     );
 
     // Mock users.info
-    ctx.mockClient.users.info.mockImplementation(
-      async (params: { user: string }) => {
-        const users: Record<
-          string,
-          { name: string; real_name: string; is_bot?: boolean }
-        > = {
-          [SLACK_HUMAN_USER_ID]: { name: "malteubl", real_name: "Malte Ubl" },
-          [SLACK_BOT_USER_ID]: {
-            name: "chatsdkbot",
-            real_name: "Chat SDK Bot",
-            is_bot: true,
-          },
-        };
-        const user = users[params.user];
-        return {
-          ok: true,
-          user: user ? { id: params.user, ...user } : undefined,
-        };
-      },
-    );
+    ctx.mockClient.users.info.mockImplementation((params: { user: string }) => {
+      const users: Record<
+        string,
+        { name: string; real_name: string; is_bot?: boolean }
+      > = {
+        [SLACK_HUMAN_USER_ID]: { name: "testuser", real_name: "Test User" },
+        [SLACK_BOT_USER_ID]: {
+          name: "chatsdkbot",
+          real_name: "Chat SDK Bot",
+          is_bot: true,
+        },
+      };
+      const user = users[params.user];
+      return {
+        ok: true,
+        user: user ? { id: params.user, ...user } : undefined,
+      };
+    });
   });
 
   afterEach(async () => {
@@ -321,7 +317,7 @@ describe("allMessages Replay Tests - Slack", () => {
     });
 
     // Collect all messages from the async iterator
-    const messages = [];
+    const messages: Message[] = [];
     for await (const msg of thread.allMessages) {
       messages.push(msg);
     }
@@ -331,7 +327,7 @@ describe("allMessages Replay Tests - Slack", () => {
 
     // Extract numbered messages and verify chronological order
     const numberedMessages = messages.filter((m) =>
-      EXPECTED_NUMBERED_TEXTS.includes(m.text || ""),
+      EXPECTED_NUMBERED_TEXTS.includes(m.text || "")
     );
     expect(numberedMessages).toHaveLength(14);
 
@@ -360,7 +356,7 @@ describe("allMessages Replay Tests - Slack", () => {
         ts: SLACK_THREAD_TS,
         limit: 100,
         cursor: undefined,
-      }),
+      })
     );
   });
 });

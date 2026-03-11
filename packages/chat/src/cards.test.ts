@@ -3,6 +3,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   Divider,
   Field,
   Fields,
@@ -12,6 +13,7 @@ import {
   Section,
   Text,
 } from "./cards";
+import { RadioSelect, Select, SelectOption } from "./modals";
 
 describe("Card Builder Functions", () => {
   describe("Card", () => {
@@ -135,6 +137,18 @@ describe("Card Builder Functions", () => {
     });
   });
 
+  describe("CardLink", () => {
+    it("creates a link element", () => {
+      const link = CardLink({
+        url: "https://example.com",
+        label: "Visit Site",
+      });
+      expect(link.type).toBe("link");
+      expect(link.url).toBe("https://example.com");
+      expect(link.label).toBe("Visit Site");
+    });
+  });
+
   describe("Actions", () => {
     it("creates an actions container", () => {
       const actions = Actions([
@@ -200,7 +214,7 @@ describe("Card Builder Functions", () => {
     it("returns false for non-card objects", () => {
       expect(isCardElement({ type: "text", content: "hello" })).toBe(false);
       expect(isCardElement({ type: "button", id: "x", label: "X" })).toBe(
-        false,
+        false
       );
       expect(isCardElement("string")).toBe(false);
       expect(isCardElement(null)).toBe(false);
@@ -219,6 +233,10 @@ describe("Card Composition", () => {
       imageUrl: "https://example.com/order.png",
       children: [
         Text("Thank you for your order!"),
+        CardLink({
+          url: "https://example.com/order/1234",
+          label: "View order details",
+        }),
         Divider(),
         Fields([
           Field({ label: "Order ID", value: "#1234" }),
@@ -243,28 +261,81 @@ describe("Card Composition", () => {
 
     expect(card.type).toBe("card");
     expect(card.title).toBe("Order #1234");
-    expect(card.children).toHaveLength(6);
+    expect(card.children).toHaveLength(7);
 
     // Verify structure
     expect(card.children[0].type).toBe("text");
-    expect(card.children[1].type).toBe("divider");
-    expect(card.children[2].type).toBe("fields");
-    expect(card.children[3].type).toBe("section");
-    expect(card.children[4].type).toBe("divider");
-    expect(card.children[5].type).toBe("actions");
+    expect(card.children[1].type).toBe("link");
+    expect(card.children[2].type).toBe("divider");
+    expect(card.children[3].type).toBe("fields");
+    expect(card.children[4].type).toBe("section");
+    expect(card.children[5].type).toBe("divider");
+    expect(card.children[6].type).toBe("actions");
 
     // Verify nested content
-    const fields = card.children[2];
+    const fields = card.children[3];
     if (fields.type === "fields") {
       expect(fields.children).toHaveLength(2);
     }
 
-    const actions = card.children[5];
+    const actions = card.children[6];
     if (actions.type === "actions") {
       expect(actions.children).toHaveLength(2);
-      expect(actions.children[0].id).toBe("track");
-      expect(actions.children[1].value).toBe("order-1234");
+      const firstBtn = actions.children[0];
+      const secondBtn = actions.children[1];
+      if (firstBtn.type === "button") {
+        expect(firstBtn.id).toBe("track");
+      }
+      if (secondBtn.type === "button") {
+        expect(secondBtn.value).toBe("order-1234");
+      }
     }
+  });
+});
+
+describe("Select and RadioSelect Builder Validation", () => {
+  describe("Select", () => {
+    it("throws when options array is empty", () => {
+      expect(() =>
+        Select({
+          id: "test",
+          label: "Test",
+          options: [],
+        })
+      ).toThrow("Select requires at least one option");
+    });
+
+    it("creates select with valid options", () => {
+      const select = Select({
+        id: "test",
+        label: "Test",
+        options: [SelectOption({ label: "A", value: "a" })],
+      });
+      expect(select.type).toBe("select");
+      expect(select.options).toHaveLength(1);
+    });
+  });
+
+  describe("RadioSelect", () => {
+    it("throws when options array is empty", () => {
+      expect(() =>
+        RadioSelect({
+          id: "test",
+          label: "Test",
+          options: [],
+        })
+      ).toThrow("RadioSelect requires at least one option");
+    });
+
+    it("creates radio select with valid options", () => {
+      const radioSelect = RadioSelect({
+        id: "test",
+        label: "Test",
+        options: [SelectOption({ label: "A", value: "a" })],
+      });
+      expect(radioSelect.type).toBe("radio_select");
+      expect(radioSelect.options).toHaveLength(1);
+    });
   });
 });
 

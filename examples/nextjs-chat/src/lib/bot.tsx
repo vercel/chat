@@ -1,11 +1,12 @@
 /** @jsxImportSource chat */
-// @ts-nocheck - TypeScript doesn't understand custom JSX runtimes with per-file pragmas
+import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
 import {
   Actions,
   Button,
   Card,
+  CardLink,
   Chat,
   Divider,
   emoji,
@@ -13,26 +14,38 @@ import {
   Fields,
   LinkButton,
   Modal,
+  RadioSelect,
   Section,
   Select,
   SelectOption,
+  Table,
   CardText as Text,
   TextInput,
+  toAiMessages,
 } from "chat";
 import { buildAdapters } from "./adapters";
 
-const state = createRedisState({
-  url: process.env.REDIS_URL || "",
-  keyPrefix: "chat-sdk-webhooks",
-});
+const AI_MENTION_REGEX = /\bAI\b/i;
+const DISABLE_AI_REGEX = /disable\s*AI/i;
+const ENABLE_AI_REGEX = /enable\s*AI/i;
+const DM_ME_REGEX = /^dm\s*me$/i;
+
+const state = process.env.REDIS_URL
+  ? createRedisState({
+      url: process.env.REDIS_URL,
+      keyPrefix: "chat-sdk-webhooks",
+    })
+  : createMemoryState();
 const adapters = buildAdapters();
 
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
+  history?: { role: "user" | "assistant"; content: string }[];
 }
 
 // Create the bot instance with typed thread state
+// @ts-expect-error Adapters type lacks string index signature
 export const bot = new Chat<typeof adapters, ThreadState>({
   userName: process.env.BOT_USERNAME || "mybot",
   adapters,
@@ -42,7 +55,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-3.5-haiku",
+  model: "anthropic/claude-4.5-sonnet",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -52,26 +65,21 @@ bot.onNewMention(async (thread, message) => {
   await thread.subscribe();
 
   // Check if user wants to enable AI mode (mention contains "AI")
-  if (/\bAI\b/i.test(message.text)) {
+  if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    await thread.post(
-      <Card title={`${emoji.sparkles} AI Mode Enabled`}>
-        <Text>
-          I'm now in AI mode! I'll use Claude to respond to your messages in
-          this thread.
-        </Text>
-        <Text>Say "disable AI" to turn off AI mode.</Text>
-        <Divider />
-        <Fields>
-          <Field label="Platform" value={thread.adapter.name} />
-          <Field label="Mode" value="AI Assistant" />
-        </Fields>
-      </Card>,
-    );
-
     // Also respond to the initial message with AI
-    const result = await agent.stream({ prompt: message.text });
-    await thread.post(result.textStream);
+    await thread.startTyping("Thinking...");
+    try {
+      const result = await agent.stream({ prompt: message.text });
+      await thread.post(result.fullStream);
+    } catch (err) {
+      console.error("Error in AI response:", err);
+      await thread.post(
+        `${emoji.warning} Error in AI response: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
+      );
+    }
     return;
   }
 
@@ -79,13 +87,16 @@ bot.onNewMention(async (thread, message) => {
   await thread.startTyping();
   await thread.post(
     <Card
-      title={`${emoji.wave} Welcome!`}
       subtitle={`Connected via ${thread.adapter.name}`}
+      title={`${emoji.wave} Welcome!`}
     >
       <Text>I'm now listening to this thread. Try these actions:</Text>
       <Text>
         {`${emoji.sparkles} **Mention me with "AI"** to enable AI assistant mode`}
       </Text>
+      <CardLink url="https://chat-sdk.dev/docs/cards">
+        View documentation
+      </CardLink>
       <Divider />
       <Fields>
         <Field label="DM Support" value={thread.isDM ? "Yes" : "No"} />
@@ -93,36 +104,219 @@ bot.onNewMention(async (thread, message) => {
       </Fields>
       <Divider />
       <Actions>
+        <Select id="quick_action" label="Quick Action" placeholder="Choose...">
+          <SelectOption label="Say Hello" value="greet" />
+          <SelectOption label="Show Info" value="info" />
+          <SelectOption label="Get Help" value="help" />
+        </Select>
         <Button id="hello" style="primary">
           Say Hello
         </Button>
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
+        <Button id="choose_plan">Choose Plan</Button>
         <Button id="feedback">Send Feedback</Button>
         <Button id="messages">Fetch Messages</Button>
+        <Button id="channel-post">Channel Post</Button>
+        <Button id="show-table">Show Table</Button>
+        <Button id="report" value="bug">
+          Report Bug
+        </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
         </Button>
       </Actions>
-    </Card>,
+    </Card>
+  );
+});
+
+// Post a welcome message when the bot is added to a channel
+bot.onMemberJoinedChannel(async (event) => {
+  // Only post when the bot itself joins
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+
+  await event.adapter.postMessage(
+    event.channelId,
+    "*Chat SDK Bot is available in this channel.* Tag @Chat SDK Bot to begin."
+  );
+});
+
+// Handle direct messages — AI conversation by default
+// This fires on every DM, regardless of subscription status
+bot.onDirectMessage(async (_thread, message, channel) => {
+  await channel.startTyping("Thinking...");
+  let history: { role: "user" | "assistant"; content: string }[];
+  try {
+    const messages: (typeof message)[] = [];
+    for await (const msg of channel.messages) {
+      messages.push(msg);
+      if (messages.length >= 20) {
+        break;
+      }
+    }
+    history =
+      messages.length > 0 ? toAiMessages(messages) : toAiMessages([message]);
+  } catch {
+    history = toAiMessages([message]);
+  }
+  try {
+    const result = await agent.stream({ prompt: history });
+    await channel.post(result.fullStream);
+  } catch (err) {
+    console.error("Error in DM AI response:", err);
+    await channel.post(
+      `${emoji.warning} Error: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+bot.onAction("show_channel_help", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const platforms = Object.keys(adapters).join(", ") || "none configured";
+  await event.thread.post(
+    <Card title={`${emoji.question} Help`}>
+      <Text>{`Here's how I can help:`}</Text>
+      <Divider />
+      <Section>
+        <Text>{`${emoji.star} **Mention me** to start a conversation`}</Text>
+        <Text>{`${emoji.sparkles} **Mention me with "AI"** to enable AI assistant mode`}</Text>
+        <Text>{`${emoji.eyes} I'll respond to messages in threads where I'm mentioned`}</Text>
+        <Text>{`${emoji.fire} React to my messages and I'll react back!`}</Text>
+        <Text>{`${emoji.rocket} Active platforms: ${platforms}`}</Text>
+      </Section>
+    </Card>
   );
 });
 
 bot.onAction("ephemeral", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.postEphemeral(
     event.user,
-    "This is an ephemeral response!",
-    { fallbackToDM: true },
+    <Card title={`${emoji.eyes} Ephemeral Message`}>
+      <Text>
+        Only you can see this message. It will disappear when you reload.
+      </Text>
+      <Text>Try opening a modal from this ephemeral:</Text>
+      <Actions>
+        <Button id="ephemeral_modal" style="primary">
+          Open Modal
+        </Button>
+      </Actions>
+    </Card>,
+    { fallbackToDM: true }
+  );
+});
+
+bot.onAction("ephemeral_modal", async (event) => {
+  await event.openModal(
+    <Modal
+      callbackId="ephemeral_modal_form"
+      closeLabel="Cancel"
+      submitLabel="Submit"
+      title="Ephemeral Modal"
+    >
+      <TextInput
+        id="response"
+        label="Your Response"
+        placeholder="Type something..."
+      />
+    </Modal>
+  );
+});
+
+// @ts-expect-error async void handler vs ModalSubmitHandler return type
+bot.onModalSubmit("ephemeral_modal_form", async (event) => {
+  await event.relatedMessage?.edit(
+    <Card title={`${emoji.check} Submitted!`}>
+      <Text>Your response: **{event.values.response}**</Text>
+      <Text>The original ephemeral message was updated.</Text>
+    </Card>
+  );
+});
+
+bot.onAction("quick_action", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const action = event.value;
+  if (action === "greet") {
+    await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
+  } else if (action === "info") {
+    await event.thread.post(
+      `${emoji.memo} You're on **${event.adapter.name}** in thread \`${event.threadId}\``
+    );
+  } else if (action === "help") {
+    await event.thread.post(
+      `${emoji.question} Try mentioning me with "AI" to enable AI assistant mode!`
+    );
+  }
+});
+
+bot.onAction("choose_plan", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(
+    <Card title="Choose Plan">
+      <Actions>
+        <RadioSelect id="plan_selected" label="Choose Plan">
+          <SelectOption
+            description="Headers, body text, labels, and placeholders"
+            label="*All text elements*"
+            value="all_text"
+          />
+          <SelectOption
+            description="Keep body text in the current system font"
+            label="*Headers and titles only*"
+            value="headers_titles"
+          />
+          <SelectOption
+            description="Only the composer textarea and its placeholder"
+            label="*Input fields and placeholders*"
+            value="input_fields"
+          />
+          <SelectOption
+            description="All text, but leave button labels unchanged"
+            label="*Everything except buttons*"
+            value="except_buttons"
+          />
+        </RadioSelect>
+      </Actions>
+    </Card>
+  );
+});
+bot.onAction("plan_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(
+    <Card title={`${emoji.check} Plan Chosen!`}>
+      <Text>You chose plan *{event.value}*</Text>
+    </Card>
   );
 });
 
 // Handle card button actions
 bot.onAction("hello", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
 });
 
 bot.onAction("info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const threadState = await event.thread.state;
   await event.thread.post(
     <Card title="Bot Information">
@@ -133,48 +327,156 @@ bot.onAction("info", async (event) => {
         <Field label="Thread ID" value={event.threadId} />
         <Field
           label="AI Mode"
+          // @ts-expect-error ThreadState generic not propagated through event
           value={threadState?.aiMode ? "Enabled" : "Disabled"}
         />
       </Fields>
-    </Card>,
+    </Card>
   );
 });
 
 bot.onAction("goodbye", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   await event.thread.post(
-    `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`,
+    `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
   );
 });
 
+bot.onAction("show-table", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post(
+    <Card title={`${emoji.memo} Team Directory`}>
+      <Text>Here's the current team roster:</Text>
+      <Table
+        headers={["Name", "Role", "Location", "Status"]}
+        rows={[
+          ["Alice Chen", "Engineering Lead", "San Francisco", "Active"],
+          ["Bob Smith", "Designer", "New York", "Active"],
+          ["Carol Wu", "Product Manager", "London", "On Leave"],
+          ["Dan Lee", "Backend Engineer", "Tokyo", "Active"],
+          ["Eve Park", "Frontend Engineer", "Seoul", "Active"],
+        ]}
+      />
+    </Card>
+  );
+});
+
+// Feedback modal component
+const FeedbackModal = (
+  <Modal
+    callbackId="feedback_form"
+    closeLabel="Cancel"
+    notifyOnClose
+    submitLabel="Send"
+    title="Send Feedback"
+  >
+    <TextInput
+      id="message"
+      label="Your Feedback"
+      multiline
+      placeholder="Tell us what you think..."
+    />
+    <Select id="category" label="Category" placeholder="Select a category">
+      <SelectOption label="Bug Report" value="bug" />
+      <SelectOption label="Feature Request" value="feature" />
+      <SelectOption label="General Feedback" value="general" />
+      <SelectOption label="Other" value="other" />
+    </Select>
+    <TextInput
+      id="email"
+      label="Email (optional)"
+      optional
+      placeholder="your@email.com"
+    />
+  </Modal>
+);
+
 // Open feedback modal
 bot.onAction("feedback", async (event) => {
+  await event.openModal(FeedbackModal);
+});
+
+bot.onSlashCommand("/ping", async (event) => {
+  await event.channel.post(
+    `Pong! Command invoked by ${event.user.fullName}${event.text ? `: ${event.text}` : ""}`
+  );
+});
+
+// Opens feedback modal via /feedback
+bot.onSlashCommand("/test-feedback", async (event) => {
+  const result = await event.openModal(FeedbackModal);
+  if (!result) {
+    await event.channel.post(
+      `${emoji.warning} Couldn't open the feedback modal. Please try again.`
+    );
+  }
+});
+
+// Open bug report modal with privateMetadata carrying context from button value
+bot.onAction("report", async (event) => {
   await event.openModal(
     <Modal
-      callbackId="feedback_form"
-      title="Send Feedback"
-      submitLabel="Send"
-      closeLabel="Cancel"
-      notifyOnClose
+      callbackId="report_form"
+      privateMetadata={JSON.stringify({
+        reportType: event.value,
+        threadId: event.threadId,
+        reporter: event.user.userId,
+      })}
+      submitLabel="Submit"
+      title="Report Bug"
     >
       <TextInput
-        id="message"
-        label="Your Feedback"
-        placeholder="Tell us what you think..."
-        multiline
+        id="title"
+        label="Bug Title"
+        placeholder="Brief description of the issue"
       />
-      <Select id="category" label="Category" placeholder="Select a category">
-        <SelectOption label="Bug Report" value="bug" />
-        <SelectOption label="Feature Request" value="feature" />
-        <SelectOption label="General Feedback" value="general" />
-        <SelectOption label="Other" value="other" />
-      </Select>
       <TextInput
-        id="email"
-        label="Email (optional)"
-        placeholder="your@email.com"
-        optional
+        id="steps"
+        label="Steps to Reproduce"
+        multiline
+        placeholder="1. Go to...\n2. Click on..."
       />
-    </Modal>,
+      <Select id="severity" label="Severity">
+        <SelectOption label="Low" value="low" />
+        <SelectOption label="Medium" value="medium" />
+        <SelectOption label="High" value="high" />
+        <SelectOption label="Critical" value="critical" />
+      </Select>
+    </Modal>
+  );
+});
+
+// Handle bug report modal — reads context from privateMetadata
+bot.onModalSubmit("report_form", async (event) => {
+  console.log("report_form privateMetadata:", event.privateMetadata);
+  const metadata = event.privateMetadata
+    ? JSON.parse(event.privateMetadata)
+    : {};
+  const { title, steps, severity } = event.values;
+
+  if (!title || title.length < 3) {
+    return {
+      action: "errors" as const,
+      errors: { title: "Title must be at least 3 characters" },
+    };
+  }
+
+  await event.relatedThread?.post(
+    <Card title={`${emoji.memo} Bug Report Filed`}>
+      <Fields>
+        <Field label="Title" value={title} />
+        <Field label="Severity" value={severity} />
+        <Field label="Reporter" value={event.user.fullName} />
+        <Field label="Report Type" value={metadata.reportType || "unknown"} />
+        <Field label="Thread" value={metadata.threadId || "unknown"} />
+      </Fields>
+      <Divider />
+      <Text>{`**Steps to Reproduce:**\n${steps}`}</Text>
+    </Card>
   );
 });
 
@@ -198,7 +500,9 @@ bot.onModalSubmit("feedback_form", async (event) => {
     user: event.user.userName,
   });
   await event.relatedMessage?.edit(`${emoji.check} **Feedback received!**`);
-  await event.relatedThread?.post(
+  const target = event.relatedChannel || event.relatedThread;
+  await target?.postEphemeral(
+    event.user,
     <Card title={`${emoji.check} Feedback received!`}>
       <Text>Thank you for your feedback!</Text>
       <Fields>
@@ -208,16 +512,20 @@ bot.onModalSubmit("feedback_form", async (event) => {
         <Field label="Email" value={email} />
       </Fields>
     </Card>,
+    { fallbackToDM: false }
   );
 });
 
 // Handle modal close (cancel)
-bot.onModalClose("feedback_form", async (event) => {
+bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
 // Demonstrate fetchMessages and allMessages
 bot.onAction("messages", async (event) => {
+  if (!event.thread) {
+    return;
+  }
   const { thread } = event;
 
   // Helper to get display text for a message (handles empty text from cards)
@@ -249,10 +557,10 @@ bot.onAction("messages", async (event) => {
     for await (const msg of thread.allMessages) {
       const displayText = getDisplayText(
         msg.text,
-        msg.attachments && msg.attachments.length > 0,
+        msg.attachments && msg.attachments.length > 0
       );
       allMessages.push(
-        `Msg ${count + 1}: ${msg.author.userName} - ${displayText}`,
+        `Msg ${count + 1}: ${msg.author.userName} - ${displayText}`
       );
       count++;
     }
@@ -264,7 +572,7 @@ bot.onAction("messages", async (event) => {
             .map((m, i) => {
               const displayText = getDisplayText(
                 m.text,
-                m.attachments && m.attachments.length > 0,
+                m.attachments && m.attachments.length > 0
               );
               return `Msg ${i + 1}: ${m.author.userName} - ${displayText}`;
             })
@@ -300,13 +608,59 @@ bot.onAction("messages", async (event) => {
               : "(no messages)"}
           </Text>
         </Section>
-      </Card>,
+      </Card>
     );
   } catch (err) {
     await thread.post(
       `${emoji.warning} Error fetching messages: ${
         err instanceof Error ? err.message : "Unknown error"
-      }`,
+      }`
+    );
+  }
+});
+
+// Demonstrate channel abstraction: read channel messages and post summary
+bot.onAction("channel-post", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+  const channel = thread.channel;
+
+  try {
+    // Fetch channel info for the name
+    const info = await channel.fetchMetadata();
+    const channelName = info.name || channel.id;
+
+    // Get the last 3 top-level channel messages using the backward iterator
+    const recent: string[] = [];
+    for await (const msg of channel.messages) {
+      const preview = msg.text?.trim()
+        ? msg.text.slice(0, 50)
+        : "[Card/Attachment]";
+      recent.push(`- ${msg.author.userName}: ${preview}`);
+      if (recent.length >= 3) {
+        break;
+      }
+    }
+
+    const summary =
+      recent.length > 0 ? recent.join("\n\n") : "(no top-level messages found)";
+
+    await channel.post(
+      <Card title={`${emoji.memo} Channel Summary`}>
+        <Section>
+          <Text>{`Channel: ${channelName}`}</Text>
+          <Text>**Last 3 top-level messages:**</Text>
+          <Text>{summary}</Text>
+        </Section>
+      </Card>
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error reading channel: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
     );
   }
 });
@@ -328,58 +682,79 @@ bot.onNewMessage(/help/i, async (thread, message) => {
         <Text>{`${emoji.fire} React to my messages and I'll react back!`}</Text>
         <Text>{`${emoji.rocket} Active platforms: ${platforms}`}</Text>
       </Section>
-    </Card>,
+    </Card>
   );
 });
 
 // Handle messages in subscribed threads
 bot.onSubscribedMessage(async (thread, message) => {
-  if (!message.isMention) return;
+  if (!(thread.adapter.name === "telegram" || message.isMention)) {
+    return;
+  }
   // Get thread state to check AI mode
   const threadState = await thread.state;
 
   // Check if user wants to disable AI mode
-  if (/disable\s*AI/i.test(message.text)) {
+  if (DISABLE_AI_REGEX.test(message.text)) {
     await thread.setState({ aiMode: false });
     await thread.post(`${emoji.check} AI mode disabled for this thread.`);
     return;
   }
 
   // Check if user wants to enable AI mode
-  if (/enable\s*AI/i.test(message.text)) {
+  if (ENABLE_AI_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
     await thread.post(`${emoji.sparkles} AI mode enabled for this thread!`);
     return;
   }
 
-  // If AI mode is enabled, use the AI agent
+  // If AI mode is enabled (or this is a DM), use the AI agent
   if (threadState?.aiMode) {
-    // Try to fetch message history, fall back to current message if not supported
-    let messages: typeof thread.recentMessages;
+    // Build conversation history: try fetchMessages first, then fall back to
+    // stored history in thread state (for platforms without message history API)
+    let history: { role: "user" | "assistant"; content: string }[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
-      messages = result.messages;
+      if (result.messages.length > 0) {
+        history = toAiMessages(result.messages);
+      } else {
+        // No messages from API — use stored history + current message
+        history = [
+          ...(threadState?.history ?? []),
+          { role: "user" as const, content: message.text },
+        ];
+      }
     } catch {
-      // Some adapters (Teams) don't support fetching message history
-      messages = thread.recentMessages;
+      // fetchMessages not supported — use stored history + current message
+      history = [
+        ...(threadState?.history ?? []),
+        { role: "user" as const, content: message.text },
+      ];
     }
-    const history = [...messages]
-      .reverse()
-      .filter((msg) => msg.text.trim()) // Filter out empty messages (cards, system msgs)
-      .map((msg) => ({
-        role: msg.author.isMe ? ("assistant" as const) : ("user" as const),
-        content: msg.text,
-      }));
-    console.log("history", history);
-    const result = await agent.stream({ prompt: history });
-    await thread.post(result.textStream);
+
+    await thread.startTyping("Thinking...");
+    try {
+      const result = await agent.stream({ prompt: history });
+      await thread.post(result.fullStream);
+      const responseText = await result.text;
+      // Persist updated history for platforms without message history API
+      history.push({ role: "assistant", content: responseText });
+      await thread.setState({ history });
+    } catch (err) {
+      console.error("Error in AI response:", err);
+      await thread.post(
+        `${emoji.warning} Error: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
+      );
+    }
     return;
   }
 
   // Check if user wants a DM
-  if (/^dm\s*me$/i.test(message.text.trim())) {
+  if (DM_ME_REGEX.test(message.text.trim())) {
     try {
       const dmThread = await bot.openDM(message.author);
       await dmThread.post(
@@ -387,14 +762,14 @@ bot.onSubscribedMessage(async (thread, message) => {
           <Text>{`Hi ${message.author.fullName}! You requested a DM from the thread.`}</Text>
           <Divider />
           <Text>This is a private conversation between us.</Text>
-        </Card>,
+        </Card>
       );
       await thread.post(`${emoji.check} I've sent you a DM!`);
     } catch (err) {
       await thread.post(
         `${emoji.warning} Sorry, I couldn't send you a DM. Error: ${
           err instanceof Error ? err.message : "Unknown error"
-        }`,
+        }`
       );
     }
     return;
@@ -405,7 +780,7 @@ bot.onSubscribedMessage(async (thread, message) => {
     const attachmentInfo = message.attachments
       .map(
         (a) =>
-          `- ${a.name || "unnamed"} (${a.type}, ${a.mimeType || "unknown"})`,
+          `- ${a.name || "unnamed"} (${a.type}, ${a.mimeType || "unknown"})`
       )
       .join("\n");
 
@@ -413,7 +788,7 @@ bot.onSubscribedMessage(async (thread, message) => {
       <Card title={`${emoji.eyes} Attachments Received`}>
         <Text>{`You sent ${message.attachments.length} file(s):`}</Text>
         <Text>{attachmentInfo}</Text>
-      </Card>,
+      </Card>
     );
     return;
   }
@@ -422,23 +797,30 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.startTyping();
   await delay(1000);
   const response = await thread.post(`${emoji.thinking} Processing...`);
-  await delay(2000);
-  await response.edit(`${emoji.eyes} Just a little bit...`);
-  await delay(1000);
-  await response.edit(`${emoji.check} Thanks for your message!`);
+  try {
+    await delay(2000);
+    await response.edit(`${emoji.eyes} Just a little bit...`);
+    await delay(1000);
+    await response.edit(`${emoji.check} Thanks for your message!`);
+  } catch {
+    // Some platforms (WhatsApp) don't support editing — send a follow-up instead
+    await thread.post(`${emoji.check} Thanks for your message!`);
+  }
 });
 
 // Handle emoji reactions - respond with a matching emoji or message
 bot.onReaction(["thumbs_up", "heart", "fire", "rocket"], async (event) => {
   // Only respond to added reactions, not removed ones
-  if (!event.added) return;
+  if (!event.added) {
+    return;
+  }
 
   // GChat and Teams bots cannot add reactions via their APIs
   // Respond with a message instead
   if (event.adapter.name === "gchat" || event.adapter.name === "teams") {
     await event.adapter.postMessage(
       event.threadId,
-      `Thanks for the ${event.rawEmoji}!`,
+      `Thanks for the ${event.rawEmoji}!`
     );
     return;
   }
@@ -448,6 +830,6 @@ bot.onReaction(["thumbs_up", "heart", "fire", "rocket"], async (event) => {
   await event.adapter.addReaction(
     event.threadId,
     event.messageId,
-    emoji.raised_hands,
+    emoji.raised_hands
   );
 });

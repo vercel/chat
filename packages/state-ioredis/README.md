@@ -1,11 +1,14 @@
 # @chat-adapter/state-ioredis
 
-Redis state adapter for the [chat](https://github.com/vercel-labs/chat) SDK using [ioredis](https://www.npmjs.com/package/ioredis).
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-ioredis)](https://www.npmjs.com/package/@chat-adapter/state-ioredis)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-ioredis)](https://www.npmjs.com/package/@chat-adapter/state-ioredis)
+
+Alternative Redis state adapter for [Chat SDK](https://chat-sdk.dev) using [ioredis](https://www.npmjs.com/package/ioredis). Use this if you already have ioredis in your project or need Redis Cluster/Sentinel support.
 
 ## Installation
 
 ```bash
-npm install chat @chat-adapter/state-ioredis ioredis
+pnpm add @chat-adapter/state-ioredis
 ```
 
 ## Usage
@@ -14,7 +17,7 @@ npm install chat @chat-adapter/state-ioredis ioredis
 import { Chat } from "chat";
 import { createIORedisState } from "@chat-adapter/state-ioredis";
 
-const chat = new Chat({
+const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
   state: createIORedisState({
@@ -23,25 +26,7 @@ const chat = new Chat({
 });
 ```
 
-## Configuration
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `url` | Yes* | Redis connection URL |
-| `client` | No | Existing ioredis client instance |
-| `keyPrefix` | No | Prefix for all keys (default: `"chat-sdk"`) |
-
-*Either `url` or `client` is required.
-
-### Using Connection URL
-
-```typescript
-const state = createIORedisState({
-  url: "redis://localhost:6379",
-});
-```
-
-### Using Existing Client
+### Using an existing client
 
 ```typescript
 import Redis from "ioredis";
@@ -51,36 +36,51 @@ const client = new Redis("redis://localhost:6379");
 const state = createIORedisState({ client });
 ```
 
-## When to Use ioredis vs redis
+## Configuration
 
-Use `@chat-adapter/state-ioredis` when:
+| Option | Required | Description |
+|--------|----------|-------------|
+| `url` | Yes* | Redis connection URL |
+| `client` | No | Existing `ioredis` client instance |
+| `keyPrefix` | No | Prefix for all keys (default: `"chat-sdk"`) |
 
-- You're already using ioredis in your project
+*Either `url` or `client` is required.
+
+## When to use ioredis vs redis
+
+**Use `@chat-adapter/state-ioredis` when:**
+
+- You already use ioredis in your project
 - You need Redis Cluster support
 - You need Redis Sentinel support
-- You prefer ioredis API
+- You prefer the ioredis API
 
-Use `@chat-adapter/state-redis` when:
+**Use `@chat-adapter/state-redis` when:**
 
 - You want the official Redis client
 - You're starting a new project
-- You don't need Cluster/Sentinel
+- You don't need Cluster or Sentinel
 
-## Features
-
-- Thread subscriptions (persistent)
-- Distributed locking (works across instances)
-- Automatic reconnection
-- Redis Cluster support
-- Redis Sentinel support
-- Key prefix namespacing
-
-## Key Structure
+## Key structure
 
 ```
 {keyPrefix}:subscriptions     - SET of subscribed thread IDs
 {keyPrefix}:lock:{threadId}   - Lock key with TTL
 ```
+
+## Features
+
+| Feature | Supported |
+|---------|-----------|
+| Persistence | Yes |
+| Multi-instance | Yes |
+| Subscriptions | Yes |
+| Distributed locking | Yes |
+| Key-value caching | Yes |
+| Automatic reconnection | Yes |
+| Redis Cluster support | Yes |
+| Redis Sentinel support | Yes |
+| Key prefix namespacing | Yes |
 
 ## License
 

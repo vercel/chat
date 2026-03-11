@@ -1,0 +1,77 @@
+---
+title: File uploads
+description: Send and receive files across chat platforms.
+type: guide
+prerequisites:
+  - /docs/usage
+---
+
+## Send files
+
+Attach files to messages using the `files` property:
+
+```typescript title="lib/bot.ts" lineNumbers
+const reportBuffer = Buffer.from("PDF content");
+
+await thread.post({
+  markdown: "Here's the report you requested:",
+  files: [
+    {
+      data: reportBuffer,
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+    },
+  ],
+});
+```
+
+### Multiple files
+
+```typescript title="lib/bot.ts" lineNumbers
+await thread.post({
+  markdown: "Attached are the images:",
+  files: [
+    { data: image1, filename: "screenshot1.png" },
+    { data: image2, filename: "screenshot2.png" },
+  ],
+});
+```
+
+### Files without text
+
+```typescript title="lib/bot.ts" lineNumbers
+await thread.post({
+  markdown: "",
+  files: [{ data: buffer, filename: "document.xlsx" }],
+});
+```
+
+## Receive files
+
+Access attachments from incoming messages:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onSubscribedMessage(async (thread, message) => {
+  for (const attachment of message.attachments ?? []) {
+    console.log(`File: ${attachment.name}, Type: ${attachment.mimeType}`);
+
+    if (attachment.fetchData) {
+      const data = await attachment.fetchData();
+      console.log(`Downloaded ${data.length} bytes`);
+    }
+  }
+});
+```
+
+### Attachment properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `type` | `string` | Attachment type (e.g., "image", "file") |
+| `url` | `string` (optional) | Public URL |
+| `name` | `string` (optional) | Filename |
+| `mimeType` | `string` (optional) | MIME type |
+| `size` | `number` (optional) | File size in bytes |
+| `width` | `number` (optional) | Image width |
+| `height` | `number` (optional) | Image height |
+| `fetchData` | `() => Promise<Buffer>` (optional) | Download the file data |

@@ -18,15 +18,15 @@ export const GCHAT_BOT_NAME = "TestBot";
  * Options for creating a Google Chat event
  */
 export interface GoogleChatEventOptions {
-  text: string;
+  eventTime?: string;
+  hasBotMention?: boolean;
   messageName: string;
-  spaceName: string;
-  threadName?: string;
   senderId: string;
   senderName: string;
   senderType?: string;
-  hasBotMention?: boolean;
-  eventTime?: string;
+  spaceName: string;
+  text: string;
+  threadName?: string;
 }
 
 /**
@@ -116,7 +116,7 @@ export function createGoogleChatEvent(options: GoogleChatEventOptions) {
  * Create a Google Chat webhook request
  */
 export function createGoogleChatWebhookRequest(
-  event: ReturnType<typeof createGoogleChatEvent>,
+  event: ReturnType<typeof createGoogleChatEvent>
 ): Request {
   const body = JSON.stringify(event);
 
@@ -153,7 +153,7 @@ export function createMockGoogleChatApi() {
     spaces: {
       messages: {
         create: vi.fn(
-          async (params: {
+          (params: {
             parent: string;
             requestBody: { text: string; thread?: { name: string } };
           }) => {
@@ -174,10 +174,10 @@ export function createMockGoogleChatApi() {
                 createTime: new Date().toISOString(),
               },
             };
-          },
+          }
         ),
         update: vi.fn(
-          async (params: {
+          (params: {
             name: string;
             updateMask: string;
             requestBody: { text: string };
@@ -192,16 +192,16 @@ export function createMockGoogleChatApi() {
                 text: params.requestBody.text,
               },
             };
-          },
+          }
         ),
-        delete: vi.fn(async (params: { name: string }) => {
+        delete: vi.fn((params: { name: string }) => {
           deletedMessages.push(params.name);
           return { data: {} };
         }),
-        list: vi.fn(async () => ({ data: { messages: [] } })),
+        list: vi.fn(() => ({ data: { messages: [] } })),
         reactions: {
           create: vi.fn(
-            async (params: {
+            (params: {
               parent: string;
               requestBody: { emoji: { unicode: string } };
             }) => {
@@ -212,21 +212,21 @@ export function createMockGoogleChatApi() {
               return {
                 data: { name: `${params.parent}/reactions/reaction-1` },
               };
-            },
+            }
           ),
         },
       },
-      get: vi.fn(async (params: { name: string }) => ({
+      get: vi.fn((params: { name: string }) => ({
         data: {
           name: params.name,
           displayName: "Test Space",
           type: "ROOM",
         },
       })),
-      findDirectMessage: vi.fn(async () => ({
+      findDirectMessage: vi.fn(() => ({
         data: { name: null as string | null },
       })),
-      setup: vi.fn(async (_params: { requestBody: { spaceType: string } }) => ({
+      setup: vi.fn((_params: { requestBody: { spaceType: string } }) => ({
         data: { name: `spaces/dm-${Date.now()}` },
       })),
     },
@@ -247,7 +247,7 @@ export type MockGoogleChatApi = ReturnType<typeof createMockGoogleChatApi>;
  */
 export function injectMockGoogleChatApi(
   adapter: GoogleChatAdapter,
-  mockApi: MockGoogleChatApi,
+  mockApi: MockGoogleChatApi
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
   (adapter as any).chatApi = mockApi;
@@ -258,7 +258,7 @@ export function injectMockGoogleChatApi(
  */
 export function getGoogleChatThreadId(
   spaceName: string,
-  threadName?: string,
+  threadName?: string
 ): string {
   if (threadName) {
     const encodedThread = Buffer.from(threadName).toString("base64url");

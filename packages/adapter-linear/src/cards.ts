@@ -8,13 +8,16 @@
  * @see https://linear.app/docs/comment-on-issues
  */
 
+import { renderGfmTable } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   CardChild,
   CardElement,
   FieldsElement,
+  TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText } from "chat";
 
 /**
  * Convert a CardElement to Linear-compatible markdown.
@@ -118,11 +121,22 @@ function renderChild(child: CardChild): string[] {
       }
       return [`![](${child.url})`];
 
+    case "link":
+      return [`[${escapeMarkdown(child.label)}](${child.url})`];
+
     case "divider":
       return ["---"];
 
-    default:
+    case "table":
+      return renderTable(child);
+
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [text];
+      }
       return [];
+    }
   }
 }
 
@@ -148,8 +162,15 @@ function renderText(text: TextElement): string[] {
 function renderFields(fields: FieldsElement): string[] {
   return fields.children.map(
     (field) =>
-      `**${escapeMarkdown(field.label)}:** ${escapeMarkdown(field.value)}`,
+      `**${escapeMarkdown(field.label)}:** ${escapeMarkdown(field.value)}`
   );
+}
+
+/**
+ * Render table as GFM markdown table.
+ */
+function renderTable(table: TableElement): string[] {
+  return renderGfmTable(table);
 }
 
 /**
@@ -171,7 +192,9 @@ function renderActions(actions: ActionsElement): string[] {
  * Escape special markdown characters in text.
  */
 function escapeMarkdown(text: string): string {
+  // Backslash must be escaped first to avoid double-escaping
   return text
+    .replace(/\\/g, "\\\\")
     .replace(/\*/g, "\\*")
     .replace(/_/g, "\\_")
     .replace(/\[/g, "\\[")
@@ -212,10 +235,14 @@ function childToPlainText(child: CardChild): string | null {
     case "fields":
       return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
     case "actions":
-      return child.children.map((b) => `[${b.label}]`).join(" ");
+      // Actions are interactive-only — exclude from fallback text.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
+    case "table":
+      return renderTable(child).join("\n");
     case "section":
       return child.children.map(childToPlainText).filter(Boolean).join("\n");
     default:
-      return null;
+      return cardChildToFallbackText(child);
   }
 }

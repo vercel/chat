@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -20,7 +21,7 @@ describe("cardToAdaptiveCard", () => {
 
     expect(adaptive.type).toBe("AdaptiveCard");
     expect(adaptive.$schema).toBe(
-      "http://adaptivecards.io/schemas/adaptive-card.json",
+      "http://adaptivecards.io/schemas/adaptive-card.json"
     );
     expect(adaptive.version).toBe("1.4");
     expect(adaptive.body).toBeInstanceOf(Array);
@@ -287,12 +288,31 @@ describe("cardToFallbackText", () => {
     expect(text).toContain("Your order is ready");
     expect(text).toContain("Order ID: #1234");
     expect(text).toContain("Status: Ready");
-    expect(text).toContain("[Schedule Pickup] [Delay]");
+    // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+    expect(text).not.toContain("[Schedule Pickup]");
+    expect(text).not.toContain("[Delay]");
   });
 
   it("handles card with only title", () => {
     const card = Card({ title: "Simple Card" });
     const text = cardToFallbackText(card);
     expect(text).toBe("**Simple Card**");
+  });
+});
+
+describe("cardToAdaptiveCard with CardLink", () => {
+  it("converts CardLink to a TextBlock with markdown link", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const adaptive = cardToAdaptiveCard(card);
+
+    expect(adaptive.body).toHaveLength(1);
+    expect(adaptive.body[0]).toEqual({
+      type: "TextBlock",
+      text: "[Click here](https://example.com)",
+      wrap: true,
+    });
   });
 });

@@ -55,7 +55,7 @@ export interface ToBufferOptions {
  */
 export async function toBuffer(
   data: FileDataInput | unknown,
-  options: ToBufferOptions,
+  options: ToBufferOptions
 ): Promise<Buffer | null> {
   const { platform, throwOnUnsupported = true } = options;
 
@@ -91,7 +91,7 @@ export async function toBuffer(
  */
 export function toBufferSync(
   data: Buffer | ArrayBuffer | unknown,
-  options: ToBufferOptions,
+  options: ToBufferOptions
 ): Buffer | null {
   const { platform, throwOnUnsupported = true } = options;
 
@@ -107,7 +107,7 @@ export function toBufferSync(
     if (throwOnUnsupported) {
       throw new ValidationError(
         platform,
-        "Cannot convert Blob synchronously. Use toBuffer() for async conversion.",
+        "Cannot convert Blob synchronously. Use toBuffer() for async conversion."
       );
     }
     return null;
@@ -135,7 +135,7 @@ export function toBufferSync(
  */
 export function bufferToDataUri(
   buffer: Buffer,
-  mimeType = "application/octet-stream",
+  mimeType = "application/octet-stream"
 ): string {
   const base64 = buffer.toString("base64");
   return `data:${mimeType};base64,${base64}`;

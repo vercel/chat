@@ -52,7 +52,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     fetchMessage: vi.fn().mockResolvedValue(null),
     encodeThreadId: vi.fn(
       (data: { channel: string; thread: string }) =>
-        `${name}:${data.channel}:${data.thread}`,
+        `${name}:${data.channel}:${data.thread}`
     ),
     decodeThreadId: vi.fn((id: string) => {
       const [, channel, thread] = id.split(":");
@@ -63,13 +63,35 @@ export function createMockAdapter(name = "slack"): Adapter {
     openDM: vi
       .fn()
       .mockImplementation((userId: string) =>
-        Promise.resolve(`${name}:D${userId}:`),
+        Promise.resolve(`${name}:D${userId}:`)
       ),
     isDM: vi
       .fn()
       .mockImplementation((threadId: string) => threadId.includes(":D")),
     openModal: vi.fn().mockResolvedValue({ viewId: "V123" }),
-  };
+    channelIdFromThreadId: vi
+      .fn()
+      .mockImplementation((threadId: string) =>
+        threadId.split(":").slice(0, 2).join(":")
+      ),
+    fetchChannelMessages: vi
+      .fn()
+      .mockResolvedValue({ messages: [], nextCursor: undefined }),
+    listThreads: vi
+      .fn()
+      .mockResolvedValue({ threads: [], nextCursor: undefined }),
+    fetchChannelInfo: vi.fn().mockImplementation((channelId: string) =>
+      Promise.resolve({
+        id: channelId,
+        name: `#${channelId}`,
+        isDM: false,
+        metadata: {},
+      })
+    ),
+    postChannelMessage: vi
+      .fn()
+      .mockResolvedValue({ id: "msg-1", threadId: undefined, raw: {} }),
+  } satisfies Adapter;
 }
 
 /**
@@ -102,13 +124,12 @@ export function createMockState(): MockStateAdapter {
     isSubscribed: vi.fn().mockImplementation(async (id: string) => {
       return subscriptions.has(id);
     }),
-    listSubscriptions: vi.fn().mockImplementation(async function* () {
-      for (const id of subscriptions) yield id;
-    }),
     acquireLock: vi
       .fn()
       .mockImplementation(async (threadId: string, ttlMs: number) => {
-        if (locks.has(threadId)) return null;
+        if (locks.has(threadId)) {
+          return null;
+        }
         const lock: Lock = {
           threadId,
           token: "test-token",
@@ -117,6 +138,9 @@ export function createMockState(): MockStateAdapter {
         locks.set(threadId, lock);
         return lock;
       }),
+    forceReleaseLock: vi.fn().mockImplementation(async (threadId: string) => {
+      locks.delete(threadId);
+    }),
     releaseLock: vi.fn().mockImplementation(async (lock: Lock) => {
       locks.delete(lock.threadId);
     }),
@@ -127,8 +151,36 @@ export function createMockState(): MockStateAdapter {
     set: vi.fn().mockImplementation(async (key: string, value: unknown) => {
       cache.set(key, value);
     }),
+    setIfNotExists: vi
+      .fn()
+      .mockImplementation(async (key: string, value: unknown) => {
+        if (cache.has(key)) {
+          return false;
+        }
+        cache.set(key, value);
+        return true;
+      }),
     delete: vi.fn().mockImplementation(async (key: string) => {
       cache.delete(key);
+    }),
+    appendToList: vi
+      .fn()
+      .mockImplementation(
+        async (
+          key: string,
+          value: unknown,
+          options?: { maxLength?: number; ttlMs?: number }
+        ) => {
+          let list = (cache.get(key) as unknown[]) ?? [];
+          list.push(value);
+          if (options?.maxLength && list.length > options.maxLength) {
+            list = list.slice(list.length - options.maxLength);
+          }
+          cache.set(key, list);
+        }
+      ),
+    getList: vi.fn().mockImplementation(async (key: string) => {
+      return (cache.get(key) as unknown[]) ?? [];
     }),
   };
 }
@@ -142,7 +194,7 @@ export function createMockState(): MockStateAdapter {
 export function createTestMessage(
   id: string,
   text: string,
-  overrides?: Partial<MessageData>,
+  overrides?: Partial<MessageData>
 ): Message {
   return new Message({
     id,

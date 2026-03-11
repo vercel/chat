@@ -1,0 +1,24 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "getting-started",
+    "---Usage---",
+    "usage",
+    "threads-messages-channels",
+    "handling-events",
+    "posting-messages",
+    "---Adapters---",
+    "adapters",
+    "state",
+    "---Features---",
+    "...",
+    "error-handling",
+    "---Guides---",
+    "...guides",
+    "---API Reference---",
+    "...api",
+    "---Contributing---",
+    "...contributing"
+  ]
+}

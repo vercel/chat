@@ -16,7 +16,7 @@ const BOT_SCOPES = [
   "users:read",
 ];
 
-export async function GET() {
+export function GET() {
   const clientId = process.env.SLACK_CLIENT_ID;
 
   if (!clientId) {

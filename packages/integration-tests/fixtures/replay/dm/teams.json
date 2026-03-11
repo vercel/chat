@@ -1,6 +1,6 @@
 {
   "botName": "Chat SDK Demo",
-  "botUserId": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+  "botUserId": "28:11111111-2222-3333-4444-555555555555",
   "dmConversationId": "a:17NditBRO5pbPlIimLiU0g7vfMqIYTPwqILZJq-TOhzzKiAmv2i6Oerr-QPUpuznpKMZinowF80qU8SFPCsvZlg3EpJU8FYt3rO-iSCFfYzIIk2STWat73naOa8x5LdSv",
   "mention": {
     "text": "<at>Chat SDK Demo</at> Hey",
@@ -9,26 +9,26 @@
     "timestamp": "2026-01-02T18:03:37.1995342Z",
     "id": "1767377017138",
     "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
     "from": {
-      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-      "name": "Malte Ubl",
-      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+      "name": "Test User",
+      "aadObjectId": "00000000-1111-2222-3333-444444444444"
     },
     "conversation": {
       "isGroup": true,
       "conversationType": "channel",
-      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1767377017138"
     },
     "recipient": {
-      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "id": "28:11111111-2222-3333-4444-555555555555",
       "name": "Chat SDK Demo"
     },
     "entities": [
       {
         "mentioned": {
-          "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+          "id": "28:11111111-2222-3333-4444-555555555555",
           "name": "Chat SDK Demo"
         },
         "text": "<at>Chat SDK Demo</at>",
@@ -39,7 +39,7 @@
       "teamsChannelId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2",
       "teamsTeamId": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2",
       "tenant": {
-        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
     }
   },
@@ -50,27 +50,27 @@
     "timestamp": "2026-01-02T18:27:44.6315648Z",
     "id": "1767378464588",
     "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
     "from": {
-      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-      "name": "Malte Ubl",
-      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+      "name": "Test User",
+      "aadObjectId": "00000000-1111-2222-3333-444444444444"
     },
     "conversation": {
       "isGroup": true,
       "conversationType": "channel",
-      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "id": "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1767377017138"
     },
     "recipient": {
-      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "id": "28:11111111-2222-3333-4444-555555555555",
       "name": "Chat SDK Demo"
     },
     "channelData": {
       "teamsChannelId": "19:d441d38c655c47a085215b2726e76927@thread.tacv2",
       "teamsTeamId": "19:8j-Mnacwmq2QFDbzykeQH5v55m6cN1X3QJ5viHvGIIQ1@thread.tacv2",
       "tenant": {
-        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
     }
   },
@@ -81,24 +81,24 @@
     "timestamp": "2026-01-02T18:28:24.3788393Z",
     "id": "1767378504354",
     "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/ed6e6740-934d-4088-a05e-caa14d8d89ee/",
+    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
     "from": {
-      "id": "29:198PbJuwlbYy4Gp7p3PZrunMBts-QmZieTANExeuaryFy4cfQknJFVwlT8esy8B9zQNy3qcVqoBZKj2oYDP6HHQ",
-      "name": "Malte Ubl",
-      "aadObjectId": "7a9b12a6-4f02-43f1-b6f9-fd10e047f903"
+      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
+      "name": "Test User",
+      "aadObjectId": "00000000-1111-2222-3333-444444444444"
     },
     "conversation": {
       "conversationType": "personal",
-      "tenantId": "ed6e6740-934d-4088-a05e-caa14d8d89ee",
+      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "id": "a:17NditBRO5pbPlIimLiU0g7vfMqIYTPwqILZJq-TOhzzKiAmv2i6Oerr-QPUpuznpKMZinowF80qU8SFPCsvZlg3EpJU8FYt3rO-iSCFfYzIIk2STWat73naOa8x5LdSv"
     },
     "recipient": {
-      "id": "28:57627569-c120-42a1-9e6f-7cb4b96cc8ef",
+      "id": "28:11111111-2222-3333-4444-555555555555",
       "name": "Chat SDK Demo"
     },
     "channelData": {
       "tenant": {
-        "id": "ed6e6740-934d-4088-a05e-caa14d8d89ee"
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
     }
   }

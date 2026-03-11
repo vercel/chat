@@ -25,6 +25,8 @@ import {
   type TeamsTestContext,
 } from "./replay-test-utils";
 
+const AI_WORD_REGEX = /\bAI\b/i;
+
 /**
  * Helper to create an async iterable text stream from chunks.
  * Simulates AI streaming response.
@@ -50,7 +52,7 @@ describe("Streaming Replay Tests", () => {
           onMention: async (thread, message) => {
             await thread.subscribe();
             // Check if message contains "AI" to enable AI mode
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               // Stream response for the initial AI question
@@ -76,7 +78,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -89,7 +91,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "U03STHCA1JM",
+        authorUserId: "U00FAKEUSER1",
         adapterName: "slack",
       });
 
@@ -125,7 +127,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "U0A60JBHJBE",
+        authorUserId: "U00FAKEUSER2",
         adapterName: "slack",
       });
 
@@ -147,7 +149,7 @@ describe("Streaming Replay Tests", () => {
         {
           onMention: async (thread, message) => {
             await thread.subscribe();
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               const stream = createTextStream([
@@ -171,7 +173,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -212,7 +214,7 @@ describe("Streaming Replay Tests", () => {
       // Verify streaming response
       expectUpdatedMessage(
         ctx.mockBotAdapter,
-        "I am an AI assistant here to help.",
+        "I am an AI assistant here to help."
       );
     });
   });
@@ -230,7 +232,7 @@ describe("Streaming Replay Tests", () => {
         {
           onMention: async (thread, message) => {
             await thread.subscribe();
-            if (/\bAI\b/i.test(message.text)) {
+            if (AI_WORD_REGEX.test(message.text)) {
               aiModeEnabled = true;
               await thread.post("AI Mode Enabled!");
               const stream = createTextStream([
@@ -254,7 +256,7 @@ describe("Streaming Replay Tests", () => {
               await thread.post(stream);
             }
           },
-        },
+        }
       );
     });
 
@@ -267,7 +269,7 @@ describe("Streaming Replay Tests", () => {
 
       expectValidMention(ctx.captured, {
         textContains: "AI",
-        authorUserId: "users/117994873354375860089",
+        authorUserId: "users/100000000000000000001",
         adapterName: "gchat",
       });
 
@@ -296,7 +298,7 @@ describe("Streaming Replay Tests", () => {
       // Verify streaming response
       expectUpdatedMessage(
         ctx.mockChatApi,
-        "I am an AI assistant here to help.",
+        "I am an AI assistant here to help."
       );
     });
   });

@@ -1,0 +1,208 @@
+---
+title: Modals
+description: Collect structured user input through modal dialogs with text fields, dropdowns, and validation.
+type: guide
+prerequisites:
+  - /docs/actions
+---
+
+Modals open form dialogs in response to button clicks or [slash commands](/docs/slash-commands). They support text inputs, dropdowns, radio buttons, and server-side validation. Currently supported on Slack.
+
+## Open a modal
+
+Modals are opened from [action handlers](/docs/actions) or [slash command handlers](/docs/slash-commands) using `event.openModal()`:
+
+```tsx title="lib/bot.tsx" lineNumbers
+import { Modal, TextInput, Select, SelectOption } from "chat";
+
+bot.onAction("feedback", async (event) => {
+  await event.openModal(
+    <Modal
+      callbackId="feedback_form"
+      title="Send Feedback"
+      submitLabel="Send"
+      closeLabel="Cancel"
+      notifyOnClose
+    >
+      <TextInput
+        id="message"
+        label="Your Feedback"
+        placeholder="Tell us what you think..."
+        multiline
+      />
+      <Select id="category" label="Category" placeholder="Select a category">
+        <SelectOption label="Bug Report" value="bug" />
+        <SelectOption label="Feature Request" value="feature" />
+        <SelectOption label="General" value="general" />
+      </Select>
+      <TextInput
+        id="email"
+        label="Email (optional)"
+        placeholder="your@email.com"
+        optional
+      />
+    </Modal>
+  );
+});
+```
+
+## Components
+
+### Modal
+
+The top-level container for the form.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `callbackId` | `string` | Identifier for matching submit/close handlers |
+| `title` | `string` | Modal title |
+| `submitLabel` | `string` (optional) | Submit button text (defaults to "Submit") |
+| `closeLabel` | `string` (optional) | Cancel button text (defaults to "Cancel") |
+| `notifyOnClose` | `boolean` (optional) | Fire `onModalClose` when user cancels |
+| `privateMetadata` | `string` (optional) | Custom context passed through to handlers |
+
+### TextInput
+
+A text field for user input.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier (key in `event.values`) |
+| `label` | `string` | Field label |
+| `placeholder` | `string` (optional) | Placeholder text |
+| `initialValue` | `string` (optional) | Pre-filled value |
+| `multiline` | `boolean` (optional) | Render as textarea |
+| `optional` | `boolean` (optional) | Allow empty submission |
+| `maxLength` | `number` (optional) | Maximum character count |
+
+### Select
+
+A dropdown for selecting a single option.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier |
+| `label` | `string` | Field label |
+| `placeholder` | `string` (optional) | Placeholder text |
+| `initialOption` | `string` (optional) | Pre-selected value |
+| `optional` | `boolean` (optional) | Allow empty submission |
+
+### RadioSelect
+
+A radio button group for mutually exclusive options.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier |
+| `label` | `string` | Field label |
+| `initialOption` | `string` (optional) | Pre-selected value |
+| `optional` | `boolean` (optional) | Allow empty submission |
+
+### SelectOption
+
+An option for `Select` or `RadioSelect`.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `label` | `string` | Display text |
+| `value` | `string` | Value passed to handler |
+| `description` | `string` (optional) | Help text below the label |
+
+## Handle submissions
+
+Register a handler with `onModalSubmit` using the same `callbackId`:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onModalSubmit("feedback_form", async (event) => {
+  const { message, category, email } = event.values;
+
+  // Validate input — return errors to show in the modal
+  if (!message || message.length < 5) {
+    return {
+      action: "errors",
+      errors: { message: "Feedback must be at least 5 characters" },
+    };
+  }
+
+  // Post confirmation to the original thread
+  if (event.relatedThread) {
+    await event.relatedThread.post(`Feedback received! Category: ${category}`);
+  }
+
+  // Update the message that triggered the modal
+  if (event.relatedMessage) {
+    await event.relatedMessage.edit("Feedback submitted!");
+  }
+
+  // Return nothing (or { action: "close" }) to close the modal
+});
+```
+
+### Response types
+
+| Response | Description |
+|----------|-------------|
+| `undefined` or `{ action: "close" }` | Close the modal |
+| `{ action: "errors", errors: { fieldId: "message" } }` | Show validation errors on specific fields |
+| `{ action: "update", modal: ModalElement }` | Replace the modal content |
+| `{ action: "push", modal: ModalElement }` | Push a new modal view onto the stack |
+
+### ModalSubmitEvent
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `callbackId` | `string` | Modal identifier |
+| `viewId` | `string` | Platform view ID |
+| `values` | `Record<string, string>` | Form field values keyed by input `id` |
+| `user` | `Author` | The user who submitted |
+| `privateMetadata` | `string` (optional) | Custom context from the Modal component |
+| `relatedThread` | `Thread` (optional) | Thread where the modal was triggered |
+| `relatedMessage` | `SentMessage` (optional) | Message with the button that opened the modal |
+| `relatedChannel` | `Channel` (optional) | Channel where the modal was triggered (from [slash commands](/docs/slash-commands)) |
+| `adapter` | `Adapter` | The platform adapter |
+| `raw` | `unknown` | Platform-specific payload |
+
+## Handle cancellation
+
+Optionally handle when users cancel a modal. Requires `notifyOnClose` on the `Modal` component:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onModalClose("feedback_form", async (event) => {
+  console.log(`${event.user.userName} cancelled the feedback form`);
+
+  if (event.relatedThread) {
+    await event.relatedThread.post("No worries, let us know if you change your mind!");
+  }
+});
+```
+
+## Pass context with privateMetadata
+
+Use `privateMetadata` to carry context from the button click through to the submit handler:
+
+```tsx title="lib/bot.tsx" lineNumbers
+bot.onAction("report", async (event) => {
+  await event.openModal(
+    <Modal
+      callbackId="report_form"
+      title="Report Bug"
+      submitLabel="Submit"
+      privateMetadata={JSON.stringify({
+        reportType: event.value,
+        threadId: event.threadId,
+      })}
+    >
+      <TextInput id="title" label="Bug Title" />
+      <TextInput id="steps" label="Steps to Reproduce" multiline />
+    </Modal>
+  );
+});
+
+bot.onModalSubmit("report_form", async (event) => {
+  const metadata = event.privateMetadata
+    ? JSON.parse(event.privateMetadata)
+    : {};
+
+  console.log(metadata.reportType); // "bug"
+});
+```

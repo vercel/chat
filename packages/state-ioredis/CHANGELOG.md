@@ -1,5 +1,136 @@
 # @chat-adapter/state-ioredis
 
+## 4.19.0
+
+### Minor Changes
+
+- eb49b2a: Add `forceReleaseLock` to StateAdapter and `onLockConflict` config option for interrupt/steerability of long-running handlers
+
+### Patch Changes
+
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+
+## 4.18.0
+
+### Patch Changes
+
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+
+## 4.17.0
+
+### Patch Changes
+
+- cc65dc3: fix: non-atomic message deduplication causes app_mention events to be silently dropped
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+
+## 4.16.1
+
+### Patch Changes
+
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+
+## 4.16.0
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - chat@4.16.0
+
+## 4.15.0
+
+### Patch Changes
+
+- Updated dependencies [0f85031]
+- Updated dependencies [5b3090a]
+  - chat@4.15.0
+
+## 4.14.0
+
+### Patch Changes
+
+- Updated dependencies [90dc325]
+  - chat@4.14.0
+
+## 4.13.4
+
+### Patch Changes
+
+- Updated dependencies [716ce2a]
+  - chat@4.13.4
+
+## 4.13.3
+
+### Patch Changes
+
+- Updated dependencies [ce33270]
+  - chat@4.13.3
+
+## 4.13.2
+
+### Patch Changes
+
+- Updated dependencies [7d00feb]
+  - chat@4.13.2
+
+## 4.13.1
+
+### Patch Changes
+
+- chat@4.13.1
+
+## 4.13.0
+
+### Patch Changes
+
+- Updated dependencies [f371c0d]
+  - chat@4.13.0
+
+## 4.12.0
+
+### Patch Changes
+
+- Updated dependencies [8c50252]
+  - chat@4.12.0
+
+## 4.11.0
+
+### Patch Changes
+
+- Updated dependencies [417374b]
+  - chat@4.11.0
+
+## 4.10.1
+
+### Patch Changes
+
+- Updated dependencies [c99b183]
+  - chat@4.10.1
+
+## 4.10.0
+
+### Patch Changes
+
+- Updated dependencies [c7d51cb]
+  - chat@4.10.0
+
+## 4.9.1
+
+### Patch Changes
+
+- chat@4.9.1
+
 ## 4.9.0
 
 ### Patch Changes

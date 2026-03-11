@@ -6,6 +6,7 @@
 import type {
   ModalChild,
   ModalElement,
+  RadioSelectElement,
   SelectElement,
   TextInputElement,
 } from "chat";
@@ -16,25 +17,75 @@ import {
 } from "./cards";
 
 export interface SlackView {
-  type: "modal";
+  blocks: SlackBlock[];
   callback_id: string;
-  title: { type: "plain_text"; text: string };
-  submit?: { type: "plain_text"; text: string };
   close?: { type: "plain_text"; text: string };
   notify_on_close?: boolean;
   private_metadata?: string;
-  blocks: SlackBlock[];
+  submit?: { type: "plain_text"; text: string };
+  title: { type: "plain_text"; text: string };
+  type: "modal";
 }
 
 export interface SlackModalResponse {
-  response_action?: "errors" | "update" | "push" | "clear";
   errors?: Record<string, string>;
+  response_action?: "errors" | "update" | "push" | "clear";
   view?: SlackView;
 }
 
+// ============================================================================
+// Private metadata encoding
+// ============================================================================
+
+export interface ModalMetadata {
+  contextId?: string;
+  privateMetadata?: string;
+}
+
+/**
+ * Encode contextId and user privateMetadata into a single string
+ * for Slack's private_metadata field.
+ */
+export function encodeModalMetadata(meta: ModalMetadata): string | undefined {
+  if (!(meta.contextId || meta.privateMetadata)) {
+    return undefined;
+  }
+  return JSON.stringify({ c: meta.contextId, m: meta.privateMetadata });
+}
+
+/**
+ * Decode Slack's private_metadata back into contextId and user privateMetadata.
+ * Falls back to treating the raw string as a plain contextId for backward compat.
+ */
+export function decodeModalMetadata(raw?: string): ModalMetadata {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      ("c" in parsed || "m" in parsed)
+    ) {
+      return {
+        contextId: parsed.c || undefined,
+        privateMetadata: parsed.m || undefined,
+      };
+    }
+  } catch {
+    // Not JSON — treat as legacy plain contextId
+  }
+  return { contextId: raw };
+}
+
+// ============================================================================
+// Modal view conversion
+// ============================================================================
+
 export function modalToSlackView(
   modal: ModalElement,
-  contextId?: string,
+  contextId?: string
 ): SlackView {
   return {
     type: "modal",
@@ -58,10 +109,16 @@ function modalChildToBlock(child: ModalChild): SlackBlock {
       return textInputToBlock(child);
     case "select":
       return selectToBlock(child);
+    case "radio_select":
+      return radioSelectToBlock(child);
     case "text":
       return convertTextToBlock(child);
     case "fields":
       return convertFieldsToBlock(child);
+    default:
+      throw new Error(
+        `Unknown modal child type: ${(child as { type: string }).type}`
+      );
   }
 }
 
@@ -92,10 +149,16 @@ function textInputToBlock(input: TextInputElement): SlackBlock {
 }
 
 function selectToBlock(select: SelectElement): SlackBlock {
-  const options = select.options.map((opt) => ({
-    text: { type: "plain_text" as const, text: opt.label },
-    value: opt.value,
-  }));
+  const options = select.options.map((opt) => {
+    const option: Record<string, unknown> = {
+      text: { type: "plain_text" as const, text: opt.label },
+      value: opt.value,
+    };
+    if (opt.description) {
+      option.description = { type: "plain_text", text: opt.description };
+    }
+    return option;
+  });
 
   const element: Record<string, unknown> = {
     type: "static_select",
@@ -108,7 +171,9 @@ function selectToBlock(select: SelectElement): SlackBlock {
   }
 
   if (select.initialOption) {
-    const initialOpt = options.find((o) => o.value === select.initialOption);
+    const initialOpt = options.find(
+      (o) => (o as { value: string }).value === select.initialOption
+    );
     if (initialOpt) {
       element.initial_option = initialOpt;
     }
@@ -119,6 +184,41 @@ function selectToBlock(select: SelectElement): SlackBlock {
     block_id: select.id,
     optional: select.optional ?? false,
     label: { type: "plain_text", text: select.label },
+    element,
+  };
+}
+
+function radioSelectToBlock(radioSelect: RadioSelectElement): SlackBlock {
+  const limitedOptions = radioSelect.options.slice(0, 10);
+  const options = limitedOptions.map((opt) => {
+    const option: Record<string, unknown> = {
+      text: { type: "mrkdwn" as const, text: opt.label },
+      value: opt.value,
+    };
+    if (opt.description) {
+      option.description = { type: "mrkdwn", text: opt.description };
+    }
+    return option;
+  });
+
+  const element: Record<string, unknown> = {
+    type: "radio_buttons",
+    action_id: radioSelect.id,
+    options,
+  };
+  if (radioSelect.initialOption) {
+    const initialOpt = options.find(
+      (o) => (o as { value: string }).value === radioSelect.initialOption
+    );
+    if (initialOpt) {
+      element.initial_option = initialOpt;
+    }
+  }
+  return {
+    type: "input",
+    block_id: radioSelect.id,
+    optional: radioSelect.optional ?? false,
+    label: { type: "plain_text", text: radioSelect.label },
     element,
   };
 }

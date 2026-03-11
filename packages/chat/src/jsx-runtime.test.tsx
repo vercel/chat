@@ -1,4 +1,3 @@
-// @ts-nocheck - Uses vitest's custom JSX runtime config, not TypeScript's
 /**
  * Tests for the custom chat-sdk JSX runtime using actual JSX syntax.
  *
@@ -15,6 +14,7 @@ import {
   Image,
   LinkButton,
   Section,
+  Table,
   Text,
 } from "./cards";
 import { isJSX, toCardElement } from "./jsx-runtime";
@@ -33,9 +33,9 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
     it("creates Card with subtitle and imageUrl", () => {
       const element = (
         <Card
-          title="Order"
-          subtitle="Processing"
           imageUrl="https://example.com/img.png"
+          subtitle="Processing"
+          title="Order"
         />
       );
       const result = toCardElement(element);
@@ -140,7 +140,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       const element = (
         <Card>
           <Actions>
-            <LinkButton url="https://example.com" style="primary">
+            <LinkButton style="primary" url="https://example.com">
               Visit Site
             </LinkButton>
           </Actions>
@@ -210,7 +210,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
         <Card>
           <Section>
             <Text>Inside section</Text>
-            <Image url="https://example.com/img.png" alt="Description" />
+            <Image alt="Description" url="https://example.com/img.png" />
           </Section>
         </Card>
       );
@@ -229,7 +229,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
     it("creates Image with url and alt", () => {
       const element = (
         <Card>
-          <Image url="https://example.com/photo.jpg" alt="A photo" />
+          <Image alt="A photo" url="https://example.com/photo.jpg" />
         </Card>
       );
       const result = toCardElement(element);
@@ -244,7 +244,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
   describe("complex structures", () => {
     it("creates full card with all element types", () => {
       const element = (
-        <Card title="Order #123" subtitle="Ready for pickup">
+        <Card subtitle="Ready for pickup" title="Order #123">
           <Text>Your order is ready!</Text>
           <Divider />
           <Fields>
@@ -290,6 +290,47 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       if (result?.children[6].type === "actions") {
         expect(result.children[6].children).toHaveLength(3);
       }
+    });
+  });
+
+  describe("Table", () => {
+    it("creates Card with Table child", () => {
+      const element = (
+        <Card title="Team">
+          <Table
+            headers={["Name", "Role"]}
+            rows={[
+              ["Alice", "Engineer"],
+              ["Bob", "Designer"],
+            ]}
+          />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children).toHaveLength(1);
+      expect(result?.children[0].type).toBe("table");
+      if (result?.children[0].type === "table") {
+        expect(result.children[0].headers).toEqual(["Name", "Role"]);
+        expect(result.children[0].rows).toEqual([
+          ["Alice", "Engineer"],
+          ["Bob", "Designer"],
+        ]);
+      }
+    });
+
+    it("creates Card with Table alongside other children", () => {
+      const element = (
+        <Card title="Report">
+          <Text>Summary:</Text>
+          <Table headers={["Metric", "Value"]} rows={[["Users", "100"]]} />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children).toHaveLength(2);
+      expect(result?.children[0].type).toBe("text");
+      expect(result?.children[1].type).toBe("table");
     });
   });
 

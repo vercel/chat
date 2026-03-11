@@ -6,10 +6,10 @@ import { ValidationError } from "@chat-adapter/shared";
 
 /** Google Chat-specific thread ID data */
 export interface GoogleChatThreadId {
-  spaceName: string;
-  threadName?: string;
   /** Whether this is a DM space */
   isDM?: boolean;
+  spaceName: string;
+  threadName?: string;
 }
 
 /**
@@ -37,7 +37,7 @@ export function decodeThreadId(threadId: string): GoogleChatThreadId {
   if (parts.length < 2 || parts[0] !== "gchat") {
     throw new ValidationError(
       "gchat",
-      `Invalid Google Chat thread ID: ${threadId}`,
+      `Invalid Google Chat thread ID: ${threadId}`
     );
   }
 

@@ -1,57 +1,46 @@
 # @chat-adapter/discord
 
-Discord adapter for the [chat](https://github.com/vercel-labs/chat) SDK.
+[![npm version](https://img.shields.io/npm/v/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
+[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
+
+Discord adapter for [Chat SDK](https://chat-sdk.dev). Configure with HTTP Interactions and Gateway WebSocket support.
 
 ## Installation
 
 ```bash
-npm install chat @chat-adapter/discord
+pnpm add @chat-adapter/discord
 ```
 
 ## Usage
+
+The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from environment variables:
 
 ```typescript
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
 
-const chat = new Chat({
+const bot = new Chat({
   userName: "mybot",
   adapters: {
-    discord: createDiscordAdapter({
-      botToken: process.env.DISCORD_BOT_TOKEN!,
-      publicKey: process.env.DISCORD_PUBLIC_KEY!,
-      applicationId: process.env.DISCORD_APPLICATION_ID!,
-      // Optional: trigger on role mentions too
-      mentionRoleIds: process.env.DISCORD_MENTION_ROLE_IDS?.split(","),
-    }),
+    discord: createDiscordAdapter(),
   },
 });
 
-// Handle @mentions
-chat.onNewMention(async (thread, message) => {
+bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Discord!");
 });
 ```
 
-## Configuration
+## Discord application setup
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| `botToken` | Yes | Discord bot token |
-| `publicKey` | Yes | Discord application public key (for webhook signature verification) |
-| `applicationId` | Yes | Discord application ID |
-| `mentionRoleIds` | No | Array of role IDs that should trigger mention handlers |
-
-## Discord Application Setup
-
-### 1. Create Application
+### 1. Create application
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click **New Application** and give it a name
 3. Note the **Application ID** from the General Information page
 4. Copy the **Public Key** from the General Information page
 
-### 2. Create Bot
+### 2. Create bot
 
 1. Go to the **Bot** section in the left sidebar
 2. Click **Reset Token** to generate a new bot token
@@ -60,84 +49,60 @@ chat.onNewMention(async (thread, message) => {
    - Message Content Intent
    - Server Members Intent (if needed)
 
-### 3. Configure Interactions Endpoint
+### 3. Configure interactions endpoint
 
 1. Go to **General Information**
-2. Set **Interactions Endpoint URL** to: `https://your-domain.com/api/webhooks/discord`
-3. Discord will send a PING request to verify the endpoint
+2. Set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`
+3. Discord sends a PING to verify the endpoint
 
-### 4. Add Bot to Server
+### 4. Add bot to server
 
-1. Go to **OAuth2 > URL Generator**
+1. Go to **OAuth2** then **URL Generator**
 2. Select scopes: `bot`, `applications.commands`
-3. Select bot permissions:
-   - Send Messages
-   - Send Messages in Threads
-   - Create Public Threads
-   - Read Message History
-   - Add Reactions
-   - Attach Files
-4. Copy the generated URL and open it to add the bot to your server
-
-## Environment Variables
-
-```bash
-# Required
-DISCORD_BOT_TOKEN=your-bot-token
-DISCORD_PUBLIC_KEY=your-application-public-key
-DISCORD_APPLICATION_ID=your-application-id
-
-# Optional: trigger on role mentions (comma-separated)
-DISCORD_MENTION_ROLE_IDS=1234567890,0987654321
-
-# For Gateway mode with Vercel Cron
-CRON_SECRET=your-random-secret
-```
+3. Select bot permissions: Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Attach Files
+4. Copy the generated URL and open it to invite the bot to your server
 
 ## Architecture: HTTP Interactions vs Gateway
 
 Discord has two ways to receive events:
 
-### HTTP Interactions (Default)
+**HTTP Interactions (default):**
 - Receives button clicks, slash commands, and verification pings
 - Works out of the box with serverless
-- **Does NOT receive regular messages** - only interactions
+- Does **not** receive regular messages
 
-### Gateway WebSocket (Required for Messages)
-- Required to receive regular messages and reactions
+**Gateway WebSocket (required for messages):**
+- Receives regular messages and reactions
 - Requires a persistent connection
 - In serverless environments, use a cron job to maintain the connection
 
-## Gateway Setup for Serverless
+## Gateway setup for serverless
 
-For Vercel/serverless deployments, set up a cron job to maintain the Gateway connection:
-
-### 1. Create Gateway Route
+### 1. Create Gateway route
 
 ```typescript
-// app/api/discord/gateway/route.ts
-import { NextResponse } from "next/server";
 import { after } from "next/server";
-import { discord } from "@/lib/bot";
+import { bot } from "@/lib/bot";
 
-export const maxDuration = 800; // Maximum Vercel function duration
+export const maxDuration = 800;
 
 export async function GET(request: Request): Promise<Response> {
-  // Validate cron secret
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return new Response("CRON_SECRET not configured", { status: 500 });
   }
+
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${cronSecret}`) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  // Start Gateway listener (runs for 10 minutes)
   const durationMs = 600 * 1000;
   const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/discord`;
 
-  return discord.startGatewayListener(
+  await bot.initialize();
+
+  return bot.adapters.discord.startGatewayListener(
     { waitUntil: (task) => after(() => task) },
     durationMs,
     undefined,
@@ -147,8 +112,6 @@ export async function GET(request: Request): Promise<Response> {
 ```
 
 ### 2. Configure Vercel Cron
-
-Create `vercel.json`:
 
 ```json
 {
@@ -163,42 +126,103 @@ Create `vercel.json`:
 
 This runs every 9 minutes, ensuring overlap with the 10-minute listener duration.
 
-### 3. Add Environment Variables
+### 3. Add environment variables
 
 Add `CRON_SECRET` to your Vercel project settings.
 
-## Role Mentions
+## Role mentions
 
 By default, only direct user mentions (`@BotName`) trigger `onNewMention` handlers. To also trigger on role mentions (e.g., `@AI`):
 
 1. Create a role in your Discord server (e.g., "AI")
 2. Assign the role to your bot
 3. Copy the role ID (right-click role in server settings with Developer Mode enabled)
-4. Add the role ID to `DISCORD_MENTION_ROLE_IDS`
+4. Add to `mentionRoleIds`:
 
 ```typescript
 createDiscordAdapter({
-  botToken: process.env.DISCORD_BOT_TOKEN!,
-  publicKey: process.env.DISCORD_PUBLIC_KEY!,
-  applicationId: process.env.DISCORD_APPLICATION_ID!,
-  mentionRoleIds: ["1457473602180878604"], // Your role ID
+  mentionRoleIds: ["1457473602180878604"],
 });
+```
+
+Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string in your environment variables.
+
+## Configuration
+
+All options are auto-detected from environment variables when not provided.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
+| `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
+| `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
+
+## Environment variables
+
+```bash
+DISCORD_BOT_TOKEN=your-bot-token
+DISCORD_PUBLIC_KEY=your-application-public-key
+DISCORD_APPLICATION_ID=your-application-id
+DISCORD_MENTION_ROLE_IDS=1234567890,0987654321  # Optional
+CRON_SECRET=your-random-secret                   # For Gateway cron
 ```
 
 ## Features
 
-- Message posting and editing
-- Thread creation and management
-- Reaction handling (add/remove/events)
-- File attachments
-- Rich embeds (cards with buttons)
-- Action callbacks (button interactions)
-- Direct messages
-- Role mention support
+### Messaging
+
+| Feature | Supported |
+|---------|-----------|
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | Yes |
+| Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Embeds |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | No |
+| Tables | GFM |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | Yes |
+| Mentions | Yes |
+| Add reactions | Yes |
+| Remove reactions | Yes |
+| Typing indicator | Yes |
+| DMs | Yes |
+| Ephemeral messages | No (DM fallback) |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
 
 ## Testing
 
-Run a local tunnel (e.g., ngrok) to test webhooks:
+Run a local tunnel (e.g., ngrok) to test webhooks locally:
 
 ```bash
 ngrok http 3000
@@ -217,8 +241,8 @@ Update the Interactions Endpoint URL in the Discord Developer Portal to your ngr
 ### Role mentions not triggering
 
 1. **Verify role ID**: Enable Developer Mode in Discord settings, then right-click the role
-2. **Check mentionRoleIds config**: Ensure the role ID is in the array
-3. **Confirm bot has the role**: The bot must have the role assigned to be mentioned via that role
+2. **Check `mentionRoleIds` config**: Ensure the role ID is in the array
+3. **Confirm bot has the role**: The bot must have the role assigned
 
 ### Signature verification failing
 

@@ -1,5 +1,215 @@
 # @chat-adapter/slack
 
+## 4.19.0
+
+### Minor Changes
+
+- 5b41f08: Add `thread.schedule()` and `ScheduledMessage` type for scheduling messages to be sent at a future time. Slack adapter implements scheduling via `chat.scheduleMessage` API with `cancel()` support.
+
+### Patch Changes
+
+- 736880a: Resolve parent `thread_ts` for reaction events on threaded replies so `onReaction` gets the correct thread ID
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
+## 4.18.0
+
+### Patch Changes
+
+- a3cfc1a: AI SDK6 compat fixes and support for native slack tables
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+  - @chat-adapter/shared@4.18.0
+
+## 4.17.0
+
+### Patch Changes
+
+- 10b0e6b: fix: Slack silently drops file_share messages, blocking file uploads from reaching processMessage
+- d3db36e: fix: Slack postMessage hasText check causes no_text error for file-only posts
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+  - @chat-adapter/shared@4.17.0
+
+## 4.16.1
+
+### Patch Changes
+
+- f0dfa4d: Fix nested list rendering in Markdown-to-platform converters
+
+  All adapters (Slack, Discord, Teams, Google Chat) were flattening nested
+  lists during `fromAst()` conversion, causing child items to be concatenated
+  directly onto the parent item without any indentation or newline separation.
+
+  The `nodeToX()` list handler now accepts a `depth` parameter and uses it to
+  produce platform-appropriate indentation (`"  ".repeat(depth)`) for nested
+  lists. Each list item's children are processed in order: paragraph content
+  is prefixed with the bullet/number at the correct indent level, and nested
+  list nodes are rendered recursively at `depth + 1`.
+
+- f27c89b: Improve StreamChunk type safety with discriminated union and fix url_verification security bypass
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+  - @chat-adapter/shared@4.16.1
+
+## 4.16.0
+
+### Minor Changes
+
+- 02e7ef6: Implements table markdown rendering, and fully streaming markdown rendering including for Slack which has native streaming. Overhauls adapters to have better fallback-render behavior
+- f0c7050: add onMemberJoinedChannel on slack adapter
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - @chat-adapter/shared@4.16.0
+  - chat@4.16.0
+
+## 4.15.0
+
+### Minor Changes
+
+- 5b3090a: Add CardLink element
+
+### Patch Changes
+
+- f0cfcfa: Can now attach multiple files to the same Slack message, as opposed to breaking by file.
+- Updated dependencies [0f85031]
+- Updated dependencies [5b3090a]
+  - chat@4.15.0
+  - @chat-adapter/shared@4.15.0
+
+## 4.14.0
+
+### Minor Changes
+
+- ef6f370: Add custom installation key prefix support for slack installations
+- 90dc325: Add typing indicators for Slack adapter using Slack assistants API
+
+### Patch Changes
+
+- Updated dependencies [90dc325]
+  - chat@4.14.0
+  - @chat-adapter/shared@4.14.0
+
+## 4.13.4
+
+### Patch Changes
+
+- f266dcf: Automatically load from env vars
+- Updated dependencies [716ce2a]
+  - chat@4.13.4
+  - @chat-adapter/shared@4.13.4
+
+## 4.13.3
+
+### Patch Changes
+
+- Updated dependencies [ce33270]
+  - chat@4.13.3
+  - @chat-adapter/shared@4.13.3
+
+## 4.13.2
+
+### Patch Changes
+
+- Updated dependencies [7d00feb]
+  - chat@4.13.2
+  - @chat-adapter/shared@4.13.2
+
+## 4.13.1
+
+### Patch Changes
+
+- 09cdfa3: fix(slack,gchat): convert **bold** to _bold_ in Card text blocks
+
+  CardText content with standard Markdown bold was rendering literally in Slack and Google Chat. Both platforms use single asterisk for bold. Added markdownToMrkdwn conversion in convertTextToBlock and field converters.
+
+  - chat@4.13.1
+  - @chat-adapter/shared@4.13.1
+
+## 4.13.0
+
+### Minor Changes
+
+- f371c0d: feat(slack): full Slack Assistants API support
+
+  - Route `assistant_thread_started` and `assistant_thread_context_changed` events
+  - Add `onAssistantThreadStarted` and `onAssistantContextChanged` handler registration
+  - Add `setSuggestedPrompts`, `setAssistantStatus`, `setAssistantTitle` methods on Slack adapter
+  - Extend `stream()` to accept `stopBlocks` for Block Kit on stream finalization
+  - Bump `@slack/web-api` to `^7.11.0` for `chatStream` support
+  - Export all new types
+
+### Patch Changes
+
+- Updated dependencies [f371c0d]
+  - chat@4.13.0
+  - @chat-adapter/shared@4.13.0
+
+## 4.12.0
+
+### Minor Changes
+
+- 8c50252: Adding support for slash commands.
+
+### Patch Changes
+
+- Updated dependencies [8c50252]
+  - chat@4.12.0
+  - @chat-adapter/shared@4.12.0
+
+## 4.11.0
+
+### Minor Changes
+
+- 417374b: Adding inline Select components and Radio buttons to cards
+
+### Patch Changes
+
+- Updated dependencies [417374b]
+  - chat@4.11.0
+  - @chat-adapter/shared@4.11.0
+
+## 4.10.1
+
+### Patch Changes
+
+- c99b183: Added support for creating modals from ephemeral messages.
+- Updated dependencies [c99b183]
+  - chat@4.10.1
+  - @chat-adapter/shared@4.10.1
+
+## 4.10.0
+
+### Minor Changes
+
+- c7d51cb: Added support for passing arbitrary metadata through the modal lifecycle via a new privateMetadata field.
+
+### Patch Changes
+
+- Updated dependencies [c7d51cb]
+  - chat@4.10.0
+  - @chat-adapter/shared@4.10.0
+
+## 4.9.1
+
+### Patch Changes
+
+- Updated dependencies [18ce1d0]
+  - @chat-adapter/shared@4.9.1
+  - chat@4.9.1
+
 ## 4.9.0
 
 ### Minor Changes

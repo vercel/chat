@@ -5,8 +5,12 @@
  * for card-to-platform-format conversions.
  */
 
-import type { ButtonElement, CardChild, CardElement } from "chat";
-import { convertEmojiPlaceholders } from "chat";
+import type { ButtonElement, CardChild, CardElement, TableElement } from "chat";
+import {
+  convertEmojiPlaceholders,
+  cardChildToFallbackText as coreCardChildToFallbackText,
+  tableElementToAscii,
+} from "chat";
 
 /**
  * Supported platform names for adapter utilities.
@@ -42,7 +46,7 @@ export const BUTTON_STYLE_MAPPINGS: Record<
  * ```
  */
 export function createEmojiConverter(
-  platform: PlatformName,
+  platform: PlatformName
 ): (text: string) => string {
   return (text: string) => convertEmojiPlaceholders(text, platform);
 }
@@ -59,9 +63,11 @@ export function createEmojiConverter(
  */
 export function mapButtonStyle(
   style: ButtonElement["style"],
-  platform: PlatformName,
+  platform: PlatformName
 ): string | undefined {
-  if (!style) return undefined;
+  if (!style) {
+    return undefined;
+  }
   return BUTTON_STYLE_MAPPINGS[platform][style];
 }
 
@@ -94,7 +100,7 @@ export interface FallbackTextOptions {
  */
 export function cardToFallbackText(
   card: CardElement,
-  options: FallbackTextOptions = {},
+  options: FallbackTextOptions = {}
 ): string {
   const { boldFormat = "*", lineBreak = "\n", platform } = options;
 
@@ -128,25 +134,56 @@ export function cardToFallbackText(
  */
 function childToFallbackText(
   child: CardChild,
-  convertText: (t: string) => string,
+  convertText: (t: string) => string
 ): string | null {
   switch (child.type) {
     case "text":
       return convertText(child.content);
+    case "link":
+      return `${convertText(child.label)} (${child.url})`;
     case "fields":
       return child.children
         .map((f) => `${convertText(f.label)}: ${convertText(f.value)}`)
         .join("\n");
     case "actions":
-      return `[${child.children.map((b) => convertText(b.label)).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // Fallback text is used for notifications and screen readers where buttons aren't actionable.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c, convertText))
         .filter(Boolean)
         .join("\n");
+    case "table":
+      return tableElementToAscii(child.headers, child.rows);
     case "divider":
       return "---";
     default:
-      return null;
+      return coreCardChildToFallbackText(child);
   }
+}
+
+/**
+ * Escape a cell value for use in a GFM pipe table.
+ * Escapes `|` to `\|` and replaces newlines with spaces.
+ */
+export function escapeTableCell(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+/**
+ * Render a TableElement as a GFM markdown table with properly escaped cells.
+ * Shared by adapters that support native GFM table rendering (GitHub, Linear, Discord).
+ */
+export function renderGfmTable(table: TableElement): string[] {
+  const headers = table.headers.map(escapeTableCell);
+  const lines: string[] = [];
+  lines.push(`| ${headers.join(" | ")} |`);
+  lines.push(`| ${headers.map(() => "---").join(" | ")} |`);
+  for (const row of table.rows) {
+    const cells = row.map(escapeTableCell);
+    lines.push(`| ${cells.join(" | ")} |`);
+  }
+  return lines;
 }

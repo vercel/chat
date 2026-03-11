@@ -1,0 +1,72 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U00FAKEBOT01",
+  "mention": {
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
+    "event": {
+      "type": "app_mention",
+      "user": "U00FAKEUSER1",
+      "ts": "1772914709.229499",
+      "text": "<@U00FAKEBOT01> Hey",
+      "channel": "C00FAKECHAN1",
+      "event_ts": "1772914709.229499"
+    },
+    "type": "event_callback",
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
+  },
+  "action": {
+    "type": "block_actions",
+    "user": {
+      "id": "U00FAKEUSER1",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T00FAKE00AA"
+    },
+    "api_app_id": "A00FAKEAPP01",
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "container": {
+      "type": "message",
+      "message_ts": "1772914711.127119",
+      "channel_id": "C00FAKECHAN1",
+      "is_ephemeral": false,
+      "thread_ts": "1772914709.229499"
+    },
+    "trigger_id": "10681202919760.3901254001572.fakefakefake",
+    "team": {
+      "id": "T00FAKE00AA",
+      "domain": "fakeworkspace"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C00FAKECHAN1",
+      "name": "test-channel"
+    },
+    "message": {
+      "user": "U00FAKEBOT01",
+      "type": "message",
+      "ts": "1772914711.127119",
+      "bot_id": "B00FAKEBOT01",
+      "app_id": "A00FAKEAPP01",
+      "text": "Welcome card fallback text",
+      "team": "T00FAKE00AA",
+      "thread_ts": "1772914709.229499",
+      "parent_user_id": "U00FAKEUSER1"
+    },
+    "actions": [
+      {
+        "action_id": "show-table",
+        "block_id": "UTKYO",
+        "text": {
+          "type": "plain_text",
+          "text": "Show Table",
+          "emoji": true
+        },
+        "type": "button",
+        "action_ts": "1772914716.292266"
+      }
+    ]
+  }
+}

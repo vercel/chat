@@ -30,6 +30,7 @@ describe("Serialization", () => {
         _type: "chat:Thread",
         id: "slack:C123:1234.5678",
         channelId: "C123",
+        currentMessage: undefined,
         isDM: false,
         adapterName: "slack",
       });
@@ -138,7 +139,7 @@ describe("Serialization", () => {
       const thread = ThreadImpl.fromJSON(json);
       // Error is thrown on adapter access, not during fromJSON
       expect(() => thread.adapter).toThrow(
-        'Adapter "discord" not found in Chat singleton',
+        'Adapter "discord" not found in Chat singleton'
       );
     });
 
@@ -160,6 +161,66 @@ describe("Serialization", () => {
       expect(restored.channelId).toBe(original.channelId);
       expect(restored.isDM).toBe(original.isDM);
       expect(restored.adapter.name).toBe(original.adapter.name);
+    });
+
+    it("should serialize currentMessage", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const currentMessage = createTestMessage("msg-1", "Hello", {
+        raw: { team_id: "T123" },
+        author: {
+          userId: "U456",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const original = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage,
+      });
+
+      const json = original.toJSON();
+
+      expect(json.currentMessage).toBeDefined();
+      expect(json.currentMessage?._type).toBe("chat:Message");
+      expect(json.currentMessage?.author.userId).toBe("U456");
+      expect(json.currentMessage?.raw).toEqual({ team_id: "T123" });
+    });
+
+    it("should round-trip with currentMessage for streaming", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const currentMessage = createTestMessage("msg-1", "Hello", {
+        raw: { team_id: "T123" },
+        author: {
+          userId: "U456",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const original = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage,
+      });
+
+      const json = original.toJSON();
+      const restored = ThreadImpl.fromJSON(json);
+
+      expect(json.currentMessage?.author.userId).toBe("U456");
+      expect(json.currentMessage?.raw).toEqual({ team_id: "T123" });
+
+      expect(restored.id).toBe(original.id);
+      expect(restored.channelId).toBe(original.channelId);
     });
   });
 
@@ -329,11 +390,11 @@ describe("Serialization", () => {
 
       expect(message.metadata.dateSent).toBeInstanceOf(Date);
       expect(message.metadata.dateSent.toISOString()).toBe(
-        "2024-01-15T10:30:00.000Z",
+        "2024-01-15T10:30:00.000Z"
       );
       expect(message.metadata.editedAt).toBeInstanceOf(Date);
       expect(message.metadata.editedAt?.toISOString()).toBe(
-        "2024-01-15T11:00:00.000Z",
+        "2024-01-15T11:00:00.000Z"
       );
     });
 
@@ -388,10 +449,10 @@ describe("Serialization", () => {
       expect(restored.text).toBe(original.text);
       expect(restored.isMention).toBe(original.isMention);
       expect(restored.metadata.dateSent.getTime()).toBe(
-        original.metadata.dateSent.getTime(),
+        original.metadata.dateSent.getTime()
       );
       expect(restored.metadata.editedAt?.getTime()).toBe(
-        original.metadata.editedAt?.getTime(),
+        original.metadata.editedAt?.getTime()
       );
       expect(restored.attachments).toEqual([
         {
@@ -608,6 +669,7 @@ describe("Serialization", () => {
           _type: "chat:Thread",
           id: "slack:C123:1234.5678",
           channelId: "C123",
+          currentMessage: undefined,
           isDM: false,
           adapterName: "slack",
         });
@@ -700,7 +762,7 @@ describe("Serialization", () => {
         expect(restored.text).toBe(original.text);
         expect(restored.isMention).toBe(original.isMention);
         expect(restored.metadata.dateSent.getTime()).toBe(
-          original.metadata.dateSent.getTime(),
+          original.metadata.dateSent.getTime()
         );
       });
     });

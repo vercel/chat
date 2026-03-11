@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.9.0",
+  "version": "4.19.0",
   "description": "Slack adapter for chat",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,31 +18,30 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@slack/web-api": "^7.8.0",
+    "@slack/web-api": "^7.14.0",
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.0.18"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/chat.git",
+    "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-slack"
   },
-  "homepage": "https://github.com/vercel-labs/chat#readme",
+  "homepage": "https://github.com/vercel/chat#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/chat/issues"
+    "url": "https://github.com/vercel/chat/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -6,6 +6,7 @@
  * @see https://discord.com/developers/docs/interactions/message-components
  */
 
+import { renderGfmTable } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -16,7 +17,11 @@ import type {
   SectionElement,
   TextElement,
 } from "chat";
-import { convertEmojiPlaceholders } from "chat";
+import {
+  cardChildToFallbackText,
+  convertEmojiPlaceholders,
+  tableElementToAscii,
+} from "chat";
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
 import type { DiscordActionRow, DiscordButton } from "./types";
@@ -92,7 +97,7 @@ function processChild(
   child: CardChild,
   textParts: string[],
   fields: APIEmbedField[],
-  components: DiscordActionRow[],
+  components: DiscordActionRow[]
 ): void {
   switch (child.type) {
     case "text":
@@ -107,8 +112,7 @@ function processChild(
       textParts.push("───────────");
       break;
     case "actions":
-      // Splits if > 5 buttons as Discord only allows 5 per row
-      components.push(...convertActionsElement(child));
+      components.push(...convertActionsToRows(child));
       break;
     case "section":
       processSectionElement(child, textParts, fields, components);
@@ -116,6 +120,21 @@ function processChild(
     case "fields":
       convertFieldsElement(child, fields);
       break;
+    case "link":
+      textParts.push(`[${convertEmoji(child.label)}](${child.url})`);
+      break;
+    case "table": {
+      // Render as GFM markdown table in embed description
+      textParts.push(renderGfmTable(child).join("\n"));
+      break;
+    }
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        textParts.push(text);
+      }
+      break;
+    }
   }
 }
 
@@ -137,36 +156,27 @@ function convertTextElement(element: TextElement): string {
 }
 
 /**
- * Discord's maximum buttons per action row.
- */
-const DISCORD_MAX_BUTTONS_PER_ROW = 5;
-
-/**
  * Convert an actions element to Discord action rows.
- * Splits into multiple rows if more than 5 buttons (Discord's limit).
+ * Discord limits each action row to 5 components, so we chunk buttons.
  */
-function convertActionsElement(element: ActionsElement): DiscordActionRow[] {
-  const buttons: DiscordButton[] = element.children.map((button) => {
-    if (button.type === "link-button") {
-      return convertLinkButtonElement(button);
-    }
-    return convertButtonElement(button);
-  });
+function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
+  const buttons: DiscordButton[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
+      if (button.type === "link-button") {
+        return convertLinkButtonElement(button);
+      }
+      return convertButtonElement(button);
+    });
 
-  // If no buttons, return empty array (don't create empty action row)
-  if (buttons.length === 0) {
-    return [];
-  }
-
-  // Split buttons into chunks of 5 (Discord's max per row)
+  // Discord allows max 5 buttons per action row
   const rows: DiscordActionRow[] = [];
-  for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
+  for (let i = 0; i < buttons.length; i += 5) {
     rows.push({
       type: 1, // Action Row
-      components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
+      components: buttons.slice(i, i + 5),
     });
   }
-
   return rows;
 }
 
@@ -180,6 +190,10 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
     label: button.label,
     custom_id: button.id,
   };
+
+  if (button.disabled) {
+    discordButton.disabled = true;
+  }
 
   return discordButton;
 }
@@ -217,7 +231,7 @@ function processSectionElement(
   element: SectionElement,
   textParts: string[],
   fields: APIEmbedField[],
-  components: DiscordActionRow[],
+  components: DiscordActionRow[]
 ): void {
   for (const child of element.children) {
     processChild(child, textParts, fields, components);
@@ -229,7 +243,7 @@ function processSectionElement(
  */
 function convertFieldsElement(
   element: FieldsElement,
-  fields: APIEmbedField[],
+  fields: APIEmbedField[]
 ): void {
   for (const field of element.children) {
     fields.push({
@@ -277,15 +291,19 @@ function childToFallbackText(child: CardChild): string | null {
         .map((f) => `**${convertEmoji(f.label)}**: ${convertEmoji(f.value)}`)
         .join("\n");
     case "actions":
-      return `[${child.children.map((b) => convertEmoji(b.label)).join("] [")}]`;
+      // Actions are interactive-only — exclude from fallback text.
+      // See: https://docs.slack.dev/reference/methods/chat.postMessage
+      return null;
     case "section":
       return child.children
         .map((c) => childToFallbackText(c))
         .filter(Boolean)
         .join("\n");
+    case "table":
+      return `\`\`\`\n${tableElementToAscii(child.headers, child.rows)}\n\`\`\``;
     case "divider":
       return "---";
     default:
-      return null;
+      return cardChildToFallbackText(child);
   }
 }

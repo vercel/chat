@@ -31,21 +31,34 @@
 
 import {
   Actions,
+  type ActionsElement,
   Button,
   type ButtonElement,
+  type ButtonOptions,
   type ButtonStyle,
   Card,
   type CardChild,
   type CardElement,
+  CardLink,
+  type CardOptions,
   Divider,
+  type DividerElement,
   Field,
   type FieldElement,
   Fields,
+  type FieldsElement,
   Image,
+  type ImageElement,
   LinkButton,
   type LinkButtonElement,
+  type LinkButtonOptions,
+  type LinkElement,
   Section,
+  type SectionElement,
+  Table,
+  type TableElement,
   Text,
+  type TextElement,
   type TextStyle,
 } from "./cards";
 
@@ -55,10 +68,18 @@ import {
   Modal,
   type ModalChild,
   type ModalElement,
+  type ModalOptions,
+  RadioSelect,
+  type RadioSelectElement,
+  type RadioSelectOptions,
   Select,
+  type SelectElement,
   SelectOption,
   type SelectOptionElement,
+  type SelectOptions,
   TextInput,
+  type TextInputElement,
+  type TextInputOptions,
 } from "./modals";
 
 // Symbol to identify our JSX elements before they're processed
@@ -70,39 +91,46 @@ const JSX_ELEMENT = Symbol.for("chat.jsx.element");
 
 /** Props for Card component in JSX */
 export interface CardProps {
-  title?: string;
-  subtitle?: string;
-  imageUrl?: string;
   children?: unknown;
+  imageUrl?: string;
+  subtitle?: string;
+  title?: string;
 }
 
 /** Props for Text component in JSX */
 export interface TextProps {
+  children?: string | number | (string | number | undefined)[];
   style?: TextStyle;
-  children?: string | number;
 }
 
 /** Props for Button component in JSX */
 export interface ButtonProps {
+  children?: string | number | (string | number | undefined)[];
   id: string;
   label?: string;
   style?: ButtonStyle;
   value?: string;
-  children?: string | number;
 }
 
 /** Props for LinkButton component in JSX */
 export interface LinkButtonProps {
-  url: string;
+  children?: string | number | (string | number | undefined)[];
   label?: string;
   style?: ButtonStyle;
-  children?: string | number;
+  url: string;
+}
+
+/** Props for CardLink component in JSX */
+export interface CardLinkProps {
+  children?: string | number | (string | number | undefined)[];
+  label?: string;
+  url: string;
 }
 
 /** Props for Image component in JSX */
 export interface ImageProps {
-  url: string;
   alt?: string;
+  url: string;
 }
 
 /** Props for Field component in JSX */
@@ -122,38 +150,46 @@ export type DividerProps = Record<string, never>;
 /** Props for Modal component in JSX */
 export interface ModalProps {
   callbackId: string;
-  title: string;
-  submitLabel?: string;
+  children?: unknown;
   closeLabel?: string;
   notifyOnClose?: boolean;
-  children?: unknown;
+  privateMetadata?: string;
+  submitLabel?: string;
+  title: string;
 }
 
 /** Props for TextInput component in JSX */
 export interface TextInputProps {
   id: string;
-  label: string;
-  placeholder?: string;
   initialValue?: string;
+  label: string;
+  maxLength?: number;
   multiline?: boolean;
   optional?: boolean;
-  maxLength?: number;
+  placeholder?: string;
 }
 
 /** Props for Select component in JSX */
 export interface SelectProps {
-  id: string;
-  label: string;
-  placeholder?: string;
-  initialOption?: string;
-  optional?: boolean;
   children?: unknown;
+  id: string;
+  initialOption?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
 }
 
 /** Props for SelectOption component in JSX */
 export interface SelectOptionProps {
+  description?: string;
   label: string;
   value: string;
+}
+
+/** Props for Table component in JSX */
+export interface TableProps {
+  headers: string[];
+  rows: string[][];
 }
 
 /** Union of all valid JSX props */
@@ -162,6 +198,7 @@ export type CardJSXProps =
   | TextProps
   | ButtonProps
   | LinkButtonProps
+  | CardLinkProps
   | ImageProps
   | FieldProps
   | ContainerProps
@@ -169,7 +206,8 @@ export type CardJSXProps =
   | ModalProps
   | TextInputProps
   | SelectProps
-  | SelectOptionProps;
+  | SelectOptionProps
+  | TableProps;
 
 /** Component function type with proper overloads */
 type CardComponentFunction =
@@ -177,6 +215,7 @@ type CardComponentFunction =
   | typeof Text
   | typeof Button
   | typeof LinkButton
+  | typeof CardLink
   | typeof Image
   | typeof Field
   | typeof Divider
@@ -186,7 +225,9 @@ type CardComponentFunction =
   | typeof Modal
   | typeof TextInput
   | typeof Select
-  | typeof SelectOption;
+  | typeof RadioSelect
+  | typeof SelectOption
+  | typeof Table;
 
 /**
  * Represents a JSX element from the chat JSX runtime.
@@ -194,9 +235,130 @@ type CardComponentFunction =
  */
 export interface CardJSXElement<P extends CardJSXProps = CardJSXProps> {
   $$typeof: typeof JSX_ELEMENT;
-  type: CardComponentFunction;
-  props: P;
   children: unknown[];
+  props: P;
+  type: CardComponentFunction;
+}
+
+/** Union of all element types that can be produced by chat components */
+export type ChatElement =
+  | CardJSXElement
+  | CardElement
+  | TextElement
+  | ButtonElement
+  | LinkButtonElement
+  | LinkElement
+  | ImageElement
+  | DividerElement
+  | ActionsElement
+  | SectionElement
+  | FieldsElement
+  | FieldElement
+  | ModalElement
+  | TextInputElement
+  | SelectElement
+  | SelectOptionElement
+  | RadioSelectElement
+  | TableElement;
+
+// ============================================================================
+// JSX Component Function Types
+// ============================================================================
+
+export interface CardComponent {
+  (options?: CardOptions): CardElement;
+  (props: CardProps): ChatElement;
+}
+
+export interface TextComponent {
+  (content: string, options?: { style?: TextStyle }): TextElement;
+  (props: TextProps): ChatElement;
+}
+
+export interface ButtonComponent {
+  (options: ButtonOptions): ButtonElement;
+  (props: ButtonProps): ChatElement;
+}
+
+export interface LinkButtonComponent {
+  (options: LinkButtonOptions): LinkButtonElement;
+  (props: LinkButtonProps): ChatElement;
+}
+
+export interface CardLinkComponent {
+  (options: { url: string; label: string }): LinkElement;
+  (props: CardLinkProps): ChatElement;
+}
+
+export interface ImageComponent {
+  (options: { url: string; alt?: string }): ImageElement;
+  (props: ImageProps): ChatElement;
+}
+
+export interface FieldComponent {
+  (options: { label: string; value: string }): FieldElement;
+  (props: FieldProps): ChatElement;
+}
+
+export interface DividerComponent {
+  (): DividerElement;
+  (props: DividerProps): ChatElement;
+}
+
+export interface SectionComponent {
+  (children: CardChild[]): SectionElement;
+  (props: ContainerProps): ChatElement;
+}
+
+export interface ActionsComponent {
+  (
+    children: (
+      | ButtonElement
+      | LinkButtonElement
+      | SelectElement
+      | RadioSelectElement
+    )[]
+  ): ActionsElement;
+  (props: ContainerProps): ChatElement;
+}
+
+export interface FieldsComponent {
+  (children: FieldElement[]): FieldsElement;
+  (props: ContainerProps): ChatElement;
+}
+
+export interface ModalComponent {
+  (options: ModalOptions): ModalElement;
+  (props: ModalProps): ChatElement;
+}
+
+export interface TextInputComponent {
+  (options: TextInputOptions): TextInputElement;
+  (props: TextInputProps): ChatElement;
+}
+
+export interface SelectComponent {
+  (options: SelectOptions): SelectElement;
+  (props: SelectProps): ChatElement;
+}
+
+export interface SelectOptionComponent {
+  (options: {
+    label: string;
+    value: string;
+    description?: string;
+  }): SelectOptionElement;
+  (props: SelectOptionProps): ChatElement;
+}
+
+export interface RadioSelectComponent {
+  (options: RadioSelectOptions): RadioSelectElement;
+  (props: SelectProps): ChatElement;
+}
+
+export interface TableComponent {
+  (options: { headers: string[]; rows: string[][] }): TableElement;
+  (props: TableProps): ChatElement;
 }
 
 // Internal alias for backwards compatibility
@@ -218,7 +380,11 @@ type CardChildOrNested =
   | CardChild
   | ButtonElement
   | LinkButtonElement
-  | FieldElement;
+  | LinkElement
+  | FieldElement
+  | SelectElement
+  | SelectOptionElement
+  | RadioSelectElement;
 
 /**
  * Process children, converting JSX elements to card elements.
@@ -271,7 +437,7 @@ type AnyCardElement =
  * Type guard to check if props match TextProps
  */
 function isTextProps(props: CardJSXProps): props is TextProps {
-  return !("id" in props) && !("url" in props) && !("label" in props);
+  return !("id" in props || "url" in props || "label" in props);
 }
 
 /**
@@ -286,6 +452,19 @@ function isButtonProps(props: CardJSXProps): props is ButtonProps {
  */
 function isLinkButtonProps(props: CardJSXProps): props is LinkButtonProps {
   return "url" in props && typeof props.url === "string" && !("id" in props);
+}
+
+/**
+ * Type guard to check if props match CardLinkProps
+ */
+export function isCardLinkProps(props: CardJSXProps): props is CardLinkProps {
+  return (
+    "url" in props &&
+    typeof props.url === "string" &&
+    !("id" in props) &&
+    !("alt" in props) &&
+    !("style" in props)
+  );
 }
 
 /**
@@ -312,9 +491,7 @@ function isFieldProps(props: CardJSXProps): props is FieldProps {
  */
 function isCardProps(props: CardJSXProps): props is CardProps {
   return (
-    !("id" in props) &&
-    !("url" in props) &&
-    !("callbackId" in props) &&
+    !("id" in props || "url" in props || "callbackId" in props) &&
     ("title" in props || "subtitle" in props || "imageUrl" in props)
   );
 }
@@ -370,7 +547,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     const textProps = isTextProps(props) ? props : { style: undefined };
     const content =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : String(textProps.children ?? "");
     return Text(content, { style: textProps.style });
   }
@@ -381,8 +558,15 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
   }
 
   if (type === Actions) {
-    // Actions takes array of ButtonElements and LinkButtonElements
-    return Actions(processedChildren as (ButtonElement | LinkButtonElement)[]);
+    // Actions takes array of ButtonElements, LinkButtonElements, SelectElements, and RadioSelectElements
+    return Actions(
+      processedChildren as (
+        | ButtonElement
+        | LinkButtonElement
+        | SelectElement
+        | RadioSelectElement
+      )[]
+    );
   }
 
   if (type === Fields) {
@@ -398,7 +582,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return Button({
       id: props.id,
@@ -416,12 +600,28 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     const label =
       processedChildren.length > 0
-        ? String(processedChildren[0])
+        ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return LinkButton({
       url: props.url,
       label,
       style: props.style,
+    });
+  }
+
+  if (type === CardLink) {
+    // CardLink({ url, label })
+    // JSX children become the label
+    if (!isCardLinkProps(props)) {
+      throw new Error("CardLink requires a 'url' prop");
+    }
+    const label =
+      processedChildren.length > 0
+        ? processedChildren.map(String).join("")
+        : (props.label ?? "");
+    return CardLink({
+      url: props.url,
+      label,
     });
   }
 
@@ -460,6 +660,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       submitLabel: props.submitLabel,
       closeLabel: props.closeLabel,
       notifyOnClose: props.notifyOnClose,
+      privateMetadata: props.privateMetadata,
       children: filterModalChildren(processedChildren),
     });
   }
@@ -493,6 +694,19 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     });
   }
 
+  if (type === RadioSelect) {
+    if (!isSelectProps(props)) {
+      throw new Error("RadioSelect requires 'id' and 'label' props");
+    }
+    return RadioSelect({
+      id: props.id,
+      label: props.label,
+      initialOption: props.initialOption,
+      optional: props.optional,
+      options: processedChildren as SelectOptionElement[],
+    });
+  }
+
   if (type === SelectOption) {
     if (!isSelectOptionProps(props)) {
       throw new Error("SelectOption requires 'label' and 'value' props");
@@ -500,6 +714,15 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     return SelectOption({
       label: props.label,
       value: props.value,
+      description: props.description,
+    });
+  }
+
+  if (type === Table) {
+    const tableProps = props as { headers: string[]; rows: string[][] };
+    return Table({
+      headers: tableProps.headers,
+      rows: tableProps.rows,
     });
   }
 
@@ -520,7 +743,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
 export function jsx<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
   return {
@@ -537,18 +760,22 @@ export function jsx<P extends CardJSXProps>(
 export function jsxs<P extends CardJSXProps>(
   type: CardComponentFunction,
   props: P & { children?: unknown },
-  _key?: string,
+  _key?: string
 ): CardJSXElement<P> {
   const { children, ...restProps } = props;
+  let resolvedChildren: unknown[];
+  if (Array.isArray(children)) {
+    resolvedChildren = children;
+  } else if (children != null) {
+    resolvedChildren = [children];
+  } else {
+    resolvedChildren = [];
+  }
   return {
     $$typeof: JSX_ELEMENT,
     type,
     props: restProps as P,
-    children: Array.isArray(children)
-      ? children
-      : children != null
-        ? [children]
-        : [],
+    children: resolvedChildren,
   };
 }
 
@@ -635,11 +862,14 @@ export function isJSX(value: unknown): boolean {
   return false;
 }
 
-// Re-export for JSX namespace
+// biome-ignore lint/style/noNamespace: JSX namespace required by TypeScript JSX transform
 export namespace JSX {
-  export interface Element extends JSXElement {}
+  export type Element = ChatElement;
   // biome-ignore lint/complexity/noBannedTypes: Required for JSX namespace
   export type IntrinsicElements = {};
+  export interface IntrinsicAttributes {
+    key?: string | number;
+  }
   export interface ElementChildrenAttribute {
     // biome-ignore lint/complexity/noBannedTypes: Required for JSX children attribute
     children: {};

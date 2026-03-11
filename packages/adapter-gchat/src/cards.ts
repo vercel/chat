@@ -19,8 +19,10 @@ import type {
   ImageElement,
   LinkButtonElement,
   SectionElement,
+  TableElement,
   TextElement,
 } from "chat";
+import { cardChildToFallbackText, tableElementToAscii } from "chat";
 
 /**
  * Convert emoji placeholders in text to GChat format (Unicode).
@@ -29,58 +31,59 @@ const convertEmoji = createEmojiConverter("gchat");
 
 // Google Chat Card v2 types (simplified)
 export interface GoogleChatCard {
-  cardId?: string;
   card: {
     header?: GoogleChatCardHeader;
     sections: GoogleChatCardSection[];
   };
+  cardId?: string;
 }
 
 export interface GoogleChatCardHeader {
-  title: string;
-  subtitle?: string;
-  imageUrl?: string;
   imageType?: "CIRCLE" | "SQUARE";
+  imageUrl?: string;
+  subtitle?: string;
+  title: string;
 }
 
 export interface GoogleChatCardSection {
+  collapsible?: boolean;
   header?: string;
   widgets: GoogleChatWidget[];
-  collapsible?: boolean;
 }
 
 export interface GoogleChatWidget {
-  textParagraph?: { text: string };
-  image?: { imageUrl: string; altText?: string };
+  buttonList?: { buttons: (GoogleChatButton | GoogleChatLinkButton)[] };
   decoratedText?: {
     topLabel?: string;
     text: string;
     bottomLabel?: string;
     startIcon?: { knownIcon?: string };
   };
-  buttonList?: { buttons: (GoogleChatButton | GoogleChatLinkButton)[] };
   divider?: Record<string, never>;
+  image?: { imageUrl: string; altText?: string };
+  textParagraph?: { text: string };
 }
 
 export interface GoogleChatButton {
-  text: string;
+  color?: { red: number; green: number; blue: number };
+  disabled?: boolean;
   onClick: {
     action: {
       function: string;
       parameters: Array<{ key: string; value: string }>;
     };
   };
-  color?: { red: number; green: number; blue: number };
+  text: string;
 }
 
 export interface GoogleChatLinkButton {
-  text: string;
+  color?: { red: number; green: number; blue: number };
   onClick: {
     openLink: {
       url: string;
     };
   };
-  color?: { red: number; green: number; blue: number };
+  text: string;
 }
 
 /**
@@ -101,7 +104,7 @@ export interface CardConversionOptions {
  */
 export function cardToGoogleCard(
   card: CardElement,
-  options?: CardConversionOptions | string,
+  options?: CardConversionOptions | string
 ): GoogleChatCard {
   // Support legacy signature where second arg is cardId string
   const opts: CardConversionOptions =
@@ -179,7 +182,7 @@ export function cardToGoogleCard(
  */
 function convertChildToWidgets(
   child: CardChild,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget[] {
   switch (child.type) {
     case "text":
@@ -194,13 +197,34 @@ function convertChildToWidgets(
       return convertSectionToWidgets(child, endpointUrl);
     case "fields":
       return convertFieldsToWidgets(child);
-    default:
+    case "link":
+      return [
+        {
+          textParagraph: {
+            text: `<a href="${child.url}">${convertEmoji(child.label)}</a>`,
+          },
+        },
+      ];
+    case "table":
+      return [convertTableToWidget(child)];
+    default: {
+      const text = cardChildToFallbackText(child);
+      if (text) {
+        return [{ textParagraph: { text } }];
+      }
       return [];
+    }
   }
 }
 
+/** Convert standard Markdown formatting to Google Chat formatting */
+function markdownToGChat(text: string): string {
+  // **bold** → *bold*
+  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+}
+
 function convertTextToWidget(element: TextElement): GoogleChatWidget {
-  let text = convertEmoji(element.content);
+  let text = markdownToGChat(convertEmoji(element.content));
 
   // Apply style using Google Chat formatting
   if (element.style === "bold") {
@@ -230,10 +254,11 @@ function convertDividerToWidget(_element: DividerElement): GoogleChatWidget {
 
 function convertActionsToWidget(
   element: ActionsElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget {
-  const buttons: (GoogleChatButton | GoogleChatLinkButton)[] =
-    element.children.map((button) => {
+  const buttons: (GoogleChatButton | GoogleChatLinkButton)[] = element.children
+    .filter((child) => child.type === "button" || child.type === "link-button")
+    .map((button) => {
       if (button.type === "link-button") {
         return convertLinkButtonToGoogleButton(button);
       }
@@ -247,7 +272,7 @@ function convertActionsToWidget(
 
 function convertButtonToGoogleButton(
   button: ButtonElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatButton {
   // For HTTP endpoint apps, the function field must be the endpoint URL,
   // and the action ID is passed via parameters.
@@ -280,11 +305,15 @@ function convertButtonToGoogleButton(
     googleButton.color = { red: 0.9, green: 0.2, blue: 0.2 };
   }
 
+  if (button.disabled) {
+    googleButton.disabled = true;
+  }
+
   return googleButton;
 }
 
 function convertLinkButtonToGoogleButton(
-  button: LinkButtonElement,
+  button: LinkButtonElement
 ): GoogleChatLinkButton {
   const googleButton: GoogleChatLinkButton = {
     text: convertEmoji(button.label),
@@ -307,7 +336,7 @@ function convertLinkButtonToGoogleButton(
 
 function convertSectionToWidgets(
   element: SectionElement,
-  endpointUrl?: string,
+  endpointUrl?: string
 ): GoogleChatWidget[] {
   const widgets: GoogleChatWidget[] = [];
   for (const child of element.children) {
@@ -316,12 +345,20 @@ function convertSectionToWidgets(
   return widgets;
 }
 
+function convertTableToWidget(element: TableElement): GoogleChatWidget {
+  // Render as monospace text (ASCII table) in a TextParagraph widget
+  const ascii = tableElementToAscii(element.headers, element.rows);
+  return {
+    textParagraph: { text: `<font face="monospace">${ascii}</font>` },
+  };
+}
+
 function convertFieldsToWidgets(element: FieldsElement): GoogleChatWidget[] {
   // Convert fields to decorated text widgets
   return element.children.map((field) => ({
     decoratedText: {
-      topLabel: convertEmoji(field.label),
-      text: convertEmoji(field.value),
+      topLabel: markdownToGChat(convertEmoji(field.label)),
+      text: markdownToGChat(convertEmoji(field.value)),
     },
   }));
 }

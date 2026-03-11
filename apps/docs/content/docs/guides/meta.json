@@ -1,0 +1,10 @@
+{
+  "title": "Guides",
+  "pages": [
+    "slack-nextjs",
+    "durable-chat-sessions-nextjs",
+    "scheduled-posts-neon",
+    "code-review-hono",
+    "discord-nuxt"
+  ]
+}

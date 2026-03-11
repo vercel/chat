@@ -10,20 +10,30 @@ import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
+import {
+  createTelegramAdapter,
+  type TelegramAdapter,
+} from "@chat-adapter/telegram";
+import {
+  createWhatsAppAdapter,
+  type WhatsAppAdapter,
+} from "@chat-adapter/whatsapp";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
-// Create a logger for adapters
+// Create a shared logger for adapters that need explicit logger overrides
 const logger = new ConsoleLogger("info");
 
-export type Adapters = {
+export interface Adapters {
   discord?: DiscordAdapter;
+  gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
-  gchat?: GoogleChatAdapter;
-};
+  telegram?: TelegramAdapter;
+  whatsapp?: WhatsAppAdapter;
+}
 
 // Methods to record for each adapter (outgoing API calls)
 const DISCORD_METHODS = [
@@ -81,189 +91,168 @@ const LINEAR_METHODS = [
   "addReaction",
   "fetchMessages",
 ];
+const TELEGRAM_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
+const WHATSAPP_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
 
 /**
  * Build type-safe adapters based on available environment variables.
  * Adapters are only created if their required env vars are present.
+ *
+ * Factory functions auto-detect env vars, so only app-specific overrides
+ * (like userName and appType) need to be provided explicitly.
  */
 export function buildAdapters(): Adapters {
-  // Start fetch recording to capture all Graph/Slack/GChat API calls
+  // Start fetch recording to capture outgoing adapter API calls
   recorder.startFetchRecording();
 
   const adapters: Adapters = {};
 
-  // Discord adapter (optional)
-  if (
-    process.env.DISCORD_BOT_TOKEN &&
-    process.env.DISCORD_PUBLIC_KEY &&
-    process.env.DISCORD_APPLICATION_ID
-  ) {
-    // Parse comma-separated role IDs that should trigger mention handlers
-    const mentionRoleIds = process.env.DISCORD_MENTION_ROLE_IDS
-      ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
-      : [];
-
+  // Discord adapter (optional) - env vars: DISCORD_BOT_TOKEN, DISCORD_PUBLIC_KEY, DISCORD_APPLICATION_ID
+  if (process.env.DISCORD_BOT_TOKEN) {
     adapters.discord = withRecording(
       createDiscordAdapter({
-        botToken: process.env.DISCORD_BOT_TOKEN,
-        publicKey: process.env.DISCORD_PUBLIC_KEY,
-        applicationId: process.env.DISCORD_APPLICATION_ID,
-        mentionRoleIds,
         userName: "Chat SDK Bot",
         logger: logger.child("discord"),
       }),
       "discord",
-      DISCORD_METHODS,
+      DISCORD_METHODS
     );
   }
 
-  // Slack adapter (optional)
-  // Multi-workspace mode: use SLACK_CLIENT_ID + SLACK_CLIENT_SECRET (no bot token)
-  // Single-workspace mode: use SLACK_BOT_TOKEN
+  // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
   if (process.env.SLACK_SIGNING_SECRET) {
-    if (process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET) {
-      adapters.slack = withRecording(
-        createSlackAdapter({
-          signingSecret: process.env.SLACK_SIGNING_SECRET,
-          clientId: process.env.SLACK_CLIENT_ID,
-          clientSecret: process.env.SLACK_CLIENT_SECRET,
-          encryptionKey: process.env.SLACK_ENCRYPTION_KEY,
-          userName: "Chat SDK Bot",
-          logger: logger.child("slack"),
-        }),
-        "slack",
-        SLACK_METHODS,
-      );
-    } else if (process.env.SLACK_BOT_TOKEN) {
-      adapters.slack = withRecording(
-        createSlackAdapter({
-          botToken: process.env.SLACK_BOT_TOKEN,
-          signingSecret: process.env.SLACK_SIGNING_SECRET,
-          userName: "Chat SDK Bot",
-          logger: logger.child("slack"),
-        }),
-        "slack",
-        SLACK_METHODS,
-      );
-    }
+    adapters.slack = withRecording(
+      createSlackAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("slack"),
+        botToken: process.env.SLACK_BOT_TOKEN,
+        clientSecret: process.env.SLACK_CLIENT_SECRET,
+      }),
+      "slack",
+      SLACK_METHODS
+    );
   }
 
-  // Teams adapter (optional)
-  if (process.env.TEAMS_APP_ID && process.env.TEAMS_APP_PASSWORD) {
+  // Teams adapter (optional) - env vars: TEAMS_APP_ID, TEAMS_APP_PASSWORD
+  if (process.env.TEAMS_APP_ID) {
     adapters.teams = withRecording(
       createTeamsAdapter({
-        appId: process.env.TEAMS_APP_ID,
-        appPassword: process.env.TEAMS_APP_PASSWORD,
         appType: "SingleTenant",
-        appTenantId: process.env.TEAMS_APP_TENANT_ID as string,
         userName: "Chat SDK Demo",
         logger: logger.child("teams"),
       }),
       "teams",
-      TEAMS_METHODS,
+      TEAMS_METHODS
     );
   }
 
-  // Google Chat adapter (optional)
-  if (process.env.GOOGLE_CHAT_CREDENTIALS) {
+  // Google Chat adapter (optional) - env vars: GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC
+  if (
+    process.env.GOOGLE_CHAT_CREDENTIALS ||
+    process.env.GOOGLE_CHAT_USE_ADC === "true"
+  ) {
     try {
-      const credentials = JSON.parse(process.env.GOOGLE_CHAT_CREDENTIALS);
       adapters.gchat = withRecording(
         createGoogleChatAdapter({
-          credentials,
           userName: "Chat SDK Demo",
-          // Pub/Sub topic for receiving ALL messages (not just @mentions)
-          pubsubTopic: process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
-          // User email to impersonate for Workspace Events API (domain-wide delegation)
-          impersonateUser: process.env.GOOGLE_CHAT_IMPERSONATE_USER,
           logger: logger.child("gchat"),
         }),
         "gchat",
-        GCHAT_METHODS,
+        GCHAT_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Invalid GOOGLE_CHAT_CREDENTIALS JSON, skipping gchat adapter",
+        "[chat] Failed to create gchat adapter (check GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC)"
       );
     }
   }
 
-  // GitHub adapter (optional)
-  // Supports both PAT auth (GITHUB_TOKEN) and GitHub App auth (GITHUB_APP_ID + GITHUB_PRIVATE_KEY)
+  // GitHub adapter (optional) - env vars: GITHUB_WEBHOOK_SECRET + (GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)
   if (process.env.GITHUB_WEBHOOK_SECRET) {
-    if (process.env.GITHUB_TOKEN) {
-      // PAT authentication
+    try {
       adapters.github = withRecording(
         createGitHubAdapter({
-          token: process.env.GITHUB_TOKEN,
-          webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
-          userName: process.env.GITHUB_BOT_USERNAME || "chat-sdk-bot",
           logger: logger.child("github"),
         }),
         "github",
-        GITHUB_METHODS,
+        GITHUB_METHODS
       );
-    } else if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY) {
-      // GitHub App authentication (multi-tenant if no GITHUB_INSTALLATION_ID)
-      adapters.github = withRecording(
-        createGitHubAdapter({
-          appId: process.env.GITHUB_APP_ID,
-          privateKey: process.env.GITHUB_PRIVATE_KEY,
-          installationId: process.env.GITHUB_INSTALLATION_ID
-            ? parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
-            : undefined,
-          webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
-          userName: process.env.GITHUB_BOT_USERNAME || "chat-sdk-bot[bot]",
-          logger: logger.child("github"),
-        }),
-        "github",
-        GITHUB_METHODS,
+    } catch {
+      console.warn(
+        "[chat] Failed to create github adapter (check GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)"
       );
     }
   }
 
-  // Linear adapter (optional)
-  // Supports API key, OAuth app (client credentials), or pre-obtained access token
+  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)
   if (process.env.LINEAR_WEBHOOK_SECRET) {
-    if (process.env.LINEAR_API_KEY) {
-      // API key authentication (simplest)
+    try {
       adapters.linear = withRecording(
         createLinearAdapter({
-          apiKey: process.env.LINEAR_API_KEY,
-          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
-          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
           logger: logger.child("linear"),
         }),
         "linear",
-        LINEAR_METHODS,
+        LINEAR_METHODS
       );
-    } else if (
-      process.env.LINEAR_CLIENT_ID &&
-      process.env.LINEAR_CLIENT_SECRET
-    ) {
-      // OAuth app with client credentials (recommended for apps)
-      adapters.linear = withRecording(
-        createLinearAdapter({
-          clientId: process.env.LINEAR_CLIENT_ID,
-          clientSecret: process.env.LINEAR_CLIENT_SECRET,
-          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
-          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
-          logger: logger.child("linear"),
-        }),
-        "linear",
-        LINEAR_METHODS,
+    } catch {
+      console.warn(
+        "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
       );
-    } else if (process.env.LINEAR_ACCESS_TOKEN) {
-      // Pre-obtained OAuth access token
-      adapters.linear = withRecording(
-        createLinearAdapter({
-          accessToken: process.env.LINEAR_ACCESS_TOKEN,
-          webhookSecret: process.env.LINEAR_WEBHOOK_SECRET,
-          userName: process.env.LINEAR_BOT_USERNAME || "chat-sdk-bot",
-          logger: logger.child("linear"),
+    }
+  }
+
+  // Telegram adapter (optional) - env vars: TELEGRAM_BOT_TOKEN
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    adapters.telegram = withRecording(
+      createTelegramAdapter({
+        logger: logger.child("telegram"),
+      }),
+      "telegram",
+      TELEGRAM_METHODS
+    );
+  }
+
+  // WhatsApp adapter (optional) - env vars: WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+  console.log("[chat] WhatsApp env check:", {
+    hasAccessToken: !!process.env.WHATSAPP_ACCESS_TOKEN,
+    hasAppSecret: !!process.env.WHATSAPP_APP_SECRET,
+    hasPhoneNumberId: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+    hasVerifyToken: !!process.env.WHATSAPP_VERIFY_TOKEN,
+  });
+  if (
+    process.env.WHATSAPP_ACCESS_TOKEN &&
+    process.env.WHATSAPP_PHONE_NUMBER_ID
+  ) {
+    try {
+      adapters.whatsapp = withRecording(
+        createWhatsAppAdapter({
+          logger: logger.child("whatsapp"),
         }),
-        "linear",
-        LINEAR_METHODS,
+        "whatsapp",
+        WHATSAPP_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create whatsapp adapter:",
+        err instanceof Error ? err.message : err
       );
     }
   }

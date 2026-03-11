@@ -1,13 +1,24 @@
 /**
  * Tests for shared card utility functions.
  */
-import { Actions, Button, Card, CardText, Divider, Field, Fields } from "chat";
+import {
+  Actions,
+  Button,
+  Card,
+  CardText,
+  Divider,
+  Field,
+  Fields,
+  Table,
+} from "chat";
 import { describe, expect, it } from "vitest";
 import {
   BUTTON_STYLE_MAPPINGS,
   cardToFallbackText,
   createEmojiConverter,
+  escapeTableCell,
   mapButtonStyle,
+  renderGfmTable,
 } from "./card-utils";
 
 describe("createEmojiConverter", () => {
@@ -117,7 +128,7 @@ describe("cardToFallbackText", () => {
       subtitle: "Subtitle",
     });
     expect(cardToFallbackText(card, { lineBreak: "\n\n" })).toBe(
-      "*Title*\n\nSubtitle",
+      "*Title*\n\nSubtitle"
     );
   });
 
@@ -149,8 +160,9 @@ describe("cardToFallbackText", () => {
     expect(cardToFallbackText(card, { boldFormat: "**" })).toBe("Key: Value");
   });
 
-  it("formats actions as bracketed buttons", () => {
-    // Actions takes an array directly
+  it("excludes actions from fallback text", () => {
+    // Fallback text powers notifications + screen readers — actions are interactive-only
+    // and have no meaning there. See: https://docs.slack.dev/reference/methods/chat.postMessage
     const card = Card({
       children: [
         Actions([
@@ -159,7 +171,7 @@ describe("cardToFallbackText", () => {
         ]),
       ],
     });
-    expect(cardToFallbackText(card)).toBe("[OK] [Cancel]");
+    expect(cardToFallbackText(card)).toBe("");
   });
 
   it("formats dividers as horizontal rules", () => {
@@ -216,7 +228,9 @@ describe("cardToFallbackText", () => {
     expect(result).toContain("---");
     expect(result).toContain("Status: Processing");
     expect(result).toContain("Total: $99.99");
-    expect(result).toContain("[View Order] [Cancel]");
+    // Actions excluded from fallback — interactive elements aren't meaningful in notifications
+    expect(result).not.toContain("[View Order]");
+    expect(result).not.toContain("[Cancel]");
   });
 
   it("handles empty card", () => {
@@ -229,5 +243,82 @@ describe("cardToFallbackText", () => {
       children: [CardText("Just text")],
     });
     expect(cardToFallbackText(card)).toBe("Just text");
+  });
+});
+
+describe("escapeTableCell", () => {
+  it("escapes pipe characters", () => {
+    expect(escapeTableCell("a|b")).toBe("a\\|b");
+  });
+
+  it("escapes multiple pipes", () => {
+    expect(escapeTableCell("a|b|c")).toBe("a\\|b\\|c");
+  });
+
+  it("escapes backslashes before pipes", () => {
+    expect(escapeTableCell("a\\|b")).toBe("a\\\\\\|b");
+  });
+
+  it("escapes standalone backslashes", () => {
+    expect(escapeTableCell("a\\b")).toBe("a\\\\b");
+  });
+
+  it("replaces newlines with spaces", () => {
+    expect(escapeTableCell("line1\nline2")).toBe("line1 line2");
+  });
+
+  it("handles text with no special characters", () => {
+    expect(escapeTableCell("hello")).toBe("hello");
+  });
+
+  it("handles empty string", () => {
+    expect(escapeTableCell("")).toBe("");
+  });
+});
+
+describe("renderGfmTable", () => {
+  it("renders a basic table", () => {
+    const table = Table({
+      headers: ["Name", "Age"],
+      rows: [
+        ["Alice", "30"],
+        ["Bob", "25"],
+      ],
+    });
+    expect(renderGfmTable(table)).toEqual([
+      "| Name | Age |",
+      "| --- | --- |",
+      "| Alice | 30 |",
+      "| Bob | 25 |",
+    ]);
+  });
+
+  it("escapes pipes in cell values", () => {
+    const table = Table({
+      headers: ["Command", "Description"],
+      rows: [["a|b", "pipes|here"]],
+    });
+    expect(renderGfmTable(table)).toEqual([
+      "| Command | Description |",
+      "| --- | --- |",
+      "| a\\|b | pipes\\|here |",
+    ]);
+  });
+
+  it("escapes backslashes in cell values", () => {
+    const table = Table({
+      headers: ["Path"],
+      rows: [["C:\\Users\\test"]],
+    });
+    const lines = renderGfmTable(table);
+    expect(lines[2]).toBe("| C:\\\\Users\\\\test |");
+  });
+
+  it("handles empty rows", () => {
+    const table = Table({
+      headers: ["A", "B"],
+      rows: [],
+    });
+    expect(renderGfmTable(table)).toEqual(["| A | B |", "| --- | --- |"]);
   });
 });

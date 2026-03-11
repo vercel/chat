@@ -11,18 +11,19 @@
  * All adapter-specific errors should extend this class.
  */
 export class AdapterError extends Error {
+  readonly adapter: string;
+  readonly code?: string;
+
   /**
    * @param message - Human-readable error message
    * @param adapter - Name of the adapter (e.g., "slack", "teams", "gchat")
    * @param code - Optional error code for programmatic handling
    */
-  constructor(
-    message: string,
-    public readonly adapter: string,
-    public readonly code?: string,
-  ) {
+  constructor(message: string, adapter: string, code?: string) {
     super(message);
     this.name = "AdapterError";
+    this.adapter = adapter;
+    this.code = code;
   }
 }
 
@@ -36,16 +37,16 @@ export class AdapterError extends Error {
  * ```
  */
 export class AdapterRateLimitError extends AdapterError {
-  constructor(
-    adapter: string,
-    public readonly retryAfter?: number,
-  ) {
+  readonly retryAfter?: number;
+
+  constructor(adapter: string, retryAfter?: number) {
     super(
       `Rate limited by ${adapter}${retryAfter ? `, retry after ${retryAfter}s` : ""}`,
       adapter,
-      "RATE_LIMITED",
+      "RATE_LIMITED"
     );
     this.name = "AdapterRateLimitError";
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -62,7 +63,7 @@ export class AuthenticationError extends AdapterError {
     super(
       message || `Authentication failed for ${adapter}`,
       adapter,
-      "AUTH_FAILED",
+      "AUTH_FAILED"
     );
     this.name = "AuthenticationError";
   }
@@ -78,18 +79,19 @@ export class AuthenticationError extends AdapterError {
  * ```
  */
 export class ResourceNotFoundError extends AdapterError {
-  constructor(
-    adapter: string,
-    public readonly resourceType: string,
-    public readonly resourceId?: string,
-  ) {
+  readonly resourceType: string;
+  readonly resourceId?: string;
+
+  constructor(adapter: string, resourceType: string, resourceId?: string) {
     const idPart = resourceId ? ` '${resourceId}'` : "";
     super(
       `${resourceType}${idPart} not found in ${adapter}`,
       adapter,
-      "NOT_FOUND",
+      "NOT_FOUND"
     );
     this.name = "ResourceNotFoundError";
+    this.resourceType = resourceType;
+    this.resourceId = resourceId;
   }
 }
 
@@ -102,18 +104,19 @@ export class ResourceNotFoundError extends AdapterError {
  * ```
  */
 export class PermissionError extends AdapterError {
-  constructor(
-    adapter: string,
-    public readonly action: string,
-    public readonly requiredScope?: string,
-  ) {
+  readonly action: string;
+  readonly requiredScope?: string;
+
+  constructor(adapter: string, action: string, requiredScope?: string) {
     const scopePart = requiredScope ? ` (requires: ${requiredScope})` : "";
     super(
       `Permission denied: cannot ${action} in ${adapter}${scopePart}`,
       adapter,
-      "PERMISSION_DENIED",
+      "PERMISSION_DENIED"
     );
     this.name = "PermissionError";
+    this.action = action;
+    this.requiredScope = requiredScope;
   }
 }
 
@@ -141,16 +144,15 @@ export class ValidationError extends AdapterError {
  * ```
  */
 export class NetworkError extends AdapterError {
-  constructor(
-    adapter: string,
-    message?: string,
-    public readonly originalError?: Error,
-  ) {
+  readonly originalError?: Error;
+
+  constructor(adapter: string, message?: string, originalError?: Error) {
     super(
       message || `Network error communicating with ${adapter}`,
       adapter,
-      "NETWORK_ERROR",
+      "NETWORK_ERROR"
     );
     this.name = "NetworkError";
+    this.originalError = originalError;
   }
 }

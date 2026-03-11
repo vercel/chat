@@ -6,26 +6,35 @@ import {
   NetworkError,
   ValidationError,
 } from "@chat-adapter/shared";
+import { auth, chat, type chat_v1 } from "@googleapis/chat";
 import type {
   ActionEvent,
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  ChannelInfo,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
   FetchOptions,
   FetchResult,
   FormattedContent,
+  ListThreadsOptions,
+  ListThreadsResult,
   Logger,
   RawMessage,
   ReactionEvent,
   StateAdapter,
   ThreadInfo,
+  ThreadSummary,
   WebhookOptions,
 } from "chat";
-import { convertEmojiPlaceholders, defaultEmojiResolver, Message } from "chat";
-import { type chat_v1, google } from "googleapis";
+import {
+  ConsoleLogger,
+  convertEmojiPlaceholders,
+  defaultEmojiResolver,
+  Message,
+} from "chat";
 import { cardToGoogleCard } from "./cards";
 import { GoogleChatFormatConverter } from "./markdown";
 import {
@@ -50,6 +59,7 @@ const SUBSCRIPTION_REFRESH_BUFFER_MS = 60 * 60 * 1000;
 const SUBSCRIPTION_CACHE_TTL_MS = 25 * 60 * 60 * 1000;
 /** Key prefix for space subscription cache */
 const SPACE_SUB_KEY_PREFIX = "gchat:space-sub:";
+const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 
 /** Service account credentials for JWT auth */
 export interface ServiceAccountCredentials {
@@ -60,42 +70,46 @@ export interface ServiceAccountCredentials {
 
 /** Base config options shared by all auth methods */
 export interface GoogleChatAdapterBaseConfig {
-  /** Logger instance for error reporting */
-  logger: Logger;
-  /** Override bot username (optional) */
-  userName?: string;
-  /**
-   * Pub/Sub topic for receiving all messages via Workspace Events.
-   * When set, the adapter will automatically create subscriptions when added to a space.
-   * Format: "projects/my-project/topics/my-topic"
-   */
-  pubsubTopic?: string;
-  /**
-   * User email to impersonate for Workspace Events API calls.
-   * Required when using domain-wide delegation.
-   * This user must have access to the Chat spaces you want to subscribe to.
-   */
-  impersonateUser?: string;
   /**
    * HTTP endpoint URL for button click actions.
    * Required for HTTP endpoint apps - button clicks will be routed to this URL.
    * Should be the full URL of your webhook endpoint (e.g., "https://your-app.vercel.app/api/webhooks/gchat")
    */
   endpointUrl?: string;
+  /**
+   * User email to impersonate for Workspace Events API calls.
+   * Required when using domain-wide delegation.
+   * This user must have access to the Chat spaces you want to subscribe to.
+   * Defaults to GOOGLE_CHAT_IMPERSONATE_USER env var.
+   */
+  impersonateUser?: string;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
+  /**
+   * Pub/Sub topic for receiving all messages via Workspace Events.
+   * When set, the adapter will automatically create subscriptions when added to a space.
+   * Format: "projects/my-project/topics/my-topic"
+   * Defaults to GOOGLE_CHAT_PUBSUB_TOPIC env var.
+   */
+  pubsubTopic?: string;
+  /** Override bot username (optional) */
+  userName?: string;
 }
 
 /** Config using service account credentials (JSON key file) */
 export interface GoogleChatAdapterServiceAccountConfig
   extends GoogleChatAdapterBaseConfig {
-  /** Service account credentials JSON */
-  credentials: ServiceAccountCredentials;
   auth?: never;
+  /** Service account credentials JSON. Defaults to GOOGLE_CHAT_CREDENTIALS env var (JSON). */
+  credentials: ServiceAccountCredentials;
   useApplicationDefaultCredentials?: never;
 }
 
 /** Config using Application Default Credentials (ADC) or Workload Identity Federation */
 export interface GoogleChatAdapterADCConfig
   extends GoogleChatAdapterBaseConfig {
+  auth?: never;
+  credentials?: never;
   /**
    * Use Application Default Credentials.
    * Works with:
@@ -103,17 +117,24 @@ export interface GoogleChatAdapterADCConfig
    * - Workload Identity Federation (external_account JSON)
    * - GCE/Cloud Run/Cloud Functions default service account
    * - gcloud auth application-default login (local development)
+   * Defaults to GOOGLE_CHAT_USE_ADC env var.
    */
   useApplicationDefaultCredentials: true;
-  credentials?: never;
-  auth?: never;
 }
 
 /** Config using a custom auth client */
 export interface GoogleChatAdapterCustomAuthConfig
   extends GoogleChatAdapterBaseConfig {
   /** Custom auth client (JWT, OAuth2, GoogleAuth, etc.) */
-  auth: Parameters<typeof google.chat>[0]["auth"];
+  auth: Parameters<typeof chat>[0]["auth"];
+  credentials?: never;
+  useApplicationDefaultCredentials?: never;
+}
+
+/** Config with no auth fields - will auto-detect from env vars */
+export interface GoogleChatAdapterAutoConfig
+  extends GoogleChatAdapterBaseConfig {
+  auth?: never;
   credentials?: never;
   useApplicationDefaultCredentials?: never;
 }
@@ -121,32 +142,14 @@ export interface GoogleChatAdapterCustomAuthConfig
 export type GoogleChatAdapterConfig =
   | GoogleChatAdapterServiceAccountConfig
   | GoogleChatAdapterADCConfig
-  | GoogleChatAdapterCustomAuthConfig;
+  | GoogleChatAdapterCustomAuthConfig
+  | GoogleChatAdapterAutoConfig;
 
 // Re-export GoogleChatThreadId from thread-utils
 export type { GoogleChatThreadId } from "./thread-utils";
 
 /** Google Chat message structure */
 export interface GoogleChatMessage {
-  name: string;
-  sender: {
-    name: string;
-    displayName: string;
-    type: string;
-    email?: string;
-  };
-  text: string;
-  argumentText?: string;
-  formattedText?: string;
-  thread?: {
-    name: string;
-  };
-  space?: {
-    name: string;
-    type: string;
-    displayName?: string;
-  };
-  createTime: string;
   annotations?: Array<{
     type: string;
     startIndex?: number;
@@ -156,32 +159,52 @@ export interface GoogleChatMessage {
       type: string;
     };
   }>;
+  argumentText?: string;
   attachment?: Array<{
     name: string;
     contentName: string;
     contentType: string;
     downloadUri?: string;
+    attachmentDataRef?: { resourceName?: string | null } | null;
   }>;
+  createTime: string;
+  formattedText?: string;
+  name: string;
+  sender: {
+    name: string;
+    displayName: string;
+    type: string;
+    email?: string;
+  };
+  space?: {
+    name: string;
+    type: string;
+    displayName?: string;
+  };
+  text: string;
+  thread?: {
+    name: string;
+  };
 }
 
 /** Google Chat space structure */
 export interface GoogleChatSpace {
-  name: string;
-  type: string;
   displayName?: string;
+  name: string;
+  /** Whether this is a single-user DM with the bot */
+  singleUserBotDm?: boolean;
   spaceThreadingState?: string;
   /** Space type in newer API format: "SPACE", "GROUP_CHAT", "DIRECT_MESSAGE" */
   spaceType?: string;
-  /** Whether this is a single-user DM with the bot */
-  singleUserBotDm?: boolean;
+  type: string;
 }
 
 /** Google Chat user structure */
 export interface GoogleChatUser {
-  name: string;
   displayName: string;
-  type: string;
   email?: string;
+  name: string;
+  type: string;
 }
 
 /**
@@ -189,15 +212,6 @@ export interface GoogleChatUser {
  * This is the format used when configuring the app via Google Cloud Console.
  */
 export interface GoogleChatEvent {
-  commonEventObject?: {
-    userLocale?: string;
-    hostApp?: string;
-    platform?: string;
-    /** The function name invoked (for card clicks) */
-    invokedFunction?: string;
-    /** Parameters passed to the function */
-    parameters?: Record<string, string>;
-  };
   chat?: {
     user?: GoogleChatUser;
     eventTime?: string;
@@ -220,12 +234,21 @@ export interface GoogleChatEvent {
       user: GoogleChatUser;
     };
   };
+  commonEventObject?: {
+    userLocale?: string;
+    hostApp?: string;
+    platform?: string;
+    /** The function name invoked (for card clicks) */
+    invokedFunction?: string;
+    /** Parameters passed to the function */
+    parameters?: Record<string, string>;
+  };
 }
 
 /** Cached subscription info */
 interface SpaceSubscriptionInfo {
-  subscriptionName: string;
   expireTime: number; // Unix timestamp ms
+  subscriptionName: string;
 }
 
 export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
@@ -234,39 +257,43 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /** Bot's user ID (e.g., "users/123...") - learned from annotations */
   botUserId?: string;
 
-  private chatApi: chat_v1.Chat;
+  private readonly chatApi: chat_v1.Chat;
   private chat: ChatInstance | null = null;
   private state: StateAdapter | null = null;
-  private logger: Logger;
-  private formatConverter = new GoogleChatFormatConverter();
-  private pubsubTopic?: string;
-  private credentials?: ServiceAccountCredentials;
-  private useADC = false;
+  private readonly logger: Logger;
+  private readonly formatConverter = new GoogleChatFormatConverter();
+  private readonly pubsubTopic?: string;
+  private readonly credentials?: ServiceAccountCredentials;
+  private readonly useADC: boolean = false;
   /** Custom auth client (e.g., Vercel OIDC) */
-  private customAuth?: Parameters<typeof google.chat>[0]["auth"];
+  private readonly customAuth?: Parameters<typeof chat>[0]["auth"];
   /** Auth client for making authenticated requests */
-  private authClient!: Parameters<typeof google.chat>[0]["auth"];
+  private readonly authClient!: Parameters<typeof chat>[0]["auth"];
   /** User email to impersonate for Workspace Events API (domain-wide delegation) */
-  private impersonateUser?: string;
+  private readonly impersonateUser?: string;
   /** In-progress subscription creations to prevent duplicate requests */
-  private pendingSubscriptions = new Map<string, Promise<void>>();
+  private readonly pendingSubscriptions = new Map<string, Promise<void>>();
   /** Chat API client with impersonation for user-context operations (DMs, etc.) */
-  private impersonatedChatApi?: chat_v1.Chat;
+  private readonly impersonatedChatApi?: chat_v1.Chat;
   /** HTTP endpoint URL for button click actions */
   private endpointUrl?: string;
   /** User info cache for display name lookups - initialized later in initialize() */
   private userInfoCache: UserInfoCache;
 
-  constructor(config: GoogleChatAdapterConfig) {
-    this.logger = config.logger;
+  constructor(
+    config: GoogleChatAdapterConfig = {} as GoogleChatAdapterAutoConfig
+  ) {
+    this.logger = config.logger ?? new ConsoleLogger("info").child("gchat");
     this.userName = config.userName || "bot";
     // Initialize with null state - will be updated in initialize()
     this.userInfoCache = new UserInfoCache(null, this.logger);
-    this.pubsubTopic = config.pubsubTopic;
-    this.impersonateUser = config.impersonateUser;
+    this.pubsubTopic =
+      config.pubsubTopic ?? process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
+    this.impersonateUser =
+      config.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER;
     this.endpointUrl = config.endpointUrl;
 
-    let auth: Parameters<typeof google.chat>[0]["auth"];
+    let authClient: Parameters<typeof chat>[0]["auth"];
 
     // Scopes needed for full bot functionality including reactions and DMs
     // Note: chat.spaces.create requires domain-wide delegation to work
@@ -281,7 +308,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     if ("credentials" in config && config.credentials) {
       // Service account credentials (JWT)
       this.credentials = config.credentials;
-      auth = new google.auth.JWT({
+      authClient = new auth.JWT({
         email: config.credentials.client_email,
         key: config.credentials.private_key,
         scopes,
@@ -293,28 +320,43 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // Application Default Credentials (ADC)
       // Works with Workload Identity Federation, GCE metadata, GOOGLE_APPLICATION_CREDENTIALS env var
       this.useADC = true;
-      auth = new google.auth.GoogleAuth({
+      authClient = new auth.GoogleAuth({
         scopes,
       });
     } else if ("auth" in config && config.auth) {
       // Custom auth client provided directly (e.g., Vercel OIDC)
       this.customAuth = config.auth;
-      auth = config.auth;
+      authClient = config.auth;
+    } else if (process.env.GOOGLE_CHAT_CREDENTIALS) {
+      // Auto-detect from env vars: service account credentials
+      const credentialsJson = JSON.parse(
+        process.env.GOOGLE_CHAT_CREDENTIALS
+      ) as ServiceAccountCredentials;
+      this.credentials = credentialsJson;
+      authClient = new auth.JWT({
+        email: credentialsJson.client_email,
+        key: credentialsJson.private_key,
+        scopes,
+      });
+    } else if (process.env.GOOGLE_CHAT_USE_ADC === "true") {
+      // Auto-detect from env vars: ADC
+      this.useADC = true;
+      authClient = new auth.GoogleAuth({ scopes });
     } else {
       throw new ValidationError(
         "gchat",
-        "GoogleChatAdapter requires one of: credentials, useApplicationDefaultCredentials, or auth",
+        "Authentication is required. Set GOOGLE_CHAT_CREDENTIALS or GOOGLE_CHAT_USE_ADC=true, or provide credentials/auth in config."
       );
     }
 
-    this.authClient = auth;
-    this.chatApi = google.chat({ version: "v1", auth });
+    this.authClient = authClient;
+    this.chatApi = chat({ version: "v1", auth: authClient });
 
     // Create impersonated Chat API for user-context operations (DMs)
     // Domain-wide delegation requires setting the `subject` claim to the impersonated user
     if (this.impersonateUser) {
       if (this.credentials) {
-        const impersonatedAuth = new google.auth.JWT({
+        const impersonatedAuth = new auth.JWT({
           email: this.credentials.client_email,
           key: this.credentials.private_key,
           scopes: [
@@ -324,13 +366,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
           ],
           subject: this.impersonateUser,
         });
-        this.impersonatedChatApi = google.chat({
+        this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
         });
       } else if (this.useADC) {
         // ADC with impersonation (requires clientOptions.subject support)
-        const impersonatedAuth = new google.auth.GoogleAuth({
+        const impersonatedAuth = new auth.GoogleAuth({
           scopes: [
             "https://www.googleapis.com/auth/chat.spaces",
             "https://www.googleapis.com/auth/chat.spaces.create",
@@ -340,7 +382,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
             subject: this.impersonateUser,
           },
         });
-        this.impersonatedChatApi = google.chat({
+        this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
         });
@@ -374,12 +416,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.logger.info("onThreadSubscribe called", {
       threadId,
       hasPubsubTopic: !!this.pubsubTopic,
-      pubsubTopic: this.pubsubTopic,
     });
 
     if (!this.pubsubTopic) {
       this.logger.warn(
-        "No pubsubTopic configured, skipping space subscription. Set GOOGLE_CHAT_PUBSUB_TOPIC env var.",
+        "No pubsubTopic configured, skipping space subscription. Set GOOGLE_CHAT_PUBSUB_TOPIC env var."
       );
       return;
     }
@@ -401,7 +442,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       hasADC: this.useADC,
     });
 
-    if (!this.pubsubTopic || !this.state) {
+    if (!(this.pubsubTopic && this.state)) {
       this.logger.warn("ensureSpaceSubscription skipped - missing config", {
         hasPubsubTopic: !!this.pubsubTopic,
         hasState: !!this.state,
@@ -440,7 +481,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Create the subscription
     const createPromise = this.createSpaceSubscriptionWithCache(
       spaceName,
-      cacheKey,
+      cacheKey
     );
     this.pendingSubscriptions.set(spaceName, createPromise);
 
@@ -456,7 +497,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private async createSpaceSubscriptionWithCache(
     spaceName: string,
-    cacheKey: string,
+    cacheKey: string
   ): Promise<void> {
     const authOptions = this.getAuthOptions();
     this.logger.info("createSpaceSubscriptionWithCache", {
@@ -468,19 +509,21 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     if (!authOptions) {
       this.logger.error(
-        "Cannot create subscription: no auth configured. Use GOOGLE_CHAT_CREDENTIALS, GOOGLE_CHAT_USE_ADC=true, or custom auth.",
+        "Cannot create subscription: no auth configured. Use GOOGLE_CHAT_CREDENTIALS, GOOGLE_CHAT_USE_ADC=true, or custom auth."
       );
       return;
     }
 
     const pubsubTopic = this.pubsubTopic;
-    if (!pubsubTopic) return;
+    if (!pubsubTopic) {
+      return;
+    }
 
     try {
       // First check if a subscription already exists via the API
       const existing = await this.findExistingSubscription(
         spaceName,
-        authOptions,
+        authOptions
       );
       if (existing) {
         this.logger.debug("Found existing subscription", {
@@ -492,7 +535,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
           await this.state.set<SpaceSubscriptionInfo>(
             cacheKey,
             existing,
-            SUBSCRIPTION_CACHE_TTL_MS,
+            SUBSCRIPTION_CACHE_TTL_MS
           );
         }
         return;
@@ -500,12 +543,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       this.logger.info("Creating Workspace Events subscription", {
         spaceName,
-        pubsubTopic,
       });
 
       const result = await createSpaceSubscription(
         { spaceName, pubsubTopic },
-        authOptions,
+        authOptions
       );
 
       const subscriptionInfo: SpaceSubscriptionInfo = {
@@ -518,7 +560,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         await this.state.set<SpaceSubscriptionInfo>(
           cacheKey,
           subscriptionInfo,
-          SUBSCRIPTION_CACHE_TTL_MS,
+          SUBSCRIPTION_CACHE_TTL_MS
         );
       }
 
@@ -541,12 +583,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private async findExistingSubscription(
     spaceName: string,
-    authOptions: WorkspaceEventsAuthOptions,
+    authOptions: WorkspaceEventsAuthOptions
   ): Promise<SpaceSubscriptionInfo | null> {
     try {
       const subscriptions = await listSpaceSubscriptions(
         spaceName,
-        authOptions,
+        authOptions
       );
       for (const sub of subscriptions) {
         // Check if this subscription is still valid
@@ -588,7 +630,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
   async handleWebhook(
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     // Auto-detect endpoint URL from incoming request for button click routing
     // This allows HTTP endpoint apps to work without manual endpointUrl configuration
@@ -651,9 +693,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // The RenderActions format expects cards in google.apps.card.v1 format,
       // actionResponse is for the older Google Chat API format.
       // Returning {} acknowledges the action without changing the card.
-      return new Response(JSON.stringify({}), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({});
     }
 
     // Check for message payload in the Add-ons format
@@ -665,7 +705,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         text: messagePayload.message.text?.slice(0, 50),
       });
       this.handleMessageEvent(event, options);
-    } else if (!addedPayload && !removedPayload) {
+    } else if (!(addedPayload || removedPayload)) {
       this.logger.debug("Non-message event received", {
         hasChat: !!event.chat,
         hasCommonEventObject: !!event.commonEventObject,
@@ -673,9 +713,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     // Google Chat expects an empty response or a message response
-    return new Response(JSON.stringify({}), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({});
   }
 
   /**
@@ -684,7 +722,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handlePubSubMessage(
     pushMessage: PubSubPushMessage,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Response {
     // Early filter: Check event type BEFORE base64 decoding to save CPU
     // The ce-type attribute is available in message.attributes
@@ -696,9 +734,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     ];
     if (eventType && !allowedEventTypes.includes(eventType)) {
       this.logger.debug("Skipping unsupported Pub/Sub event", { eventType });
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ success: true });
     }
 
     try {
@@ -720,9 +756,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       }
 
       // Acknowledge the message
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ success: true });
     } catch (error) {
       this.logger.error("Error processing Pub/Sub message", { error });
       // Return 200 to avoid retries for malformed messages
@@ -738,9 +772,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handlePubSubMessageEvent(
     notification: WorkspaceEventNotification,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
-    if (!this.chat || !notification.message) {
+    if (!(this.chat && notification.message)) {
       return;
     }
 
@@ -748,7 +782,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Extract space name from targetResource: "//chat.googleapis.com/spaces/AAAA"
     const spaceName = notification.targetResource?.replace(
       "//chat.googleapis.com/",
-      "",
+      ""
     );
     const threadName = message.thread?.name || message.name;
     const threadId = this.encodeThreadId({
@@ -765,7 +799,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
             spaceName: resolvedSpaceName,
             error: err,
           });
-        }),
+        })
       );
     }
 
@@ -775,7 +809,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       this,
       threadId,
       () => this.parsePubSubMessage(notification, threadId),
-      options,
+      options
     );
   }
 
@@ -785,9 +819,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handlePubSubReactionEvent(
     notification: WorkspaceEventNotification,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
-    if (!this.chat || !notification.reaction) {
+    if (!(this.chat && notification.reaction)) {
       return;
     }
 
@@ -798,15 +832,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Extract message name from reaction name
     // Format: spaces/{space}/messages/{message}/reactions/{reaction}
     const reactionName = reaction.name || "";
-    const messageNameMatch = reactionName.match(
-      /(spaces\/[^/]+\/messages\/[^/]+)/,
-    );
+    const messageNameMatch = reactionName.match(REACTION_MESSAGE_NAME_PATTERN);
     const messageName = messageNameMatch ? messageNameMatch[1] : "";
 
     // Extract space name from targetResource
     const spaceName = notification.targetResource?.replace(
       "//chat.googleapis.com/",
-      "",
+      ""
     );
 
     // Check if reaction is from this bot
@@ -890,7 +922,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private async parsePubSubMessage(
     notification: WorkspaceEventNotification,
-    threadId: string,
+    threadId: string
   ): Promise<Message<unknown>> {
     const message = notification.message;
     if (!message) {
@@ -906,7 +938,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       userId,
       message.sender?.displayName,
       this.botUserId,
-      this.userName,
+      this.userName
     );
 
     const parsedMessage = new Message({
@@ -927,7 +959,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         edited: false,
       },
       attachments: (message.attachment || []).map((att) =>
-        this.createAttachment(att),
+        this.createAttachment(att)
       ),
     });
 
@@ -948,7 +980,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handleAddedToSpace(
     space: GoogleChatSpace,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     const subscribeTask = this.ensureSpaceSubscription(space.name);
 
@@ -964,7 +996,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handleCardClick(
     event: GoogleChatEvent,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring card click");
@@ -1038,7 +1070,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   private handleMessageEvent(
     event: GoogleChatEvent,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring event");
@@ -1070,13 +1102,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       this,
       threadId,
       this.parseGoogleChatMessage(event, threadId),
-      options,
+      options
     );
   }
 
   private parseGoogleChatMessage(
     event: GoogleChatEvent,
-    threadId: string,
+    threadId: string
   ): Message<unknown> {
     const message = event.chat?.messagePayload?.message;
     if (!message) {
@@ -1119,14 +1151,14 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         edited: false,
       },
       attachments: (message.attachment || []).map((att) =>
-        this.createAttachment(att),
+        this.createAttachment(att)
       ),
     });
   }
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const { spaceName, threadName } = this.decodeThreadId(threadId);
 
@@ -1136,7 +1168,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (files.length > 0) {
         this.logger.warn(
           "File uploads are not yet supported for Google Chat. Files will be ignored.",
-          { fileCount: files.length },
+          { fileCount: files.length }
         );
         // TODO: Implement using Google Chat media.upload API
       }
@@ -1186,7 +1218,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // Regular text message
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "gchat",
+        "gchat"
       );
 
       this.logger.debug("GChat API: spaces.messages.create", {
@@ -1224,7 +1256,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   async postEphemeral(
     threadId: string,
     userId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<EphemeralMessage> {
     const { spaceName, threadName } = this.decodeThreadId(threadId);
 
@@ -1254,13 +1286,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
             spaceName,
             threadName,
             userId,
-          },
+          }
         );
       } else {
         // Regular text message
         requestBody.text = convertEmojiPlaceholders(
           this.formatConverter.renderPostable(message),
-          "gchat",
+          "gchat"
         );
 
         this.logger.debug("GChat API: spaces.messages.create (ephemeral)", {
@@ -1283,7 +1315,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         "GChat API: spaces.messages.create ephemeral response",
         {
           messageName: response.data.name,
-        },
+        }
       );
 
       return {
@@ -1305,9 +1337,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     downloadUri?: string | null;
     contentName?: string | null;
     thumbnailUri?: string | null;
+    attachmentDataRef?: { resourceName?: string | null } | null;
   }): Attachment {
     const url = att.downloadUri || undefined;
-    const authClient = this.authClient;
+    const resourceName = att.attachmentDataRef?.resourceName || undefined;
+    const chatApi = this.chatApi;
 
     // Determine type based on contentType
     let type: Attachment["type"] = "file";
@@ -1319,56 +1353,66 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       type = "audio";
     }
 
-    // Capture auth client for use in fetchData closure
-    const auth = authClient;
+    // Capture auth client for use in fetchData closure (used for URL fallback)
+    const auth = this.authClient;
 
     return {
       type,
       url,
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
-      fetchData: url
-        ? async () => {
-            // Get access token for authenticated download
-            if (typeof auth === "string" || !auth) {
-              throw new AuthenticationError(
-                "gchat",
-                "Cannot fetch file: no auth client configured",
-              );
+      fetchData:
+        resourceName || url
+          ? async () => {
+              // Prefer media.download API (correct method for chat apps)
+              if (resourceName) {
+                const res = await chatApi.media.download(
+                  { resourceName },
+                  { responseType: "arraybuffer" }
+                );
+                return Buffer.from(res.data as ArrayBuffer);
+              }
+
+              // Fallback to direct URL fetch (downloadUri)
+              if (typeof auth === "string" || !auth) {
+                throw new AuthenticationError(
+                  "gchat",
+                  "Cannot fetch file: no auth client configured"
+                );
+              }
+              const tokenResult = await auth.getAccessToken();
+              const token =
+                typeof tokenResult === "string"
+                  ? tokenResult
+                  : tokenResult?.token;
+              if (!token) {
+                throw new AuthenticationError(
+                  "gchat",
+                  "Failed to get access token"
+                );
+              }
+              const response = await fetch(url as string, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              });
+              if (!response.ok) {
+                throw new NetworkError(
+                  "gchat",
+                  `Failed to fetch file: ${response.status} ${response.statusText}`
+                );
+              }
+              const arrayBuffer = await response.arrayBuffer();
+              return Buffer.from(arrayBuffer);
             }
-            const tokenResult = await auth.getAccessToken();
-            const token =
-              typeof tokenResult === "string"
-                ? tokenResult
-                : tokenResult?.token;
-            if (!token) {
-              throw new AuthenticationError(
-                "gchat",
-                "Failed to get access token",
-              );
-            }
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-            if (!response.ok) {
-              throw new NetworkError(
-                "gchat",
-                `Failed to fetch file: ${response.status} ${response.statusText}`,
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          }
-        : undefined,
+          : undefined,
     };
   }
 
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     try {
       // Check if message contains a card
@@ -1412,7 +1456,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // Regular text message
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
-        "gchat",
+        "gchat"
       );
 
       this.logger.debug("GChat API: spaces.messages.update", {
@@ -1461,7 +1505,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   async addReaction(
     _threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     // Convert emoji (EmojiValue or string) to GChat unicode format
     const gchatEmoji = defaultEmojiResolver.toGChat(emoji);
@@ -1483,7 +1527,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         "GChat API: spaces.messages.reactions.create response",
         {
           ok: true,
-        },
+        }
       );
     } catch (error) {
       this.handleGoogleChatError(error, "addReaction");
@@ -1493,7 +1537,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   async removeReaction(
     _threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     // Convert emoji (EmojiValue or string) to GChat unicode format
     const gchatEmoji = defaultEmojiResolver.toGChat(emoji);
@@ -1514,7 +1558,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       });
 
       const reaction = response.data.reactions?.find(
-        (r) => r.emoji?.unicode === gchatEmoji,
+        (r) => r.emoji?.unicode === gchatEmoji
       );
 
       if (!reaction?.name) {
@@ -1537,14 +1581,14 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         "GChat API: spaces.messages.reactions.delete response",
         {
           ok: true,
-        },
+        }
       );
     } catch (error) {
       this.handleGoogleChatError(error, "removeReaction");
     }
   }
 
-  async startTyping(_threadId: string): Promise<void> {
+  async startTyping(_threadId: string, _status?: string): Promise<void> {
     // Google Chat doesn't have a typing indicator API for bots
   }
 
@@ -1592,7 +1636,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       this.logger.warn(
         "openDM: No existing DM found and no impersonation configured. " +
           "Creating new DMs requires domain-wide delegation. " +
-          "Set 'impersonateUser' in adapter config.",
+          "Set 'impersonateUser' in adapter config."
       );
     }
 
@@ -1626,7 +1670,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (!spaceName) {
         throw new NetworkError(
           "gchat",
-          "Failed to create DM - no space name returned",
+          "Failed to create DM - no space name returned"
         );
       }
 
@@ -1640,7 +1684,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
   async fetchMessages(
     threadId: string,
-    options: FetchOptions = {},
+    options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
     const { spaceName, threadName } = this.decodeThreadId(threadId);
     const direction = options.direction ?? "backward";
@@ -1656,25 +1700,25 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (direction === "forward") {
         // Forward direction: fetch oldest messages first
         // GChat API always returns newest first, so we need to work around this
-        return this.fetchMessagesForward(
+        return await this.fetchMessagesForward(
           api,
           spaceName,
           threadId,
           filter,
           limit,
-          options.cursor,
+          options.cursor
         );
       }
 
       // Backward direction (default): most recent messages first
       // GChat API returns newest first, which matches this use case
-      return this.fetchMessagesBackward(
+      return await this.fetchMessagesBackward(
         api,
         spaceName,
         threadId,
         filter,
         limit,
-        options.cursor,
+        options.cursor
       );
     } catch (error) {
       this.handleGoogleChatError(error, "fetchMessages");
@@ -1692,7 +1736,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     threadId: string,
     filter: string | undefined,
     limit: number,
-    cursor?: string,
+    cursor?: string
   ): Promise<FetchResult<unknown>> {
     this.logger.debug("GChat API: spaces.messages.list (backward)", {
       spaceName,
@@ -1719,8 +1763,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     const messages = await Promise.all(
       rawMessages.map((msg) =>
-        this.parseGChatListMessage(msg, spaceName, threadId),
-      ),
+        this.parseGChatListMessage(msg, spaceName, threadId)
+      )
     );
 
     return {
@@ -1747,7 +1791,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     threadId: string,
     filter: string | undefined,
     limit: number,
-    cursor?: string,
+    cursor?: string
   ): Promise<FetchResult<unknown>> {
     this.logger.debug("GChat API: spaces.messages.list (forward)", {
       spaceName,
@@ -1780,7 +1824,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       "GChat API: fetched all messages for forward pagination",
       {
         totalCount: allRawMessages.length,
-      },
+      }
     );
 
     // Find starting position based on cursor
@@ -1788,7 +1832,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     if (cursor) {
       // Cursor is a message name - find the index after it
       const cursorIndex = allRawMessages.findIndex(
-        (msg) => msg.name === cursor,
+        (msg) => msg.name === cursor
       );
       if (cursorIndex >= 0) {
         startIndex = cursorIndex + 1;
@@ -1798,13 +1842,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Get the requested slice
     const selectedMessages = allRawMessages.slice(
       startIndex,
-      startIndex + limit,
+      startIndex + limit
     );
 
     const messages = await Promise.all(
       selectedMessages.map((msg) =>
-        this.parseGChatListMessage(msg, spaceName, threadId),
-      ),
+        this.parseGChatListMessage(msg, spaceName, threadId)
+      )
     );
 
     // Determine nextCursor - use message name of last returned message
@@ -1813,7 +1857,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       startIndex + limit < allRawMessages.length &&
       selectedMessages.length > 0
     ) {
-      const lastMsg = selectedMessages[selectedMessages.length - 1];
+      const lastMsg = selectedMessages.at(-1);
       if (lastMsg?.name) {
         nextCursor = lastMsg.name;
       }
@@ -1832,7 +1876,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   private async parseGChatListMessage(
     msg: chat_v1.Schema$Message,
     spaceName: string,
-    _threadId: string,
+    _threadId: string
   ): Promise<Message<unknown>> {
     const msgThreadId = this.encodeThreadId({
       spaceName,
@@ -1846,7 +1890,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       userId,
       msg.sender?.displayName ?? undefined,
       this.botUserId,
-      this.userName,
+      this.userName
     );
 
     // Use isMessageFromSelf for proper isMe determination
@@ -1895,6 +1939,443 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       };
     } catch (error) {
       this.handleGoogleChatError(error, "fetchThread");
+    }
+  }
+
+  /**
+   * Derive channel ID from a Google Chat thread ID.
+   * gchat:{spaceName}:{encodedThreadName} -> gchat:{spaceName}
+   */
+  channelIdFromThreadId(threadId: string): string {
+    const { spaceName } = this.decodeThreadId(threadId);
+    return `gchat:${spaceName}`;
+  }
+
+  /**
+   * Fetch channel-level messages (top-level posts only, not thread replies).
+   *
+   * Google Chat doesn't support server-side filtering for thread roots,
+   * so we fetch messages and filter client-side. A message is a thread root
+   * when the message ID prefix (before the dot) matches its thread ID.
+   * For example: message "spaces/X/messages/ABC.ABC" in thread "spaces/X/threads/ABC"
+   * is a root, while "spaces/X/messages/ABC.DEF" is a reply.
+   */
+  async fetchChannelMessages(
+    channelId: string,
+    options: FetchOptions = {}
+  ): Promise<FetchResult<unknown>> {
+    // Channel ID format: "gchat:spaces/ABC123"
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`
+      );
+    }
+
+    const api = this.impersonatedChatApi || this.chatApi;
+    const direction = options.direction ?? "backward";
+    const limit = options.limit || 100;
+
+    try {
+      if (direction === "backward") {
+        return await this.fetchChannelMessagesBackward(
+          api,
+          spaceName,
+          channelId,
+          limit,
+          options.cursor
+        );
+      }
+
+      return await this.fetchChannelMessagesForward(
+        api,
+        spaceName,
+        channelId,
+        limit,
+        options.cursor
+      );
+    } catch (error) {
+      this.handleGoogleChatError(error, "fetchChannelMessages");
+    }
+  }
+
+  /**
+   * Check if a GChat message is a thread root (not a reply).
+   *
+   * Thread root messages have a name like "spaces/X/messages/THREAD_ID.THREAD_ID"
+   * where both parts of the dotted message ID match. Thread replies have
+   * "spaces/X/messages/THREAD_ID.DIFFERENT_ID".
+   *
+   * Messages without a thread field (e.g., in non-threaded spaces) are always top-level.
+   */
+  private isThreadRoot(msg: chat_v1.Schema$Message): boolean {
+    // Messages without thread info are top-level
+    if (!(msg.thread?.name && msg.name)) {
+      return true;
+    }
+
+    // Extract the thread ID from thread.name: "spaces/X/threads/THREAD_ID"
+    const threadParts = msg.thread.name.split("/");
+    const threadId = threadParts.at(-1);
+
+    // Extract message ID parts from name: "spaces/X/messages/THREAD_ID.MSG_ID"
+    const msgParts = msg.name.split("/");
+    const msgIdFull = msgParts.at(-1) || "";
+    const dotIndex = msgIdFull.indexOf(".");
+    if (dotIndex === -1) {
+      return true; // No dot = top-level
+    }
+
+    const msgThreadPart = msgIdFull.slice(0, dotIndex);
+    const msgIdPart = msgIdFull.slice(dotIndex + 1);
+
+    // Thread root: both parts match the thread ID
+    return msgThreadPart === msgIdPart && msgThreadPart === threadId;
+  }
+
+  /**
+   * Fetch channel messages backward (most recent first), filtered to thread roots only.
+   * Over-fetches and filters client-side since the API doesn't support this filter.
+   */
+  private async fetchChannelMessagesBackward(
+    api: chat_v1.Chat,
+    spaceName: string,
+    channelId: string,
+    limit: number,
+    cursor?: string
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("GChat API: spaces.messages.list (channel, backward)", {
+      spaceName,
+      limit,
+      cursor,
+    });
+
+    // Over-fetch to compensate for filtered-out thread replies
+    const topLevel: chat_v1.Schema$Message[] = [];
+    let pageToken = cursor;
+    let apiNextPageToken: string | undefined;
+
+    // Keep fetching pages until we have enough top-level messages
+    while (topLevel.length < limit) {
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: Math.min(limit * 3, 1000),
+        pageToken,
+        orderBy: "createTime desc",
+      });
+
+      const pageMessages = response.data.messages || [];
+      if (pageMessages.length === 0) {
+        break;
+      }
+
+      for (const msg of pageMessages) {
+        if (this.isThreadRoot(msg)) {
+          topLevel.push(msg);
+        }
+      }
+
+      apiNextPageToken = response.data.nextPageToken ?? undefined;
+      if (!apiNextPageToken) {
+        break;
+      }
+      pageToken = apiNextPageToken;
+    }
+
+    // Take only the requested limit and reverse to chronological order
+    const selected = topLevel.slice(0, limit).reverse();
+
+    const messages = await Promise.all(
+      selected.map((msg) =>
+        this.parseGChatListMessage(msg, spaceName, channelId)
+      )
+    );
+
+    return {
+      messages,
+      nextCursor: topLevel.length >= limit ? apiNextPageToken : undefined,
+    };
+  }
+
+  /**
+   * Fetch channel messages forward (oldest first), filtered to thread roots only.
+   */
+  private async fetchChannelMessagesForward(
+    api: chat_v1.Chat,
+    spaceName: string,
+    channelId: string,
+    limit: number,
+    cursor?: string
+  ): Promise<FetchResult<unknown>> {
+    this.logger.debug("GChat API: spaces.messages.list (channel, forward)", {
+      spaceName,
+      limit,
+      cursor,
+    });
+
+    // Fetch all messages and filter to thread roots
+    const allRawMessages: chat_v1.Schema$Message[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: 1000,
+        pageToken,
+      });
+      allRawMessages.push(...(response.data.messages || []));
+      pageToken = response.data.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    // Filter to thread roots only
+    const topLevel = allRawMessages.filter((msg) => this.isThreadRoot(msg));
+
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = topLevel.findIndex((msg) => msg.name === cursor);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const selectedMessages = topLevel.slice(startIndex, startIndex + limit);
+
+    const messages = await Promise.all(
+      selectedMessages.map((msg) =>
+        this.parseGChatListMessage(msg, spaceName, channelId)
+      )
+    );
+
+    let nextCursor: string | undefined;
+    if (startIndex + limit < topLevel.length && selectedMessages.length > 0) {
+      const lastMsg = selectedMessages.at(-1);
+      if (lastMsg?.name) {
+        nextCursor = lastMsg.name;
+      }
+    }
+
+    return { messages, nextCursor };
+  }
+
+  /**
+   * List threads in a Google Chat space.
+   * Fetches messages and deduplicates by thread name.
+   */
+  async listThreads(
+    channelId: string,
+    options: ListThreadsOptions = {}
+  ): Promise<ListThreadsResult<unknown>> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`
+      );
+    }
+
+    const api = this.impersonatedChatApi || this.chatApi;
+    const limit = options.limit || 50;
+
+    try {
+      this.logger.debug("GChat API: spaces.messages.list (listThreads)", {
+        spaceName,
+        limit,
+        cursor: options.cursor,
+      });
+
+      // Fetch recent messages ordered by createTime desc
+      const response = await api.spaces.messages.list({
+        parent: spaceName,
+        pageSize: Math.min(limit * 3, 1000), // Fetch more to account for dedup
+        pageToken: options.cursor,
+        orderBy: "createTime desc",
+      });
+
+      const rawMessages = response.data.messages || [];
+
+      // Group by thread name, keeping the first (most recent) message per thread
+      const threadMap = new Map<
+        string,
+        { rootMsg: chat_v1.Schema$Message; count: number }
+      >();
+      for (const msg of rawMessages) {
+        const threadName = msg.thread?.name;
+        if (!threadName) {
+          continue;
+        }
+        const existing = threadMap.get(threadName);
+        if (existing) {
+          existing.count++;
+        } else {
+          threadMap.set(threadName, { rootMsg: msg, count: 1 });
+        }
+      }
+
+      // Convert to ThreadSummary (limited)
+      const threads: ThreadSummary[] = [];
+      let count = 0;
+      for (const [threadName, { rootMsg, count: replyCount }] of threadMap) {
+        if (count >= limit) {
+          break;
+        }
+
+        const threadId = this.encodeThreadId({
+          spaceName,
+          threadName,
+        });
+
+        const message = await this.parseGChatListMessage(
+          rootMsg,
+          spaceName,
+          threadId
+        );
+
+        threads.push({
+          id: threadId,
+          rootMessage: message,
+          replyCount,
+          lastReplyAt: rootMsg.createTime
+            ? new Date(rootMsg.createTime)
+            : undefined,
+        });
+        count++;
+      }
+
+      this.logger.debug("GChat API: listThreads result", {
+        threadCount: threads.length,
+      });
+
+      return {
+        threads,
+        nextCursor: response.data.nextPageToken ?? undefined,
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "listThreads");
+    }
+  }
+
+  /**
+   * Fetch Google Chat space info/metadata.
+   */
+  async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`
+      );
+    }
+
+    try {
+      this.logger.debug("GChat API: spaces.get (channelInfo)", { spaceName });
+
+      const response = await this.chatApi.spaces.get({ name: spaceName });
+      const space = response.data;
+
+      // Try to get member count
+      let memberCount: number | undefined;
+      try {
+        const membersResponse = await this.chatApi.spaces.members.list({
+          parent: spaceName,
+          pageSize: 1,
+        });
+        // The API doesn't return total count directly, but we can check if there are members
+        if (membersResponse.data.memberships) {
+          memberCount = membersResponse.data.memberships.length;
+        }
+      } catch {
+        // Member list may not be accessible
+      }
+
+      return {
+        id: channelId,
+        name: space.displayName ?? undefined,
+        isDM:
+          space.spaceType === "DIRECT_MESSAGE" ||
+          space.singleUserBotDm === true,
+        memberCount,
+        metadata: {
+          spaceType: space.spaceType,
+          spaceThreadingState: space.spaceThreadingState,
+          raw: space,
+        },
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "fetchChannelInfo");
+    }
+  }
+
+  /**
+   * Post a message to a space top-level (starts a new conversation, not in a thread).
+   */
+  async postChannelMessage(
+    channelId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<unknown>> {
+    const spaceName = channelId.split(":").slice(1).join(":");
+    if (!spaceName) {
+      throw new ValidationError(
+        "gchat",
+        `Invalid Google Chat channel ID: ${channelId}`
+      );
+    }
+
+    try {
+      const card = extractCard(message);
+
+      if (card) {
+        const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const googleCard = cardToGoogleCard(card, {
+          cardId,
+          endpointUrl: this.endpointUrl,
+        });
+
+        this.logger.debug("GChat API: spaces.messages.create (channel, card)", {
+          spaceName,
+        });
+
+        const response = await this.chatApi.spaces.messages.create({
+          parent: spaceName,
+          requestBody: {
+            cardsV2: [googleCard],
+            // No thread field - creates a new conversation
+          },
+        });
+
+        return {
+          id: response.data.name || "",
+          threadId: channelId,
+          raw: response.data,
+        };
+      }
+
+      // Regular text message
+      const text = convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "gchat"
+      );
+
+      this.logger.debug("GChat API: spaces.messages.create (channel)", {
+        spaceName,
+        textLength: text.length,
+      });
+
+      const response = await this.chatApi.spaces.messages.create({
+        parent: spaceName,
+        requestBody: {
+          text,
+          // No thread field - creates a new conversation
+        },
+      });
+
+      return {
+        id: response.data.name || "",
+        threadId: channelId,
+        raw: response.data,
+      };
+    } catch (error) {
+      this.handleGoogleChatError(error, "postChannelMessage");
     }
   }
 
@@ -1962,7 +2443,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
           this.state
             ?.set("gchat:botUserId", this.botUserId)
             .catch((err) =>
-              this.logger.error("Failed to persist botUserId", { error: err }),
+              this.logger.error("Failed to persist botUserId", { error: err })
             );
         }
 
@@ -2019,7 +2500,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       this.logger.debug(
         "Cannot determine isMe - bot user ID not yet learned. " +
           "Bot ID is learned from @mentions. Assuming message is not from self.",
-        { senderId },
+        { senderId }
       );
     }
 
@@ -2050,7 +2531,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 }
 
 export function createGoogleChatAdapter(
-  config: GoogleChatAdapterConfig,
+  config?: GoogleChatAdapterConfig
 ): GoogleChatAdapter {
   return new GoogleChatAdapter(config);
 }
