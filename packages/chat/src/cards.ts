@@ -795,10 +795,10 @@ export function cardChildToFallbackText(child: CardChild): string | null {
       return `${child.label} (${child.url})`;
     case "fields":
       return getChildrenArray(child)
-        .map(
-          (f: unknown) =>
-            `${(f as FieldElement).label}: ${(f as FieldElement).value}`
-        )
+        .map((f: unknown) => {
+          const { label, value } = f as FieldElement;
+          return `${label}: ${value}`;
+        })
         .join("\n");
     case "actions":
       // Actions are interactive-only — exclude from fallback text.

@@ -26,7 +26,12 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
-import { type CardChild, type CardElement, getChildrenArray } from "./cards";
+import {
+  type CardChild,
+  type CardElement,
+  type FieldElement,
+  getChildrenArray,
+} from "./cards";
 import type { AdapterPostableMessage } from "./types";
 
 // Alias for use within this file
@@ -583,10 +588,10 @@ export abstract class BaseFormatConverter implements FormatConverter {
         return child.content;
       case "fields":
         return getChildrenArray(child)
-          .map(
-            (f: unknown) =>
-              `**${(f as { label: string; value: string }).label}**: ${(f as { label: string; value: string }).value}`
-          )
+          .map((f: unknown) => {
+            const { label, value } = f as FieldElement;
+            return `**${label}**: ${value}`;
+          })
           .join("\n");
       case "actions":
         // Actions are interactive-only — exclude from fallback text.
