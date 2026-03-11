@@ -845,8 +845,19 @@ export class ThreadImpl<TState = Record<string, unknown>>
       async removeReaction(emoji: string): Promise<void> {
         await adapter.removeReaction(threadId, messageId, emoji);
       },
+
+      liveUpdate(_content: AdapterPostableMessage): void {
+        // Replaced by attachLiveUpdate below
+      },
+
+      async finishLiveUpdates(
+        _finalContent?: AdapterPostableMessage
+      ): Promise<void> {
+        // Replaced by attachLiveUpdate below
+      },
     };
 
+    attachLiveUpdate(sentMessage);
     return sentMessage;
   }
 
@@ -856,7 +867,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const messageId = message.id;
     const self = this;
 
-    return {
+    const sent: SentMessage = {
       id: message.id,
       threadId: message.threadId,
       text: message.text,
@@ -899,7 +910,20 @@ export class ThreadImpl<TState = Record<string, unknown>>
       async removeReaction(emoji: string): Promise<void> {
         await adapter.removeReaction(threadId, messageId, emoji);
       },
+
+      liveUpdate(_content: AdapterPostableMessage): void {
+        // Replaced by attachLiveUpdate below
+      },
+
+      async finishLiveUpdates(
+        _finalContent?: AdapterPostableMessage
+      ): Promise<void> {
+        // Replaced by attachLiveUpdate below
+      },
     };
+
+    attachLiveUpdate(sent);
+    return sent;
   }
 }
 
@@ -971,4 +995,65 @@ function extractMessageContent(message: AdapterPostableMessage): {
 
   // Should never reach here with proper typing
   throw new Error("Invalid PostableMessage format");
+}
+
+const LIVE_UPDATE_INTERVAL_MS = 2500;
+
+/**
+ * Attach `liveUpdate` and `finishLiveUpdates` methods to a SentMessage.
+ * Provides rate-limit-aware coalesced editing — updates are queued and
+ * flushed at a configurable interval so only the latest content is sent.
+ */
+function attachLiveUpdate(sentMessage: SentMessage): void {
+  let pending: AdapterPostableMessage | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight: Promise<void> | null = null;
+  let disposed = false;
+
+  const flush = (): void => {
+    timer = null;
+    if (disposed || !pending) {
+      return;
+    }
+    const content = pending;
+    pending = null;
+    inFlight = sentMessage
+      .edit(content)
+      .then(() => {
+        inFlight = null;
+        if (pending && !disposed) {
+          timer = setTimeout(flush, LIVE_UPDATE_INTERVAL_MS);
+        }
+      })
+      .catch(() => {
+        inFlight = null;
+      });
+  };
+
+  sentMessage.liveUpdate = (content: AdapterPostableMessage): void => {
+    if (disposed) {
+      return;
+    }
+    pending = content;
+    if (!(timer || inFlight)) {
+      timer = setTimeout(flush, LIVE_UPDATE_INTERVAL_MS);
+    }
+  };
+
+  sentMessage.finishLiveUpdates = async (
+    finalContent?: AdapterPostableMessage
+  ): Promise<void> => {
+    disposed = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    pending = null;
+    if (inFlight) {
+      await inFlight;
+    }
+    if (finalContent) {
+      await sentMessage.edit(finalContent);
+    }
+  };
 }

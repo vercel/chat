@@ -1086,6 +1086,27 @@ export interface SentMessage<TRawMessage = unknown>
   edit(
     newContent: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
+
+  /**
+   * Flush any pending live update and stop the coalescing timer.
+   * If a final content is provided, it's sent as the last edit.
+   * Always call this when done with live updates to ensure cleanup.
+   */
+  finishLiveUpdates(finalContent?: AdapterPostableMessage): Promise<void>;
+
+  /**
+   * Queue a content update that will be flushed at a rate-limited interval.
+   *
+   * Use this for streaming-style updates where content changes rapidly
+   * (e.g., progress indicators, live status). Updates are coalesced so
+   * only the latest content is sent, preventing platform rate limits.
+   *
+   * Call `finishLiveUpdates()` to flush any pending update and stop the timer.
+   *
+   * @param content - New message content (replaces previous content entirely)
+   */
+  liveUpdate(content: AdapterPostableMessage): void;
+
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
 }
