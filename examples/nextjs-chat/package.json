@@ -11,6 +11,7 @@
     "recording:export": "tsx src/lib/recorder.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.58",
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",
@@ -18,11 +19,13 @@
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
-    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
+    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/whatsapp": "workspace:*",
-    "ai": "^6.0.5",
+    "@flags-sdk/vercel": "^1.0.2",
+    "ai": "^6.0.116",
     "chat": "workspace:*",
+    "flags": "^4.0.4",
     "next": "^16.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

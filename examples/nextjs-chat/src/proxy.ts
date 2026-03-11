@@ -1,6 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createClient } from "redis";
+import { ngrokTunnelFlag } from "./flags";
+
+const NGROK_TUNNEL_URL = "https://chat-sdk.ngrok.app";
 
 // Redis URL from environment
 const REDIS_URL = process.env.REDIS_URL || "";
@@ -53,6 +56,15 @@ async function getPreviewBranchUrl(): Promise<string | null> {
 }
 
 export async function proxy(request: NextRequest) {
+  const ngrokEnabled = await ngrokTunnelFlag();
+
+  if (ngrokEnabled) {
+    const { pathname, search } = request.nextUrl;
+    const targetUrl = new URL(`${pathname}${search}`, NGROK_TUNNEL_URL);
+    console.warn(`[proxy] Rewriting ${pathname} to ngrok tunnel`);
+    return NextResponse.rewrite(targetUrl, { request });
+  }
+
   if (process.env.NODE_ENV !== "production") {
     return NextResponse.next();
   }
@@ -87,5 +99,6 @@ export const config = {
   matcher: [
     // Match webhook API routes
     "/api/webhooks/:path*",
+    "/api/discord/gateway",
   ],
 };
