@@ -1797,6 +1797,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const url = file.url_private;
     // Capture token at attachment creation time (during webhook processing context)
     const botToken = this.getToken();
+    console.log(`createAttachment: token captured (length=${botToken?.length ?? 0}, hasDefault=${!!this.defaultBotToken})`);
 
     // Determine type based on mimetype
     let type: Attachment["type"] = "file";
@@ -1827,6 +1828,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
               throw new NetworkError(
                 "slack",
                 `Failed to fetch file: ${response.status} ${response.statusText}`
+              );
+            }
+            const contentType = response.headers.get("content-type") ?? "";
+            if (contentType.includes("text/html")) {
+              throw new NetworkError(
+                "slack",
+                `File fetch returned HTML instead of file data (auth may have failed)`
               );
             }
             const arrayBuffer = await response.arrayBuffer();
