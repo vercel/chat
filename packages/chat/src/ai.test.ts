@@ -259,7 +259,7 @@ describe("toAiMessages", async () => {
     expect(Array.isArray(content)).toBe(true);
     expect(content).toHaveLength(2);
     expect(content[0]).toEqual({ type: "text", text: "Look at this image" });
-    expect(content[1]?.type).toBe("image");
+    expect(content[1]?.type).toBe("file");
   });
 
   it("includes text file attachments as file parts", async () => {
@@ -345,8 +345,8 @@ describe("toAiMessages", async () => {
 
     expect(content).toHaveLength(4); // 1 text + 3 attachments
     expect(content[0]?.type).toBe("text");
-    expect(content[1]?.type).toBe("image");
-    expect(content[2]?.type).toBe("image");
+    expect(content[1]?.type).toBe("file");
+    expect(content[2]?.type).toBe("file");
     expect(content[3]?.type).toBe("file");
   });
 
@@ -437,13 +437,13 @@ describe("toAiMessages", async () => {
     const content = result[0]?.content as AiMessagePart[];
 
     expect(Array.isArray(content)).toBe(true);
-    expect(content[1]?.type).toBe("image");
+    expect(content[1]?.type).toBe("file");
     const imgPart = content[1] as {
-      type: "image";
-      image: string;
+      type: "file";
+      data: string;
       mediaType: string;
     };
-    expect(imgPart.image).toBe(
+    expect(imgPart.data).toBe(
       `data:image/png;base64,${Buffer.from("fake-png-data").toString("base64")}`
     );
     expect(imgPart.mediaType).toBe("image/png");
@@ -551,7 +551,7 @@ describe("toAiMessages", async () => {
     expect(Array.isArray(content)).toBe(true);
     const textPart = content[0] as { type: "text"; text: string };
     expect(textPart.text).toContain("Links:\nhttps://example.com");
-    expect(content[1]?.type).toBe("image");
+    expect(content[1]?.type).toBe("file");
   });
 
   // ===========================================================================

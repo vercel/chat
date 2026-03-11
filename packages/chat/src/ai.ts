@@ -93,11 +93,11 @@ async function attachmentToPart(
       try {
         const buffer = await att.fetchData();
         const mimeType = att.mimeType ?? "image/png";
-        console.log(`toAiMessages: fetched image (${buffer.length} bytes, ${mimeType})`);
         return {
-          type: "image",
-          image: `data:${mimeType};base64,${buffer.toString("base64")}`,
+          type: "file",
+          data: `data:${mimeType};base64,${buffer.toString("base64")}`,
           mediaType: mimeType,
+          filename: att.name,
         };
       } catch (error) {
         console.error("toAiMessages: failed to fetch image data", error);

@@ -72,34 +72,6 @@ bot.onNewMention(async (thread, message) => {
     await thread.startTyping("Thinking...");
     try {
       const history = await toAiMessages([message]);
-      console.log(
-        "AI prompt structure:",
-        JSON.stringify(
-          history.map((m) => ({
-            role: m.role,
-            contentType: typeof m.content,
-            isArray: Array.isArray(m.content),
-            parts: Array.isArray(m.content)
-              ? m.content.map((p) => ({
-                  type: p.type,
-                  ...("image" in p
-                    ? {
-                        imageType: typeof p.image,
-                        imageLength:
-                          typeof p.image === "string"
-                            ? p.image.length
-                            : "N/A",
-                        imagePrefix:
-                          typeof p.image === "string"
-                            ? p.image.slice(0, 40)
-                            : "N/A",
-                      }
-                    : {}),
-                }))
-              : undefined,
-          }))
-        )
-      );
       const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
     } catch (err) {
