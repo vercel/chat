@@ -1086,6 +1086,27 @@ export interface SentMessage<TRawMessage = unknown>
   edit(
     newContent: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
+
+  /**
+   * Flush any pending live update and stop the coalescing timer.
+   * If a final content is provided, it's sent as the last edit.
+   * Always call this when done with live updates to ensure cleanup.
+   */
+  finishLiveUpdates(finalContent?: AdapterPostableMessage): Promise<void>;
+
+  /**
+   * Queue a content update that will be flushed at a rate-limited interval.
+   *
+   * Use this for streaming-style updates where content changes rapidly
+   * (e.g., progress indicators, live status). Updates are coalesced so
+   * only the latest content is sent, preventing platform rate limits.
+   *
+   * Call `finishLiveUpdates()` to flush any pending update and stop the timer.
+   *
+   * @param content - New message content (replaces previous content entirely)
+   */
+  liveUpdate(content: AdapterPostableMessage): void;
+
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
 }
@@ -1161,6 +1182,7 @@ export type AdapterPostableMessage =
   | PostableMarkdown
   | PostableAst
   | PostableCard
+  | PostablePlatformBlocks
   | CardElement;
 
 /**
@@ -1171,6 +1193,7 @@ export type AdapterPostableMessage =
  * - `{ markdown: string }` - Markdown text, converted to platform format
  * - `{ ast: Root }` - mdast AST, converted to platform format
  * - `{ card: CardElement }` - Rich card with buttons (Block Kit / Adaptive Cards / GChat Cards)
+ * - `{ platformBlocks: unknown[] }` - Raw platform-specific blocks (e.g., Slack Block Kit), passed through verbatim
  * - `CardElement` - Direct card element
  * - `AsyncIterable<string>` - Streaming text (e.g., from AI SDK's textStream)
  * - `AsyncIterable<string | StreamEvent>` - AI SDK fullStream (auto-detected, extracts text with step separators)
@@ -1224,6 +1247,17 @@ export interface PostableCard {
   fallbackText?: string;
   /** Files to upload */
   files?: FileUpload[];
+}
+
+export interface PostablePlatformBlocks {
+  /** Fallback text for notifications and accessibility */
+  fallbackText: string;
+  /** Files to upload */
+  files?: FileUpload[];
+  /** Platform-specific attachment payloads (e.g., Slack attachments with nested table blocks). */
+  platformAttachments?: unknown[];
+  /** Platform-specific block payloads (e.g., Slack Block Kit blocks). Passed through to the adapter verbatim. */
+  platformBlocks: unknown[];
 }
 
 export interface Attachment {

@@ -5,6 +5,7 @@ import {
   AuthenticationError,
   extractCard,
   extractFiles,
+  extractPlatformBlocks,
   NetworkError,
   toBuffer,
   ValidationError,
@@ -1781,14 +1782,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         // Upload files first (they're shared to the channel automatically)
         await this.uploadFiles(files, channel, threadTs || undefined);
 
-        // If message only has files (no text/card), return early
+        // If message only has files (no text/card/platformBlocks), return early
         const hasText =
           typeof message === "string" ||
           (typeof message === "object" &&
             message !== null &&
             (("raw" in message && message.raw) ||
               ("markdown" in message && message.markdown) ||
-              ("ast" in message && message.ast)));
+              ("ast" in message && message.ast) ||
+              ("platformBlocks" in message)));
         const card = extractCard(message);
 
         if (!(hasText || card)) {
@@ -1799,6 +1801,41 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             raw: { files },
           };
         }
+      }
+
+      // Check for raw platform blocks (passed through verbatim)
+      const pbMessage = extractPlatformBlocks(message);
+      if (pbMessage) {
+        this.logger.debug("Slack API: chat.postMessage (platform blocks)", {
+          channel,
+          threadTs,
+          blockCount: pbMessage.platformBlocks.length,
+        });
+
+        const result = await this.client.chat.postMessage(
+          this.withToken({
+            channel,
+            thread_ts: threadTs,
+            text: pbMessage.fallbackText,
+            blocks: pbMessage.platformBlocks as any[],
+            ...(pbMessage.platformAttachments?.length
+              ? { attachments: pbMessage.platformAttachments as any[] }
+              : {}),
+            unfurl_links: false,
+            unfurl_media: false,
+          })
+        );
+
+        this.logger.debug("Slack API: chat.postMessage response", {
+          messageId: result.ts,
+          ok: result.ok,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
       }
 
       // Check if message contains a card
@@ -2286,6 +2323,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel } = this.decodeThreadId(threadId);
 
     try {
+      // Check for raw platform blocks (passed through verbatim)
+      const pbMessage = extractPlatformBlocks(message);
+      if (pbMessage) {
+        this.logger.debug("Slack API: chat.update (platform blocks)", {
+          channel,
+          messageId,
+          blockCount: pbMessage.platformBlocks.length,
+        });
+
+        const result = await this.client.chat.update(
+          this.withToken({
+            channel,
+            ts: messageId,
+            text: pbMessage.fallbackText,
+            blocks: pbMessage.platformBlocks as any[],
+            ...(pbMessage.platformAttachments?.length
+              ? { attachments: pbMessage.platformAttachments as any[] }
+              : {}),
+          })
+        );
+
+        this.logger.debug("Slack API: chat.update response", {
+          messageId: result.ts,
+          ok: result.ok,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
+      }
+
       // Check if message contains a card
       const card = extractCard(message);
 

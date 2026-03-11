@@ -301,6 +301,7 @@ export type {
   PostableCard,
   PostableMarkdown,
   PostableMessage,
+  PostablePlatformBlocks,
   PostableRaw,
   PostEphemeralOptions,
   RawMessage,

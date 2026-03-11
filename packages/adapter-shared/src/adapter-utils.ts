@@ -5,7 +5,12 @@
  * to reduce code duplication and ensure consistent behavior.
  */
 
-import type { AdapterPostableMessage, CardElement, FileUpload } from "chat";
+import type {
+  AdapterPostableMessage,
+  CardElement,
+  FileUpload,
+  PostablePlatformBlocks,
+} from "chat";
 import { isCardElement } from "chat";
 
 /**
@@ -73,4 +78,37 @@ export function extractFiles(message: AdapterPostableMessage): FileUpload[] {
     return (message as { files?: FileUpload[] }).files ?? [];
   }
   return [];
+}
+
+/**
+ * Extract PostablePlatformBlocks from an AdapterPostableMessage if present.
+ *
+ * Platform blocks are passed through verbatim to the adapter's API
+ * (e.g., Slack Block Kit blocks and attachments).
+ *
+ * @param message - The message to extract platform blocks from
+ * @returns The PostablePlatformBlocks if found, null otherwise
+ *
+ * @example
+ * ```typescript
+ * const message = {
+ *   platformBlocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+ *   fallbackText: "Hello",
+ * };
+ * extractPlatformBlocks(message); // returns the message
+ *
+ * extractPlatformBlocks("Hello"); // returns null
+ * ```
+ */
+export function extractPlatformBlocks(
+  message: AdapterPostableMessage
+): PostablePlatformBlocks | null {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    "platformBlocks" in message
+  ) {
+    return message as PostablePlatformBlocks;
+  }
+  return null;
 }
