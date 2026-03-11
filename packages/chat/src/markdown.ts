@@ -26,7 +26,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
-import type { CardChild, CardElement } from "./cards";
+import { type CardChild, type CardElement, getChildrenArray } from "./cards";
 import type { AdapterPostableMessage } from "./types";
 
 // Alias for use within this file
@@ -564,8 +564,8 @@ export abstract class BaseFormatConverter implements FormatConverter {
       parts.push(card.subtitle);
     }
 
-    for (const child of card.children) {
-      const text = this.cardChildToFallbackText(child);
+    for (const child of getChildrenArray(card)) {
+      const text = this.cardChildToFallbackText(child as CardChild);
       if (text) {
         parts.push(text);
       }
@@ -582,8 +582,11 @@ export abstract class BaseFormatConverter implements FormatConverter {
       case "text":
         return child.content;
       case "fields":
-        return child.children
-          .map((f) => `**${f.label}**: ${f.value}`)
+        return getChildrenArray(child)
+          .map(
+            (f: unknown) =>
+              `**${(f as { label: string; value: string }).label}**: ${(f as { label: string; value: string }).value}`
+          )
           .join("\n");
       case "actions":
         // Actions are interactive-only — exclude from fallback text.
@@ -592,8 +595,8 @@ export abstract class BaseFormatConverter implements FormatConverter {
       case "table":
         return tableElementToAscii(child.headers, child.rows);
       case "section":
-        return child.children
-          .map((c) => this.cardChildToFallbackText(c))
+        return getChildrenArray(child)
+          .map((c: unknown) => this.cardChildToFallbackText(c as CardChild))
           .filter(Boolean)
           .join("\n");
       default:
