@@ -840,7 +840,6 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             !(att.contentType === "text/html" && !att.contentUrl)
         )
         .map((att) => this.createAttachment(att)),
-      links: [],
     });
   }
 

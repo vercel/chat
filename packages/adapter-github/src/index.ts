@@ -548,7 +548,6 @@ export class GitHubAdapter
             : undefined,
       },
       attachments: [],
-      links: [],
     });
   }
 
@@ -589,7 +588,6 @@ export class GitHubAdapter
             : undefined,
       },
       attachments: [],
-      links: [],
     });
   }
 

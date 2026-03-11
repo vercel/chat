@@ -1525,7 +1525,6 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         width: att.width ?? undefined,
         height: att.height ?? undefined,
       })),
-      links: [],
     });
   }
 

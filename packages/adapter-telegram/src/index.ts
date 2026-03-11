@@ -971,7 +971,6 @@ export class TelegramAdapter
             : undefined,
       },
       attachments: this.extractAttachments(raw),
-      links: [],
       isMention: this.isBotMentioned(raw, text),
     });
 

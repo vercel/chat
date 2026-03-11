@@ -887,7 +887,6 @@ export class LinearAdapter
             : undefined,
       },
       attachments: [],
-      links: [],
       raw,
     });
   }
