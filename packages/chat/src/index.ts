@@ -1,6 +1,13 @@
 // Main exports
 
-export { type AiMessage, toAiMessages } from "./ai";
+export {
+  type AiFilePart,
+  type AiImagePart,
+  type AiMessage,
+  type AiMessagePart,
+  type AiTextPart,
+  toAiMessages,
+} from "./ai";
 export {
   ChannelImpl,
   deriveChannelId,

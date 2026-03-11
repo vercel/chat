@@ -4,6 +4,7 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
 import {
   Actions,
+  type AiMessage,
   Button,
   Card,
   CardLink,
@@ -41,7 +42,7 @@ const adapters = buildAdapters();
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
-  history?: { role: "user" | "assistant"; content: string }[];
+  history?: AiMessage[];
 }
 
 // Create the bot instance with typed thread state
@@ -148,7 +149,7 @@ bot.onMemberJoinedChannel(async (event) => {
 // This fires on every DM, regardless of subscription status
 bot.onDirectMessage(async (_thread, message, channel) => {
   await channel.startTyping("Thinking...");
-  let history: { role: "user" | "assistant"; content: string }[];
+  let history: AiMessage[];
   try {
     const messages: (typeof message)[] = [];
     for await (const msg of channel.messages) {
@@ -158,12 +159,16 @@ bot.onDirectMessage(async (_thread, message, channel) => {
       }
     }
     history =
-      messages.length > 0 ? toAiMessages(messages) : toAiMessages([message]);
+      messages.length > 0
+        ? await toAiMessages(messages)
+        : await toAiMessages([message]);
   } catch {
-    history = toAiMessages([message]);
+    history = await toAiMessages([message]);
   }
   try {
-    const result = await agent.stream({ prompt: history });
+    // AiMessage content is structurally compatible with AI SDK's UserContent
+    // biome-ignore lint/suspicious/noExplicitAny: AI SDK prompt type is compatible
+    const result = await agent.stream({ prompt: history as any });
     await channel.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
@@ -712,13 +717,13 @@ bot.onSubscribedMessage(async (thread, message) => {
   if (threadState?.aiMode) {
     // Build conversation history: try fetchMessages first, then fall back to
     // stored history in thread state (for platforms without message history API)
-    let history: { role: "user" | "assistant"; content: string }[];
+    let history: AiMessage[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
       if (result.messages.length > 0) {
-        history = toAiMessages(result.messages);
+        history = await toAiMessages(result.messages);
       } else {
         // No messages from API — use stored history + current message
         history = [
@@ -736,7 +741,8 @@ bot.onSubscribedMessage(async (thread, message) => {
 
     await thread.startTyping("Thinking...");
     try {
-      const result = await agent.stream({ prompt: history });
+      // biome-ignore lint/suspicious/noExplicitAny: AI SDK prompt type is compatible
+      const result = await agent.stream({ prompt: history as any });
       await thread.post(result.fullStream);
       const responseText = await result.text;
       // Persist updated history for platforms without message history API

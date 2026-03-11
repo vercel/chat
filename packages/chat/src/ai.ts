@@ -1,10 +1,38 @@
 import type { Message } from "./message";
+import type { Attachment } from "./types";
+
+/**
+ * Content part types compatible with AI SDK's UserContent.
+ * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/model-message
+ */
+export interface AiTextPart {
+  text: string;
+  type: "text";
+}
+
+export interface AiImagePart {
+  image: URL | string;
+  mediaType?: string;
+  type: "image";
+}
+
+export interface AiFilePart {
+  data: URL | string;
+  filename?: string;
+  mediaType: string;
+  type: "file";
+}
+
+export type AiMessagePart = AiTextPart | AiImagePart | AiFilePart;
 
 /**
  * A message formatted for AI SDK consumption.
+ *
+ * When messages contain image or text-file attachments, `content` is an array
+ * of parts (compatible with AI SDK's `UserContent`). Otherwise it's a string.
  */
 export interface AiMessage {
-  content: string;
+  content: string | AiMessagePart[];
   role: "user" | "assistant";
 }
 
@@ -14,6 +42,90 @@ export interface AiMessage {
 export interface ToAiMessagesOptions {
   /** When true, prefixes user messages with "[username]: " for multi-user context */
   includeNames?: boolean;
+  /**
+   * Called when an attachment type is not supported (video, audio, or files without URLs).
+   * Defaults to `console.warn`.
+   */
+  onUnsupportedAttachment?: (attachment: Attachment, message: Message) => void;
+}
+
+/** MIME types treated as text files that can be included as file parts */
+const TEXT_MIME_PREFIXES = [
+  "text/",
+  "application/json",
+  "application/xml",
+  "application/javascript",
+  "application/typescript",
+  "application/yaml",
+  "application/x-yaml",
+  "application/toml",
+];
+
+function isTextMimeType(mimeType: string): boolean {
+  return TEXT_MIME_PREFIXES.some(
+    (prefix) => mimeType === prefix || mimeType.startsWith(prefix)
+  );
+}
+
+/**
+ * Build an AI SDK content part from an attachment.
+ * Uses fetchData to get base64 data when available, falls back to URL.
+ * Returns null for unsupported attachments.
+ */
+async function attachmentToPart(
+  att: Attachment
+): Promise<AiMessagePart | null> {
+  if (att.type === "image") {
+    if (att.fetchData) {
+      try {
+        const buffer = await att.fetchData();
+        const mimeType = att.mimeType ?? "image/png";
+        return {
+          type: "image",
+          image: `data:${mimeType};base64,${buffer.toString("base64")}`,
+          mediaType: mimeType,
+        };
+      } catch {
+        // Fall through to URL
+      }
+    }
+    if (att.url) {
+      return {
+        type: "image",
+        image: new URL(att.url),
+        mediaType: att.mimeType,
+      };
+    }
+    return null;
+  }
+
+  if (att.type === "file" && att.mimeType && isTextMimeType(att.mimeType)) {
+    if (att.fetchData) {
+      try {
+        const buffer = await att.fetchData();
+        return {
+          type: "file",
+          data: `data:${att.mimeType};base64,${buffer.toString("base64")}`,
+          filename: att.name,
+          mediaType: att.mimeType,
+        };
+      } catch {
+        // Fall through to URL
+      }
+    }
+    if (att.url) {
+      return {
+        type: "file",
+        data: new URL(att.url),
+        filename: att.name,
+        mediaType: att.mimeType,
+      };
+    }
+    return null;
+  }
+
+  // Unsupported type — caller handles warning
+  return null;
 }
 
 /**
@@ -22,21 +134,32 @@ export interface ToAiMessagesOptions {
  * - Filters out messages with empty/whitespace-only text
  * - Maps `author.isMe === true` to `"assistant"`, otherwise `"user"`
  * - Uses `message.text` for content
+ * - Appends link metadata when available
+ * - Includes image attachments as `ImagePart` and text files as `FilePart`
+ * - Uses `fetchData()` when available to include attachment data inline (base64)
+ * - Warns on unsupported attachment types (video, audio)
  *
  * Works with `FetchResult.messages`, `thread.recentMessages`, or collected iterables.
  *
  * @example
  * ```typescript
  * const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
- * const history = toAiMessages(result.messages);
+ * const history = await toAiMessages(result.messages);
  * const response = await agent.stream({ prompt: history });
  * ```
  */
-export function toAiMessages(
+export async function toAiMessages(
   messages: Message[],
   options?: ToAiMessagesOptions
-): AiMessage[] {
+): Promise<AiMessage[]> {
   const includeNames = options?.includeNames ?? false;
+  const onUnsupported =
+    options?.onUnsupportedAttachment ??
+    ((att: Attachment) => {
+      console.warn(
+        `toAiMessages: unsupported attachment type "${att.type}"${att.name ? ` (${att.name})` : ""} — skipped`
+      );
+    });
 
   // Sort chronologically (oldest first) so AI sees conversation in order
   const sorted = [...messages].sort(
@@ -45,11 +168,12 @@ export function toAiMessages(
       (b.metadata.dateSent?.getTime() ?? 0)
   );
 
-  return sorted
-    .filter((msg) => msg.text.trim())
-    .map((msg) => {
+  const filtered = sorted.filter((msg) => msg.text.trim());
+
+  return Promise.all(
+    filtered.map(async (msg) => {
       const role: "user" | "assistant" = msg.author.isMe ? "assistant" : "user";
-      let content =
+      let textContent =
         includeNames && role === "user"
           ? `[${msg.author.userName}]: ${msg.text}`
           : msg.text;
@@ -73,9 +197,32 @@ export function toAiMessages(
             return parts.join("\n");
           })
           .join("\n\n");
-        content += `\n\nLinks:\n${linkParts}`;
+        textContent += `\n\nLinks:\n${linkParts}`;
       }
 
-      return { role, content };
-    });
+      // Build attachment parts for images and text files
+      const attachmentParts: AiMessagePart[] = [];
+      for (const att of msg.attachments) {
+        const part = await attachmentToPart(att);
+        if (part) {
+          attachmentParts.push(part);
+        } else if (att.type === "video" || att.type === "audio") {
+          onUnsupported(att, msg);
+        }
+      }
+
+      // Use multipart content when there are attachment parts
+      if (attachmentParts.length > 0) {
+        return {
+          role,
+          content: [
+            { type: "text" as const, text: textContent },
+            ...attachmentParts,
+          ],
+        };
+      }
+
+      return { role, content: textContent };
+    })
+  );
 }
