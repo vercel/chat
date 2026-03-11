@@ -32,6 +32,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     name,
     userName: `${name}-bot`,
     initialize: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
     handleWebhook: vi.fn().mockResolvedValue(new Response("ok")),
     postMessage: vi
       .fn()
