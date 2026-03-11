@@ -68,10 +68,11 @@ bot.onNewMention(async (thread, message) => {
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    // Also respond to the initial message with AI
+    // Also respond to the initial message with AI (including any image attachments)
     await thread.startTyping("Thinking...");
     try {
-      const result = await agent.stream({ prompt: message.text });
+      const history = await toAiMessages([message]);
+      const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
     } catch (err) {
       console.error("Error in AI response:", err);
