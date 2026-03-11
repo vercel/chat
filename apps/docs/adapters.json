@@ -70,11 +70,11 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-telegram"
   },
   {
-    "name": "WhatsApp",
+    "name": "WhatsApp Business Cloud",
     "slug": "whatsapp",
     "type": "platform",
     "icon": "whatsapp",
-    "description": "Connect to WhatsApp Business for customer messaging and automated conversations.",
+    "description": "Connect to WhatsApp Business Cloud for customer messaging and automated conversations.",
     "packageName": "@chat-adapter/whatsapp",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
