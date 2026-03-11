@@ -93,6 +93,11 @@ async function attachmentToPart(
       try {
         const buffer = await att.fetchData();
         const mimeType = att.mimeType ?? "image/png";
+        console.log("toAiMessages: image attachment", {
+          bufferLength: buffer.length,
+          mimeType,
+          first20Bytes: buffer.slice(0, 20).toString("hex"),
+        });
         return {
           type: "image",
           image: buffer,
@@ -216,12 +221,28 @@ export async function toAiMessages(
 
       // Use multipart content for user messages with attachment parts
       if (attachmentParts.length > 0 && role === "user") {
+        const parts = [
+          { type: "text" as const, text: textContent },
+          ...attachmentParts,
+        ];
+        console.log(
+          "toAiMessages: multipart message",
+          JSON.stringify(
+            parts.map((p) => ({
+              type: p.type,
+              ...(p.type === "image" && "image" in p
+                ? {
+                    imageType: typeof p.image,
+                    isBuffer: Buffer.isBuffer(p.image),
+                    mediaType: "mediaType" in p ? p.mediaType : undefined,
+                  }
+                : {}),
+            }))
+          )
+        );
         return {
           role,
-          content: [
-            { type: "text" as const, text: textContent },
-            ...attachmentParts,
-          ],
+          content: parts,
         } satisfies AiUserMessage;
       }
 
