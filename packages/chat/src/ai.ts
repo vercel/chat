@@ -95,7 +95,7 @@ async function attachmentToPart(
         const mimeType = att.mimeType ?? "image/png";
         return {
           type: "image",
-          image: `data:${mimeType};base64,${buffer.toString("base64")}`,
+          image: buffer,
           mediaType: mimeType,
         };
       } catch {
@@ -118,7 +118,7 @@ async function attachmentToPart(
         const buffer = await att.fetchData();
         return {
           type: "file",
-          data: `data:${att.mimeType};base64,${buffer.toString("base64")}`,
+          data: buffer,
           filename: att.name,
           mediaType: att.mimeType,
         };

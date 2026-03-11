@@ -445,12 +445,11 @@ describe("toAiMessages", async () => {
     expect(content[1]?.type).toBe("image");
     const imgPart = content[1] as {
       type: "image";
-      image: string;
+      image: Buffer;
       mediaType: string;
     };
-    expect(imgPart.image).toBe(
-      `data:image/png;base64,${Buffer.from("fake-png-data").toString("base64")}`
-    );
+    expect(Buffer.isBuffer(imgPart.image)).toBe(true);
+    expect(imgPart.image.toString()).toBe("fake-png-data");
     expect(imgPart.mediaType).toBe("image/png");
   });
 
@@ -475,13 +474,12 @@ describe("toAiMessages", async () => {
     expect(content[1]?.type).toBe("file");
     const filePart = content[1] as {
       type: "file";
-      data: string;
+      data: Buffer;
       filename: string;
       mediaType: string;
     };
-    expect(filePart.data).toBe(
-      `data:text/plain;base64,${Buffer.from("error at line 42").toString("base64")}`
-    );
+    expect(Buffer.isBuffer(filePart.data)).toBe(true);
+    expect(filePart.data.toString()).toBe("error at line 42");
     expect(filePart.filename).toBe("server.log");
   });
 
