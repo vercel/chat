@@ -205,13 +205,10 @@ export async function toAiMessages(
       }
 
       // Build attachment parts for images and text files
-      console.log(`toAiMessages: processing ${msg.attachments.length} attachments for message ${msg.id}`);
       const attachmentParts: AiMessagePart[] = [];
       for (const att of msg.attachments) {
-        console.log(`toAiMessages: attachment type=${att.type} mimeType=${att.mimeType} hasFetchData=${!!att.fetchData} hasUrl=${!!att.url}`);
         const part = await attachmentToPart(att);
         if (part) {
-          console.log(`toAiMessages: got part type=${part.type} dataLength=${"data" in part && typeof part.data === "string" ? part.data.length : "N/A"} dataPrefix=${"data" in part && typeof part.data === "string" ? part.data.slice(0, 50) : "N/A"}`);
           attachmentParts.push(part);
         } else if (att.type === "video" || att.type === "audio") {
           onUnsupported(att, msg);
@@ -220,18 +217,14 @@ export async function toAiMessages(
 
       // Use multipart content for user messages with attachment parts
       if (attachmentParts.length > 0 && role === "user") {
-        const result = {
+        return {
           role,
           content: [
             { type: "text" as const, text: textContent },
             ...attachmentParts,
           ],
         } satisfies AiUserMessage;
-        console.log(`toAiMessages: returning multipart message with ${result.content.length} parts`);
-        return result;
       }
-
-      console.log(`toAiMessages: returning text-only message (${msg.attachments.length} attachments skipped)`);
       return { role, content: textContent } as AiMessage;
     })
   );
