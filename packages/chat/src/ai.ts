@@ -2,22 +2,27 @@ import type { Message } from "./message";
 import type { Attachment } from "./types";
 
 /**
- * Content part types compatible with AI SDK's UserContent.
+ * Content part types structurally identical to AI SDK's TextPart, ImagePart,
+ * FilePart so that AiMessage[] is directly assignable to ModelMessage[].
  * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/model-message
  */
+
+/** Matches AI SDK's DataContent */
+type DataContent = string | Uint8Array | ArrayBuffer | Buffer;
+
 export interface AiTextPart {
   text: string;
   type: "text";
 }
 
 export interface AiImagePart {
-  image: URL | string;
+  image: DataContent | URL;
   mediaType?: string;
   type: "image";
 }
 
 export interface AiFilePart {
-  data: URL | string;
+  data: DataContent | URL;
   filename?: string;
   mediaType: string;
   type: "file";
@@ -28,12 +33,20 @@ export type AiMessagePart = AiTextPart | AiImagePart | AiFilePart;
 /**
  * A message formatted for AI SDK consumption.
  *
- * When messages contain image or text-file attachments, `content` is an array
- * of parts (compatible with AI SDK's `UserContent`). Otherwise it's a string.
+ * This is a discriminated union matching AI SDK's ModelMessage type:
+ * - User messages can have text, image, and file parts
+ * - Assistant messages have string content only
  */
-export interface AiMessage {
+export type AiMessage = AiUserMessage | AiAssistantMessage;
+
+export interface AiUserMessage {
   content: string | AiMessagePart[];
-  role: "user" | "assistant";
+  role: "user";
+}
+
+export interface AiAssistantMessage {
+  content: string;
+  role: "assistant";
 }
 
 /**
@@ -211,18 +224,18 @@ export async function toAiMessages(
         }
       }
 
-      // Use multipart content when there are attachment parts
-      if (attachmentParts.length > 0) {
+      // Use multipart content for user messages with attachment parts
+      if (attachmentParts.length > 0 && role === "user") {
         return {
           role,
           content: [
             { type: "text" as const, text: textContent },
             ...attachmentParts,
           ],
-        };
+        } satisfies AiUserMessage;
       }
 
-      return { role, content: textContent };
+      return { role, content: textContent } as AiMessage;
     })
   );
 }

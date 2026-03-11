@@ -1,11 +1,13 @@
 // Main exports
 
 export {
+  type AiAssistantMessage,
   type AiFilePart,
   type AiImagePart,
   type AiMessage,
   type AiMessagePart,
   type AiTextPart,
+  type AiUserMessage,
   toAiMessages,
 } from "./ai";
 export {

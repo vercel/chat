@@ -166,9 +166,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
     history = await toAiMessages([message]);
   }
   try {
-    // AiMessage content is structurally compatible with AI SDK's UserContent
-    // biome-ignore lint/suspicious/noExplicitAny: AI SDK prompt type is compatible
-    const result = await agent.stream({ prompt: history as any });
+    const result = await agent.stream({ prompt: history });
     await channel.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
@@ -741,8 +739,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
     await thread.startTyping("Thinking...");
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: AI SDK prompt type is compatible
-      const result = await agent.stream({ prompt: history as any });
+      const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
       const responseText = await result.text;
       // Persist updated history for platforms without message history API
