@@ -625,8 +625,7 @@ export class TelegramAdapter
     channelId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
-    const threadId = this.encodeThreadId({ chatId: channelId });
-    return this.postMessage(threadId, message);
+    return this.postMessage(channelId, message);
   }
 
   async editMessage(
