@@ -6,6 +6,7 @@ import {
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
+import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
@@ -22,6 +23,7 @@ import type {
   Channel,
   ChatConfig,
   ChatInstance,
+  DirectMessageHandler,
   EmojiValue,
   Logger,
   LogLevel,
@@ -185,8 +187,10 @@ export class Chat<
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
+  private readonly _messageHistory: MessageHistoryCache;
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
@@ -225,6 +229,10 @@ export class Chat<
         : "...";
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
     this._onLockConflict = config.onLockConflict;
+    this._messageHistory = new MessageHistoryCache(
+      this._stateAdapter,
+      config.messageHistory
+    );
 
     // Initialize logger
     if (typeof config.logger === "string") {
@@ -355,6 +363,28 @@ export class Chat<
   onNewMention(handler: MentionHandler<TState>): void {
     this.mentionHandlers.push(handler);
     this.logger.debug("Registered mention handler");
+  }
+
+  /**
+   * Register a handler for direct messages.
+   *
+   * Called when a message is received in a DM thread that is not subscribed.
+   * If no `onDirectMessage` handlers are registered, DMs fall through to
+   * `onNewMention` for backward compatibility.
+   *
+   * @param handler - Handler called for DM messages
+   *
+   * @example
+   * ```typescript
+   * chat.onDirectMessage(async (thread, message) => {
+   *   await thread.subscribe();
+   *   await thread.post("Thanks for the DM!");
+   * });
+   * ```
+   */
+  onDirectMessage(handler: DirectMessageHandler<TState>): void {
+    this.directMessageHandlers.push(handler);
+    this.logger.debug("Registered direct message handler");
   }
 
   /**
@@ -1516,6 +1546,18 @@ export class Chat<
       return;
     }
 
+    // Persist incoming message BEFORE acquiring the lock.
+    // If the lock is already held (e.g., bot is processing a previous message),
+    // we still want to save this message to history so it's not lost.
+    if (adapter.persistMessageHistory) {
+      const channelId = adapter.channelIdFromThreadId(threadId);
+      const appends = [this._messageHistory.append(threadId, message)];
+      if (channelId !== threadId) {
+        appends.push(this._messageHistory.append(channelId, message));
+      }
+      await Promise.all(appends);
+    }
+
     // Try to acquire lock on thread
     let lock = await this._stateAdapter.acquireLock(
       threadId,
@@ -1552,7 +1594,7 @@ export class Chat<
       message.isMention =
         message.isMention || this.detectMention(adapter, message);
 
-      // Check if this is a subscribed thread first
+      // Check subscription status (needed for createThread optimization)
       const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
       this.logger.debug("Subscription check", {
         threadId,
@@ -1568,6 +1610,26 @@ export class Chat<
         isSubscribed
       );
 
+      // Check for DM first - always route to direct message handlers
+      const isDM = adapter.isDM?.(threadId) ?? false;
+      if (isDM && this.directMessageHandlers.length > 0) {
+        this.logger.debug("Direct message received - calling handlers", {
+          threadId,
+          handlerCount: this.directMessageHandlers.length,
+        });
+        const channel = thread.channel;
+        for (const handler of this.directMessageHandlers) {
+          await handler(thread, message, channel);
+        }
+        return;
+      }
+
+      // Backward compat: treat DMs as mentions when no DM handlers registered
+      if (isDM) {
+        message.isMention = true;
+      }
+
+      // Check subscription (non-DM threads only)
       if (isSubscribed) {
         this.logger.debug("Message in subscribed thread - calling handlers", {
           threadId,
@@ -1648,6 +1710,9 @@ export class Chat<
       currentMessage: initialMessage,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
+      messageHistory: adapter.persistMessageHistory
+        ? this._messageHistory
+        : undefined,
     });
   }
 

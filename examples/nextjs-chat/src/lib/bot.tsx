@@ -21,6 +21,7 @@ import {
   Table,
   CardText as Text,
   TextInput,
+  toAiMessages,
 } from "chat";
 import { buildAdapters } from "./adapters";
 
@@ -40,6 +41,7 @@ const adapters = buildAdapters();
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
+  history?: { role: "user" | "assistant"; content: string }[];
 }
 
 // Create the bot instance with typed thread state
@@ -140,6 +142,37 @@ bot.onMemberJoinedChannel(async (event) => {
     event.channelId,
     "*Chat SDK Bot is available in this channel.* Tag @Chat SDK Bot to begin."
   );
+});
+
+// Handle direct messages — AI conversation by default
+// This fires on every DM, regardless of subscription status
+bot.onDirectMessage(async (_thread, message, channel) => {
+  await channel.startTyping("Thinking...");
+  let history: { role: "user" | "assistant"; content: string }[];
+  try {
+    const messages: (typeof message)[] = [];
+    for await (const msg of channel.messages) {
+      messages.push(msg);
+      if (messages.length >= 20) {
+        break;
+      }
+    }
+    history =
+      messages.length > 0 ? toAiMessages(messages) : toAiMessages([message]);
+  } catch {
+    history = toAiMessages([message]);
+  }
+  try {
+    const result = await agent.stream({ prompt: history });
+    await channel.post(result.fullStream);
+  } catch (err) {
+    console.error("Error in DM AI response:", err);
+    await channel.post(
+      `${emoji.warning} Error: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
 });
 
 bot.onAction("show_channel_help", async (event) => {
@@ -675,29 +708,48 @@ bot.onSubscribedMessage(async (thread, message) => {
     return;
   }
 
-  // If AI mode is enabled, use the AI agent
+  // If AI mode is enabled (or this is a DM), use the AI agent
   if (threadState?.aiMode) {
-    // Try to fetch message history, fall back to current message if not supported
-    let messages: typeof thread.recentMessages;
+    // Build conversation history: try fetchMessages first, then fall back to
+    // stored history in thread state (for platforms without message history API)
+    let history: { role: "user" | "assistant"; content: string }[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
-      messages = result.messages;
+      if (result.messages.length > 0) {
+        history = toAiMessages(result.messages);
+      } else {
+        // No messages from API — use stored history + current message
+        history = [
+          ...(threadState?.history ?? []),
+          { role: "user" as const, content: message.text },
+        ];
+      }
     } catch {
-      // Some adapters (Teams) don't support fetching message history
-      messages = thread.recentMessages;
+      // fetchMessages not supported — use stored history + current message
+      history = [
+        ...(threadState?.history ?? []),
+        { role: "user" as const, content: message.text },
+      ];
     }
-    const history = [...messages]
-      .filter((msg) => msg.text.trim()) // Filter out empty messages (cards, system msgs)
-      .map((msg) => ({
-        role: msg.author.isMe ? ("assistant" as const) : ("user" as const),
-        content: msg.text,
-      }));
-    console.log("history", history);
+
     await thread.startTyping("Thinking...");
-    const result = await agent.stream({ prompt: history });
-    await thread.post(result.fullStream);
+    try {
+      const result = await agent.stream({ prompt: history });
+      await thread.post(result.fullStream);
+      const responseText = await result.text;
+      // Persist updated history for platforms without message history API
+      history.push({ role: "assistant", content: responseText });
+      await thread.setState({ history });
+    } catch (err) {
+      console.error("Error in AI response:", err);
+      await thread.post(
+        `${emoji.warning} Error: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
+      );
+    }
     return;
   }
 
@@ -745,10 +797,15 @@ bot.onSubscribedMessage(async (thread, message) => {
   await thread.startTyping();
   await delay(1000);
   const response = await thread.post(`${emoji.thinking} Processing...`);
-  await delay(2000);
-  await response.edit(`${emoji.eyes} Just a little bit...`);
-  await delay(1000);
-  await response.edit(`${emoji.check} Thanks for your message!`);
+  try {
+    await delay(2000);
+    await response.edit(`${emoji.eyes} Just a little bit...`);
+    await delay(1000);
+    await response.edit(`${emoji.check} Thanks for your message!`);
+  } catch {
+    // Some platforms (WhatsApp) don't support editing — send a follow-up instead
+    await thread.post(`${emoji.check} Thanks for your message!`);
+  }
 });
 
 // Handle emoji reactions - respond with a matching emoji or message

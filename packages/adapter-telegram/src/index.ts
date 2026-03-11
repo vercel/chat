@@ -105,6 +105,7 @@ export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
   readonly name = "telegram";
+  readonly persistMessageHistory = true;
 
   private readonly botToken: string;
   private readonly apiBaseUrl: string;
@@ -624,8 +625,7 @@ export class TelegramAdapter
     channelId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
-    const threadId = this.encodeThreadId({ chatId: channelId });
-    return this.postMessage(threadId, message);
+    return this.postMessage(channelId, message);
   }
 
   async editMessage(
@@ -860,7 +860,8 @@ export class TelegramAdapter
   }
 
   channelIdFromThreadId(threadId: string): string {
-    return this.resolveThreadId(threadId).chatId;
+    const { chatId } = this.resolveThreadId(threadId);
+    return `telegram:${chatId}`;
   }
 
   async openDM(userId: string): Promise<string> {

@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, and Linear. Write your bot logic once, deploy everywhere.
+A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp. Write your bot logic once, deploy everywhere.
 
 ## Installation
 
@@ -56,6 +56,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+| WhatsApp | `@chat-adapter/whatsapp` | N/A | Yes | Partial | No | No | Yes |
 
 ## Features
 
@@ -75,13 +76,14 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | Package | Description |
 |---------|-------------|
 | `chat` | Core SDK with `Chat` class, types, JSX runtime, and utilities |
-| `@chat-adapter/slack` | [Slack adapter](https://chat-sdk.dev/docs/adapters/slack) |
-| `@chat-adapter/teams` | [Teams adapter](https://chat-sdk.dev/docs/adapters/teams) |
-| `@chat-adapter/gchat` | [Google Chat adapter](https://chat-sdk.dev/docs/adapters/gchat) |
-| `@chat-adapter/discord` | [Discord adapter](https://chat-sdk.dev/docs/adapters/discord) |
-| `@chat-adapter/telegram` | [Telegram adapter](https://chat-sdk.dev/docs/adapters/telegram) |
-| `@chat-adapter/github` | [GitHub adapter](https://chat-sdk.dev/docs/adapters/github) |
-| `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/docs/adapters/linear) |
+| `@chat-adapter/slack` | [Slack adapter](https://chat-sdk.dev/adapters/slack) |
+| `@chat-adapter/teams` | [Teams adapter](https://chat-sdk.dev/adapters/teams) |
+| `@chat-adapter/gchat` | [Google Chat adapter](https://chat-sdk.dev/adapters/gchat) |
+| `@chat-adapter/discord` | [Discord adapter](https://chat-sdk.dev/adapters/discord) |
+| `@chat-adapter/telegram` | [Telegram adapter](https://chat-sdk.dev/adapters/telegram) |
+| `@chat-adapter/github` | [GitHub adapter](https://chat-sdk.dev/adapters/github) |
+| `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/adapters/linear) |
+| `@chat-adapter/whatsapp` | [WhatsApp adapter](https://chat-sdk.dev/adapters/whatsapp) |
 | `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
 | `@chat-adapter/state-ioredis` | [ioredis state adapter](https://chat-sdk.dev/docs/state/ioredis) (alternative) |
 | `@chat-adapter/state-pg` | [PostgreSQL state adapter](https://chat-sdk.dev/docs/state/postgres) (production) |

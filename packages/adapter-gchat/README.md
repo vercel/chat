@@ -3,15 +3,17 @@
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
 
-Google Chat adapter for [Chat SDK](https://chat-sdk.dev/docs). Supports service account authentication with optional Pub/Sub for receiving all messages.
+Google Chat adapter for [Chat SDK](https://chat-sdk.dev). Configure with service account authentication and optional Pub/Sub.
 
 ## Installation
 
 ```bash
-npm install chat @chat-adapter/gchat
+pnpm add @chat-adapter/gchat
 ```
 
 ## Usage
+
+The adapter auto-detects credentials from `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC` environment variables:
 
 ```typescript
 import { Chat } from "chat";
@@ -20,9 +22,7 @@ import { createGoogleChatAdapter } from "@chat-adapter/gchat";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    gchat: createGoogleChatAdapter({
-      credentials: JSON.parse(process.env.GOOGLE_CHAT_CREDENTIALS!),
-    }),
+    gchat: createGoogleChatAdapter(),
   },
 });
 
@@ -31,9 +31,241 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-## Documentation
+## Google Chat setup
 
-Full setup instructions, configuration reference, and features at [chat-sdk.dev/docs/adapters/gchat](https://chat-sdk.dev/docs/adapters/gchat).
+### 1. Create a GCP project
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Click the project dropdown then **New Project**
+3. Enter project name and click **Create**
+
+### 2. Enable required APIs
+
+Go to **APIs & Services** then **Library** and enable:
+
+- **Google Chat API**
+- **Google Workspace Events API** (for receiving all messages)
+- **Cloud Pub/Sub API** (for receiving all messages)
+
+### 3. Create a service account
+
+1. Go to **IAM & Admin** then **Service Accounts**
+2. Click **Create Service Account**
+3. Enter name and description
+4. Click **Create and Continue**
+5. Skip the optional steps, click **Done**
+
+### 4. Create service account key
+
+1. Click on your service account
+2. Go to **Keys** tab
+3. Click **Add Key** then **Create new key**
+4. Select **JSON** and click **Create**
+5. Copy the entire JSON content as `GOOGLE_CHAT_CREDENTIALS`
+
+> **Note:** If your organization has the `iam.disableServiceAccountKeyCreation` constraint enabled, you need to relax it or add an exception for your project in **IAM & Admin** then **Organization Policies**.
+
+### 5. Configure Google Chat app
+
+1. Go to the [Chat API configuration](https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat)
+2. Click **Configuration** and fill in:
+   - **App name**: Your bot's display name
+   - **Avatar URL**: URL to your bot's avatar
+   - **Description**: What your bot does
+   - **Interactive features**: Enable **Receive 1:1 messages** and **Join spaces and group conversations**
+   - **Connection settings**: Select **App URL**
+   - **App URL**: `https://your-domain.com/api/webhooks/gchat`
+   - **Visibility**: Choose who can discover your app
+3. Click **Save**
+
+### 6. Add bot to a space
+
+1. Open Google Chat
+2. Create or open a Space
+3. Click the space name then **Manage apps & integrations**
+4. Click **Add apps**, search for your app, and click **Add**
+
+## Pub/Sub for all messages (optional)
+
+By default, Google Chat only sends webhooks for @mentions. To receive all messages in a space, set up Workspace Events with Pub/Sub.
+
+```typescript
+createGoogleChatAdapter({
+  pubsubTopic: process.env.GOOGLE_CHAT_PUBSUB_TOPIC,
+  impersonateUser: process.env.GOOGLE_CHAT_IMPERSONATE_USER,
+});
+```
+
+`GOOGLE_CHAT_PUBSUB_TOPIC` and `GOOGLE_CHAT_IMPERSONATE_USER` are also auto-detected from env vars, so you can omit them from config if the env vars are set.
+
+### 1. Create Pub/Sub topic
+
+1. Go to **Pub/Sub** then **Topics**
+2. Click **Create Topic**
+3. Enter topic ID (e.g., `chat-events`)
+4. Uncheck **Add a default subscription**
+5. Click **Create**
+6. Copy the full topic name as `GOOGLE_CHAT_PUBSUB_TOPIC` (format: `projects/your-project-id/topics/chat-events`)
+
+### 2. Grant Chat service account access
+
+1. Go to your Pub/Sub topic
+2. Click **Permissions** tab
+3. Click **Add Principal**
+4. Enter `chat-api-push@system.gserviceaccount.com`
+5. Select role **Pub/Sub Publisher**
+6. Click **Save**
+
+### 3. Create push subscription
+
+1. Go to **Pub/Sub** then **Subscriptions**
+2. Click **Create Subscription**
+3. Select your topic
+4. Set **Delivery type** to Push
+5. Set **Endpoint URL** to `https://your-domain.com/api/webhooks/gchat`
+6. Click **Create**
+
+### 4. Enable domain-wide delegation
+
+Domain-wide delegation is required for creating Workspace Events subscriptions and initiating DMs.
+
+**Step 1 — Enable delegation on the service account:**
+
+1. Go to **IAM & Admin** then **Service Accounts**
+2. Click on your service account
+3. Check **Enable Google Workspace Domain-wide Delegation** and save
+4. Copy the **Client ID** (a numeric ID, not the email)
+
+**Step 2 — Authorize in Google Admin Console:**
+
+1. Go to [Google Admin Console](https://admin.google.com)
+2. Go to **Security** then **Access and data control** then **API controls**
+3. Click **Manage Domain Wide Delegation** then **Add new**
+4. Enter the numeric **Client ID** from Step 1
+5. Add OAuth scopes (comma-separated, on one line):
+   ```
+   https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.spaces,https://www.googleapis.com/auth/chat.spaces.create
+   ```
+6. Click **Authorize**
+
+**Step 3 — Set environment variable:**
+
+Set `GOOGLE_CHAT_IMPERSONATE_USER` to an admin user email in your domain (e.g., `admin@yourdomain.com`).
+
+## Configuration
+
+All options are auto-detected from environment variables when not provided.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `credentials` | No* | Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS` |
+| `useApplicationDefaultCredentials` | No | Use Application Default Credentials. Auto-detected from `GOOGLE_CHAT_USE_ADC` |
+| `pubsubTopic` | No | Pub/Sub topic for Workspace Events. Auto-detected from `GOOGLE_CHAT_PUBSUB_TOPIC` |
+| `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
+| `auth` | No | Custom auth object (advanced) |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
+
+## Environment variables
+
+```bash
+GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}
+
+# Optional: for receiving all messages
+GOOGLE_CHAT_PUBSUB_TOPIC=projects/your-project/topics/chat-events
+GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
+```
+
+## Features
+
+### Messaging
+
+| Feature | Supported |
+|---------|-----------|
+| Post message | Yes |
+| Edit message | Yes |
+| Delete message | Yes |
+| File uploads | No |
+| Streaming | Post+Edit fallback |
+
+### Rich content
+
+| Feature | Supported |
+|---------|-----------|
+| Card format | Google Chat Cards |
+| Buttons | Yes |
+| Link buttons | Yes |
+| Select menus | Yes |
+| Tables | ASCII |
+| Fields | Yes |
+| Images in cards | Yes |
+| Modals | No |
+
+### Conversations
+
+| Feature | Supported |
+|---------|-----------|
+| Slash commands | No |
+| Mentions | Yes |
+| Add reactions | Yes (via Workspace Events) |
+| Remove reactions | Yes (via Workspace Events) |
+| Typing indicator | No |
+| DMs | Yes (requires delegation) |
+| Ephemeral messages | Yes (native) |
+
+### Message history
+
+| Feature | Supported |
+|---------|-----------|
+| Fetch messages | Yes |
+| Fetch single message | No |
+| Fetch thread info | Yes |
+| Fetch channel messages | Yes |
+| List threads | Yes |
+| Fetch channel info | Yes |
+| Post channel message | Yes |
+
+## Limitations
+
+- **Typing indicators**: Not supported by Google Chat API. `startTyping()` is a no-op.
+- **Adding reactions**: The Google Chat API doesn't support service account (app) authentication for adding reactions. To use `addReaction()` or `removeReaction()`, you need domain-wide delegation with `impersonateUser` configured — but the reaction appears as coming from the impersonated user, not the bot.
+
+### Message history (`fetchMessages`)
+
+Fetching message history requires domain-wide delegation with the `impersonateUser` config option set. The impersonated user must have access to the spaces you want to read from. See the [Pub/Sub setup](#4-enable-domain-wide-delegation) above for configuring delegation and OAuth scopes.
+
+## Troubleshooting
+
+### No webhook received
+
+- Verify the App URL is correct in Google Chat configuration
+- Check that the Chat API is enabled
+- Ensure the service account has the necessary permissions
+
+### Pub/Sub not working
+
+- Verify `chat-api-push@system.gserviceaccount.com` has Pub/Sub Publisher role
+- Check that the push subscription URL is correct
+- Verify domain-wide delegation is configured with correct scopes
+- Check `GOOGLE_CHAT_IMPERSONATE_USER` is a valid admin email
+
+### "Permission denied" for Workspace Events
+
+- Ensure domain-wide delegation is configured
+- Verify the OAuth scopes are exactly as specified
+- Check that the impersonated user has access to the spaces
+
+### "Insufficient Permission" for DMs
+
+- DMs require domain-wide delegation with `chat.spaces` and `chat.spaces.create` scopes
+- Scope changes can take up to 24 hours to propagate
+
+### Button clicks not received
+
+- Verify **Interactive features** is enabled in the Google Chat app configuration
+- Check that the App URL is correctly set and accessible
+- Button clicks go to the same webhook URL as messages
 
 ## License
 

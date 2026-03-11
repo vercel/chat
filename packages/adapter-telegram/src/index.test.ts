@@ -873,6 +873,76 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.text).toBe("hello");
   });
 
+  it("postChannelMessage does not double-prefix channel ID", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postChannelMessage("telegram:123", {
+      markdown: "channel message",
+    });
+
+    expect(posted.threadId).toBe("telegram:123");
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string };
+
+    expect(sendMessageBody.chat_id).toBe("123");
+    expect(sendMessageBody.text).toBe("channel message");
+  });
+
+  it("postChannelMessage works with raw channel ID", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postChannelMessage("123", {
+      markdown: "raw id message",
+    });
+
+    expect(posted.threadId).toBe("telegram:123");
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { chat_id: string; text: string };
+
+    expect(sendMessageBody.chat_id).toBe("123");
+    expect(sendMessageBody.text).toBe("raw id message");
+  });
+
   it("posts cards with inline keyboard buttons", async () => {
     mockFetch
       .mockResolvedValueOnce(

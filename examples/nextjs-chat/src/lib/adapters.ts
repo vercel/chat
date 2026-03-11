@@ -14,6 +14,10 @@ import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
+import {
+  createWhatsAppAdapter,
+  type WhatsAppAdapter,
+} from "@chat-adapter/whatsapp";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -28,6 +32,7 @@ export interface Adapters {
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
+  whatsapp?: WhatsAppAdapter;
 }
 
 // Methods to record for each adapter (outgoing API calls)
@@ -87,6 +92,16 @@ const LINEAR_METHODS = [
   "fetchMessages",
 ];
 const TELEGRAM_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "addReaction",
+  "removeReaction",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
+const WHATSAPP_METHODS = [
   "postMessage",
   "editMessage",
   "deleteMessage",
@@ -213,6 +228,33 @@ export function buildAdapters(): Adapters {
       "telegram",
       TELEGRAM_METHODS
     );
+  }
+
+  // WhatsApp adapter (optional) - env vars: WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
+  console.log("[chat] WhatsApp env check:", {
+    hasAccessToken: !!process.env.WHATSAPP_ACCESS_TOKEN,
+    hasAppSecret: !!process.env.WHATSAPP_APP_SECRET,
+    hasPhoneNumberId: !!process.env.WHATSAPP_PHONE_NUMBER_ID,
+    hasVerifyToken: !!process.env.WHATSAPP_VERIFY_TOKEN,
+  });
+  if (
+    process.env.WHATSAPP_ACCESS_TOKEN &&
+    process.env.WHATSAPP_PHONE_NUMBER_ID
+  ) {
+    try {
+      adapters.whatsapp = withRecording(
+        createWhatsAppAdapter({
+          logger: logger.child("whatsapp"),
+        }),
+        "whatsapp",
+        WHATSAPP_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create whatsapp adapter:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   return adapters;

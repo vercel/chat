@@ -176,6 +176,57 @@ export class MemoryStateAdapter implements StateAdapter {
     this.cache.delete(key);
   }
 
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    let list: unknown[];
+
+    if (cached && cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      // Expired — start fresh
+      list = [];
+    } else if (cached && Array.isArray(cached.value)) {
+      list = cached.value;
+    } else {
+      list = [];
+    }
+
+    list.push(value);
+
+    if (options?.maxLength && list.length > options.maxLength) {
+      list = list.slice(list.length - options.maxLength);
+    }
+
+    this.cache.set(key, {
+      value: list,
+      expiresAt: options?.ttlMs ? Date.now() + options.ttlMs : null,
+    });
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    if (!cached) {
+      return [];
+    }
+
+    if (cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      this.cache.delete(key);
+      return [];
+    }
+
+    if (Array.isArray(cached.value)) {
+      return cached.value as T[];
+    }
+
+    return [];
+  }
+
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(

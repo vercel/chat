@@ -55,6 +55,16 @@ export interface ChatConfig<
    */
   logger?: Logger | LogLevel;
   /**
+   * Configuration for persistent message history.
+   * Only used by adapters that set `persistMessageHistory: true`.
+   */
+  messageHistory?: {
+    /** Maximum messages to store per thread (default: 100) */
+    maxMessages?: number;
+    /** TTL for cached history in milliseconds (default: 7 days) */
+    ttlMs?: number;
+  };
+  /**
    * Behavior when a thread lock cannot be acquired (another handler is processing).
    * - `'drop'` (default) — throw `LockError`, preserving current behavior
    * - `'force'` — force-release the existing lock and re-acquire
@@ -274,6 +284,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
 
   /** Parse platform message format to normalized format */
   parseMessage(raw: TRawMessage): Message<TRawMessage>;
+
+  /**
+   * When true, the SDK persists message history in the state adapter for this platform.
+   * Use this for platforms that lack server-side message history APIs (e.g., WhatsApp, Telegram).
+   */
+  readonly persistMessageHistory?: boolean;
 
   /**
    * Post a message to channel top-level (not in a thread).
@@ -543,6 +559,14 @@ export interface ChatInstance {
 export interface StateAdapter {
   /** Acquire a lock on a thread (returns null if already locked) */
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null>;
+
+  /** Atomically append a value to a list. Trims to maxLength (keeping newest). Refreshes TTL. */
+  appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void>;
+
   /** Connect to the state backend */
   connect(): Promise<void>;
 
@@ -564,6 +588,9 @@ export interface StateAdapter {
 
   /** Get a cached value by key */
   get<T = unknown>(key: string): Promise<T | null>;
+
+  /** Read all values from a list in insertion order. Returns empty array if key does not exist. */
+  getList<T = unknown>(key: string): Promise<T[]>;
 
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
@@ -1269,6 +1296,20 @@ export interface FileUpload {
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message
+) => void | Promise<void>;
+
+/**
+ * Handler for direct messages (1:1 conversations with the bot).
+ *
+ * Registered via `chat.onDirectMessage(handler)`. Called when a message
+ * is received in a DM thread that is not subscribed. If no `onDirectMessage`
+ * handlers are registered, DMs fall through to `onNewMention` for backward
+ * compatibility.
+ */
+export type DirectMessageHandler<TState = Record<string, unknown>> = (
+  thread: Thread<TState>,
+  message: Message,
+  channel: Channel<TState>
 ) => void | Promise<void>;
 
 /**

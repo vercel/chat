@@ -264,10 +264,23 @@ export function parseMarkdown(markdown: string): Root {
 }
 
 /**
+ * Options for stringifyMarkdown.
+ */
+export interface StringifyOptions {
+  /** Bullet character for unordered lists. Default: `'*'` */
+  bullet?: "*" | "-" | "+";
+  /** Emphasis marker character. Default: `'*'` */
+  emphasis?: "*" | "_";
+}
+
+/**
  * Stringify an AST back to markdown.
  */
-export function stringifyMarkdown(ast: Root): string {
-  const processor = unified().use(remarkStringify).use(remarkGfm);
+export function stringifyMarkdown(
+  ast: Root,
+  options?: StringifyOptions
+): string {
+  const processor = unified().use(remarkStringify, options).use(remarkGfm);
   return processor.stringify(ast);
 }
 

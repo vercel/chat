@@ -80,6 +80,9 @@ export const generateMetadata = async ({
     openGraph: {
       images: getPageImage(page).url,
     },
+    twitter: {
+      card: "summary_large_image",
+    },
     alternates: {
       types: {
         "text/markdown": slug ? `/docs/${slug}.md` : "/docs.md",

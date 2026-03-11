@@ -435,6 +435,86 @@ describe("Chat", () => {
     });
   });
 
+  describe("onDirectMessage", () => {
+    it("should route DMs to directMessage handler with channel", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(dmHandler).toHaveBeenCalled();
+      expect(mentionHandler).not.toHaveBeenCalled();
+      // Verify channel is passed as third argument
+      const callArgs = dmHandler.mock.calls[0];
+      expect(callArgs).toHaveLength(3);
+      expect(callArgs[2]).toBeDefined();
+      expect(callArgs[2].id).toBe("slack:DU123");
+    });
+
+    it("should fall through to onNewMention when no DM handlers registered", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+    });
+
+    it("should route subscribed DM threads to onDirectMessage, not onSubscribedMessage", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const subscribedHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onSubscribedMessage(subscribedHandler);
+
+      await mockState.subscribe("slack:DU123:1234.5678");
+      const message = createTestMessage("msg-1", "Follow up DM");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(dmHandler).toHaveBeenCalled();
+      expect(subscribedHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not route non-DM mentions to directMessage handler", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+      expect(dmHandler).not.toHaveBeenCalled();
+    });
+  });
+
   describe("thread.isSubscribed()", () => {
     it("should return true for subscribed threads", async () => {
       let capturedThread: { isSubscribed: () => Promise<boolean> } | null =
@@ -2102,6 +2182,56 @@ describe("Chat", () => {
       );
 
       expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe("persistMessageHistory", () => {
+    it("should cache incoming messages when adapter has persistMessageHistory", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistMessageHistory: boolean }).persistMessageHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello from WhatsApp");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      // Check that message was stored in state cache
+      const stored = state.cache.get("msg-history:whatsapp:phone:user1");
+      expect(stored).toBeDefined();
+      expect(Array.isArray(stored)).toBe(true);
+      expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
+    });
+
+    it("should NOT cache incoming messages when adapter does not set persistMessageHistory", async () => {
+      const message = createTestMessage("msg-2", "Hello from Slack");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      // No msg-history key should exist
+      const stored = (mockState as unknown as { cache: Map<string, unknown> })
+        .cache;
+      const historyKeys = [...stored.keys()].filter((k) =>
+        k.startsWith("msg-history:")
+      );
+      expect(historyKeys).toHaveLength(0);
     });
   });
 });
