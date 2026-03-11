@@ -213,3 +213,38 @@ Converts an array of `Message` objects into AI SDK conversation format:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `includeNames` | `boolean` | `false` | Prefix user messages with `[username]: ` for multi-user context |
+| `transformMessage` | `(aiMessage, source) => AiMessage \| null` | — | Transform or filter each message after default processing. Return `null` to skip. |
+| `onUnsupportedAttachment` | `(attachment, message) => void` | `console.warn` | Called when an attachment type is not supported |
+
+### Customizing messages with `transformMessage`
+
+Use `transformMessage` to modify, enrich, or filter messages after default processing:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { toAiMessages } from "chat";
+
+const history = await toAiMessages(result.messages, {
+  transformMessage: (aiMessage, source) => {
+    // Replace bot user IDs with readable names
+    if (typeof aiMessage.content === "string") {
+      return {
+        ...aiMessage,
+        content: aiMessage.content.replace(/<@U123>/g, "@VercelBot"),
+      };
+    }
+    return aiMessage;
+  },
+});
+```
+
+Return `null` to skip a message entirely:
+
+```typescript
+const history = await toAiMessages(result.messages, {
+  transformMessage: (aiMessage, source) => {
+    // Skip messages from a specific user
+    if (source.author.userId === "U_NOISY_BOT") return null;
+    return aiMessage;
+  },
+});
+```

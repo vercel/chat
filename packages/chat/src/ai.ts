@@ -60,6 +60,18 @@ export interface ToAiMessagesOptions {
    * Defaults to `console.warn`.
    */
   onUnsupportedAttachment?: (attachment: Attachment, message: Message) => void;
+  /**
+   * Called for each message after default processing (text, links, attachments).
+   * Return the message (modified or as-is) to include it, or `null` to skip it.
+   *
+   * @param aiMessage - The processed AI message
+   * @param source - The original chat Message
+   * @returns The message to include, or null to skip
+   */
+  transformMessage?: (
+    aiMessage: AiMessage,
+    source: Message
+  ) => AiMessage | null | Promise<AiMessage | null>;
 }
 
 /** MIME types treated as text files that can be included as file parts */
@@ -157,6 +169,7 @@ export async function toAiMessages(
   options?: ToAiMessagesOptions
 ): Promise<AiMessage[]> {
   const includeNames = options?.includeNames ?? false;
+  const transformMessage = options?.transformMessage;
   const onUnsupported =
     options?.onUnsupportedAttachment ??
     ((att: Attachment) => {
@@ -174,7 +187,7 @@ export async function toAiMessages(
 
   const filtered = sorted.filter((msg) => msg.text.trim());
 
-  return Promise.all(
+  const results = await Promise.all(
     filtered.map(async (msg) => {
       const role: "user" | "assistant" = msg.author.isMe ? "assistant" : "user";
       let textContent =
@@ -216,16 +229,29 @@ export async function toAiMessages(
       }
 
       // Use multipart content for user messages with attachment parts
+      let aiMessage: AiMessage;
       if (attachmentParts.length > 0 && role === "user") {
-        return {
+        aiMessage = {
           role,
           content: [
             { type: "text" as const, text: textContent },
             ...attachmentParts,
           ],
         } satisfies AiUserMessage;
+      } else {
+        aiMessage = { role, content: textContent } as AiMessage;
       }
-      return { role, content: textContent } as AiMessage;
+
+      if (transformMessage) {
+        return { result: await transformMessage(aiMessage, msg), source: msg };
+      }
+      return { result: aiMessage, source: msg };
     })
   );
+
+  return results
+    .filter(
+      (r): r is { result: AiMessage; source: Message } => r.result != null
+    )
+    .map((r) => r.result);
 }

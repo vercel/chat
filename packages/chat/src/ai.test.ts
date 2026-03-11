@@ -621,4 +621,101 @@ describe("toAiMessages", async () => {
 
     expect(result[0]?.content).toBe("[alice]: Hey @bob, thoughts?");
   });
+
+  // ===========================================================================
+  // transformMessage tests
+  // ===========================================================================
+
+  it("transformMessage can modify text content", async () => {
+    const messages = [createTestMessage("1", "Hello <@U123>")];
+
+    const result = await toAiMessages(messages, {
+      transformMessage: (aiMessage) => ({
+        ...aiMessage,
+        content: (aiMessage.content as string).replace("<@U123>", "@VercelBot"),
+      }),
+    });
+
+    expect(result).toEqual([{ role: "user", content: "Hello @VercelBot" }]);
+  });
+
+  it("transformMessage returning null skips the message", async () => {
+    const messages = [
+      createTestMessage("1", "Keep this"),
+      createTestMessage("2", "Skip this"),
+      createTestMessage("3", "Keep this too"),
+    ];
+
+    const result = await toAiMessages(messages, {
+      transformMessage: (aiMessage) =>
+        (aiMessage.content as string).includes("Skip") ? null : aiMessage,
+    });
+
+    expect(result).toEqual([
+      { role: "user", content: "Keep this" },
+      { role: "user", content: "Keep this too" },
+    ]);
+  });
+
+  it("transformMessage receives correct source Message", async () => {
+    const messages = [
+      createTestMessage("msg-1", "Hello", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      }),
+    ];
+
+    const transform = vi.fn((aiMessage: import("./ai").AiMessage) => aiMessage);
+
+    await toAiMessages(messages, { transformMessage: transform });
+
+    expect(transform).toHaveBeenCalledOnce();
+    const call = transform.mock.calls[0];
+    const [aiMsg, sourceMsg] = call ?? [];
+    expect(aiMsg).toEqual({ role: "user", content: "Hello" });
+    expect(sourceMsg?.id).toBe("msg-1");
+    expect(sourceMsg?.author.userName).toBe("alice");
+  });
+
+  it("transformMessage works with async callbacks", async () => {
+    const messages = [createTestMessage("1", "Original")];
+
+    const result = await toAiMessages(messages, {
+      transformMessage: async (aiMessage) => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return { ...aiMessage, content: "Transformed" };
+      },
+    });
+
+    expect(result).toEqual([{ role: "user", content: "Transformed" }]);
+  });
+
+  it("transformMessage receives multipart content for messages with attachments", async () => {
+    const messages = [
+      createTestMessage("1", "Image here", {
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            fetchData: async () => Buffer.from("png-data"),
+          },
+        ],
+      }),
+    ];
+
+    const transform = vi.fn((aiMessage: import("./ai").AiMessage) => aiMessage);
+
+    await toAiMessages(messages, { transformMessage: transform });
+
+    expect(transform).toHaveBeenCalledOnce();
+    const [aiMsg] = transform.mock.calls[0] ?? [];
+    expect(aiMsg?.role).toBe("user");
+    expect(Array.isArray(aiMsg.content)).toBe(true);
+    expect((aiMsg.content as AiMessagePart[]).length).toBe(2);
+  });
 });
