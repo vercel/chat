@@ -211,7 +211,7 @@ export async function toAiMessages(
         console.log(`toAiMessages: attachment type=${att.type} mimeType=${att.mimeType} hasFetchData=${!!att.fetchData} hasUrl=${!!att.url}`);
         const part = await attachmentToPart(att);
         if (part) {
-          console.log(`toAiMessages: got part type=${part.type} dataLength=${"data" in part && typeof part.data === "string" ? part.data.length : "N/A"}`);
+          console.log(`toAiMessages: got part type=${part.type} dataLength=${"data" in part && typeof part.data === "string" ? part.data.length : "N/A"} dataPrefix=${"data" in part && typeof part.data === "string" ? part.data.slice(0, 50) : "N/A"}`);
           attachmentParts.push(part);
         } else if (att.type === "video" || att.type === "audio") {
           onUnsupported(att, msg);
