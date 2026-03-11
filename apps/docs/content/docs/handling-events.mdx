@@ -94,18 +94,18 @@ Messages sent by the bot itself do not trigger this handler. You don't need to f
 ### Example: Conversational AI with history
 
 ```typescript title="lib/bot.ts" lineNumbers
+import { toAiMessages } from "chat";
+
 bot.onSubscribedMessage(async (thread, message) => {
   await thread.startTyping();
 
   // Build conversation history from thread messages
-  const history = [];
+  const messages = [];
   for await (const msg of thread.allMessages) {
-    history.push({
-      role: msg.author.isMe ? "assistant" : "user",
-      content: msg.text,
-    });
+    messages.push(msg);
   }
 
+  const history = toAiMessages(messages);
   const response = await generateAIResponse(history);
   await thread.post(response);
 });

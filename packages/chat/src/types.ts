@@ -1252,6 +1252,28 @@ export interface Attachment {
 }
 
 /**
+ * A link found in a message, with optional unfurl metadata.
+ *
+ * On the initial message event, only `url` is available (unfurl metadata
+ * arrives later via `message_changed`). The `fetchMessage` callback is
+ * provided when the URL points to another chat message on the same platform.
+ */
+export interface LinkPreview {
+  /** Description from unfurl metadata (if available) */
+  description?: string;
+  /** If this links to a chat message, fetch the full Message */
+  fetchMessage?: () => Promise<Message>;
+  /** Preview image URL (if available) */
+  imageUrl?: string;
+  /** Site name (e.g., "Vercel") */
+  siteName?: string;
+  /** Title from unfurl metadata (if available) */
+  title?: string;
+  /** The URL */
+  url: string;
+}
+
+/**
  * File to upload with a message.
  */
 export interface FileUpload {

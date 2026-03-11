@@ -830,6 +830,139 @@ describe("parseMessage", () => {
 });
 
 // ============================================================================
+// Link Extraction Tests
+// ============================================================================
+
+describe("link extraction", () => {
+  const adapter = createSlackAdapter({
+    botToken: "xoxb-test-token",
+    signingSecret: "test-secret",
+    logger: mockLogger,
+    botUserId: "U_BOT",
+  });
+
+  it("extracts links from rich_text blocks", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Check <https://example.com|this> out",
+      ts: "1234567890.123456",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "Check " },
+                { type: "link", url: "https://example.com", text: "this" },
+                { type: "text", text: " out" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toHaveLength(1);
+    expect(message.links[0]?.url).toBe("https://example.com");
+  });
+
+  it("extracts links from text when no blocks are present", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Visit <https://vercel.com> and <https://example.com|Example>",
+      ts: "1234567890.123456",
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toHaveLength(2);
+    expect(message.links[0]?.url).toBe("https://vercel.com");
+    expect(message.links[1]?.url).toBe("https://example.com");
+  });
+
+  it("deduplicates URLs", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<https://example.com> and <https://example.com|again>",
+      ts: "1234567890.123456",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "link", url: "https://example.com" },
+                { type: "link", url: "https://example.com" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toHaveLength(1);
+  });
+
+  it("provides fetchMessage for Slack message links", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<https://myteam.slack.com/archives/C789/p1234567890123456>",
+      ts: "1234567890.123456",
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toHaveLength(1);
+    expect(message.links[0]?.url).toBe(
+      "https://myteam.slack.com/archives/C789/p1234567890123456"
+    );
+    expect(message.links[0]?.fetchMessage).toBeInstanceOf(Function);
+  });
+
+  it("returns empty links for messages without URLs", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Just a plain message",
+      ts: "1234567890.123456",
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toEqual([]);
+  });
+
+  it("does not treat user mentions as links", () => {
+    const event = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<@U456> hello",
+      ts: "1234567890.123456",
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.links).toEqual([]);
+  });
+});
+
+// ============================================================================
 // renderFormatted Tests
 // ============================================================================
 

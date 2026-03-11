@@ -49,10 +49,33 @@ export function toAiMessages(
     .filter((msg) => msg.text.trim())
     .map((msg) => {
       const role: "user" | "assistant" = msg.author.isMe ? "assistant" : "user";
-      const content =
+      let content =
         includeNames && role === "user"
           ? `[${msg.author.userName}]: ${msg.text}`
           : msg.text;
+
+      // Append link metadata when available
+      if (msg.links.length > 0) {
+        const linkParts = msg.links
+          .map((link) => {
+            const parts = link.fetchMessage
+              ? [`[Embedded message: ${link.url}]`]
+              : [link.url];
+            if (link.title) {
+              parts.push(`Title: ${link.title}`);
+            }
+            if (link.description) {
+              parts.push(`Description: ${link.description}`);
+            }
+            if (link.siteName) {
+              parts.push(`Site: ${link.siteName}`);
+            }
+            return parts.join("\n");
+          })
+          .join("\n\n");
+        content += `\n\nLinks:\n${linkParts}`;
+      }
+
       return { role, content };
     });
 }

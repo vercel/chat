@@ -1096,6 +1096,7 @@ export class WhatsAppAdapter
         edited: false,
       },
       attachments,
+      links: [],
       raw,
     });
   }

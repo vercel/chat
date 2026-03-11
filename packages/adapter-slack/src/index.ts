@@ -23,6 +23,7 @@ import type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  LinkPreview,
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
@@ -67,6 +68,14 @@ import {
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 
+/**
+ * Pattern to match Slack message URLs.
+ * Format: https://{workspace}.slack.com/archives/{channelId}/p{timestamp}
+ * The timestamp in the URL has no dot (e.g., p1234567890123456).
+ */
+const SLACK_MESSAGE_URL_PATTERN =
+  /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
+
 export interface SlackAdapterConfig {
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
   botToken?: string;
@@ -109,6 +118,18 @@ export interface SlackThreadId {
 
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
+  /** Rich text blocks containing structured elements (links, mentions, etc.) */
+  blocks?: Array<{
+    type: string;
+    elements?: Array<{
+      type: string;
+      elements?: Array<{
+        type: string;
+        url?: string;
+        text?: string;
+      }>;
+    }>;
+  }>;
   bot_id?: string;
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
@@ -1630,6 +1651,81 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return result + remaining;
   }
 
+  /**
+   * Extract link URLs from a Slack event.
+   * Uses the `blocks` field (rich_text blocks with link elements) when available,
+   * falling back to parsing `<url>` patterns from the text field.
+   */
+  private extractLinks(event: SlackEvent): LinkPreview[] {
+    const urls = new Set<string>();
+
+    // Try blocks first - they contain structured link elements
+    if (event.blocks) {
+      for (const block of event.blocks) {
+        if (block.type === "rich_text" && block.elements) {
+          for (const section of block.elements) {
+            if (section.elements) {
+              for (const element of section.elements) {
+                if (element.type === "link" && element.url) {
+                  urls.add(element.url);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: parse <url> and <url|label> from text
+    if (urls.size === 0 && event.text) {
+      const urlPattern = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>/g;
+      for (const match of event.text.matchAll(urlPattern)) {
+        urls.add(match[1] as string);
+      }
+    }
+
+    return [...urls].map((url) => this.createLinkPreview(url));
+  }
+
+  /**
+   * Create a LinkPreview for a URL. If the URL points to a Slack message,
+   * includes a `fetchMessage` callback that fetches and parses the linked message.
+   */
+  private createLinkPreview(url: string): LinkPreview {
+    const match = SLACK_MESSAGE_URL_PATTERN.exec(url);
+    if (!match) {
+      return { url };
+    }
+
+    const channel = match[1] as string;
+    const rawTs = match[2] as string;
+    // Convert URL timestamp to Slack ts format: insert dot before last 6 digits
+    const ts = `${rawTs.slice(0, rawTs.length - 6)}.${rawTs.slice(rawTs.length - 6)}`;
+    const threadId = this.encodeThreadId({ channel, threadTs: ts });
+
+    return {
+      url,
+      fetchMessage: async () => {
+        const result = await this.client.conversations.history(
+          this.withToken({
+            channel,
+            latest: ts,
+            inclusive: true,
+            limit: 1,
+          })
+        );
+
+        const messages = (result.messages || []) as SlackEvent[];
+        const target = messages.find((msg) => msg.ts === ts);
+        if (!target) {
+          throw new Error(`Message not found: ${url}`);
+        }
+
+        return this.parseSlackMessage(target, threadId);
+      },
+    };
+  }
+
   private async parseSlackMessage(
     event: SlackEvent,
     threadId: string,
@@ -1678,6 +1774,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file)
       ),
+      links: this.extractLinks(event),
     });
   }
 
@@ -2993,6 +3090,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file)
       ),
+      links: this.extractLinks(event),
     });
   }
 

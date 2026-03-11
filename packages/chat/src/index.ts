@@ -275,6 +275,7 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  LinkPreview,
   ListThreadsOptions,
   ListThreadsResult,
   Lock,

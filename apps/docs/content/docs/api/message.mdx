@@ -46,6 +46,10 @@ import { Message } from "chat";
       description: 'File attachments.',
       type: 'Attachment[]',
     },
+    links: {
+      description: 'Links found in the message, with optional preview metadata.',
+      type: 'LinkPreview[]',
+    },
     isMention: {
       description: 'Whether the bot was @-mentioned in this message.',
       type: 'boolean | undefined',
@@ -147,6 +151,50 @@ All adapters return `false` if the bot ID isn't known yet. This is a safe defaul
     },
   }}
 />
+
+## LinkPreview
+
+Links found in incoming messages are extracted and exposed as `LinkPreview` objects. On platforms that support it (currently Slack), links pointing to other chat messages include a `fetchMessage()` callback to retrieve the full linked message.
+
+<TypeTable
+  type={{
+    url: {
+      description: 'The URL.',
+      type: 'string',
+    },
+    title: {
+      description: 'Title from unfurl metadata (if available).',
+      type: 'string | undefined',
+    },
+    description: {
+      description: 'Description from unfurl metadata (if available).',
+      type: 'string | undefined',
+    },
+    imageUrl: {
+      description: 'Preview image URL (if available).',
+      type: 'string | undefined',
+    },
+    siteName: {
+      description: 'Site name, e.g. "Vercel" (if available).',
+      type: 'string | undefined',
+    },
+    'fetchMessage()': {
+      description: 'Fetch the linked chat message. Available when the URL points to a message on the same platform (e.g. a Slack message link).',
+      type: '() => Promise<Message> | undefined',
+    },
+  }}
+/>
+
+<Callout type="info">
+When using [`toAiMessages()`](/docs/streaming#toaimessagesmessages-options), link metadata is automatically appended to the message content. Embedded message links are labeled as `[Embedded message: ...]` so the AI model understands the context.
+</Callout>
+
+### Platform support
+
+| Platform | Link extraction | `fetchMessage()` |
+|----------|----------------|-------------------|
+| Slack | URLs from `rich_text` blocks or `<url>` text patterns | Slack message links (`*.slack.com/archives/...`) |
+| Others | Not yet — `links` is always `[]` | — |
 
 ## Serialization
 

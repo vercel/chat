@@ -548,6 +548,7 @@ export class GitHubAdapter
             : undefined,
       },
       attachments: [],
+      links: [],
     });
   }
 
@@ -588,6 +589,7 @@ export class GitHubAdapter
             : undefined,
       },
       attachments: [],
+      links: [],
     });
   }
 
@@ -1167,6 +1169,7 @@ export class GitHubAdapter
             edited: pr.created_at !== pr.updated_at,
           },
           attachments: [],
+          links: [],
         });
 
         return {

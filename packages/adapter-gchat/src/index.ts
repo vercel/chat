@@ -961,6 +961,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       attachments: (message.attachment || []).map((att) =>
         this.createAttachment(att)
       ),
+      links: [],
     });
 
     this.logger.debug("Pub/Sub parsed message", {
@@ -1153,6 +1154,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       attachments: (message.attachment || []).map((att) =>
         this.createAttachment(att)
       ),
+      links: [],
     });
   }
 

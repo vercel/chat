@@ -116,4 +116,117 @@ describe("toAiMessages", () => {
 
     expect(toAiMessages(messages)).toEqual([]);
   });
+
+  it("appends link preview metadata to content", () => {
+    const messages = [
+      createTestMessage("1", "Check this out", {
+        links: [
+          {
+            url: "https://vercel.com/blog/post",
+            title: "New Feature",
+            description: "A cool new feature",
+            siteName: "Vercel",
+          },
+        ],
+      }),
+    ];
+
+    const result = toAiMessages(messages);
+
+    expect(result).toEqual([
+      {
+        role: "user",
+        content:
+          "Check this out\n\nLinks:\nhttps://vercel.com/blog/post\nTitle: New Feature\nDescription: A cool new feature\nSite: Vercel",
+      },
+    ]);
+  });
+
+  it("appends multiple links", () => {
+    const messages = [
+      createTestMessage("1", "See these links", {
+        links: [
+          { url: "https://example.com" },
+          { url: "https://vercel.com", title: "Vercel" },
+        ],
+      }),
+    ];
+
+    const result = toAiMessages(messages);
+
+    expect(result[0]?.content).toBe(
+      "See these links\n\nLinks:\nhttps://example.com\n\nhttps://vercel.com\nTitle: Vercel"
+    );
+  });
+
+  it("labels links with fetchMessage as embedded messages", () => {
+    const messages = [
+      createTestMessage("1", "Look at this thread", {
+        links: [
+          {
+            url: "https://team.slack.com/archives/C123/p1234567890123456",
+            fetchMessage: async () => createTestMessage("linked", "linked"),
+          },
+        ],
+      }),
+    ];
+
+    const result = toAiMessages(messages);
+
+    expect(result[0]?.content).toBe(
+      "Look at this thread\n\nLinks:\n[Embedded message: https://team.slack.com/archives/C123/p1234567890123456]"
+    );
+  });
+
+  it("includes metadata on embedded message links", () => {
+    const messages = [
+      createTestMessage("1", "Look at this", {
+        links: [
+          {
+            url: "https://team.slack.com/archives/C123/p1234567890123456",
+            title: "Original message preview",
+            fetchMessage: async () => createTestMessage("linked", "linked"),
+          },
+        ],
+      }),
+    ];
+
+    const result = toAiMessages(messages);
+
+    expect(result[0]?.content).toBe(
+      "Look at this\n\nLinks:\n[Embedded message: https://team.slack.com/archives/C123/p1234567890123456]\nTitle: Original message preview"
+    );
+  });
+
+  it("mixes embedded messages and regular links", () => {
+    const messages = [
+      createTestMessage("1", "Check these", {
+        links: [
+          {
+            url: "https://team.slack.com/archives/C123/p1234567890123456",
+            fetchMessage: async () => createTestMessage("linked", "linked"),
+          },
+          {
+            url: "https://vercel.com",
+            title: "Vercel",
+            siteName: "Vercel",
+          },
+        ],
+      }),
+    ];
+
+    const result = toAiMessages(messages);
+
+    expect(result[0]?.content).toBe(
+      "Check these\n\nLinks:\n[Embedded message: https://team.slack.com/archives/C123/p1234567890123456]\n\nhttps://vercel.com\nTitle: Vercel\nSite: Vercel"
+    );
+  });
+
+  it("does not append links section when links array is empty", () => {
+    const messages = [createTestMessage("1", "No links here")];
+
+    const result = toAiMessages(messages);
+
+    expect(result[0]?.content).toBe("No links here");
+  });
 });

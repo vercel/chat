@@ -798,6 +798,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       text: plainText,
       formatted,
       raw: null, // Will be populated if needed
+      links: [],
       author: {
         userId: "self",
         userName: adapter.userName,
@@ -865,6 +866,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       author: message.author,
       metadata: message.metadata,
       attachments: message.attachments,
+      links: message.links,
       isMention: message.isMention,
 
       toJSON() {

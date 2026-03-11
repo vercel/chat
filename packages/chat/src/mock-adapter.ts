@@ -214,6 +214,7 @@ export function createTestMessage(
       edited: false,
     },
     attachments: [],
+    links: [],
     ...overrides,
   });
 }

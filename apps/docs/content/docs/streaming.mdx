@@ -183,21 +183,33 @@ await thread.stream(textStream, {
 
 ## Streaming with conversation history
 
-Combine message history with streaming for multi-turn AI conversations:
+Combine message history with streaming for multi-turn AI conversations.
+Use `toAiMessages()` to convert chat messages into the `{ role, content }` format expected by AI SDKs:
 
 ```typescript title="lib/bot.ts" lineNumbers
+import { toAiMessages } from "chat";
+
 bot.onSubscribedMessage(async (thread, message) => {
   // Fetch recent messages for context
   const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
 
-  const history = result.messages
-    .filter((msg) => msg.text.trim())
-    .map((msg) => ({
-      role: msg.author.isMe ? "assistant" as const : "user" as const,
-      content: msg.text,
-    }));
+  const history = toAiMessages(result.messages);
 
   const response = await agent.stream({ prompt: history });
   await thread.post(response.fullStream);
 });
 ```
+
+### `toAiMessages(messages, options?)`
+
+Converts an array of `Message` objects into AI SDK conversation format:
+
+- Maps `author.isMe` to `"assistant"` role, all others to `"user"`
+- Filters out empty messages
+- Sorts chronologically (oldest first)
+- Appends link metadata (URLs, titles, descriptions) when present
+- Labels embedded message links (e.g. shared Slack messages) as `[Embedded message: ...]`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `includeNames` | `boolean` | `false` | Prefix user messages with `[username]: ` for multi-user context |

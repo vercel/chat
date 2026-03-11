@@ -444,6 +444,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
         edited: false,
       },
       attachments,
+      links: [],
 
       toJSON() {
         return new Message(this).toJSON();
