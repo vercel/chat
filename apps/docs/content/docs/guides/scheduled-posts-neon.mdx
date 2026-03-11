@@ -236,7 +236,7 @@ export async function cancelScheduledPost(id: string, createdBy: string) {
     [id, createdBy]
   );
 
-  return result.rowCount > 0;
+  return (result.rowCount ?? 0) > 0;
 }
 ```
 

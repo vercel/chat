@@ -84,17 +84,16 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 `registerSingleton()` matters here because Workflow may deserialize `Thread` objects again inside `"use step"` functions, and Chat SDK needs a registered singleton to resolve the adapter and state layer for those thread instances.
 
-## Define a hook for follow-up turns
+## Define a hook payload type
 
-Workflow hooks are how follow-up messages get injected back into a running session. Define the payload once so both the workflow and the webhook side use the same type:
+Workflow hooks are how follow-up messages get injected back into a running session. Define the payload type once so both the workflow and the webhook side stay in sync:
 
 ```typescript title="workflows/chat-turn-hook.ts" lineNumbers
 import type { SerializedMessage } from "chat";
-import { defineHook } from "workflow";
 
-export const chatTurnHook = defineHook<{
+export type ChatTurnPayload = {
   message: SerializedMessage;
-}>();
+};
 ```
 
 ## Create the durable session workflow
@@ -105,9 +104,9 @@ The important detail is that the workflow only orchestrates. Chat SDK side effec
 
 ```typescript title="workflows/durable-chat-session.ts" lineNumbers
 import { Message, type Thread } from "chat";
-import { getWorkflowMetadata } from "workflow";
+import { createHook, getWorkflowMetadata } from "workflow";
 import { bot, type ThreadState } from "@/lib/bot";
-import { chatTurnHook } from "@/workflows/chat-turn-hook";
+import type { ChatTurnPayload } from "@/workflows/chat-turn-hook";
 
 async function postAssistantMessage(
   thread: Thread<ThreadState>,
@@ -160,7 +159,7 @@ export async function durableChatSession(payload: string) {
     message: Message;
   };
 
-  using hook = chatTurnHook.create({ token: workflowRunId });
+  using hook = createHook<ChatTurnPayload>({ token: workflowRunId });
 
   await postAssistantMessage(
     thread,
@@ -183,12 +182,16 @@ export async function durableChatSession(payload: string) {
 }
 ```
 
+<Callout type="info">
+  The `using` keyword requires TypeScript 5.2+ with `"lib": ["esnext.disposable"]` in your `tsconfig.json`. If you are on an older version, call `hook.dispose()` manually when the session ends.
+</Callout>
+
 This is the core integration:
 
 - `thread.toJSON()` and `message.toJSON()` cross the workflow boundary safely
 - `bot.reviver()` restores real Chat SDK objects inside the workflow
 - `bot.registerSingleton()` lets Workflow deserialize `Thread` objects again inside step functions
-- `chatTurnHook.create({ token: workflowRunId })` makes the workflow run itself the session identifier
+- `createHook<ChatTurnPayload>({ token: workflowRunId })` makes the workflow run itself the session identifier
 - `runTurn()`, `postAssistantMessage()`, and `closeSession()` are steps, so adapter and state side effects stay outside the workflow sandbox
 
 ## Register Chat SDK event handlers
@@ -197,10 +200,10 @@ Create a small side-effect module that decides whether to start a new workflow o
 
 ```typescript title="lib/chat-session-handlers.ts" lineNumbers
 import { type Message, type Thread } from "chat";
-import { start } from "workflow/api";
+import { resumeHook, start } from "workflow/api";
 import { bot, type ThreadState } from "@/lib/bot";
 import { durableChatSession } from "@/workflows/durable-chat-session";
-import { chatTurnHook } from "@/workflows/chat-turn-hook";
+import type { ChatTurnPayload } from "@/workflows/chat-turn-hook";
 
 async function startSession(
   thread: Thread<ThreadState>,
@@ -227,7 +230,7 @@ async function routeTurn(
     return;
   }
 
-  await chatTurnHook.resume(state.runId, {
+  await resumeHook<ChatTurnPayload>(state.runId, {
     message: message.toJSON(),
   });
 }
@@ -245,7 +248,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 On the first mention, the handler subscribes the thread and starts a workflow. Every later message resumes the existing run by sending the serialized message to the hook.
 
 <Callout type="info">
-  In production, catch `chatTurnHook.resume()` failures, clear stale `runId` values, and start a new session if the old workflow has already ended.
+  In production, catch `resumeHook()` failures, clear stale `runId` values, and start a new session if the old workflow has already ended.
 </Callout>
 
 ## Create the webhook route
@@ -308,7 +311,7 @@ pnpm add ai @ai-sdk/anthropic
 1. A user @mentions the bot in a thread.
 2. Chat SDK subscribes the thread and starts `durableChatSession()`.
 3. The handler stores the workflow `runId` in Chat SDK thread state.
-4. Follow-up messages call `chatTurnHook.resume(runId, ...)` instead of starting a new run.
+4. Follow-up messages call `resumeHook(runId, ...)` instead of starting a new run.
 5. The workflow keeps ownership of the session until the user sends `done` or you end it some other way.
 
 This gives you a durable session boundary without moving platform-specific webhook code into your workflow layer.
