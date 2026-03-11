@@ -1678,9 +1678,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Fallback: parse <url> and <url|label> from text
     if (urls.size === 0 && event.text) {
-      const urlPattern = /<(https?:\/\/[^>|]+)(?:\|[^>]*)?>/g;
+      const urlPattern = /<(https?:\/\/[^>]+)>/g;
       for (const match of event.text.matchAll(urlPattern)) {
-        urls.add(match[1] as string);
+        // Strip optional "|label" suffix (Slack format: <url|label>)
+        const raw = match[1] as string;
+        const pipeIdx = raw.indexOf("|");
+        urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
       }
     }
 
