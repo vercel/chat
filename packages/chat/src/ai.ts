@@ -130,10 +130,7 @@ async function attachmentToPart(
           mediaType: att.mimeType,
         };
       } catch (error) {
-        console.error(
-          "toAiMessages: failed to fetch file data",
-          error
-        );
+        console.error("toAiMessages: failed to fetch file data", error);
         return null;
       }
     }
