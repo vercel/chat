@@ -580,11 +580,8 @@ describe("ThreadImpl", () => {
   describe("fallback streaming error logging", () => {
     it("should log when an intermediate edit fails", async () => {
       const adapter = createMockAdapter();
-      adapter.stream = undefined;
       const editError = new Error("422 Validation Failed");
-      (adapter.editMessage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-        editError
-      );
+      vi.mocked(adapter.editMessage).mockRejectedValueOnce(editError);
 
       const thread = new ThreadImpl({
         id: "slack:C123:1234.5678",
