@@ -3,7 +3,7 @@ import type { AiMessagePart } from "./ai";
 import { toAiMessages } from "./ai";
 import { createTestMessage } from "./mock-adapter";
 
-describe("toAiMessages", async () => {
+describe("toAiMessages", () => {
   it("maps isMe to assistant and others to user", async () => {
     const messages = [
       createTestMessage("1", "Hello bot"),

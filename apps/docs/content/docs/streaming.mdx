@@ -193,7 +193,7 @@ bot.onSubscribedMessage(async (thread, message) => {
   // Fetch recent messages for context
   const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
 
-  const history = toAiMessages(result.messages);
+  const history = await toAiMessages(result.messages);
 
   const response = await agent.stream({ prompt: history });
   await thread.post(response.fullStream);
@@ -213,7 +213,7 @@ Converts an array of `Message` objects into AI SDK conversation format:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `includeNames` | `boolean` | `false` | Prefix user messages with `[username]: ` for multi-user context |
-| `transformMessage` | `(aiMessage, source) => AiMessage \| null` | — | Transform or filter each message after default processing. Return `null` to skip. |
+| `transformMessage` | `(aiMessage, source) => AiMessage \| Promise<AiMessage \| null> \| null` | — | Transform or filter each message after default processing. Return `null` to skip. |
 | `onUnsupportedAttachment` | `(attachment, message) => void` | `console.warn` | Called when an attachment type is not supported |
 
 ### Customizing messages with `transformMessage`

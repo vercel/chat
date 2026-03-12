@@ -72,9 +72,10 @@ const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
  * Pattern to match Slack message URLs.
  * Format: https://{workspace}.slack.com/archives/{channelId}/p{timestamp}
  * The timestamp in the URL has no dot (e.g., p1234567890123456).
+ * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
  */
 const SLACK_MESSAGE_URL_PATTERN =
-  /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
+  /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
 export interface SlackAdapterConfig {
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */

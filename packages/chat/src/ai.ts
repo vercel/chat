@@ -56,7 +56,7 @@ export interface ToAiMessagesOptions {
   /** When true, prefixes user messages with "[username]: " for multi-user context */
   includeNames?: boolean;
   /**
-   * Called when an attachment type is not supported (video, audio, or files without URLs).
+   * Called when an attachment type is not supported (video, audio).
    * Defaults to `console.warn`.
    */
   onUnsupportedAttachment?: (attachment: Attachment, message: Message) => void;
@@ -94,8 +94,8 @@ function isTextMimeType(mimeType: string): boolean {
 
 /**
  * Build an AI SDK content part from an attachment.
- * Uses fetchData to get base64 data when available, falls back to URL.
- * Returns null for unsupported attachments.
+ * Uses fetchData to get base64 data when available.
+ * Returns null for unsupported attachments or when fetchData is unavailable.
  */
 async function attachmentToPart(
   att: Attachment
@@ -131,7 +131,7 @@ async function attachmentToPart(
         };
       } catch (error) {
         console.error(
-          "toAiMessages: failed to fetch file data, falling back to URL",
+          "toAiMessages: failed to fetch file data",
           error
         );
         return null;
@@ -151,7 +151,7 @@ async function attachmentToPart(
  * - Maps `author.isMe === true` to `"assistant"`, otherwise `"user"`
  * - Uses `message.text` for content
  * - Appends link metadata when available
- * - Includes image attachments as `ImagePart` and text files as `FilePart`
+ * - Includes image attachments and text files as `FilePart`
  * - Uses `fetchData()` when available to include attachment data inline (base64)
  * - Warns on unsupported attachment types (video, audio)
  *
@@ -217,27 +217,30 @@ export async function toAiMessages(
         textContent += `\n\nLinks:\n${linkParts}`;
       }
 
-      // Build attachment parts for images and text files
-      const attachmentParts: AiMessagePart[] = [];
-      for (const att of msg.attachments) {
-        const part = await attachmentToPart(att);
-        if (part) {
-          attachmentParts.push(part);
-        } else if (att.type === "video" || att.type === "audio") {
-          onUnsupported(att, msg);
-        }
-      }
-
-      // Use multipart content for user messages with attachment parts
+      // Build attachment parts for images and text files (only for user messages)
       let aiMessage: AiMessage;
-      if (attachmentParts.length > 0 && role === "user") {
-        aiMessage = {
-          role,
-          content: [
-            { type: "text" as const, text: textContent },
-            ...attachmentParts,
-          ],
-        } satisfies AiUserMessage;
+      if (role === "user") {
+        const attachmentParts: AiMessagePart[] = [];
+        for (const att of msg.attachments) {
+          const part = await attachmentToPart(att);
+          if (part) {
+            attachmentParts.push(part);
+          } else if (att.type === "video" || att.type === "audio") {
+            onUnsupported(att, msg);
+          }
+        }
+
+        if (attachmentParts.length > 0) {
+          aiMessage = {
+            role,
+            content: [
+              { type: "text" as const, text: textContent },
+              ...attachmentParts,
+            ],
+          } satisfies AiUserMessage;
+        } else {
+          aiMessage = { role, content: textContent } as AiMessage;
+        }
       } else {
         aiMessage = { role, content: textContent } as AiMessage;
       }

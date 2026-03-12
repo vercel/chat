@@ -105,7 +105,7 @@ bot.onSubscribedMessage(async (thread, message) => {
     messages.push(msg);
   }
 
-  const history = toAiMessages(messages);
+  const history = await toAiMessages(messages);
   const response = await generateAIResponse(history);
   await thread.post(response);
 });
