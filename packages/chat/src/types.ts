@@ -77,12 +77,12 @@ export interface ChatConfig<
    * the token no longer matches.
    */
   onLockConflict?:
-  | "force"
-  | "drop"
-  | ((
-    threadId: string,
-    message: Message
-  ) => "force" | "drop" | Promise<"force" | "drop">);
+    | "force"
+    | "drop"
+    | ((
+        threadId: string,
+        message: Message
+      ) => "force" | "drop" | Promise<"force" | "drop">);
   /** State adapter for subscriptions and locking */
   state: StateAdapter;
   /**
@@ -1541,7 +1541,7 @@ export interface EmojiFormats {
  * ```
  */
 // biome-ignore lint/suspicious/noEmptyInterface: Required for TypeScript module augmentation
-export interface CustomEmojiMap { }
+export interface CustomEmojiMap {}
 
 /**
  * Full emoji type including well-known and custom emoji.
