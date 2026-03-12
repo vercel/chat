@@ -4,6 +4,7 @@ import {
   createMockAdapter,
   createMockState,
   createTestMessage,
+  mockLogger,
 } from "./mock-adapter";
 import { ThreadImpl } from "./thread";
 import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
@@ -578,27 +579,16 @@ describe("ThreadImpl", () => {
 
   describe("fallback streaming error logging", () => {
     it("should log when an intermediate edit fails", async () => {
-      const mockLogger = {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        child: vi.fn(),
-      };
-      const mockAdapter = createMockAdapter();
-      mockAdapter.stream = undefined;
+      const adapter = createMockAdapter();
+      adapter.stream = undefined;
       const editError = new Error("422 Validation Failed");
-      (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
-        .mockRejectedValueOnce(editError)
-        .mockResolvedValue({
-          id: "msg-1",
-          threadId: "slack:C123:1234.5678",
-          raw: {},
-        });
+      (adapter.editMessage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        editError
+      );
 
       const thread = new ThreadImpl({
         id: "slack:C123:1234.5678",
-        adapter: mockAdapter,
+        adapter,
         channelId: "C123",
         stateAdapter: createMockState(),
         streamingUpdateIntervalMs: 10,
