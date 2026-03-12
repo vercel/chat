@@ -1595,6 +1595,7 @@ describe("DM message handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1628,6 +1629,7 @@ describe("DM message handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1664,8 +1666,18 @@ describe("DM message handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -1697,8 +1709,18 @@ describe("DM message handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -1735,6 +1757,7 @@ describe("message subtype handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1778,6 +1801,7 @@ describe("message subtype handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1812,6 +1836,7 @@ describe("message subtype handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1838,6 +1863,7 @@ describe("message subtype handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1864,6 +1890,7 @@ describe("message subtype handling", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -1895,6 +1922,19 @@ describe("handleWebhook - slash commands", () => {
     botToken: "xoxb-test-token",
     signingSecret: secret,
     logger: mockLogger,
+    botUserId: "U_BOT",
+  });
+
+  beforeEach(() => {
+    // Mock users.info for lookupUser calls in handleSlashCommand
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
   });
 
   it("detects slash command payload (form-urlencoded with command field)", async () => {
@@ -1999,8 +2039,18 @@ describe("handleWebhook - slash commands", () => {
     const multiAdapter = createSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await multiAdapter.initialize(chatInstance);
+
+    mockClientMethod(
+      multiAdapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
 
     await multiAdapter.setInstallation("T_SLASH_TEAM", {
       botToken: "xoxb-slash-token",
@@ -3363,6 +3413,7 @@ describe("ephemeral message ID encoding", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
 
     // Access private methods via the adapter for block_actions test
@@ -3584,18 +3635,15 @@ describe("resolveInlineMentions", () => {
     await adapter.initialize(chatInstance);
 
     // Mock users.info AFTER initialize so it's available for webhook processing
-    mockClientMethod(
-      adapter,
-      "users.info",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        user: {
-          name: "johndoe",
-          real_name: "John Doe",
-          profile: { display_name: "John", real_name: "John Doe" },
-        },
-      })
-    );
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        name: "johndoe",
+        real_name: "John Doe",
+        profile: { display_name: "John", real_name: "John Doe" },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -3661,6 +3709,197 @@ describe("resolveInlineMentions", () => {
 
     // Bot mention should NOT be resolved (kept as-is for mention detection)
     expect(message.text).toContain("@U_BOT");
+  });
+
+  it("resolves bare channel mentions in incoming messages", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+      })
+    );
+
+    await adapter.initialize(chatInstance);
+
+    // Mock users.info for message sender lookup (parseSlackMessage calls lookupUser)
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "sender", profile: { display_name: "Sender" } },
+      })
+    );
+
+    // Mock conversations.info for channel lookup
+    mockClientMethod(
+      adapter,
+      "conversations.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        channel: { name: "general" },
+      })
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "Check out <#C789>",
+        ts: "1234567890.777777",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    // The channel mention should have been resolved to include the name
+    expect(message.text).toContain("#general");
+  });
+
+  it("leaves channel mentions with existing labels unchanged", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+      })
+    );
+
+    await adapter.initialize(chatInstance);
+
+    // Mock users.info for message sender lookup
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "sender", profile: { display_name: "Sender" } },
+      })
+    );
+
+    // conversations.info should NOT be called when label is present
+    const conversationsInfoMock = vi.fn();
+    mockClientMethod(adapter, "conversations.info", conversationsInfoMock);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "Check out <#C789|existing-name>",
+        ts: "1234567890.888888",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    // The label should be preserved as-is
+    expect(message.text).toContain("#existing-name");
+    // conversations.info should not have been called
+    expect(conversationsInfoMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to channel ID when conversations.info fails", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+      })
+    );
+
+    await adapter.initialize(chatInstance);
+
+    // Mock users.info for message sender lookup
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "sender", profile: { display_name: "Sender" } },
+      })
+    );
+
+    // Mock conversations.info to fail
+    mockClientMethod(
+      adapter,
+      "conversations.info",
+      vi.fn().mockRejectedValue(new Error("channel_not_found"))
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "Check out <#CUNKNOWN>",
+        ts: "1234567890.999999",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    // Should fall back to the channel ID
+    expect(message.text).toContain("#CUNKNOWN");
   });
 });
 
@@ -3984,6 +4223,7 @@ describe("handleWebhook - assistant events", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -4029,6 +4269,7 @@ describe("handleWebhook - assistant events", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -4075,6 +4316,7 @@ describe("handleWebhook - assistant events", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -4113,6 +4355,7 @@ describe("handleWebhook - assistant events", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 

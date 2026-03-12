@@ -73,6 +73,11 @@ describe("SlackMarkdownConverter", () => {
       const result = converter.toMarkdown("Join <#C123|general>");
       expect(result).toContain("#general");
     });
+
+    it("should convert bare channel ID mentions", () => {
+      const result = converter.toMarkdown("Join <#C123>");
+      expect(result).toContain("#C123");
+    });
   });
 
   describe("mentions", () => {

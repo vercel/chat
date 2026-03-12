@@ -68,6 +68,19 @@ import {
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 
+/** Find the next `<@` or `<#` mention in text. */
+function findNextMention(text: string): number {
+  const atIdx = text.indexOf("<@");
+  const hashIdx = text.indexOf("<#");
+  if (atIdx === -1) {
+    return hashIdx;
+  }
+  if (hashIdx === -1) {
+    return atIdx;
+  }
+  return Math.min(atIdx, hashIdx);
+}
+
 /**
  * Pattern to match Slack message URLs.
  * Format: https://{workspace}.slack.com/archives/{channelId}/p{timestamp}
@@ -327,6 +340,11 @@ interface CachedUser {
   realName: string;
 }
 
+/** Cached channel info */
+interface CachedChannel {
+  name: string;
+}
+
 export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
@@ -340,6 +358,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
   private readonly formatConverter = new SlackFormatConverter();
   private static USER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+  private static CHANNEL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
   // Multi-workspace support
   private readonly clientId: string | undefined;
@@ -718,6 +737,48 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.warn("Could not fetch user info", { userId, error });
       // Fall back to user ID
       return { displayName: userId, realName: userId };
+    }
+  }
+
+  /**
+   * Look up channel name from Slack API with caching via state adapter.
+   * Returns channel name, or falls back to channel ID.
+   */
+  private async lookupChannel(channelId: string): Promise<string> {
+    const cacheKey = `slack:channel:${channelId}`;
+
+    // Check cache first (via state adapter for serverless compatibility)
+    if (this.chat) {
+      const cached = await this.chat.getState().get<CachedChannel>(cacheKey);
+      if (cached) {
+        return cached.name;
+      }
+    }
+
+    try {
+      const result = await this.client.conversations.info(
+        this.withToken({ channel: channelId })
+      );
+      const name =
+        (result.channel as { name?: string } | undefined)?.name || channelId;
+
+      // Cache the result via state adapter
+      if (this.chat) {
+        await this.chat
+          .getState()
+          .set<CachedChannel>(
+            cacheKey,
+            { name },
+            SlackAdapter.CHANNEL_CACHE_TTL_MS
+          );
+      }
+
+      this.logger.debug("Fetched channel info", { channelId, name });
+      return name;
+    } catch (error) {
+      this.logger.warn("Could not fetch channel info", { channelId, error });
+      // Fall back to channel ID
+      return channelId;
     }
   }
 
@@ -1586,6 +1647,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     skipSelfMention: boolean
   ): Promise<string> {
     const userIds = new Set<string>();
+    const channelIds = new Set<string>();
     // Parse mentions by splitting on angle brackets to avoid ReDoS
     for (const segment of text.split("<")) {
       const end = segment.indexOf(">");
@@ -1593,17 +1655,23 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         continue;
       }
       const inner = segment.slice(0, end);
-      if (!inner.startsWith("@")) {
-        continue;
-      }
-      const rest = inner.slice(1);
-      const pipeIdx = rest.indexOf("|");
-      const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
-      if (SLACK_USER_ID_PATTERN.test(uid)) {
-        userIds.add(uid);
+      if (inner.startsWith("@")) {
+        const rest = inner.slice(1);
+        const pipeIdx = rest.indexOf("|");
+        const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
+        if (SLACK_USER_ID_PATTERN.test(uid)) {
+          userIds.add(uid);
+        }
+      } else if (inner.startsWith("#")) {
+        const rest = inner.slice(1);
+        const pipeIdx = rest.indexOf("|");
+        // Only collect bare channel IDs (no label already present)
+        if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
+          channelIds.add(rest);
+        }
       }
     }
-    if (userIds.size === 0) {
+    if (userIds.size === 0 && channelIds.size === 0) {
       return text;
     }
 
@@ -1612,24 +1680,33 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (skipSelfMention && this._botUserId) {
       userIds.delete(this._botUserId);
     }
-    if (userIds.size === 0) {
+    if (userIds.size === 0 && channelIds.size === 0) {
       return text;
     }
 
-    // Look up all mentioned users in parallel
-    const lookups = await Promise.all(
-      [...userIds].map(async (uid) => {
-        const info = await this.lookupUser(uid);
-        return [uid, info.displayName] as const;
-      })
-    );
-    const nameMap = new Map(lookups);
+    // Look up all mentioned users and channels in parallel
+    const [userLookups, channelLookups] = await Promise.all([
+      Promise.all(
+        [...userIds].map(async (uid) => {
+          const info = await this.lookupUser(uid);
+          return [uid, info.displayName] as const;
+        })
+      ),
+      Promise.all(
+        [...channelIds].map(async (cid) => {
+          const name = await this.lookupChannel(cid);
+          return [cid, name] as const;
+        })
+      ),
+    ]);
+    const userNameMap = new Map(userLookups);
+    const channelNameMap = new Map(channelLookups);
 
-    // Replace <@U123> and <@U123|old> with <@U123|resolvedName>
+    // Replace <@U123>, <@U123|old>, and <#C123> with resolved names
     // Use split-based approach to avoid ReDoS on user-controlled input
     let result = "";
     let remaining = text;
-    let startIdx = remaining.indexOf("<@");
+    let startIdx = findNextMention(remaining);
     while (startIdx !== -1) {
       result += remaining.slice(0, startIdx);
       remaining = remaining.slice(startIdx);
@@ -1637,17 +1714,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (endIdx === -1) {
         break;
       }
-      const inner = remaining.slice(2, endIdx); // after "<@"
+      const prefix = remaining[1]; // '@' or '#'
+      const inner = remaining.slice(2, endIdx); // after "<@" or "<#"
       const pipeIdx = inner.indexOf("|");
-      const uid = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
-      if (SLACK_USER_ID_PATTERN.test(uid)) {
-        const name = nameMap.get(uid);
-        result += name ? `<@${uid}|${name}>` : `<@${uid}>`;
+      const id = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
+      if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
+        const name = userNameMap.get(id);
+        result += name ? `<@${id}|${name}>` : `<@${id}>`;
+      } else if (prefix === "#" && pipeIdx === -1 && channelNameMap.has(id)) {
+        const name = channelNameMap.get(id);
+        result += `<#${id}|${name}>`;
       } else {
         result += remaining.slice(0, endIdx + 1);
       }
       remaining = remaining.slice(endIdx + 1);
-      startIdx = remaining.indexOf("<@");
+      startIdx = findNextMention(remaining);
     }
     return result + remaining;
   }
