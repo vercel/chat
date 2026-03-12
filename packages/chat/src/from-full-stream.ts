@@ -25,6 +25,26 @@ const STREAM_CHUNK_TYPES = new Set([
  * await thread.post(result.textStream); // still works
  * ```
  */
+/**
+ * Consume a stream and return the accumulated text.
+ *
+ * Useful for adapters that don't support streaming and want to post the
+ * final result as a single message instead of using the post+edit fallback.
+ */
+export async function accumulateStream(
+  stream: AsyncIterable<string | StreamChunk>
+): Promise<string> {
+  let text = "";
+  for await (const chunk of stream) {
+    if (typeof chunk === "string") {
+      text += chunk;
+    } else if (chunk.type === "markdown_text") {
+      text += chunk.text;
+    }
+  }
+  return text;
+}
+
 export async function* fromFullStream(
   stream: AsyncIterable<unknown>
 ): AsyncIterable<string | StreamChunk> {
