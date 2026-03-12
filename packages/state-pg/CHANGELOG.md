@@ -1,5 +1,13 @@
 # @chat-adapter/state-pg
 
+## 4.20.1
+
+### Patch Changes
+
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+
 ## 4.20.0
 
 ### Patch Changes

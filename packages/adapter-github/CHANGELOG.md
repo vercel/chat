@@ -1,5 +1,16 @@
 # @chat-adapter/github
 
+## 4.20.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+- 8d88b8c: Fix GitHub adapter streaming: accumulate text and post once instead of using the fallbackStream post+edit loop, which caused 422 errors from empty body edits during TTFT. Also log fallbackStream edit failures via the Logger instead of silently swallowing them.
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+  - @chat-adapter/shared@4.20.1
+
 ## 4.20.0
 
 ### Patch Changes

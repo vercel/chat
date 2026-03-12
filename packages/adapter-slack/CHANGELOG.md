@@ -1,5 +1,16 @@
 # @chat-adapter/slack
 
+## 4.20.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+- 97be8a9: Automatically resolve slack channel names
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+  - @chat-adapter/shared@4.20.1
+
 ## 4.20.0
 
 ### Patch Changes

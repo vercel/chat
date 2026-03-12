@@ -1,5 +1,11 @@
 # docs
 
+## 0.4.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+
 ## 0.4.0
 
 ### Minor Changes
