@@ -4,9 +4,12 @@ import {
   Button,
   Card,
   CardLink,
+  cardChildToFallbackText,
+  cardToFallbackText,
   Divider,
   Field,
   Fields,
+  getChildrenArray,
   Image,
   isCardElement,
   LinkButton,
@@ -336,6 +339,147 @@ describe("Select and RadioSelect Builder Validation", () => {
       expect(radioSelect.type).toBe("radio_select");
       expect(radioSelect.options).toHaveLength(1);
     });
+  });
+});
+
+describe("getChildrenArray", () => {
+  it("returns array when children is already an array", () => {
+    const node = { children: [Text("a"), Text("b")] };
+    expect(getChildrenArray(node)).toEqual([
+      { type: "text", content: "a", style: undefined },
+      { type: "text", content: "b", style: undefined },
+    ]);
+  });
+
+  it("wraps single child in array when children is not an array", () => {
+    const node = { children: Text("only") };
+    expect(getChildrenArray(node)).toHaveLength(1);
+    expect(getChildrenArray(node)[0]).toEqual({
+      type: "text",
+      content: "only",
+      style: undefined,
+    });
+  });
+
+  it("returns empty array when children is undefined", () => {
+    expect(getChildrenArray({})).toEqual([]);
+    expect(getChildrenArray({ children: undefined })).toEqual([]);
+  });
+
+  it("returns empty array when children is null", () => {
+    expect(getChildrenArray({ children: null })).toEqual([]);
+  });
+});
+
+describe("Fallback text with non-array children", () => {
+  it("cardToFallbackText handles card with children undefined", () => {
+    const card = {
+      type: "card" as const,
+      title: "Test",
+      subtitle: "Sub",
+      children: undefined,
+    };
+    expect(() => cardToFallbackText(card)).not.toThrow();
+    expect(cardToFallbackText(card)).toContain("**Test**");
+    expect(cardToFallbackText(card)).toContain("Sub");
+  });
+
+  it("cardToFallbackText handles card with children null", () => {
+    const card = {
+      type: "card" as const,
+      title: "Test",
+      children: null,
+    };
+    expect(() => cardToFallbackText(card)).not.toThrow();
+    expect(cardToFallbackText(card)).toBe("**Test**");
+  });
+
+  it("cardToFallbackText handles card with single child (non-array)", () => {
+    const card = {
+      type: "card" as const,
+      title: "Test",
+      children: Text("Only child"),
+    };
+    expect(() => cardToFallbackText(card)).not.toThrow();
+    expect(cardToFallbackText(card)).toContain("**Test**");
+    expect(cardToFallbackText(card)).toContain("Only child");
+  });
+
+  it("cardChildToFallbackText handles section with children undefined", () => {
+    const section = {
+      type: "section" as const,
+      children: undefined,
+    };
+    expect(() => cardChildToFallbackText(section)).not.toThrow();
+    expect(cardChildToFallbackText(section)).toBe("");
+  });
+
+  it("cardChildToFallbackText handles section with children null", () => {
+    const section = {
+      type: "section" as const,
+      children: null,
+    };
+    expect(() => cardChildToFallbackText(section)).not.toThrow();
+    expect(cardChildToFallbackText(section)).toBe("");
+  });
+
+  it("cardChildToFallbackText handles section with single child (non-array)", () => {
+    const section = {
+      type: "section" as const,
+      children: Text("Single"),
+    };
+    expect(() => cardChildToFallbackText(section)).not.toThrow();
+    expect(cardChildToFallbackText(section)).toBe("Single");
+  });
+
+  it("cardChildToFallbackText handles fields with children undefined", () => {
+    const fields = {
+      type: "fields" as const,
+      children: undefined,
+    };
+    expect(() => cardChildToFallbackText(fields)).not.toThrow();
+    expect(cardChildToFallbackText(fields)).toBe("");
+  });
+
+  it("cardChildToFallbackText handles fields with children null", () => {
+    const fields = {
+      type: "fields" as const,
+      children: null,
+    };
+    expect(() => cardChildToFallbackText(fields)).not.toThrow();
+    expect(cardChildToFallbackText(fields)).toBe("");
+  });
+
+  it("cardChildToFallbackText handles fields with single field (non-array)", () => {
+    const fields = {
+      type: "fields" as const,
+      children: Field({ label: "Name", value: "Alice" }),
+    };
+    expect(() => cardChildToFallbackText(fields)).not.toThrow();
+    expect(cardChildToFallbackText(fields)).toBe("Name: Alice");
+  });
+
+  it("cardToFallbackText with section and fields with non-array children (serialization-style)", () => {
+    const card = {
+      type: "card" as const,
+      title: "Review",
+      subtitle: "Please confirm",
+      children: [
+        {
+          type: "section" as const,
+          children: Text("Approve or reject below."),
+        },
+        {
+          type: "fields" as const,
+          children: Field({ label: "Status", value: "Pending" }),
+        },
+      ],
+    };
+    expect(() => cardToFallbackText(card)).not.toThrow();
+    const fallback = cardToFallbackText(card);
+    expect(fallback).toContain("**Review**");
+    expect(fallback).toContain("Approve or reject below.");
+    expect(fallback).toContain("Status: Pending");
   });
 });
 

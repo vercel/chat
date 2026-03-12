@@ -310,15 +310,24 @@ export interface SectionComponent {
   (props: ContainerProps): ChatElement;
 }
 
+/** Action child type for Actions() - buttons and selects only. */
+type ActionsChild =
+  | ButtonElement
+  | LinkButtonElement
+  | SelectElement
+  | RadioSelectElement;
+
 export interface ActionsComponent {
+  /**
+   * Array form (preferred): Actions([Button(...), Button(...)]).
+   * Accepts CardChild[] so that Actions([...]) nested in Card({ children: [...] })
+   * type-checks when the array is contextually typed as CardChild[].
+   * Runtime still expects only button/select elements.
+   */
   (
-    children: (
-      | ButtonElement
-      | LinkButtonElement
-      | SelectElement
-      | RadioSelectElement
-    )[]
+    children: readonly CardChild[] | readonly ActionsChild[] | ActionsChild[]
   ): ActionsElement;
+  /** Props form for JSX: <Actions><Button ... /></Actions> */
   (props: ContainerProps): ChatElement;
 }
 

@@ -745,6 +745,18 @@ function extractTextContent(children: unknown): string {
 // Fallback Text Generation
 // ============================================================================
 
+/** Ensure children is always an array (handles JSX/serialization where it may be single or undefined). */
+export function getChildrenArray(node: { children?: unknown }): unknown[] {
+  const c = node.children;
+  if (Array.isArray(c)) {
+    return c;
+  }
+  if (c != null) {
+    return [c];
+  }
+  return [];
+}
+
 /**
  * Generate plain text fallback from a CardElement.
  * Used for platforms/clients that can't render rich cards,
@@ -761,8 +773,8 @@ export function cardToFallbackText(card: CardElement): string {
     parts.push(card.subtitle);
   }
 
-  for (const child of card.children) {
-    const text = cardChildToFallbackText(child);
+  for (const child of getChildrenArray(card)) {
+    const text = cardChildToFallbackText(child as CardChild);
     if (text) {
       parts.push(text);
     }
@@ -782,7 +794,12 @@ export function cardChildToFallbackText(child: CardChild): string | null {
     case "link":
       return `${child.label} (${child.url})`;
     case "fields":
-      return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
+      return getChildrenArray(child)
+        .map((f: unknown) => {
+          const { label, value } = f as FieldElement;
+          return `${label}: ${value}`;
+        })
+        .join("\n");
     case "actions":
       // Actions are interactive-only — exclude from fallback text.
       // See: https://docs.slack.dev/reference/methods/chat.postMessage
@@ -790,8 +807,8 @@ export function cardChildToFallbackText(child: CardChild): string | null {
     case "table":
       return tableElementToAscii(child.headers, child.rows);
     case "section":
-      return child.children
-        .map((c) => cardChildToFallbackText(c))
+      return getChildrenArray(child)
+        .map((c: unknown) => cardChildToFallbackText(c as CardChild))
         .filter(Boolean)
         .join("\n");
     default:
