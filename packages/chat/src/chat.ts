@@ -1708,6 +1708,7 @@ export class Chat<
       isSubscribedContext,
       isDM,
       currentMessage: initialMessage,
+      logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
       messageHistory: adapter.persistMessageHistory

@@ -5,6 +5,7 @@ import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
 import { fromFullStream } from "./from-full-stream";
 import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
+import type { Logger } from "./logger";
 import {
   paragraph,
   parseMarkdown,
@@ -58,6 +59,7 @@ interface ThreadImplConfigWithAdapter {
   initialMessage?: Message;
   isDM?: boolean;
   isSubscribedContext?: boolean;
+  logger?: Logger;
   messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
@@ -76,6 +78,7 @@ interface ThreadImplConfigLazy {
   initialMessage?: Message;
   isDM?: boolean;
   isSubscribedContext?: boolean;
+  logger?: Logger;
   streamingUpdateIntervalMs?: number;
 }
 
@@ -126,6 +129,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private _channel?: Channel<TState>;
   /** Message history cache (set only for adapters with persistMessageHistory) */
   private readonly _messageHistory?: MessageHistoryCache;
+  private readonly _logger?: Logger;
 
   constructor(config: ThreadImplConfig) {
     this.id = config.id;
@@ -133,6 +137,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this.isDM = config.isDM ?? false;
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
+    this._logger = config.logger;
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
     this._fallbackStreamingPlaceholderText =
       config.fallbackStreamingPlaceholderText !== undefined
@@ -615,7 +620,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           });
           lastEditContent = content;
         } catch (error) {
-          console.warn("[chat-sdk] fallbackStream edit failed:", error);
+          this._logger?.warn("fallbackStream edit failed", error);
         }
       }
 
