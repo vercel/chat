@@ -616,7 +616,7 @@ describe("ThreadImpl", () => {
 
       expect(warnSpy).toHaveBeenCalledWith(
         "[chat-sdk] fallbackStream edit failed:",
-        editError,
+        editError
       );
       warnSpy.mockRestore();
     });

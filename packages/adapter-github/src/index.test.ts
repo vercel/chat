@@ -901,7 +901,7 @@ describe("GitHubAdapter", () => {
 
       const result = await adapter.stream(
         "github:acme/app:42:rc:200",
-        textStream(),
+        textStream()
       );
 
       expect(mockPullsCreateReplyForReviewComment).toHaveBeenCalledTimes(1);
@@ -934,13 +934,10 @@ describe("GitHubAdapter", () => {
         yield { type: "task_update" as const, taskId: "1", status: "done" };
       }
 
-      const result = await adapter.stream(
-        "github:acme/app:42",
-        mixedStream(),
-      );
+      const result = await adapter.stream("github:acme/app:42", mixedStream());
 
       expect(mockIssuesCreateComment).toHaveBeenCalledWith(
-        expect.objectContaining({ body: "Hello World" }),
+        expect.objectContaining({ body: "Hello World" })
       );
       expect(result.id).toBe("502");
     });
@@ -964,7 +961,7 @@ describe("GitHubAdapter", () => {
       await adapter.stream("github:acme/app:42", emptyStream());
 
       expect(mockIssuesCreateComment).toHaveBeenCalledWith(
-        expect.objectContaining({ body: "" }),
+        expect.objectContaining({ body: "" })
       );
     });
   });

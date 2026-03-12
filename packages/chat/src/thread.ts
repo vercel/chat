@@ -82,7 +82,7 @@ interface ThreadImplConfigLazy {
 type ThreadImplConfig = ThreadImplConfigWithAdapter | ThreadImplConfigLazy;
 
 function isLazyConfig(
-  config: ThreadImplConfig,
+  config: ThreadImplConfig
 ): config is ThreadImplConfigLazy {
   return "adapterName" in config && !("adapter" in config);
 }
@@ -94,16 +94,16 @@ const THREAD_STATE_KEY_PREFIX = "thread-state:";
  * Check if a value is an AsyncIterable (like AI SDK's textStream or fullStream).
  */
 function isAsyncIterable(
-  value: unknown,
+  value: unknown
 ): value is AsyncIterable<string | StreamChunk | StreamEvent> {
   return (
     value !== null && typeof value === "object" && Symbol.asyncIterator in value
   );
 }
 
-export class ThreadImpl<
-  TState = Record<string, unknown>,
-> implements Thread<TState> {
+export class ThreadImpl<TState = Record<string, unknown>>
+  implements Thread<TState>
+{
   readonly id: string;
   readonly channelId: string;
   readonly isDM: boolean;
@@ -172,7 +172,7 @@ export class ThreadImpl<
     const adapter = chat.getAdapter(this._adapterName);
     if (!adapter) {
       throw new Error(
-        `Adapter "${this._adapterName}" not found in Chat singleton`,
+        `Adapter "${this._adapterName}" not found in Chat singleton`
       );
     }
 
@@ -210,7 +210,7 @@ export class ThreadImpl<
    */
   get state(): Promise<TState | null> {
     return this._stateAdapter.get<TState>(
-      `${THREAD_STATE_KEY_PREFIX}${this.id}`,
+      `${THREAD_STATE_KEY_PREFIX}${this.id}`
     );
   }
 
@@ -220,7 +220,7 @@ export class ThreadImpl<
    */
   async setState(
     newState: Partial<TState>,
-    options?: { replace?: boolean },
+    options?: { replace?: boolean }
   ): Promise<void> {
     const key = `${THREAD_STATE_KEY_PREFIX}${this.id}`;
 
@@ -363,7 +363,7 @@ export class ThreadImpl<
   }
 
   async post(
-    message: string | PostableMessage | ChatElement,
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage> {
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
@@ -389,7 +389,7 @@ export class ThreadImpl<
     const result = this.createSentMessage(
       rawMessage.id,
       postable,
-      rawMessage.threadId,
+      rawMessage.threadId
     );
 
     // Cache sent message for adapters with persistent history
@@ -403,7 +403,7 @@ export class ThreadImpl<
   async postEphemeral(
     user: string | Author,
     message: AdapterPostableMessage | ChatElement,
-    options: PostEphemeralOptions,
+    options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null> {
     const { fallbackToDM } = options;
     const userId = typeof user === "string" ? user : user.userId;
@@ -449,7 +449,7 @@ export class ThreadImpl<
 
   async schedule(
     message: AdapterPostableMessage | ChatElement,
-    options: { postAt: Date },
+    options: { postAt: Date }
   ): Promise<ScheduledMessage> {
     // Convert JSX to card if needed
     let postable: AdapterPostableMessage;
@@ -466,7 +466,7 @@ export class ThreadImpl<
     if (!this.adapter.scheduleMessage) {
       throw new NotImplementedError(
         "Scheduled messages are not supported by this adapter",
-        "scheduling",
+        "scheduling"
       );
     }
 
@@ -479,7 +479,7 @@ export class ThreadImpl<
    * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
@@ -525,7 +525,7 @@ export class ThreadImpl<
       const sent = this.createSentMessage(
         raw.id,
         { markdown: accumulated },
-        raw.threadId,
+        raw.threadId
       );
 
       if (this._messageHistory) {
@@ -575,7 +575,7 @@ export class ThreadImpl<
    */
   private async fallbackStream(
     textStream: AsyncIterable<string>,
-    options?: StreamOptions,
+    options?: StreamOptions
   ): Promise<SentMessage> {
     const intervalMs =
       options?.updateIntervalMs ?? this._streamingUpdateIntervalMs;
@@ -675,7 +675,7 @@ export class ThreadImpl<
     const sent = this.createSentMessage(
       msg.id,
       { markdown: accumulated },
-      threadIdForEdits,
+      threadIdForEdits
     );
 
     if (this._messageHistory) {
@@ -693,7 +693,7 @@ export class ThreadImpl<
       // Fall back to cached history for adapters without native message APIs
       this._recentMessages = await this._messageHistory.getMessages(
         this.id,
-        50,
+        50
       );
     } else {
       this._recentMessages = [];
@@ -744,7 +744,7 @@ export class ThreadImpl<
    */
   static fromJSON<TState = Record<string, unknown>>(
     json: SerializedThread,
-    adapter?: Adapter,
+    adapter?: Adapter
   ): ThreadImpl<TState> {
     const thread = new ThreadImpl<TState>({
       id: json.id,
@@ -781,7 +781,7 @@ export class ThreadImpl<
   private createSentMessage(
     messageId: string,
     postable: AdapterPostableMessage,
-    threadIdOverride?: string,
+    threadIdOverride?: string
   ): SentMessage {
     const adapter = this.adapter;
     // Use the threadId returned by postMessage if available (may differ after thread creation)
@@ -816,7 +816,7 @@ export class ThreadImpl<
       },
 
       async edit(
-        newContent: string | PostableMessage | ChatElement,
+        newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
         // Auto-convert JSX elements to CardElement
         // edit doesn't support streaming, so use AdapterPostableMessage
@@ -872,7 +872,7 @@ export class ThreadImpl<
       },
 
       async edit(
-        newContent: string | PostableMessage | ChatElement,
+        newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
         let postable: string | AdapterPostableMessage = newContent as
           | string

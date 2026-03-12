@@ -96,10 +96,9 @@ export type {
  * });
  * ```
  */
-export class GitHubAdapter implements Adapter<
-  GitHubThreadId,
-  GitHubRawMessage
-> {
+export class GitHubAdapter
+  implements Adapter<GitHubThreadId, GitHubRawMessage>
+{
   readonly name = "github";
   readonly userName: string;
 
@@ -135,7 +134,7 @@ export class GitHubAdapter implements Adapter<
     if (!webhookSecret) {
       throw new ValidationError(
         "github",
-        "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config.",
+        "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
       );
     }
     this.webhookSecret = webhookSecret;
@@ -179,14 +178,14 @@ export class GitHubAdapter implements Adapter<
           privateKey: config.privateKey,
         };
         this.logger.info(
-          "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)",
+          "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)"
         );
       }
     } else if (hasExplicitAuth) {
       // Some auth fields were provided but not enough to configure
       throw new ValidationError(
         "github",
-        "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config.",
+        "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
       );
     } else {
       // Auto-detect from env vars
@@ -208,13 +207,13 @@ export class GitHubAdapter implements Adapter<
           } else {
             this.appCredentials = { appId, privateKey };
             this.logger.info(
-              "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)",
+              "GitHub adapter initialized in multi-tenant mode (installation ID will be extracted from webhooks)"
             );
           }
         } else {
           throw new ValidationError(
             "github",
-            "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config.",
+            "Authentication is required. Set GITHUB_TOKEN or GITHUB_APP_ID/GITHUB_PRIVATE_KEY, or provide token/appId+privateKey in config."
           );
         }
       }
@@ -242,7 +241,7 @@ export class GitHubAdapter implements Adapter<
         "github",
         "Installation ID required for multi-tenant mode. " +
           "This usually means you're trying to make an API call outside of a webhook context. " +
-          "For proactive messages, use thread IDs from previous webhook interactions.",
+          "For proactive messages, use thread IDs from previous webhook interactions."
       );
     }
 
@@ -298,7 +297,7 @@ export class GitHubAdapter implements Adapter<
   private async storeInstallationId(
     owner: string,
     repo: string,
-    installationId: number,
+    installationId: number
   ): Promise<void> {
     if (!(this.chat && this.isMultiTenant)) {
       return;
@@ -318,7 +317,7 @@ export class GitHubAdapter implements Adapter<
    */
   private async getInstallationId(
     owner: string,
-    repo: string,
+    repo: string
   ): Promise<number | undefined> {
     if (!(this.chat && this.isMultiTenant)) {
       return undefined;
@@ -333,7 +332,7 @@ export class GitHubAdapter implements Adapter<
    */
   async handleWebhook(
     request: Request,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
     this.logger.debug("GitHub webhook raw body", {
@@ -369,7 +368,7 @@ export class GitHubAdapter implements Adapter<
       });
       return new Response(
         "Invalid JSON. Make sure webhook Content-Type is set to application/json",
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -381,7 +380,7 @@ export class GitHubAdapter implements Adapter<
       await this.storeInstallationId(
         repo.owner.login,
         repo.name,
-        installationId,
+        installationId
       );
     }
 
@@ -432,7 +431,7 @@ export class GitHubAdapter implements Adapter<
   private handleIssueComment(
     payload: IssueCommentWebhookPayload,
     _installationId: number | undefined,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
@@ -453,7 +452,7 @@ export class GitHubAdapter implements Adapter<
       comment,
       repository,
       issue.number,
-      threadId,
+      threadId
     );
 
     // Check if this is from the bot itself
@@ -473,7 +472,7 @@ export class GitHubAdapter implements Adapter<
   private handleReviewComment(
     payload: PullRequestReviewCommentWebhookPayload,
     _installationId: number | undefined,
-    options?: WebhookOptions,
+    options?: WebhookOptions
   ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
@@ -500,7 +499,7 @@ export class GitHubAdapter implements Adapter<
       comment,
       repository,
       pull_request.number,
-      threadId,
+      threadId
     );
 
     // Check if this is from the bot itself
@@ -521,7 +520,7 @@ export class GitHubAdapter implements Adapter<
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
-    threadId: string,
+    threadId: string
   ): Message<GitHubRawMessage> {
     const author = this.parseAuthor(comment.user);
 
@@ -561,7 +560,7 @@ export class GitHubAdapter implements Adapter<
     comment: GitHubReviewComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
-    threadId: string,
+    threadId: string
   ): Message<GitHubRawMessage> {
     const author = this.parseAuthor(comment.user);
 
@@ -613,7 +612,7 @@ export class GitHubAdapter implements Adapter<
    */
   private async getOctokitForThread(
     owner: string,
-    repo: string,
+    repo: string
   ): Promise<Octokit> {
     const installationId = await this.getInstallationId(owner, repo);
     return this.getOctokit(installationId);
@@ -624,7 +623,7 @@ export class GitHubAdapter implements Adapter<
    */
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
     const { owner, repo, prNumber, reviewCommentId } =
       this.decodeThreadId(threadId);
@@ -652,7 +651,7 @@ export class GitHubAdapter implements Adapter<
           pull_number: prNumber,
           comment_id: reviewCommentId,
           body,
-        },
+        }
       );
 
       return {
@@ -702,7 +701,7 @@ export class GitHubAdapter implements Adapter<
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
     const { owner, repo, prNumber, reviewCommentId } =
       this.decodeThreadId(threadId);
@@ -782,7 +781,7 @@ export class GitHubAdapter implements Adapter<
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
-    _options?: StreamOptions,
+    _options?: StreamOptions
   ): Promise<RawMessage<GitHubRawMessage>> {
     let text = "";
     for await (const chunk of textStream) {
@@ -825,7 +824,7 @@ export class GitHubAdapter implements Adapter<
   async addReaction(
     threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     const { owner, repo, reviewCommentId } = this.decodeThreadId(threadId);
     const commentId = Number.parseInt(messageId, 10);
@@ -858,7 +857,7 @@ export class GitHubAdapter implements Adapter<
   async removeReaction(
     threadId: string,
     messageId: string,
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): Promise<void> {
     const { owner, repo, reviewCommentId } = this.decodeThreadId(threadId);
     const commentId = Number.parseInt(messageId, 10);
@@ -885,7 +884,7 @@ export class GitHubAdapter implements Adapter<
 
     // Find the bot's reaction with matching content
     const reaction = reactions.find(
-      (r) => r.content === content && r.user?.id === this._botUserId,
+      (r) => r.content === content && r.user?.id === this._botUserId
     );
 
     if (reaction) {
@@ -911,7 +910,7 @@ export class GitHubAdapter implements Adapter<
    * Convert SDK emoji to GitHub reaction content.
    */
   private emojiToGitHubReaction(
-    emoji: EmojiValue | string,
+    emoji: EmojiValue | string
   ): GitHubReactionContent {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
 
@@ -949,7 +948,7 @@ export class GitHubAdapter implements Adapter<
    */
   async fetchMessages(
     threadId: string,
-    options?: FetchOptions,
+    options?: FetchOptions
   ): Promise<FetchResult<GitHubRawMessage>> {
     const { owner, repo, prNumber, reviewCommentId } =
       this.decodeThreadId(threadId);
@@ -971,7 +970,7 @@ export class GitHubAdapter implements Adapter<
 
       // Filter to comments in this thread (same in_reply_to_id or the root itself)
       const threadComments = allComments.filter(
-        (c) => c.id === reviewCommentId || c.in_reply_to_id === reviewCommentId,
+        (c) => c.id === reviewCommentId || c.in_reply_to_id === reviewCommentId
       );
 
       messages = threadComments.map((comment) =>
@@ -982,8 +981,8 @@ export class GitHubAdapter implements Adapter<
             name: repo,
           },
           prNumber,
-          threadId,
-        ),
+          threadId
+        )
       );
     } else {
       // Fetch issue comments
@@ -1002,14 +1001,14 @@ export class GitHubAdapter implements Adapter<
             name: repo,
           },
           prNumber,
-          threadId,
-        ),
+          threadId
+        )
       );
     }
 
     // Sort chronologically (oldest first)
     messages.sort(
-      (a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime(),
+      (a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime()
     );
 
     // For backward direction, take the last N messages
@@ -1079,7 +1078,7 @@ export class GitHubAdapter implements Adapter<
     if (!threadId.startsWith("github:")) {
       throw new ValidationError(
         "github",
-        `Invalid GitHub thread ID: ${threadId}`,
+        `Invalid GitHub thread ID: ${threadId}`
       );
     }
 
@@ -1108,7 +1107,7 @@ export class GitHubAdapter implements Adapter<
 
     throw new ValidationError(
       "github",
-      `Invalid GitHub thread ID format: ${threadId}`,
+      `Invalid GitHub thread ID format: ${threadId}`
     );
   }
 
@@ -1127,7 +1126,7 @@ export class GitHubAdapter implements Adapter<
    */
   async listThreads(
     channelId: string,
-    options: ListThreadsOptions = {},
+    options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<GitHubRawMessage>> {
     // Channel ID format: "github:{owner}/{repo}"
     const withoutPrefix = channelId.slice(7); // Remove "github:"
@@ -1135,7 +1134,7 @@ export class GitHubAdapter implements Adapter<
     if (slashIndex === -1) {
       throw new ValidationError(
         "github",
-        `Invalid GitHub channel ID: ${channelId}`,
+        `Invalid GitHub channel ID: ${channelId}`
       );
     }
     const owner = withoutPrefix.slice(0, slashIndex);
@@ -1200,7 +1199,7 @@ export class GitHubAdapter implements Adapter<
           rootMessage,
           lastReplyAt: new Date(pr.updated_at),
         };
-      },
+      }
     );
 
     // Simple page-based cursor
@@ -1223,7 +1222,7 @@ export class GitHubAdapter implements Adapter<
     if (slashIndex === -1) {
       throw new ValidationError(
         "github",
-        `Invalid GitHub channel ID: ${channelId}`,
+        `Invalid GitHub channel ID: ${channelId}`
       );
     }
     const owner = withoutPrefix.slice(0, slashIndex);
@@ -1264,7 +1263,7 @@ export class GitHubAdapter implements Adapter<
         raw.comment,
         { owner: raw.repository.owner, name: raw.repository.name },
         raw.prNumber,
-        threadId,
+        threadId
       );
     }
     const rootCommentId = raw.comment.in_reply_to_id ?? raw.comment.id;
@@ -1278,7 +1277,7 @@ export class GitHubAdapter implements Adapter<
       raw.comment,
       { owner: raw.repository.owner, name: raw.repository.name },
       raw.prNumber,
-      threadId,
+      threadId
     );
   }
 
@@ -1308,7 +1307,7 @@ export class GitHubAdapter implements Adapter<
  * ```
  */
 export function createGitHubAdapter(
-  config?: GitHubAdapterConfig,
+  config?: GitHubAdapterConfig
 ): GitHubAdapter {
   return new GitHubAdapter(config);
 }
