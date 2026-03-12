@@ -19,7 +19,6 @@ import type {
   WebhookOptions,
 } from "chat";
 import {
-  accumulateStream,
   ConsoleLogger,
   convertEmojiPlaceholders,
   defaultEmojiResolver,
@@ -884,8 +883,15 @@ export class WhatsAppAdapter
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
   ): Promise<RawMessage<WhatsAppRawMessage>> {
-    const text = await accumulateStream(textStream);
-    return this.postMessage(threadId, { markdown: text });
+    let accumulated = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        accumulated += chunk;
+      } else if (chunk.type === "markdown_text") {
+        accumulated += chunk.text;
+      }
+    }
+    return this.postMessage(threadId, { markdown: accumulated });
   }
 
   /**

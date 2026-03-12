@@ -7,7 +7,7 @@ export {
   type SerializedChannel,
 } from "./channel";
 export { Chat } from "./chat";
-export { accumulateStream, fromFullStream } from "./from-full-stream";
+export { fromFullStream } from "./from-full-stream";
 export {
   Message,
   type MessageData,

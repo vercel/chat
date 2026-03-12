@@ -21,12 +21,7 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import {
-  accumulateStream,
-  ConsoleLogger,
-  convertEmojiPlaceholders,
-  Message,
-} from "chat";
+import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
 import { cardToGitHubMarkdown } from "./cards";
 import { GitHubFormatConverter } from "./markdown";
 import type {
@@ -788,7 +783,14 @@ export class GitHubAdapter
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const text = await accumulateStream(textStream);
+    let text = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        text += chunk;
+      } else if (chunk.type === "markdown_text") {
+        text += chunk.text;
+      }
+    }
     return this.postMessage(threadId, { markdown: text });
   }
 
