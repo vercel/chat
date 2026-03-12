@@ -845,6 +845,130 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("stream", () => {
+    it("should accumulate text chunks and post once to an issue comment thread", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 500,
+          body: "Hello World",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-500",
+        },
+      });
+
+      async function* textStream() {
+        yield "Hello";
+        yield " ";
+        yield "World";
+      }
+
+      const result = await adapter.stream("github:acme/app:42", textStream());
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledTimes(1);
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        issue_number: 42,
+        body: "Hello World",
+      });
+      expect(mockIssuesUpdateComment).not.toHaveBeenCalled();
+      expect(result.id).toBe("500");
+    });
+
+    it("should accumulate text chunks and post once to a review comment thread", async () => {
+      mockPullsCreateReplyForReviewComment.mockResolvedValueOnce({
+        data: {
+          id: 501,
+          body: "Looks good",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#discussion_r501",
+          path: "src/index.ts",
+          diff_hunk: "@@",
+          commit_id: "abc",
+          original_commit_id: "abc",
+        },
+      });
+
+      async function* textStream() {
+        yield "Looks";
+        yield " ";
+        yield "good";
+      }
+
+      const result = await adapter.stream(
+        "github:acme/app:42:rc:200",
+        textStream(),
+      );
+
+      expect(mockPullsCreateReplyForReviewComment).toHaveBeenCalledTimes(1);
+      expect(mockPullsCreateReplyForReviewComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        pull_number: 42,
+        comment_id: 200,
+        body: "Looks good",
+      });
+      expect(mockPullsUpdateReviewComment).not.toHaveBeenCalled();
+      expect(result.id).toBe("501");
+    });
+
+    it("should handle StreamChunk objects alongside strings", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 502,
+          body: "Hello World",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-502",
+        },
+      });
+
+      async function* mixedStream() {
+        yield "Hello";
+        yield { type: "markdown_text" as const, text: " World" };
+        yield { type: "task_update" as const, taskId: "1", status: "done" };
+      }
+
+      const result = await adapter.stream(
+        "github:acme/app:42",
+        mixedStream(),
+      );
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith(
+        expect.objectContaining({ body: "Hello World" }),
+      );
+      expect(result.id).toBe("502");
+    });
+
+    it("should post empty markdown when stream yields no text", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 503,
+          body: "",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-503",
+        },
+      });
+
+      async function* emptyStream() {
+        // yields nothing
+      }
+
+      await adapter.stream("github:acme/app:42", emptyStream());
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith(
+        expect.objectContaining({ body: "" }),
+      );
+    });
+  });
+
   describe("deleteMessage", () => {
     it("should delete an issue comment", async () => {
       mockIssuesDeleteComment.mockResolvedValueOnce({});

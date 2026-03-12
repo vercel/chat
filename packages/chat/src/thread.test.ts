@@ -576,6 +576,52 @@ describe("ThreadImpl", () => {
     });
   });
 
+  describe("fallback streaming error logging", () => {
+    let thread: ThreadImpl;
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        streamingUpdateIntervalMs: 10,
+      });
+    });
+
+    it("should log when an intermediate edit fails", async () => {
+      mockAdapter.stream = undefined;
+      const editError = new Error("422 Validation Failed");
+      (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
+        .mockRejectedValueOnce(editError)
+        .mockResolvedValue({
+          id: "msg-1",
+          threadId: "slack:C123:1234.5678",
+          raw: {},
+        });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      async function* slowStream(): AsyncIterable<string> {
+        yield "Hel";
+        await new Promise((r) => setTimeout(r, 50));
+        yield "lo";
+      }
+
+      await thread.post(slowStream());
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[chat-sdk] fallbackStream edit failed:",
+        editError,
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
   describe("streaming with StreamChunk objects", () => {
     let thread: ThreadImpl;
     let mockAdapter: Adapter;
