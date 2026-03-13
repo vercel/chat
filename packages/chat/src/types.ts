@@ -21,6 +21,7 @@ export {
 } from "./errors";
 export type { Logger, LogLevel } from "./logger";
 export { ConsoleLogger } from "./logger";
+export { Message } from "./message";
 
 // =============================================================================
 // Configuration
@@ -428,6 +429,22 @@ export interface StreamOptions {
   updateIntervalMs?: number;
 }
 
+/**
+ * Public streaming options supported via `thread.post(stream, { stream: ... })`.
+ * Internal routing fields like recipient context remain adapter-managed.
+ */
+export type PostStreamOptions = Omit<StreamOptions, "recipientUserId" | "recipientTeamId">;
+
+/**
+ * Optional settings for `post()`.
+ *
+ * Streaming options are only applied when `message` is an async iterable.
+ */
+export interface PostOptions {
+  /** Options forwarded to native streaming adapters for async iterable messages. */
+  stream?: PostStreamOptions;
+}
+
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
   /** Get the configured logger, optionally with a child prefix */
@@ -654,7 +671,8 @@ export interface Postable<
    * Post a message.
    */
   post(
-    message: string | PostableMessage | ChatElement
+    message: string | PostableMessage | ChatElement,
+    options?: PostOptions
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
@@ -865,11 +883,14 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    *
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
-   * await thread.post(result.textStream);
+   * await thread.post(result.textStream, {
+   *   stream: { taskDisplayMode: "plan" },
+   * });
    * ```
    */
   post(
-    message: string | PostableMessage | ChatElement
+    message: string | PostableMessage | ChatElement,
+    options?: PostOptions
   ): Promise<SentMessage<TRawMessage>>;
 
   /**

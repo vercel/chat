@@ -575,6 +575,69 @@ describe("ThreadImpl", () => {
         })
       );
     });
+
+    it("should pass public stream options through thread.post", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(textStream, {
+        stream: {
+          stopBlocks: [{ type: "actions" }],
+          taskDisplayMode: "plan",
+        },
+      });
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          stopBlocks: [{ type: "actions" }],
+          taskDisplayMode: "plan",
+        })
+      );
+    });
+
+    it("should ignore stream options for non-stream posts", async () => {
+      await thread.post("Hello world", {
+        stream: {
+          stopBlocks: [{ type: "actions" }],
+          taskDisplayMode: "plan",
+        },
+      });
+
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "Hello world"
+      );
+      expect(mockAdapter.stream).toBeUndefined();
+    });
+
+    it("should preserve fallback streaming behavior when public stream options are provided", async () => {
+      mockAdapter.stream = undefined;
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.post(textStream, {
+        stream: {
+          stopBlocks: [{ type: "actions" }],
+          taskDisplayMode: "plan",
+        },
+      });
+
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
   });
 
   describe("fallback streaming error logging", () => {

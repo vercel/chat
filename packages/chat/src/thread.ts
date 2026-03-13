@@ -23,8 +23,10 @@ import type {
   Author,
   Channel,
   EphemeralMessage,
+  PostOptions,
   PostableMessage,
   PostEphemeralOptions,
+  PostStreamOptions,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
@@ -105,8 +107,7 @@ function isAsyncIterable(
 }
 
 export class ThreadImpl<TState = Record<string, unknown>>
-  implements Thread<TState>
-{
+  implements Thread<TState> {
   readonly id: string;
   readonly channelId: string;
   readonly isDM: boolean;
@@ -368,11 +369,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   async post(
-    message: string | PostableMessage | ChatElement
+    message: string | PostableMessage | ChatElement,
+    options?: PostOptions
   ): Promise<SentMessage> {
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
-      return this.handleStream(message);
+      return this.handleStream(message, options?.stream);
     }
 
     // After filtering out streams, we have an AdapterPostableMessage
@@ -484,12 +486,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
    * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    streamOptions?: PostStreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context
-    const options: StreamOptions = {};
+    const options: StreamOptions = { ...streamOptions };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload

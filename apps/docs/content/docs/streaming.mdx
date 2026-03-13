@@ -150,8 +150,10 @@ await thread.post(stream);
 Control how `task_update` chunks render in Slack by passing `taskDisplayMode` in stream options:
 
 ```typescript
-await thread.stream(stream, {
-  taskDisplayMode: "plan", // Group all tasks into a single plan block
+await thread.post(stream, {
+  stream: {
+    taskDisplayMode: "plan", // Group all tasks into a single plan block
+  },
 });
 ```
 
@@ -167,17 +169,19 @@ Adapters without structured chunk support extract text from `markdown_text` chun
 When streaming in Slack, you can attach Block Kit elements to the final message using `stopBlocks`. This is useful for adding action buttons after a streamed response completes:
 
 ```typescript title="lib/bot.ts" lineNumbers
-await thread.stream(textStream, {
-  stopBlocks: [
-    {
-      type: "actions",
-      elements: [{
-        type: "button",
-        text: { type: "plain_text", text: "Retry" },
-        action_id: "retry",
-      }],
-    },
-  ],
+await thread.post(textStream, {
+  stream: {
+    stopBlocks: [
+      {
+        type: "actions",
+        elements: [{
+          type: "button",
+          text: { type: "plain_text", text: "Retry" },
+          action_id: "retry",
+        }],
+      },
+    ],
+  },
 });
 ```
 

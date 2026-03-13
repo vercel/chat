@@ -56,9 +56,14 @@ await thread.post(Card({ title: "Hi", children: [Text("Hello")] }));
 
 // Stream (fullStream recommended for multi-step agents)
 await thread.post(result.fullStream);
+
+// Stream with Slack-specific display options
+await thread.post(result.fullStream, {
+  stream: { taskDisplayMode: "plan" },
+});
 ```
 
-**Parameters:** `message: string | PostableMessage | CardJSXElement`
+**Parameters:** `message: string | PostableMessage | CardJSXElement`, `options?: PostOptions`
 
 **Returns:** `Promise<SentMessage>` — the sent message with `edit()`, `delete()`, `addReaction()`, and `removeReaction()` methods.
 
