@@ -1588,20 +1588,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
-  private handleUserChange(event: SlackUserChangeEvent): void {
+  private async handleUserChange(event: SlackUserChangeEvent): Promise<void> {
     if (!this.chat) {
       return;
     }
 
-    this.chat
-      .getState()
-      .delete(`slack:user:${event.user.id}`)
-      .catch((error: unknown) => {
-        this.logger.warn("Failed to invalidate user cache", {
-          userId: event.user.id,
-          error,
-        });
+    try {
+      await this.chat.getState().delete(`slack:user:${event.user.id}`);
+    } catch (error) {
+      this.logger.warn("Failed to invalidate user cache", {
+        userId: event.user.id,
+        error,
       });
+    }
   }
 
   /**
