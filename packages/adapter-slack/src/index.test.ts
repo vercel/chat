@@ -4944,13 +4944,65 @@ describe("reverse user lookup", () => {
         }
       ).parseSlackMessage(event, threadId);
 
-      // Wait for fire-and-forget to complete
+      // Allow participant tracking to complete
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       const participants = await state.getList(
         `slack:thread-participants:${threadId}`
       );
       expect(participants).toContain("U_SENDER_1");
+    });
+  });
+
+  describe("user_change event", () => {
+    it("invalidates user cache on profile change", async () => {
+      const state = createMockState();
+      const adapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        signingSecret: secret,
+        logger: mockLogger,
+      });
+      await adapter.initialize(createMockChatInstance(state));
+
+      // Seed a cached user entry
+      await state.set(
+        "slack:user:U_DOM_123",
+        { displayName: "dominik", realName: "Dominik G" },
+        8 * 24 * 60 * 60 * 1000
+      );
+
+      // Confirm cache is populated
+      const before = await state.get("slack:user:U_DOM_123");
+      expect(before).toEqual({
+        displayName: "dominik",
+        realName: "Dominik G",
+      });
+
+      // Send user_change event
+      const body = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "user_change",
+          event_ts: "1234567890.123456",
+          user: {
+            id: "U_DOM_123",
+            name: "dominik",
+            real_name: "Dominik New",
+            profile: {
+              display_name: "dom_new",
+              real_name: "Dominik New",
+            },
+          },
+        },
+      });
+      const request = createWebhookRequest(body, secret);
+      const response = await adapter.handleWebhook(request);
+
+      expect(response.status).toBe(200);
+
+      // Cache should be invalidated
+      const after = await state.get("slack:user:U_DOM_123");
+      expect(after).toBeNull();
     });
   });
 });

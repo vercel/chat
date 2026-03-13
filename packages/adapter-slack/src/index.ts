@@ -244,6 +244,18 @@ interface SlackMemberJoinedChannelEvent {
   user: string;
 }
 
+/** Slack user_change event payload */
+interface SlackUserChangeEvent {
+  event_ts: string;
+  type: "user_change";
+  user: {
+    id: string;
+    name?: string;
+    real_name?: string;
+    profile?: { display_name?: string; real_name?: string };
+  };
+}
+
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
   challenge?: string;
@@ -253,7 +265,8 @@ interface SlackWebhookPayload {
     | SlackAssistantThreadStartedEvent
     | SlackAssistantContextChangedEvent
     | SlackAppHomeOpenedEvent
-    | SlackMemberJoinedChannelEvent;
+    | SlackMemberJoinedChannelEvent
+    | SlackUserChangeEvent;
   event_id?: string;
   event_time?: number;
   team_id?: string;
@@ -916,6 +929,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event as SlackMemberJoinedChannelEvent,
           options
         );
+      } else if (event.type === "user_change") {
+        this.handleUserChange(event as SlackUserChangeEvent);
       }
     }
   }
@@ -1573,6 +1588,25 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
+  private handleUserChange(event: SlackUserChangeEvent): void {
+    if (!this.chat) {
+      return;
+    }
+
+    const userId = event.user.id;
+    const cacheKey = `slack:user:${userId}`;
+
+    this.chat
+      .getState()
+      .delete(cacheKey)
+      .catch((error: unknown) => {
+        this.logger.warn("Failed to invalidate user cache", {
+          userId,
+          error,
+        });
+      });
+  }
+
   /**
    * Publish a Home tab view for a user.
    * Slack API: views.publish
@@ -2021,32 +2055,34 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     // Replace mentions in text
-    return text.replace(mentionPattern, (match, name: string) => {
-      const idx = text.indexOf(match);
-      if (idx > 0 && text[idx - 1] === "<") {
-        return match;
-      }
-      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-        return match;
-      }
-
-      const userIds = mentions.get(name.toLowerCase());
-      if (!userIds || userIds.length === 0) {
-        return match;
-      }
-      if (userIds.length === 1) {
-        return `<@${userIds[0]}>`;
-      }
-      // Disambiguate using thread participants
-      if (participants) {
-        const inThread = userIds.filter((id) => participants.has(id));
-        if (inThread.length === 1) {
-          return `<@${inThread[0]}>`;
+    return text.replace(
+      mentionPattern,
+      (match, name: string, offset: number) => {
+        if (offset > 0 && text[offset - 1] === "<") {
+          return match;
         }
+        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+          return match;
+        }
+
+        const userIds = mentions.get(name.toLowerCase());
+        if (!userIds || userIds.length === 0) {
+          return match;
+        }
+        if (userIds.length === 1) {
+          return `<@${userIds[0]}>`;
+        }
+        // Disambiguate using thread participants
+        if (participants) {
+          const inThread = userIds.filter((id) => participants.has(id));
+          if (inThread.length === 1) {
+            return `<@${inThread[0]}>`;
+          }
+        }
+        // Still ambiguous — leave as plain text
+        return match;
       }
-      // Still ambiguous — leave as plain text
-      return match;
-    });
+    );
   }
 
   /**
