@@ -5005,5 +5005,37 @@ describe("reverse user lookup", () => {
       const reverseIndex = await state.getList("slack:user-by-name:dominik");
       expect(reverseIndex).not.toContain("U_DOM_123");
     });
+
+    it("handles user_change when no prior cache exists", async () => {
+      const state = createMockState();
+      const adapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        signingSecret: secret,
+        logger: mockLogger,
+      });
+      await adapter.initialize(createMockChatInstance(state));
+
+      const body = JSON.stringify({
+        type: "event_callback",
+        event: {
+          type: "user_change",
+          event_ts: "1234567890.123456",
+          user: {
+            id: "U_UNKNOWN",
+            profile: { display_name: "newname" },
+          },
+        },
+      });
+      const request = createWebhookRequest(body, secret);
+      const response = await adapter.handleWebhook(request);
+
+      expect(response.status).toBe(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Should not throw — just deletes (nonexistent) cache key
+      const cached = await state.get("slack:user:U_UNKNOWN");
+      expect(cached).toBeNull();
+    });
   });
 });
