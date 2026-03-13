@@ -8,6 +8,7 @@ import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
+import type { SerializedThread } from "./thread";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -939,6 +940,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   subscribe(): Promise<void>;
+
+  /**
+   * Serialize the thread to a plain JSON object.
+   * Use this to persist thread context or pass it across workflow boundaries.
+   */
+  toJSON(): SerializedThread;
 
   /**
    * Unsubscribe from this thread.
