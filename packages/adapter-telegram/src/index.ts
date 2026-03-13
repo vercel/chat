@@ -101,6 +101,90 @@ interface ResolvedTelegramLongPollingConfig {
 
 type TelegramRuntimeMode = "webhook" | "polling";
 
+/**
+ * Escape markdown special characters inside entity text so wrapping
+ * with markdown syntax doesn't break parsing.
+ */
+const escapeMarkdownInEntity = (text: string): string =>
+  text.replace(/([[\]()\\])/g, "\\$1");
+
+/**
+ * Convert Telegram message entities to markdown.
+ *
+ * Telegram delivers formatting as separate entity objects alongside plain text.
+ * This function reconstructs markdown so that links, bold, italic, code, etc.
+ * are preserved when the text is later parsed as markdown.
+ *
+ * Entities use UTF-16 offsets, which match JavaScript's native string indexing.
+ */
+export function applyTelegramEntities(
+  text: string,
+  entities: TelegramMessageEntity[]
+): string {
+  if (entities.length === 0) {
+    return text;
+  }
+
+  // Sort entities by offset descending so replacements don't shift later offsets
+  const sorted = [...entities].sort((a, b) => {
+    const offsetDiff = b.offset - a.offset;
+    // For entities at the same offset, apply the shorter (inner) one first
+    if (offsetDiff !== 0) {
+      return offsetDiff;
+    }
+    return a.length - b.length;
+  });
+
+  let result = text;
+
+  for (const entity of sorted) {
+    const start = entity.offset;
+    const end = entity.offset + entity.length;
+    const entityText = result.slice(start, end);
+
+    let replacement: string | undefined;
+
+    switch (entity.type) {
+      case "text_link": {
+        if (entity.url) {
+          replacement = `[${escapeMarkdownInEntity(entityText)}](${entity.url})`;
+        }
+        break;
+      }
+      case "bold": {
+        replacement = `**${entityText}**`;
+        break;
+      }
+      case "italic": {
+        replacement = `*${entityText}*`;
+        break;
+      }
+      case "code": {
+        replacement = `\`${entityText}\``;
+        break;
+      }
+      case "pre": {
+        const lang = entity.language ?? "";
+        replacement = `\`\`\`${lang}\n${entityText}\n\`\`\``;
+        break;
+      }
+      case "strikethrough": {
+        replacement = `~~${entityText}~~`;
+        break;
+      }
+      default:
+        // url, mention, bot_command, etc. are already present in the text as-is
+        break;
+    }
+
+    if (replacement !== undefined) {
+      result = result.slice(0, start) + replacement + result.slice(end);
+    }
+  }
+
+  return result;
+}
+
 export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
@@ -936,7 +1020,9 @@ export class TelegramAdapter
     raw: TelegramMessage,
     threadId: string
   ): Message<TelegramRawMessage> {
-    const text = raw.text ?? raw.caption ?? "";
+    const plainText = raw.text ?? raw.caption ?? "";
+    const entities = raw.entities ?? raw.caption_entities ?? [];
+    const text = applyTelegramEntities(plainText, entities);
     let author: TelegramMessageAuthor;
 
     if (raw.from) {
@@ -971,7 +1057,7 @@ export class TelegramAdapter
             : undefined,
       },
       attachments: this.extractAttachments(raw),
-      isMention: this.isBotMentioned(raw, text),
+      isMention: this.isBotMentioned(raw, plainText),
     });
 
     return message;
