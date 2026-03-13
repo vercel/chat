@@ -229,6 +229,9 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Called when Chat instance is created (internal use) */
   initialize(chat: ChatInstance): Promise<void>;
 
+  /** Cleanup hook called when Chat instance is shutdown */
+  disconnect?(): Promise<void>;
+
   /**
    * Check if a thread is a direct message conversation.
    *

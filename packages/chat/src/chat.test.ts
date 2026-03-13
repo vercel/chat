@@ -49,6 +49,77 @@ describe("Chat", () => {
     expect(mockState.connect).toHaveBeenCalled();
   });
 
+  it("should disconnect adapters during shutdown", async () => {
+    await chat.shutdown();
+
+    if (!mockAdapter.disconnect) {
+      throw new Error("Expected mock adapter disconnect to be defined");
+    }
+
+    expect(mockAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockState.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should disconnect adapter before state adapter during shutdown", async () => {
+    await chat.shutdown();
+
+    if (!mockAdapter.disconnect) {
+      throw new Error("Expected mock adapter disconnect to be defined");
+    }
+
+    const adapterDisconnectCall =
+      (mockAdapter.disconnect as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0];
+    const stateDisconnectCall = (mockState.disconnect as ReturnType<typeof vi.fn>)
+      .mock.invocationCallOrder[0];
+    expect(adapterDisconnectCall).toBeLessThan(stateDisconnectCall);
+  });
+
+  it("should allow adapters without disconnect during shutdown", async () => {
+    const adapterWithoutDisconnect: Adapter = {
+      ...createMockAdapter("slack"),
+      disconnect: undefined,
+    };
+    const state = createMockState();
+    const localChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: adapterWithoutDisconnect },
+      state,
+      logger: mockLogger,
+    });
+
+    await localChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await expect(localChat.shutdown()).resolves.toBeUndefined();
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should disconnect all adapters during shutdown", async () => {
+    const slackAdapter = createMockAdapter("slack");
+    const discordAdapter = createMockAdapter("discord");
+    const state = createMockState();
+    const multiAdapterChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: slackAdapter, discord: discordAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await multiAdapterChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await multiAdapterChat.shutdown();
+
+    if (!slackAdapter.disconnect || !discordAdapter.disconnect) {
+      throw new Error("Expected mock adapter disconnect to be defined");
+    }
+
+    expect(slackAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(discordAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it("should register webhook handlers", () => {
     expect(chat.webhooks.slack).toBeDefined();
     expect(typeof chat.webhooks.slack).toBe("function");
