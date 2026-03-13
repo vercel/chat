@@ -1595,10 +1595,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     const userId = event.user.id;
     const cacheKey = `slack:user:${userId}`;
+    const state = this.chat.getState();
 
-    this.chat
-      .getState()
-      .delete(cacheKey)
+    state
+      .get<CachedUser>(cacheKey)
+      .then(async (cached) => {
+        if (cached) {
+          const oldName = cached.displayName.toLowerCase();
+          const reverseKey = `slack:user-by-name:${oldName}`;
+          await state.removeFromList(reverseKey, userId);
+        }
+        await state.delete(cacheKey);
+      })
       .catch((error: unknown) => {
         this.logger.warn("Failed to invalidate user cache", {
           userId,

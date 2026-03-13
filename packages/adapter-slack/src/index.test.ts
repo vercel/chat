@@ -4964,19 +4964,13 @@ describe("reverse user lookup", () => {
       });
       await adapter.initialize(createMockChatInstance(state));
 
-      // Seed a cached user entry
+      // Seed user cache and reverse index
       await state.set(
         "slack:user:U_DOM_123",
         { displayName: "dominik", realName: "Dominik G" },
         8 * 24 * 60 * 60 * 1000
       );
-
-      // Confirm cache is populated
-      const before = await state.get("slack:user:U_DOM_123");
-      expect(before).toEqual({
-        displayName: "dominik",
-        realName: "Dominik G",
-      });
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
 
       // Send user_change event
       const body = JSON.stringify({
@@ -5000,9 +4994,16 @@ describe("reverse user lookup", () => {
 
       expect(response.status).toBe(200);
 
-      // Cache should be invalidated
-      const after = await state.get("slack:user:U_DOM_123");
-      expect(after).toBeNull();
+      // Allow async handler to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // User cache should be invalidated
+      const cached = await state.get("slack:user:U_DOM_123");
+      expect(cached).toBeNull();
+
+      // Old reverse index entry should be cleaned up
+      const reverseIndex = await state.getList("slack:user-by-name:dominik");
+      expect(reverseIndex).not.toContain("U_DOM_123");
     });
   });
 });
