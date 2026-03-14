@@ -351,6 +351,7 @@ type SlackInteractivePayload =
 /** Cached user info */
 interface CachedUser {
   displayName: string;
+  email?: string;
   realName: string;
 }
 
@@ -700,14 +701,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   private async lookupUser(
     userId: string
-  ): Promise<{ displayName: string; realName: string }> {
+  ): Promise<{ displayName: string; realName: string; email?: string }> {
     const cacheKey = `slack:user:${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
       const cached = await this.chat.getState().get<CachedUser>(cacheKey);
       if (cached) {
-        return { displayName: cached.displayName, realName: cached.realName };
+        return {
+          displayName: cached.displayName,
+          realName: cached.realName,
+          email: cached.email,
+        };
       }
     }
 
@@ -718,7 +723,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const user = result.user as {
         name?: string;
         real_name?: string;
-        profile?: { display_name?: string; real_name?: string };
+        profile?: { display_name?: string; real_name?: string; email?: string };
       };
 
       // Slack user naming: profile.display_name > profile.real_name > real_name > name > userId
@@ -730,6 +735,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId;
       const realName =
         user?.real_name || user?.profile?.real_name || displayName;
+      const email = user?.profile?.email;
 
       // Cache the result via state adapter
       if (this.chat) {
@@ -737,7 +743,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           .getState()
           .set<CachedUser>(
             cacheKey,
-            { displayName, realName },
+            { displayName, realName, email },
             SlackAdapter.USER_CACHE_TTL_MS
           );
 
@@ -757,8 +763,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId,
         displayName,
         realName,
+        email,
       });
-      return { displayName, realName };
+      return { displayName, realName, email };
     } catch (error) {
       this.logger.warn("Could not fetch user info", { userId, error });
       // Fall back to user ID
@@ -1868,12 +1875,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // since Slack events only include the user ID, not the username
     let userName = event.username || "unknown";
     let fullName = event.username || "unknown";
+    let userEmail = "unknown";
 
     // If we have a user ID but no username, look up the user info
     if (event.user && !event.username) {
       const userInfo = await this.lookupUser(event.user);
       userName = userInfo.displayName;
       fullName = userInfo.realName;
+      userEmail = userInfo.email || "unknown";
     }
 
     // Track thread participants for outgoing mention resolution (skip dupes)
@@ -1911,6 +1920,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId: event.user || event.bot_id || "unknown",
         userName,
         fullName,
+        email: userEmail,
         isBot: !!event.bot_id,
         isMe,
       },

@@ -59,6 +59,7 @@ oauth_config:
       - reactions:read
       - reactions:write
       - users:read
+      - users:read.email
 
 settings:
   event_subscriptions:
@@ -142,7 +143,7 @@ type Platform = keyof typeof bot.webhooks;
 
 export async function POST(
   request: Request,
-  context: RouteContext<"/api/webhooks/[platform]">
+  context: RouteContext<"/api/webhooks/[platform]">,
 ) {
   const { platform } = await context.params;
 
@@ -209,7 +210,9 @@ bot.onAction("info", async (event) => {
 ```
 
 <Callout type="info">
-  The file extension must be `.tsx` (not `.ts`) when using JSX components like `Card` and `Button`. Make sure your `tsconfig.json` has `"jsx": "react-jsx"` and `"jsxImportSource": "chat"`.
+  The file extension must be `.tsx` (not `.ts`) when using JSX components like
+  `Card` and `Button`. Make sure your `tsconfig.json` has `"jsx": "react-jsx"`
+  and `"jsxImportSource": "chat"`.
 </Callout>
 
 ## Deploy to Vercel
