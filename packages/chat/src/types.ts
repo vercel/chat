@@ -4,10 +4,12 @@
 
 import type { Root } from "mdast";
 import type { CardElement } from "./cards";
+import type { SerializedChannel } from "./channel";
 import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
+import type { SerializedThread } from "./thread";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -735,6 +737,12 @@ export interface Channel<
    * Empty iterable on threadless platforms.
    */
   threads(): AsyncIterable<ThreadSummary<TRawMessage>>;
+
+  /**
+   * Serialize the channel to a plain JSON object.
+   * Use this to pass channel data to external systems like workflow engines.
+   */
+  toJSON(): SerializedChannel;
 }
 
 /**
@@ -939,6 +947,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   subscribe(): Promise<void>;
+
+  /**
+   * Serialize the thread to a plain JSON object.
+   * Use this to pass thread data to external systems like workflow engines.
+   */
+  toJSON(): SerializedThread;
 
   /**
    * Unsubscribe from this thread.
