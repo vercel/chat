@@ -132,6 +132,7 @@ oauth_config:
       - reactions:read
       - reactions:write
       - users:read
+      - users:read.email
 
 settings:
   event_subscriptions:
@@ -180,17 +181,17 @@ After creating the app, go to **Basic Information** → **App Credentials** and 
 
 All options are auto-detected from environment variables when not provided. You can call `createSlackAdapter()` with no arguments if the env vars are set.
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| `botToken` | No | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN` |
-| `signingSecret` | No* | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET` |
-| `clientId` | No | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID` |
-| `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
-| `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
-| `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
-| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+| Option                  | Required | Description                                                                                                                           |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `botToken`              | No       | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN`                                                                          |
+| `signingSecret`         | No\*     | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET`                                                    |
+| `clientId`              | No       | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID`                                                         |
+| `clientSecret`          | No       | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET`                                                 |
+| `encryptionKey`         | No       | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY`                                               |
+| `installationKeyPrefix` | No       | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
+| `logger`                | No       | Logger instance (defaults to `ConsoleLogger("info")`)                                                                                 |
 
-*`signingSecret` is required — either via config or `SLACK_SIGNING_SECRET` env var.
+\*`signingSecret` is required — either via config or `SLACK_SIGNING_SECRET` env var.
 
 ## Environment variables
 
@@ -206,59 +207,59 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 
 ### Messaging
 
-| Feature | Supported |
-|---------|-----------|
-| Post message | Yes |
-| Edit message | Yes |
-| Delete message | Yes |
-| File uploads | Yes |
-| Streaming | Native API |
+| Feature            | Supported                 |
+| ------------------ | ------------------------- |
+| Post message       | Yes                       |
+| Edit message       | Yes                       |
+| Delete message     | Yes                       |
+| File uploads       | Yes                       |
+| Streaming          | Native API                |
 | Scheduled messages | Yes (native, with cancel) |
 
 ### Rich content
 
-| Feature | Supported |
-|---------|-----------|
-| Card format | Block Kit |
-| Buttons | Yes |
-| Link buttons | Yes |
-| Select menus | Yes |
-| Tables | Block Kit |
-| Fields | Yes |
-| Images in cards | Yes |
-| Modals | Yes |
+| Feature         | Supported |
+| --------------- | --------- |
+| Card format     | Block Kit |
+| Buttons         | Yes       |
+| Link buttons    | Yes       |
+| Select menus    | Yes       |
+| Tables          | Block Kit |
+| Fields          | Yes       |
+| Images in cards | Yes       |
+| Modals          | Yes       |
 
 ### Conversations
 
-| Feature | Supported |
-|---------|-----------|
-| Slash commands | Yes |
-| Mentions | Yes |
-| Add reactions | Yes |
-| Remove reactions | Yes |
-| Typing indicator | Yes |
-| DMs | Yes |
+| Feature            | Supported    |
+| ------------------ | ------------ |
+| Slash commands     | Yes          |
+| Mentions           | Yes          |
+| Add reactions      | Yes          |
+| Remove reactions   | Yes          |
+| Typing indicator   | Yes          |
+| DMs                | Yes          |
 | Ephemeral messages | Yes (native) |
 
 ### Message history
 
-| Feature | Supported |
-|---------|-----------|
-| Fetch messages | Yes |
-| Fetch single message | Yes |
-| Fetch thread info | Yes |
-| Fetch channel messages | Yes |
-| List threads | Yes |
-| Fetch channel info | Yes |
-| Post channel message | Yes |
+| Feature                | Supported |
+| ---------------------- | --------- |
+| Fetch messages         | Yes       |
+| Fetch single message   | Yes       |
+| Fetch thread info      | Yes       |
+| Fetch channel messages | Yes       |
+| List threads           | Yes       |
+| Fetch channel info     | Yes       |
+| Post channel message   | Yes       |
 
 ### Platform-specific
 
-| Feature | Supported |
-|---------|-----------|
-| Assistants API | Yes |
-| Member joined channel | Yes |
-| App Home tab | Yes |
+| Feature               | Supported |
+| --------------------- | --------- |
+| Assistants API        | Yes       |
+| Member joined channel | Yes       |
+| App Home tab          | Yes       |
 
 ## Slack Assistants API
 
@@ -286,13 +287,13 @@ bot.onAssistantContextChanged(async (event) => {
 
 The `SlackAdapter` exposes these methods for the Assistants API:
 
-| Method | Description |
-|--------|-------------|
-| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
-| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
-| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
-| `publishHomeView(userId, view)` | Publish a Home tab view for a user |
-| `startTyping(threadId, status)` | Show a custom loading status (requires `assistant:write` scope) |
+| Method                                                      | Description                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------- |
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread                           |
+| `setAssistantStatus(channelId, threadTs, status)`           | Show a thinking/status indicator                                |
+| `setAssistantTitle(channelId, threadTs, title)`             | Set the thread title (shown in History)                         |
+| `publishHomeView(userId, view)`                             | Publish a Home tab view for a user                              |
+| `startTyping(threadId, status)`                             | Show a custom loading status (requires `assistant:write` scope) |
 
 ### Required scopes and events
 
@@ -318,7 +319,16 @@ When streaming in an assistant thread, you can attach Block Kit elements to the 
 ```typescript
 await thread.stream(textStream, {
   stopBlocks: [
-    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Retry" },
+          action_id: "retry",
+        },
+      ],
+    },
   ],
 });
 ```

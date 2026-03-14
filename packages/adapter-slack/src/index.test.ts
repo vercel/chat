@@ -3018,6 +3018,49 @@ describe("fetchMessages", () => {
       })
     );
   });
+
+  it("fetches author email via lookupUser when fetching messages", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            type: "message",
+            user: "U1",
+            text: "test message",
+            ts: "1000.000",
+            channel: "C123",
+          },
+        ],
+        has_more: false,
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user1", profile: { email: "user1@example.com" } },
+      })
+    );
+
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const result = await adapter.fetchMessages("slack:C123:1234567890.000000");
+
+    expect(result.messages.length).toBe(1);
+    expect(result.messages[0].author.email).toBe("user1@example.com");
+  });
 });
 
 // ============================================================================
