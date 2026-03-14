@@ -3382,6 +3382,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId: event.user || event.bot_id || "unknown",
         userName,
         fullName,
+        email: "unknown",
         isBot: !!event.bot_id,
         isMe,
       },
