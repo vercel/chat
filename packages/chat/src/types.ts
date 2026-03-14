@@ -738,7 +738,10 @@ export interface Channel<
    */
   threads(): AsyncIterable<ThreadSummary<TRawMessage>>;
 
-  /** Serialize this channel for persistence or cross-process transfer. */
+  /**
+   * Serialize the channel to a plain JSON object.
+   * Use this to pass channel data to external systems like workflow engines.
+   */
   toJSON(): SerializedChannel;
 }
 
@@ -945,7 +948,10 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    */
   subscribe(): Promise<void>;
 
-  /** Serialize this thread for persistence or cross-process transfer. */
+  /**
+   * Serialize the thread to a plain JSON object.
+   * Use this to pass thread data to external systems like workflow engines.
+   */
   toJSON(): SerializedThread;
 
   /**
