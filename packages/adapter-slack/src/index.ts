@@ -3019,7 +3019,34 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
     };
 
-    for await (const chunk of textStream) {
+    // Race each chunk against a keepalive timer. Slack expires the streaming
+    // session after ~5 min of inactivity; we send a zero-width-space append
+    // every 2 min to keep it alive during long-running agent turns.
+    const KEEPALIVE_MS = 120_000;
+    const iter = textStream[Symbol.asyncIterator]();
+    let pending: Promise<IteratorResult<string | StreamChunk>> | null = null;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (!pending) pending = iter.next();
+
+      const raced = await Promise.race([
+        pending.then((r) => ({ kind: "value" as const, result: r })),
+        new Promise<{ kind: "keepalive" }>((r) =>
+          setTimeout(() => r({ kind: "keepalive" }), KEEPALIVE_MS)
+        ),
+      ]);
+
+      if (raced.kind === "keepalive") {
+        // Send an invisible append to keep the Slack streaming session alive
+        await flushMarkdownDelta("\u200B");
+        continue;
+      }
+
+      pending = null;
+      if (raced.result.done) break;
+
+      const chunk = raced.result.value;
       if (typeof chunk === "string") {
         await pushTextAndFlush(chunk);
       } else if (chunk.type === "markdown_text") {
