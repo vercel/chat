@@ -15,7 +15,10 @@
     "WHATSAPP_PHONE_NUMBER_ID",
     "WHATSAPP_VERIFY_TOKEN",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "LINQ_API_TOKEN",
+    "LINQ_SIGNING_SECRET",
+    "LINQ_PHONE_NUMBER"
   ],
   "tasks": {
     "build": {

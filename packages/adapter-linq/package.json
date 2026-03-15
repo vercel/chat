@@ -1,0 +1,61 @@
+{
+  "name": "@chat-adapter/linq",
+  "version": "0.1.0",
+  "description": "Linq adapter for chat - iMessage, SMS, and RCS via Linq API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "generate-types": "pnpm dlx openapi-typescript lib/linq/linq-api-v3.yaml -o src/schema.ts",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*",
+    "openapi-fetch": "^0.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "openapi-typescript": "^7.8.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-linq"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "linq",
+    "imessage",
+    "sms",
+    "rcs",
+    "bot",
+    "adapter"
+  ],
+  "license": "MIT"
+}
