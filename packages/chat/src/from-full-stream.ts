@@ -64,7 +64,7 @@ export async function* fromFullStream(
       needsSeparator = false;
       hasEmittedText = true;
       yield textContent;
-    } else if (typed.type === "step-finish") {
+    } else if (typed.type === "finish-step") {
       needsSeparator = true;
     }
   }
