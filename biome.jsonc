@@ -35,6 +35,7 @@
       "!apps/docs/app/\\[lang\\]/og",
       "!apps/docs/app/\\[lang\\]/rss.xml",
       "!apps/docs/app/\\[lang\\]/layout.tsx",
+      "!apps/docs/app/\\[lang\\]/sitemap.md",
       "!apps/docs/app/actions/feedback",
       "!apps/docs/app/api",
       "!apps/docs/app/styles/geistdocs.css",

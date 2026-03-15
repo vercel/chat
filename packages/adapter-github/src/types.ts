@@ -17,18 +17,20 @@ interface GitHubAdapterBaseConfig {
    * Used for self-message detection. If not provided, will be fetched on first API call.
    */
   botUserId?: number;
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
   /**
    * Bot username (e.g., "my-bot" or "my-bot[bot]" for GitHub Apps).
    * Used for @-mention detection.
+   * Defaults to GITHUB_BOT_USERNAME env var or "github-bot".
    */
-  userName: string;
+  userName?: string;
   /**
    * Webhook secret for HMAC-SHA256 verification.
    * Set this in your GitHub webhook settings.
+   * Defaults to GITHUB_WEBHOOK_SECRET env var.
    */
-  webhookSecret: string;
+  webhookSecret?: string;
 }
 
 /**
@@ -74,12 +76,23 @@ export interface GitHubAdapterMultiTenantAppConfig
 }
 
 /**
+ * Configuration with no auth fields - will auto-detect from env vars.
+ */
+export interface GitHubAdapterAutoConfig extends GitHubAdapterBaseConfig {
+  appId?: never;
+  installationId?: never;
+  privateKey?: never;
+  token?: never;
+}
+
+/**
  * GitHub adapter configuration - PAT, single-tenant App, or multi-tenant App.
  */
 export type GitHubAdapterConfig =
   | GitHubAdapterPATConfig
   | GitHubAdapterAppConfig
-  | GitHubAdapterMultiTenantAppConfig;
+  | GitHubAdapterMultiTenantAppConfig
+  | GitHubAdapterAutoConfig;
 
 // =============================================================================
 // Thread ID

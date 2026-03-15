@@ -4,11 +4,14 @@
 
 import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
-import type { Logger } from "chat";
+import type { ChatInstance, Logger } from "chat";
+import { Actions, Button, Card } from "chat";
 import { InteractionType } from "discord-api-types/v10";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
 import { DiscordFormatConverter } from "./markdown";
+
+const AT_ME_REGEX = /\/@me$/;
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -102,6 +105,81 @@ describe("createDiscordAdapter", () => {
       userName: "custombot",
     });
     expect(adapter.userName).toBe("custombot");
+  });
+});
+
+// ============================================================================
+// Constructor env var resolution
+// ============================================================================
+
+describe("constructor env var resolution", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("DISCORD_")) {
+        delete process.env[key];
+      }
+    }
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("should throw when botToken is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({})).toThrow("botToken is required");
+  });
+
+  it("should throw when publicKey is missing and env var not set", () => {
+    expect(() => new DiscordAdapter({ botToken: "test" })).toThrow(
+      "publicKey is required"
+    );
+  });
+
+  it("should throw when applicationId is missing and env var not set", () => {
+    expect(
+      () => new DiscordAdapter({ botToken: "test", publicKey: testPublicKey })
+    ).toThrow("applicationId is required");
+  });
+
+  it("should resolve all fields from env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+    expect(adapter.userName).toBe("bot");
+  });
+
+  it("should resolve mentionRoleIds from DISCORD_MENTION_ROLE_IDS env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_MENTION_ROLE_IDS = "role1, role2, role3";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should default logger when not provided", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter();
+    expect(adapter).toBeInstanceOf(DiscordAdapter);
+  });
+
+  it("should prefer config values over env vars", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      userName: "mybot",
+    });
+    expect(adapter.userName).toBe("mybot");
   });
 });
 
@@ -406,6 +484,212 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const responseBody = await response.json();
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
   });
+
+  it("dispatches slash command to chat core", async () => {
+    const processSlashCommand = vi.fn();
+    await adapter.initialize({
+      processSlashCommand,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+          global_name: "Test User",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        name: "test",
+        type: 1,
+        options: [
+          {
+            name: "topic",
+            type: 3,
+            value: "status",
+          },
+          {
+            name: "verbose",
+            type: 5,
+            value: true,
+          },
+        ],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    expect(processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/test",
+        text: "status true",
+        channelId: "discord:guild123:channel456",
+        user: {
+          userId: "user789",
+          userName: "testuser",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+      }),
+      undefined
+    );
+  });
+
+  it("expands subcommand path into event.command", async () => {
+    const processSlashCommand = vi.fn();
+    await adapter.initialize({
+      processSlashCommand,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+          global_name: "Test User",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        name: "project",
+        type: 1,
+        options: [
+          {
+            name: "issue",
+            type: 2, // SUB_COMMAND_GROUP
+            options: [
+              {
+                name: "create",
+                type: 1, // SUB_COMMAND
+                options: [
+                  { name: "title", type: 3, value: "Login fails" },
+                  { name: "priority", type: 3, value: "high" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    expect(processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/project issue create",
+        text: "Login fails high",
+      }),
+      undefined
+    );
+  });
+
+  it("resolves deferred slash responses via interaction webhook", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "msg123",
+          channel_id: "channel456",
+          content: "Pong!",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 0,
+          author: {
+            id: "test-app-id",
+            username: "bot",
+            discriminator: "0000",
+            bot: true,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    try {
+      let replyTask: Promise<unknown> | undefined;
+
+      await adapter.initialize({
+        processSlashCommand: (event: { channelId: string }) => {
+          replyTask = adapter.postChannelMessage(event.channelId, "Pong!");
+        },
+      } as unknown as ChatInstance);
+
+      const body = JSON.stringify({
+        type: InteractionType.ApplicationCommand,
+        id: "interaction123",
+        application_id: "test-app-id",
+        token: "interaction-token",
+        version: 1,
+        guild_id: "guild123",
+        channel_id: "channel456",
+        member: {
+          user: {
+            id: "user789",
+            username: "testuser",
+            discriminator: "0001",
+          },
+          roles: [],
+          joined_at: "2021-01-01T00:00:00.000Z",
+        },
+        data: {
+          id: "cmd123",
+          name: "test",
+          type: 1,
+        },
+      });
+      const request = createWebhookRequest(body);
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+
+      await replyTask;
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/webhooks/test-app-id/interaction-token/messages/@original",
+        expect.objectContaining({
+          method: "PATCH",
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 // ============================================================================
@@ -569,6 +853,102 @@ describe("parseMessage", () => {
     expect(message.metadata?.editedAt).toEqual(
       new Date("2021-01-01T00:01:00.000Z")
     );
+  });
+
+  it("uses referenced_message content for thread starter messages", () => {
+    const rawMessage = {
+      id: "starter123",
+      channel_id: "thread456",
+      guild_id: "guild789",
+      author: {
+        id: "system",
+        username: "system",
+        discriminator: "0000",
+        bot: true,
+      },
+      content: "",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 21,
+      message_reference: {
+        message_id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+      },
+      referenced_message: {
+        id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+        author: {
+          id: "user123",
+          username: "parent-author",
+          discriminator: "0001",
+          global_name: "Parent Author",
+        },
+        content: "Parent message content",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+    };
+
+    const message = adapter.parseMessage(rawMessage);
+
+    expect(message.id).toBe("parent123");
+    expect(message.text).toBe("Parent message content");
+    expect(message.author.userId).toBe("user123");
+    expect(message.threadId).toBe("discord:guild789:thread456");
+  });
+
+  it("falls back gracefully when thread starter has no referenced_message", () => {
+    const rawMessage = {
+      id: "starter123",
+      channel_id: "thread456",
+      guild_id: "guild789",
+      author: {
+        id: "system",
+        username: "system",
+        discriminator: "0000",
+        bot: true,
+      },
+      content: "",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 21,
+      message_reference: {
+        message_id: "parent123",
+        channel_id: "channel456",
+        guild_id: "guild789",
+      },
+      referenced_message: null,
+    };
+
+    const message = adapter.parseMessage(rawMessage);
+
+    expect(message.id).toBe("starter123");
+    expect(message.text).toBe("");
+    expect(message.author.userId).toBe("system");
   });
 
   it("parses message with attachments", () => {
@@ -1029,5 +1409,2562 @@ describe("DiscordFormatConverter", () => {
       const result = converter.renderPostable({ raw: "Hello @user" });
       expect(result).toBe("Hello <@user>");
     });
+  });
+});
+
+// ============================================================================
+// postMessage Tests
+// ============================================================================
+
+describe("postMessage", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("posts a plain text message", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg001",
+        channel_id: "channel456",
+        content: "Hello world",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.postMessage(
+      "discord:guild1:channel456",
+      "Hello world"
+    );
+
+    expect(result.id).toBe("msg001");
+    expect(result.threadId).toBe("discord:guild1:channel456");
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages",
+      "POST",
+      expect.objectContaining({ content: expect.any(String) })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("posts to thread channel when threadId is present", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg002",
+        channel_id: "thread789",
+        content: "Thread reply",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.postMessage(
+      "discord:guild1:channel456:thread789",
+      "Thread reply"
+    );
+
+    expect(result.id).toBe("msg002");
+    expect(result.threadId).toBe("discord:guild1:channel456:thread789");
+    // Should post to thread channel, not parent
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/thread789/messages",
+      "POST",
+      expect.objectContaining({ content: expect.any(String) })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("truncates content exceeding 2000 characters", async () => {
+    const longMessage = "a".repeat(2500);
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg003",
+        channel_id: "channel456",
+        content: "truncated",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.postMessage("discord:guild1:channel456", longMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
+    expect(calledPayload.content).toBeDefined();
+    expect(calledPayload.content?.length).toBeLessThanOrEqual(2000);
+    expect(calledPayload.content?.endsWith("...")).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("does not truncate content within 2000 characters", async () => {
+    const shortMessage = "short";
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: shortMessage,
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.postMessage("discord:guild1:channel456", shortMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
+    expect(calledPayload.content).toBe(shortMessage);
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// editMessage Tests
+// ============================================================================
+
+describe("editMessage", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("edits a message with PATCH", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg001",
+        channel_id: "channel456",
+        content: "Updated content",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg001",
+      "Updated content"
+    );
+
+    expect(result.id).toBe("msg001");
+    expect(result.threadId).toBe("discord:guild1:channel456");
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg001",
+      "PATCH",
+      expect.objectContaining({ content: expect.any(String) })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("edits a message in a thread channel", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg002",
+        channel_id: "thread789",
+        content: "Edited thread reply",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.editMessage(
+      "discord:guild1:channel456:thread789",
+      "msg002",
+      "Edited thread reply"
+    );
+
+    expect(result.id).toBe("msg002");
+    // Should use thread channel ID, not parent
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/thread789/messages/msg002",
+      "PATCH",
+      expect.objectContaining({ content: expect.any(String) })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("truncates content exceeding 2000 characters on edit", async () => {
+    const longMessage = "b".repeat(2500);
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg003",
+        channel_id: "channel456",
+        content: "truncated",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg003",
+      longMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
+    expect(calledPayload.content?.length).toBeLessThanOrEqual(2000);
+    expect(calledPayload.content?.endsWith("...")).toBe(true);
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// deleteMessage Tests
+// ============================================================================
+
+describe("deleteMessage", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("deletes a message", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.deleteMessage("discord:guild1:channel456", "msg001");
+
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg001",
+      "DELETE"
+    );
+
+    spy.mockRestore();
+  });
+
+  it("deletes a message in a thread", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.deleteMessage(
+      "discord:guild1:channel456:thread789",
+      "msg002"
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/thread789/messages/msg002",
+      "DELETE"
+    );
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// Reaction Tests
+// ============================================================================
+
+describe("addReaction", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("adds a reaction to a message", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.addReaction(
+      "discord:guild1:channel456",
+      "msg001",
+      "thumbs_up"
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/channels/channel456/messages/msg001/reactions/"
+      ),
+      "PUT"
+    );
+    // Should end with /@me
+    expect(spy.mock.calls[0]?.[0]).toMatch(AT_ME_REGEX);
+
+    spy.mockRestore();
+  });
+
+  it("adds a reaction in a thread", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.addReaction(
+      "discord:guild1:channel456:thread789",
+      "msg001",
+      "heart"
+    );
+
+    // Should use thread channel, not parent
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("/channels/thread789/messages/msg001/reactions/"),
+      "PUT"
+    );
+
+    spy.mockRestore();
+  });
+});
+
+describe("removeReaction", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("removes a reaction from a message", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.removeReaction(
+      "discord:guild1:channel456",
+      "msg001",
+      "thumbs_up"
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/channels/channel456/messages/msg001/reactions/"
+      ),
+      "DELETE"
+    );
+    expect(spy.mock.calls[0]?.[0]).toMatch(AT_ME_REGEX);
+
+    spy.mockRestore();
+  });
+
+  it("removes a reaction in a thread", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.removeReaction(
+      "discord:guild1:channel456:thread789",
+      "msg001",
+      "fire"
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("/channels/thread789/messages/msg001/reactions/"),
+      "DELETE"
+    );
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// normalizeDiscordEmoji Tests
+// ============================================================================
+
+describe("normalizeDiscordEmoji", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("normalizes unicode thumbs up emoji", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u{1F44D}");
+    expect(result).toBeDefined();
+  });
+
+  it("normalizes unicode heart emoji", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u2764\uFE0F");
+    expect(result).toBeDefined();
+  });
+
+  it("normalizes heart without variation selector", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u2764");
+    expect(result).toBeDefined();
+  });
+
+  it("normalizes unicode fire emoji", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u{1F525}");
+    expect(result).toBeDefined();
+  });
+
+  it("passes through unknown emoji names", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("custom_emoji");
+    expect(result).toBeDefined();
+  });
+
+  it("normalizes unicode rocket emoji", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u{1F680}");
+    expect(result).toBeDefined();
+  });
+
+  it("normalizes eyes emoji", () => {
+    const result = (adapter as any).normalizeDiscordEmoji("\u{1F440}");
+    expect(result).toBeDefined();
+  });
+});
+
+// ============================================================================
+// encodeEmoji Tests
+// ============================================================================
+
+describe("encodeEmoji", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("URL-encodes emoji for API paths", () => {
+    const result = (adapter as any).encodeEmoji("thumbs_up");
+    // Should be URL-encoded
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("handles string emoji input", () => {
+    const result = (adapter as any).encodeEmoji("fire");
+    expect(typeof result).toBe("string");
+  });
+});
+
+// ============================================================================
+// truncateContent Tests
+// ============================================================================
+
+describe("truncateContent", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("returns content unchanged when within limit", () => {
+    const result = (adapter as any).truncateContent("Hello world");
+    expect(result).toBe("Hello world");
+  });
+
+  it("returns content unchanged at exactly 2000 chars", () => {
+    const content = "x".repeat(2000);
+    const result = (adapter as any).truncateContent(content);
+    expect(result).toBe(content);
+    expect(result.length).toBe(2000);
+  });
+
+  it("truncates content exceeding 2000 chars with ellipsis", () => {
+    const content = "y".repeat(2500);
+    const result = (adapter as any).truncateContent(content);
+    expect(result.length).toBe(2000);
+    expect(result.endsWith("...")).toBe(true);
+    // First 1997 chars should be 'y'
+    expect(result.slice(0, 1997)).toBe("y".repeat(1997));
+  });
+
+  it("truncates at exactly 2001 chars", () => {
+    const content = "z".repeat(2001);
+    const result = (adapter as any).truncateContent(content);
+    expect(result.length).toBe(2000);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  it("handles empty string", () => {
+    const result = (adapter as any).truncateContent("");
+    expect(result).toBe("");
+  });
+});
+
+// ============================================================================
+// channelIdFromThreadId Tests
+// ============================================================================
+
+describe("channelIdFromThreadId", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("returns channel-level ID from thread ID", () => {
+    const result = adapter.channelIdFromThreadId(
+      "discord:guild1:channel456:thread789"
+    );
+    expect(result).toBe("discord:guild1:channel456");
+  });
+
+  it("returns as-is when already a channel ID (3 parts)", () => {
+    const result = adapter.channelIdFromThreadId("discord:guild1:channel456");
+    expect(result).toBe("discord:guild1:channel456");
+  });
+
+  it("handles DM channel IDs", () => {
+    const result = adapter.channelIdFromThreadId("discord:@me:dm123");
+    expect(result).toBe("discord:@me:dm123");
+  });
+});
+
+// ============================================================================
+// startTyping Tests
+// ============================================================================
+
+describe("startTyping", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("sends typing indicator to channel", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.startTyping("discord:guild1:channel456");
+
+    expect(spy).toHaveBeenCalledWith("/channels/channel456/typing", "POST");
+
+    spy.mockRestore();
+  });
+
+  it("sends typing indicator to thread channel", async () => {
+    const mockResponse = new Response(null, { status: 204 });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.startTyping("discord:guild1:channel456:thread789");
+
+    expect(spy).toHaveBeenCalledWith("/channels/thread789/typing", "POST");
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// openDM Tests
+// ============================================================================
+
+describe("openDM", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("creates a DM channel and returns encoded thread ID", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "dm-channel-123",
+        type: 1,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.openDM("user123");
+
+    expect(result).toBe("discord:@me:dm-channel-123");
+    expect(spy).toHaveBeenCalledWith("/users/@me/channels", "POST", {
+      recipient_id: "user123",
+    });
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// fetchMessages Tests
+// ============================================================================
+
+describe("fetchMessages", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("fetches messages from a channel", async () => {
+    const mockMessages = [
+      {
+        id: "msg3",
+        channel_id: "channel456",
+        content: "Third",
+        timestamp: "2021-01-01T00:03:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+        author: {
+          id: "user1",
+          username: "testuser",
+          discriminator: "0001",
+        },
+      },
+      {
+        id: "msg2",
+        channel_id: "channel456",
+        content: "Second",
+        timestamp: "2021-01-01T00:02:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+        author: {
+          id: "user1",
+          username: "testuser",
+          discriminator: "0001",
+        },
+      },
+    ];
+    const mockResponse = new Response(JSON.stringify(mockMessages), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchMessages("discord:guild1:channel456", {
+      limit: 2,
+    });
+
+    // Messages should be reversed to chronological order
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0].id).toBe("msg2"); // Oldest first
+    expect(result.messages[1].id).toBe("msg3"); // Newest second
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("/channels/channel456/messages?"),
+      "GET"
+    );
+
+    spy.mockRestore();
+  });
+
+  it("fetches messages from a thread channel", async () => {
+    const mockMessages = [
+      {
+        id: "msg1",
+        channel_id: "thread789",
+        content: "Thread msg",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+        author: {
+          id: "user1",
+          username: "testuser",
+          discriminator: "0001",
+        },
+      },
+    ];
+    const mockResponse = new Response(JSON.stringify(mockMessages), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchMessages(
+      "discord:guild1:channel456:thread789"
+    );
+
+    expect(result.messages).toHaveLength(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("/channels/thread789/messages?"),
+      "GET"
+    );
+
+    spy.mockRestore();
+  });
+
+  it("uses cursor for backward pagination", async () => {
+    const mockResponse = new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.fetchMessages("discord:guild1:channel456", {
+      cursor: "msg100",
+      direction: "backward",
+    });
+
+    const calledUrl = spy.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("before=msg100");
+
+    spy.mockRestore();
+  });
+
+  it("uses cursor for forward pagination", async () => {
+    const mockResponse = new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.fetchMessages("discord:guild1:channel456", {
+      cursor: "msg100",
+      direction: "forward",
+    });
+
+    const calledUrl = spy.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("after=msg100");
+
+    spy.mockRestore();
+  });
+
+  it("returns nextCursor when results match limit", async () => {
+    const mockMessages = Array.from({ length: 10 }, (_, i) => ({
+      id: `msg${i}`,
+      channel_id: "channel456",
+      content: `Message ${i}`,
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 0,
+      author: {
+        id: "user1",
+        username: "testuser",
+        discriminator: "0001",
+      },
+    }));
+    const mockResponse = new Response(JSON.stringify(mockMessages), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchMessages("discord:guild1:channel456", {
+      limit: 10,
+    });
+
+    // Should have a nextCursor since results === limit
+    expect(result.nextCursor).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("returns no nextCursor when results are fewer than limit", async () => {
+    const mockMessages = [
+      {
+        id: "msg1",
+        channel_id: "channel456",
+        content: "Only one",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+        author: {
+          id: "user1",
+          username: "testuser",
+          discriminator: "0001",
+        },
+      },
+    ];
+    const mockResponse = new Response(JSON.stringify(mockMessages), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchMessages("discord:guild1:channel456", {
+      limit: 50,
+    });
+
+    expect(result.nextCursor).toBeUndefined();
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// fetchChannelMessages Tests
+// ============================================================================
+
+describe("fetchChannelMessages", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("fetches channel-level messages", async () => {
+    const mockMessages = [
+      {
+        id: "msg1",
+        channel_id: "channel456",
+        content: "Channel msg",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        edited_timestamp: null,
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+        author: {
+          id: "user1",
+          username: "testuser",
+          discriminator: "0001",
+        },
+      },
+    ];
+    const mockResponse = new Response(JSON.stringify(mockMessages), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchChannelMessages(
+      "discord:guild1:channel456"
+    );
+
+    expect(result.messages).toHaveLength(1);
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("/channels/channel456/messages?"),
+      "GET"
+    );
+
+    spy.mockRestore();
+  });
+
+  it("throws on invalid channel ID format", async () => {
+    await expect(adapter.fetchChannelMessages("invalid")).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  it("uses cursor for backward pagination", async () => {
+    const mockResponse = new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.fetchChannelMessages("discord:guild1:channel456", {
+      cursor: "msg50",
+      direction: "backward",
+    });
+
+    const calledUrl = spy.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("before=msg50");
+
+    spy.mockRestore();
+  });
+
+  it("uses cursor for forward pagination", async () => {
+    const mockResponse = new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.fetchChannelMessages("discord:guild1:channel456", {
+      cursor: "msg50",
+      direction: "forward",
+    });
+
+    const calledUrl = spy.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("after=msg50");
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// fetchChannelInfo Tests
+// ============================================================================
+
+describe("fetchChannelInfo", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("fetches channel info for a guild text channel", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "channel456",
+        name: "general",
+        type: 0, // GuildText
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchChannelInfo("discord:guild1:channel456");
+
+    expect(result.id).toBe("discord:guild1:channel456");
+    expect(result.name).toBe("general");
+    expect(result.isDM).toBe(false);
+    expect(spy).toHaveBeenCalledWith("/channels/channel456", "GET");
+
+    spy.mockRestore();
+  });
+
+  it("fetches channel info for a DM", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "dm123",
+        type: 1, // DM
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchChannelInfo("discord:@me:dm123");
+
+    expect(result.isDM).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("throws on invalid channel ID", async () => {
+    await expect(adapter.fetchChannelInfo("invalid")).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  it("includes member count when available", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "channel456",
+        name: "general",
+        type: 0,
+        member_count: 42,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchChannelInfo("discord:guild1:channel456");
+
+    expect(result.memberCount).toBe(42);
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// postChannelMessage Tests
+// ============================================================================
+
+describe("postChannelMessage", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("posts a message to a channel", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg001",
+        channel_id: "channel456",
+        content: "Channel message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      "Channel message"
+    );
+
+    expect(result.id).toBe("msg001");
+    expect(result.threadId).toBe("discord:guild1:channel456");
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages",
+      "POST",
+      expect.objectContaining({ content: expect.any(String) })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("throws on invalid channel ID", async () => {
+    await expect(
+      adapter.postChannelMessage("invalid", "Hello")
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("truncates long content", async () => {
+    const longMessage = "c".repeat(2500);
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg002",
+        channel_id: "channel456",
+        content: "truncated",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.postChannelMessage("discord:guild1:channel456", longMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
+    expect(calledPayload.content?.length).toBeLessThanOrEqual(2000);
+
+    spy.mockRestore();
+  });
+
+  it("posts a card message with embeds and components", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg003",
+        channel_id: "channel456",
+        content: "Test Card",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.embeds).toBeDefined();
+    expect(Array.isArray(calledPayload.embeds)).toBe(true);
+    expect((calledPayload.embeds ?? []).length).toBeGreaterThan(0);
+    expect(calledPayload.components).toBeDefined();
+    expect(Array.isArray(calledPayload.components)).toBe(true);
+    expect((calledPayload.components ?? []).length).toBeGreaterThan(0);
+
+    spy.mockRestore();
+  });
+
+  it("calls postMessageWithFiles when files are present", async () => {
+    const mockRawMessage = {
+      id: "msg004",
+      threadId: "discord:guild1:channel456",
+      raw: {},
+    };
+    const spy = vi
+      .spyOn(adapter as any, "postMessageWithFiles")
+      .mockResolvedValue(mockRawMessage);
+
+    const fileMessage = {
+      text: "Here's a file",
+      files: [
+        {
+          name: "test.txt",
+          data: Buffer.from("hello"),
+          mimeType: "text/plain",
+          filename: "test.txt",
+        },
+      ],
+    };
+
+    const result = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      fileMessage
+    );
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(result).toEqual(mockRawMessage);
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// listThreads Tests
+// ============================================================================
+
+describe("listThreads", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("lists active and archived threads", async () => {
+    const activeThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            message_count: 5,
+            total_message_sent: 5,
+          },
+          {
+            id: "thread2",
+            name: "Thread 2",
+            parent_id: "channel456",
+            total_message_sent: 3,
+          },
+          {
+            id: "thread_other",
+            name: "Other Channel Thread",
+            parent_id: "other_channel",
+            total_message_sent: 1,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread3",
+            name: "Archived Thread",
+            parent_id: "channel456",
+            total_message_sent: 10,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const threadMsgResponse = new Response(
+      JSON.stringify([
+        {
+          id: "root-msg",
+          channel_id: "thread1",
+          content: "Root message",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 0,
+          author: {
+            id: "user1",
+            username: "testuser",
+            discriminator: "0001",
+          },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      // Individual thread message fetches
+      return Promise.resolve(threadMsgResponse.clone());
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456");
+
+    // Should include 2 active threads + 1 archived = 3 (filtered by parent_id)
+    expect(result.threads).toHaveLength(3);
+
+    spy.mockRestore();
+  });
+
+  it("deduplicates threads that appear in both active and archived", async () => {
+    const activeThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            total_message_sent: 5,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    // Same thread appears in archived
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            total_message_sent: 5,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const threadMsgResponse = new Response(
+      JSON.stringify([
+        {
+          id: "root-msg",
+          channel_id: "thread1",
+          content: "Root message",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 0,
+          author: {
+            id: "user1",
+            username: "testuser",
+            discriminator: "0001",
+          },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      return Promise.resolve(threadMsgResponse.clone());
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456");
+
+    // Should only have 1 thread (deduplicated)
+    expect(result.threads).toHaveLength(1);
+
+    spy.mockRestore();
+  });
+
+  it("uses referenced_message when thread root is a THREAD_STARTER_MESSAGE", async () => {
+    const activeThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            total_message_sent: 5,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({ threads: [] }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const threadMsgResponse = new Response(
+      JSON.stringify([
+        {
+          id: "starter-msg",
+          channel_id: "thread1",
+          content: "",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 21,
+          author: {
+            id: "system",
+            username: "system",
+            discriminator: "0000",
+            bot: true,
+          },
+          message_reference: {
+            message_id: "parent-msg",
+            channel_id: "channel456",
+            guild_id: "guild1",
+          },
+          referenced_message: {
+            id: "parent-msg",
+            channel_id: "channel456",
+            guild_id: "guild1",
+            content: "Parent root content",
+            timestamp: "2021-01-01T00:00:00.000Z",
+            edited_timestamp: null,
+            tts: false,
+            mention_everyone: false,
+            mentions: [],
+            mention_roles: [],
+            attachments: [],
+            embeds: [],
+            pinned: false,
+            type: 0,
+            author: {
+              id: "user1",
+              username: "testuser",
+              discriminator: "0001",
+            },
+          },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      return Promise.resolve(threadMsgResponse.clone());
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456");
+
+    expect(result.threads).toHaveLength(1);
+    expect(result.threads[0].rootMessage.id).toBe("parent-msg");
+    expect(result.threads[0].rootMessage.text).toBe("Parent root content");
+
+    spy.mockRestore();
+  });
+
+  it("throws on invalid channel ID", async () => {
+    await expect(adapter.listThreads("invalid")).rejects.toThrow(
+      ValidationError
+    );
+  });
+
+  it("applies limit to thread results", async () => {
+    const threads = Array.from({ length: 5 }, (_, i) => ({
+      id: `thread${i}`,
+      name: `Thread ${i}`,
+      parent_id: "channel456",
+      total_message_sent: i,
+    }));
+
+    const activeThreadsResponse = new Response(JSON.stringify({ threads }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({ threads: [] }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const threadMsgResponse = new Response(
+      JSON.stringify([
+        {
+          id: "root-msg",
+          channel_id: "thread0",
+          content: "Root",
+          timestamp: "2021-01-01T00:00:00.000Z",
+          edited_timestamp: null,
+          tts: false,
+          mention_everyone: false,
+          mentions: [],
+          mention_roles: [],
+          attachments: [],
+          embeds: [],
+          pinned: false,
+          type: 0,
+          author: {
+            id: "user1",
+            username: "testuser",
+            discriminator: "0001",
+          },
+        },
+      ]),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      return Promise.resolve(threadMsgResponse.clone());
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456", {
+      limit: 2,
+    });
+
+    expect(result.threads).toHaveLength(2);
+    expect(result.nextCursor).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("creates placeholder when root message fetch fails", async () => {
+    const activeThreadsResponse = new Response(
+      JSON.stringify({
+        threads: [
+          {
+            id: "thread1",
+            name: "Thread 1",
+            parent_id: "channel456",
+            total_message_sent: 5,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const archivedThreadsResponse = new Response(
+      JSON.stringify({ threads: [] }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+    spy.mockImplementation((path: string) => {
+      if (path.includes("/guilds/")) {
+        return Promise.resolve(activeThreadsResponse.clone());
+      }
+      if (path.includes("/threads/archived/")) {
+        return Promise.resolve(archivedThreadsResponse.clone());
+      }
+      // Fail when fetching thread messages
+      return Promise.reject(new Error("Failed to fetch"));
+    });
+
+    const result = await adapter.listThreads("discord:guild1:channel456");
+
+    expect(result.threads).toHaveLength(1);
+    // Placeholder should use thread name as text
+    expect(result.threads[0].rootMessage.text).toBe("Thread 1");
+    expect(result.threads[0].replyCount).toBe(5);
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// fetchThread Tests
+// ============================================================================
+
+describe("fetchThread", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("fetches thread info for a guild channel", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "channel456",
+        name: "general",
+        type: 0, // GuildText
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchThread("discord:guild1:channel456");
+
+    expect(result.id).toBe("discord:guild1:channel456");
+    expect(result.channelId).toBe("channel456");
+    expect(result.channelName).toBe("general");
+    expect(result.isDM).toBe(false);
+    expect(result.metadata?.guildId).toBe("guild1");
+
+    spy.mockRestore();
+  });
+
+  it("fetches thread info for a DM channel", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "dm123",
+        type: 1, // DM
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchThread("discord:@me:dm123");
+
+    expect(result.isDM).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("fetches thread info for a GroupDM", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "gdm123",
+        name: "Group Chat",
+        type: 3, // GroupDM
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.fetchThread("discord:@me:gdm123");
+
+    expect(result.isDM).toBe(true);
+    expect(result.channelName).toBe("Group Chat");
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// Forwarded Gateway Event Tests
+// ============================================================================
+
+describe("handleWebhook - forwarded gateway events", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("rejects forwarded events with invalid gateway token", async () => {
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {},
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "wrong-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("accepts forwarded events with valid gateway token", async () => {
+    const body = JSON.stringify({
+      type: "GATEWAY_UNKNOWN_EVENT",
+      timestamp: Date.now(),
+      data: {},
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+  });
+
+  it("returns 400 for invalid JSON in forwarded events", async () => {
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body: "not-json",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(400);
+  });
+
+  it("handles GATEWAY_MESSAGE_CREATE event", async () => {
+    const processMessage = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: processMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "Hello from gateway",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(processMessage).toHaveBeenCalled();
+  });
+
+  it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
+    const processReaction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_ADD",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "channel456",
+        message_id: "msg123",
+        guild_id: "guild1",
+        emoji: { name: "\u{1F44D}", id: null },
+        member: {
+          user: {
+            id: "user789",
+            username: "testuser",
+          },
+        },
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        added: true,
+        messageId: "msg123",
+      })
+    );
+  });
+
+  it("handles GATEWAY_MESSAGE_REACTION_REMOVE event", async () => {
+    const processReaction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_REMOVE",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "channel456",
+        message_id: "msg123",
+        guild_id: "guild1",
+        emoji: { name: "\u2764\uFE0F", id: null },
+        member: {
+          user: {
+            id: "user789",
+            username: "testuser",
+          },
+        },
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        added: false,
+        messageId: "msg123",
+      })
+    );
+  });
+});
+
+// ============================================================================
+// handleForwardedMessage - thread detection Tests
+// ============================================================================
+
+describe("handleForwardedMessage - thread handling", () => {
+  it("uses thread info when provided in data", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const handleIncomingMessage = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "thread789",
+        guild_id: "guild1",
+        content: "Thread message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        attachments: [],
+        thread: {
+          id: "thread789",
+          parent_id: "channel456",
+        },
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    expect(handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:guild1:channel456:thread789",
+      expect.anything()
+    );
+  });
+
+  it("detects thread by channel_type and fetches parent", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const handleIncomingMessage = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    // Mock discordFetch to return parent channel info
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ parent_id: "channel456" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "thread789",
+        guild_id: "guild1",
+        channel_type: 11, // Public thread
+        content: "Thread message via channel_type",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
+    expect(handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:guild1:channel456:thread789",
+      expect.anything()
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("creates thread when mentioned and not in a thread", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const handleIncomingMessage = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const fetchSpy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ id: "new-thread-id", name: "New Thread" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "Hey bot",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        is_mention: true,
+        mentions: [{ id: "test-app-id", username: "bot" }],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    // Should have created a thread
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.objectContaining({ auto_archive_duration: 1440 })
+    );
+
+    fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// handleForwardedReaction - thread parent cache Tests
+// ============================================================================
+
+describe("handleForwardedReaction - thread parent caching", () => {
+  it("fetches and caches thread parent for thread reactions", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processReaction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction,
+    } as unknown as ChatInstance);
+
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ parent_id: "channel456" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    // First reaction in a thread - should fetch parent
+    const body1 = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_ADD",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "thread789",
+        message_id: "msg123",
+        guild_id: "guild1",
+        channel_type: 11, // Public thread
+        emoji: { name: "\u{1F44D}", id: null },
+        member: {
+          user: { id: "user789", username: "testuser" },
+        },
+      },
+    });
+
+    const request1 = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body: body1,
+    });
+
+    await adapter.handleWebhook(request1);
+
+    // Should have fetched parent channel
+    expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
+    expect(processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "discord:guild1:channel456:thread789",
+      })
+    );
+
+    fetchSpy.mockClear();
+    processReaction.mockClear();
+
+    // Second reaction on same thread - should use cache
+    const body2 = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_ADD",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "thread789",
+        message_id: "msg456",
+        guild_id: "guild1",
+        channel_type: 11,
+        emoji: { name: "\u{1F525}", id: null },
+        member: {
+          user: { id: "user789", username: "testuser" },
+        },
+      },
+    });
+
+    const request2 = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body: body2,
+    });
+
+    await adapter.handleWebhook(request2);
+
+    // Should NOT have fetched again (used cache)
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "discord:guild1:channel456:thread789",
+      })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("handles missing user info in reaction event gracefully", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processReaction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_ADD",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "channel456",
+        message_id: "msg123",
+        guild_id: "guild1",
+        emoji: { name: "\u{1F44D}", id: null },
+        // No member or user field
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    // Should not call processReaction since there's no user info
+    expect(processReaction).not.toHaveBeenCalled();
+  });
+
+  it("handles custom emoji with ID in reaction", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processReaction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction,
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_REACTION_ADD",
+      timestamp: Date.now(),
+      data: {
+        user_id: "user789",
+        channel_id: "channel456",
+        message_id: "msg123",
+        guild_id: "guild1",
+        emoji: { name: "custom_emoji", id: "emoji123" },
+        member: {
+          user: { id: "user789", username: "testuser" },
+        },
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    expect(processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawEmoji: "<:custom_emoji:emoji123>",
+      })
+    );
+  });
+});
+
+// ============================================================================
+// initialize Tests
+// ============================================================================
+
+describe("initialize", () => {
+  it("stores chat instance reference", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const mockChat = {
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance;
+
+    await adapter.initialize(mockChat);
+
+    // Verify it can handle webhooks after initialization
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg1",
+        channel_id: "ch1",
+        guild_id: "g1",
+        content: "test",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "u1", username: "user", bot: false },
+        mentions: [],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(mockChat.handleIncomingMessage).toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Component Interaction Edge Cases
+// ============================================================================
+
+describe("handleWebhook - component interaction edge cases", () => {
+  it("handles thread context in button interaction", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processAction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.MessageComponent,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "thread456",
+      channel: {
+        id: "thread456",
+        type: 11, // Public thread
+        parent_id: "channel789",
+      },
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+          global_name: "Test User",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      message: {
+        id: "message123",
+        channel_id: "thread456",
+        author: { id: "bot", username: "bot", discriminator: "0000" },
+        content: "Test message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+      data: {
+        custom_id: "approve_btn",
+        component_type: 2,
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    await adapter.handleWebhook(request);
+
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "approve_btn",
+        threadId: "discord:guild123:channel789:thread456",
+      }),
+      undefined
+    );
+  });
+
+  it("handles slash command in a thread", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processSlashCommand = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand,
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "thread456",
+      channel: {
+        id: "thread456",
+        type: 11,
+        parent_id: "channel789",
+      },
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        name: "status",
+        type: 1,
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    await adapter.handleWebhook(request);
+
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/status",
+        channelId: "discord:guild123:channel789:thread456",
+      }),
+      undefined
+    );
+  });
+});
+
+// ============================================================================
+// DM forwarded message Tests
+// ============================================================================
+
+describe("handleForwardedMessage - DM messages", () => {
+  it("handles DM messages (no guild_id)", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const handleIncomingMessage = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "dm456",
+        guild_id: null,
+        content: "DM message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    expect(handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:@me:dm456",
+      expect.anything()
+    );
+  });
+});
+
+// ============================================================================
+// mentionRoleIds Tests
+// ============================================================================
+
+describe("mentionRoleIds handling", () => {
+  it("detects mention via role ID", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      mentionRoleIds: ["role123"],
+    });
+
+    const handleIncomingMessage = vi.fn();
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await adapter.initialize({
+      handleIncomingMessage,
+      processSlashCommand: vi.fn(),
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "Hey team",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        mention_roles: ["role123"],
+        attachments: [],
+      },
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+
+    await adapter.handleWebhook(request);
+
+    // Should create a thread because of role mention
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+
+    fetchSpy.mockRestore();
   });
 });

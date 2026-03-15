@@ -57,8 +57,13 @@ function createTempProject(codeBlocks: string[]): string {
       strict: true,
       skipLibCheck: true,
       noEmit: true,
-      // Use typeRoots to find @types/node from the repo
-      typeRoots: [join(REPO_ROOT, "node_modules/@types")],
+      // Use typeRoots to find @types/node from the integration-tests package
+      typeRoots: [
+        join(
+          import.meta.dirname,
+          "../../integration-tests/node_modules/@types"
+        ),
+      ],
       paths: {
         chat: [join(import.meta.dirname, "../../chat/src/index.ts")],
         "@chat-adapter/slack": [
@@ -87,6 +92,9 @@ function createTempProject(codeBlocks: string[]): string {
         ],
         "@chat-adapter/state-ioredis": [
           join(import.meta.dirname, "../../state-ioredis/src/index.ts"),
+        ],
+        "@chat-adapter/state-pg": [
+          join(import.meta.dirname, "../../state-pg/src/index.ts"),
         ],
         "@chat-adapter/state-memory": [
           join(import.meta.dirname, "../../state-memory/src/index.ts"),
@@ -268,12 +276,16 @@ describe("Package README code examples", () => {
               "@chat-adapter/telegram",
               "@chat-adapter/github",
               "@chat-adapter/linear",
+              "@chat-adapter/whatsapp",
               "@chat-adapter/state-redis",
               "@chat-adapter/state-ioredis",
+              "@chat-adapter/state-pg",
               "@chat-adapter/state-memory",
               "next/server",
               "redis",
               "ioredis",
+              "pg",
+              "postgres",
             ];
             const isValid =
               validPackages.includes(pkg) || pkg.startsWith("node:");

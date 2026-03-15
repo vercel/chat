@@ -88,6 +88,11 @@ export class MemoryStateAdapter implements StateAdapter {
     return lock;
   }
 
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+    this.locks.delete(threadId);
+  }
+
   async releaseLock(lock: Lock): Promise<void> {
     this.ensureConnected();
 
@@ -142,9 +147,84 @@ export class MemoryStateAdapter implements StateAdapter {
     });
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const existing = this.cache.get(key);
+    if (existing) {
+      // Check if expired
+      if (existing.expiresAt !== null && existing.expiresAt <= Date.now()) {
+        this.cache.delete(key);
+      } else {
+        return false;
+      }
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: ttlMs ? Date.now() + ttlMs : null,
+    });
+    return true;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
     this.cache.delete(key);
+  }
+
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    let list: unknown[];
+
+    if (cached && cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      // Expired — start fresh
+      list = [];
+    } else if (cached && Array.isArray(cached.value)) {
+      list = cached.value;
+    } else {
+      list = [];
+    }
+
+    list.push(value);
+
+    if (options?.maxLength && list.length > options.maxLength) {
+      list = list.slice(list.length - options.maxLength);
+    }
+
+    this.cache.set(key, {
+      value: list,
+      expiresAt: options?.ttlMs ? Date.now() + options.ttlMs : null,
+    });
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    if (!cached) {
+      return [];
+    }
+
+    if (cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      this.cache.delete(key);
+      return [];
+    }
+
+    if (Array.isArray(cached.value)) {
+      return cached.value as T[];
+    }
+
+    return [];
   }
 
   private ensureConnected(): void {

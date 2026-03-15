@@ -91,7 +91,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     postChannelMessage: vi
       .fn()
       .mockResolvedValue({ id: "msg-1", threadId: undefined, raw: {} }),
-  };
+  } satisfies Adapter;
 }
 
 /**
@@ -138,6 +138,9 @@ export function createMockState(): MockStateAdapter {
         locks.set(threadId, lock);
         return lock;
       }),
+    forceReleaseLock: vi.fn().mockImplementation(async (threadId: string) => {
+      locks.delete(threadId);
+    }),
     releaseLock: vi.fn().mockImplementation(async (lock: Lock) => {
       locks.delete(lock.threadId);
     }),
@@ -148,8 +151,36 @@ export function createMockState(): MockStateAdapter {
     set: vi.fn().mockImplementation(async (key: string, value: unknown) => {
       cache.set(key, value);
     }),
+    setIfNotExists: vi
+      .fn()
+      .mockImplementation(async (key: string, value: unknown) => {
+        if (cache.has(key)) {
+          return false;
+        }
+        cache.set(key, value);
+        return true;
+      }),
     delete: vi.fn().mockImplementation(async (key: string) => {
       cache.delete(key);
+    }),
+    appendToList: vi
+      .fn()
+      .mockImplementation(
+        async (
+          key: string,
+          value: unknown,
+          options?: { maxLength?: number; ttlMs?: number }
+        ) => {
+          let list = (cache.get(key) as unknown[]) ?? [];
+          list.push(value);
+          if (options?.maxLength && list.length > options.maxLength) {
+            list = list.slice(list.length - options.maxLength);
+          }
+          cache.set(key, list);
+        }
+      ),
+    getList: vi.fn().mockImplementation(async (key: string) => {
+      return (cache.get(key) as unknown[]) ?? [];
     }),
   };
 }
@@ -183,6 +214,7 @@ export function createTestMessage(
       edited: false,
     },
     attachments: [],
+    links: [],
     ...overrides,
   });
 }

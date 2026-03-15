@@ -178,6 +178,50 @@ describe("cardToGoogleCard", () => {
     });
   });
 
+  it("sets disabled on button when specified", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({
+            id: "cancel",
+            label: "Cancelled",
+            style: "danger",
+            disabled: true,
+          }),
+          Button({ id: "retry", label: "Retry" }),
+        ]),
+      ],
+    });
+    const gchatCard = cardToGoogleCard(card);
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    const buttonList = widgets[0].buttonList;
+    expect(buttonList?.buttons).toHaveLength(2);
+
+    expect(buttonList?.buttons[0]).toEqual({
+      text: "Cancelled",
+      onClick: {
+        action: {
+          function: "cancel",
+          parameters: [{ key: "actionId", value: "cancel" }],
+        },
+      },
+      color: { red: 0.9, green: 0.2, blue: 0.2 },
+      disabled: true,
+    });
+
+    // Non-disabled button should not have disabled field
+    expect(buttonList?.buttons[1]).toEqual({
+      text: "Retry",
+      onClick: {
+        action: {
+          function: "retry",
+          parameters: [{ key: "actionId", value: "retry" }],
+        },
+      },
+    });
+  });
+
   it("uses endpointUrl as function when provided", () => {
     const card = Card({
       children: [

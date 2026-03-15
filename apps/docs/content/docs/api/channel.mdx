@@ -104,6 +104,21 @@ await channel.post({ markdown: "**Announcement**: New release!" });
 
 Accepts the same message formats as `thread.post()` — see [PostableMessage](/docs/api/postable-message).
 
+## schedule
+
+Schedule a message for future delivery to the channel top-level. Currently only supported by the Slack adapter — other adapters throw `NotImplementedError`.
+
+```typescript
+const scheduled = await channel.schedule("Weekly reminder: update your status!", {
+  postAt: new Date("2026-03-10T09:00:00Z"),
+});
+
+// Cancel before it's sent
+await scheduled.cancel();
+```
+
+Accepts the same message formats as `channel.post()` (except streaming). See [ScheduledMessage](/docs/api/thread#scheduledmessage) for the return type.
+
 ## fetchMetadata
 
 Fetch channel metadata from the platform.

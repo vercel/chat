@@ -5,6 +5,7 @@
  * serverless compatibility. Webhook signature verification uses Ed25519.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   extractCard,
   extractFiles,
@@ -44,6 +45,7 @@ import {
   GatewayIntentBits,
   Partials,
 } from "discord.js";
+import { MessageType } from "discord-api-types/v9";
 import {
   type APIEmbed,
   type APIMessage,
@@ -59,6 +61,7 @@ import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
   type DiscordAdapterConfig,
+  type DiscordCommandOption,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
   type DiscordGatewayMessageData,
@@ -66,6 +69,8 @@ import {
   type DiscordInteraction,
   type DiscordInteractionResponse,
   type DiscordMessagePayload,
+  type DiscordRequestContext,
+  type DiscordSlashCommandContext,
   type DiscordThreadId,
   InteractionResponseType,
 } from "./types";
@@ -87,16 +92,48 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private readonly formatConverter = new DiscordFormatConverter();
+  private readonly requestContext =
+    new AsyncLocalStorage<DiscordRequestContext>();
+  private readonly threadParentCache = new Map<
+    string,
+    { parentId: string; expiresAt: number }
+  >();
+  private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
-  constructor(
-    config: DiscordAdapterConfig & { logger: Logger; userName?: string }
-  ) {
-    this.botToken = config.botToken;
-    this.publicKey = config.publicKey.trim().toLowerCase();
-    this.applicationId = config.applicationId;
-    this.mentionRoleIds = config.mentionRoleIds ?? [];
-    this.botUserId = config.applicationId; // Discord app ID is the bot's user ID
-    this.logger = config.logger;
+  constructor(config: DiscordAdapterConfig = {}) {
+    const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
+    if (!botToken) {
+      throw new ValidationError(
+        "discord",
+        "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
+      );
+    }
+    const publicKey = config.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
+    if (!publicKey) {
+      throw new ValidationError(
+        "discord",
+        "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
+      );
+    }
+    const applicationId =
+      config.applicationId ?? process.env.DISCORD_APPLICATION_ID;
+    if (!applicationId) {
+      throw new ValidationError(
+        "discord",
+        "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
+      );
+    }
+
+    this.botToken = botToken;
+    this.publicKey = publicKey.trim().toLowerCase();
+    this.applicationId = applicationId;
+    this.mentionRoleIds =
+      config.mentionRoleIds ??
+      (process.env.DISCORD_MENTION_ROLE_IDS
+        ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
+        : []);
+    this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
     // Validate public key format
@@ -110,11 +147,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
-    this.logger.info("Discord adapter initialized", {
-      applicationId: this.applicationId,
-      // Log full public key for debugging - it's public, not secret
-      publicKey: this.publicKey,
-    });
+    this.logger.info("Discord adapter initialized");
   }
 
   /**
@@ -206,9 +239,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       });
     }
 
-    // Handle APPLICATION_COMMAND (slash commands - not implemented yet)
+    // Handle APPLICATION_COMMAND (slash commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      // For now, just ACK
+      this.handleApplicationCommandInteraction(interaction, options);
       return this.respondToInteraction({
         type: InteractionResponseType.DeferredChannelMessageWithSource,
       });
@@ -364,6 +397,139 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  /**
+   * Handle APPLICATION_COMMAND interactions (slash commands).
+   */
+  private handleApplicationCommandInteraction(
+    interaction: DiscordInteraction,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring interaction");
+      return;
+    }
+
+    const commandName = interaction.data?.name;
+    if (!commandName) {
+      this.logger.warn("No command name in application command interaction");
+      return;
+    }
+
+    const user = interaction.member?.user || interaction.user;
+    if (!user) {
+      this.logger.warn("No user in application command interaction");
+      return;
+    }
+
+    const interactionChannelId = interaction.channel_id;
+    if (!interactionChannelId) {
+      this.logger.warn("Missing channel_id in application command interaction");
+      return;
+    }
+
+    const guildId = interaction.guild_id || "@me";
+    const channel = interaction.channel;
+    const isThread = channel?.type === 11 || channel?.type === 12;
+    const parentChannelId =
+      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+
+    const channelId = isThread
+      ? this.encodeThreadId({
+          guildId,
+          channelId: parentChannelId,
+          threadId: interactionChannelId,
+        })
+      : this.encodeThreadId({
+          guildId,
+          channelId: interactionChannelId,
+        });
+
+    const { command, text } = this.parseSlashCommand(
+      commandName,
+      interaction.data?.options
+    );
+
+    this.logger.debug("Processing Discord slash command", {
+      command,
+      text,
+      userId: user.id,
+      channelId,
+    });
+
+    // Keep interaction metadata in AsyncLocalStorage so event.channel.post(...)
+    // can resolve Discord's deferred "thinking..." response natively.
+    this.requestContext.run(
+      {
+        slashCommand: {
+          channelId,
+          interactionToken: interaction.token,
+          initialResponseSent: false,
+        },
+      },
+      () => {
+        this.chat?.processSlashCommand(
+          {
+            command,
+            text,
+            user: {
+              userId: user.id,
+              userName: user.username,
+              fullName: user.global_name || user.username,
+              isBot: user.bot ?? false,
+              isMe: user.id === this.applicationId,
+            },
+            adapter: this as Adapter,
+            raw: interaction,
+            channelId,
+          },
+          options
+        );
+      }
+    );
+  }
+
+  /**
+   * Parse a Discord slash command into a full command path and flat text.
+   *
+   * Subcommand and subcommand-group names are appended to the command path
+   * so `/project issue create --title="Login fails"` becomes:
+   *   command = "/project issue create"
+   *   text    = "Login fails"
+   *
+   * Leaf option values are flattened into `text`. Consumers needing the full
+   * option tree (names, types) can use `event.raw`.
+   */
+  private parseSlashCommand(
+    name: string,
+    options?: DiscordCommandOption[]
+  ): { command: string; text: string } {
+    const commandParts: string[] = [name.startsWith("/") ? name : `/${name}`];
+    const valueParts: string[] = [];
+
+    const collect = (items: DiscordCommandOption[]): void => {
+      for (const option of items) {
+        if (option.value !== undefined) {
+          valueParts.push(String(option.value));
+          continue;
+        }
+        // Subcommand or subcommand-group — append name to command path
+        if (option.options && option.options.length > 0) {
+          commandParts.push(option.name);
+          collect(option.options);
+        }
+      }
+    };
+
+    if (options && options.length > 0) {
+      collect(options);
+    }
+
+    return {
+      command: commandParts.join(" "),
+      text: valueParts.join(" ").trim(),
+    };
   }
 
   /**
@@ -545,9 +711,46 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = data.guild_id || "@me";
     const channelId = data.channel_id;
 
+    // Check if reaction is in a thread channel
+    let discordThreadId: string | undefined;
+    let parentChannelId = channelId;
+
+    if (
+      data.channel_type === ChannelType.GuildPublicThread ||
+      data.channel_type === ChannelType.GuildPrivateThread
+    ) {
+      const cached = this.threadParentCache.get(channelId);
+      if (cached && cached.expiresAt > Date.now()) {
+        discordThreadId = channelId;
+        parentChannelId = cached.parentId;
+      } else {
+        try {
+          const response = await this.discordFetch(
+            `/channels/${channelId}`,
+            "GET"
+          );
+          const channel = (await response.json()) as { parent_id?: string };
+          if (channel.parent_id) {
+            discordThreadId = channelId;
+            parentChannelId = channel.parent_id;
+            this.threadParentCache.set(channelId, {
+              parentId: channel.parent_id,
+              expiresAt: Date.now() + DiscordAdapter.THREAD_PARENT_CACHE_TTL,
+            });
+          }
+        } catch (error) {
+          this.logger.error("Failed to fetch thread parent for reaction", {
+            error: String(error),
+            channelId,
+          });
+        }
+      }
+    }
+
     const threadId = this.encodeThreadId({
       guildId,
-      channelId,
+      channelId: parentChannelId,
+      threadId: discordThreadId,
     });
 
     // Normalize emoji
@@ -629,6 +832,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle file uploads
     const files = extractFiles(message);
+    const slashResponse = this.tryPostSlashResponse(
+      actualThreadId,
+      payload,
+      files
+    );
+    if (slashResponse) {
+      return slashResponse;
+    }
     if (files.length > 0) {
       return this.postMessageWithFiles(
         channelId,
@@ -660,6 +871,75 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     return {
       id: result.id,
       threadId: actualThreadId,
+      raw: result,
+    };
+  }
+
+  private tryPostSlashResponse(
+    threadId: string,
+    payload: DiscordMessagePayload,
+    files: Array<{
+      filename: string;
+      data: Buffer | Blob | ArrayBuffer;
+      mimeType?: string;
+    }>
+  ): Promise<RawMessage<unknown>> | undefined {
+    const slashContext = this.requestContext.getStore()?.slashCommand;
+    if (!slashContext || slashContext.channelId !== threadId) {
+      return undefined;
+    }
+    return this.postSlashCommandResponse(
+      slashContext,
+      threadId,
+      payload,
+      files
+    );
+  }
+
+  private async postSlashCommandResponse(
+    slashContext: DiscordSlashCommandContext,
+    threadId: string,
+    payload: DiscordMessagePayload,
+    files: Array<{
+      filename: string;
+      data: Buffer | Blob | ArrayBuffer;
+      mimeType?: string;
+    }>
+  ): Promise<RawMessage<unknown>> {
+    const isInitialResponse = !slashContext.initialResponseSent;
+    // Set flag before awaiting to prevent concurrent post() calls from both
+    // trying to PATCH @original instead of the second being a followup POST.
+    slashContext.initialResponseSent = true;
+
+    const path = isInitialResponse
+      ? `/webhooks/${this.applicationId}/${slashContext.interactionToken}/messages/@original`
+      : `/webhooks/${this.applicationId}/${slashContext.interactionToken}?wait=true`;
+    const method = isInitialResponse ? "PATCH" : "POST";
+
+    this.logger.debug(
+      "Discord interaction webhook: responding to slash command",
+      {
+        threadId,
+        isInitialResponse,
+        hasFiles: files.length > 0,
+      }
+    );
+
+    const response =
+      files.length > 0
+        ? await this.discordInteractionFetchWithFiles(
+            path,
+            method,
+            payload,
+            files
+          )
+        : await this.discordInteractionFetch(path, method, payload);
+
+    const result = (await response.json()) as APIMessage;
+
+    return {
+      id: result.id,
+      threadId,
       raw: result,
     };
   }
@@ -773,6 +1053,86 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
+  private async discordInteractionFetch(
+    path: string,
+    method: string,
+    body?: unknown
+  ): Promise<Response> {
+    const response = await fetch(`${DISCORD_API_BASE}${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error("Discord interaction API error", {
+        path,
+        method,
+        status: response.status,
+        error: errorText,
+      });
+      throw new NetworkError(
+        "discord",
+        `Discord interaction API error: ${response.status} ${errorText}`
+      );
+    }
+
+    return response;
+  }
+
+  private async discordInteractionFetchWithFiles(
+    path: string,
+    method: string,
+    payload: DiscordMessagePayload,
+    files: Array<{
+      filename: string;
+      data: Buffer | Blob | ArrayBuffer;
+      mimeType?: string;
+    }>
+  ): Promise<Response> {
+    const formData = new FormData();
+    formData.append("payload_json", JSON.stringify(payload));
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) {
+        continue;
+      }
+      const buffer = await toBuffer(file.data, {
+        platform: "discord",
+      });
+      if (!buffer) {
+        continue;
+      }
+      const blob = new Blob([new Uint8Array(buffer)], {
+        type: file.mimeType || "application/octet-stream",
+      });
+      formData.append(`files[${i}]`, blob, file.filename);
+    }
+
+    const response = await fetch(`${DISCORD_API_BASE}${path}`, {
+      method,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error("Discord interaction API error", {
+        path,
+        method,
+        status: response.status,
+        error: errorText,
+      });
+      throw new NetworkError(
+        "discord",
+        `Discord interaction API error: ${response.status} ${errorText}`
+      );
+    }
+
+    return response;
+  }
+
   /**
    * Edit an existing Discord message.
    */
@@ -845,15 +1205,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Delete a Discord message.
    */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
 
     this.logger.debug("Discord API: DELETE message", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}`,
+      `/channels/${targetChannelId}/messages/${messageId}`,
       "DELETE"
     );
 
@@ -868,17 +1230,19 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
     const emojiEncoded = this.encodeEmoji(emoji);
 
     this.logger.debug("Discord API: PUT reaction", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
       emoji: emojiEncoded,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
+      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
       "PUT"
     );
 
@@ -893,17 +1257,19 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
+    const targetChannelId = discordThreadId || channelId;
     const emojiEncoded = this.encodeEmoji(emoji);
 
     this.logger.debug("Discord API: DELETE reaction", {
-      channelId,
+      channelId: targetChannelId,
       messageId,
       emoji: emojiEncoded,
     });
 
     await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
+      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
       "DELETE"
     );
 
@@ -1117,9 +1483,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Parse a Discord API message into normalized format.
    */
   private parseDiscordMessage(
-    msg: APIMessage,
+    raw: APIMessage,
     threadId: string
   ): Message<unknown> {
+    // use original message instead of empty thread starter message if available
+    const msg =
+      raw.type === MessageType.ThreadStarterMessage && raw.referenced_message
+        ? raw.referenced_message
+        : raw;
+
     const author = msg.author;
     const isBot = author.bot ?? false;
     const isMe = author.id === this.botUserId;
@@ -1129,7 +1501,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadId,
       text: this.formatConverter.extractPlainText(msg.content),
       formatted: this.formatConverter.toAst(msg.content),
-      raw: msg,
+      raw,
       author: {
         userId: author.id,
         userName: author.username,
@@ -1651,7 +2023,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   private async handleGatewayReaction(
     reaction: {
       emoji: { name: string | null; id: string | null };
-      message: { id: string; channelId: string; guildId: string | null };
+      message: {
+        id: string;
+        channelId: string;
+        guildId: string | null;
+        channel?: { isThread?: () => boolean; parentId?: string | null };
+      };
     },
     user: { id: string; username: string; bot: boolean },
     added: boolean
@@ -1663,12 +2040,20 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = reaction.message.guildId || "@me";
     const channelId = reaction.message.channelId;
 
-    // For reactions, we don't know if the message is in a thread without fetching it
-    // Use the channel ID directly for now
+    // Check if reaction is in a thread channel
+    const isInThread = reaction.message.channel?.isThread?.();
+    let parentChannelId = channelId;
+    let discordThreadId: string | undefined;
+
+    if (isInThread && reaction.message.channel?.parentId) {
+      discordThreadId = channelId;
+      parentChannelId = reaction.message.channel.parentId;
+    }
+
     const threadId = this.encodeThreadId({
       guildId,
-      channelId,
-      threadId: undefined,
+      channelId: parentChannelId,
+      threadId: discordThreadId,
     });
 
     // Normalize emoji
@@ -2011,6 +2396,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
 
     const files = extractFiles(message);
+    const slashResponse = this.tryPostSlashResponse(channelId, payload, files);
+    if (slashResponse) {
+      return slashResponse;
+    }
     if (files.length > 0) {
       return this.postMessageWithFiles(
         discordChannelId,
@@ -2076,47 +2465,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
  * Create a Discord adapter instance.
  */
 export function createDiscordAdapter(
-  config?: Partial<DiscordAdapterConfig & { logger: Logger; userName?: string }>
+  config?: DiscordAdapterConfig
 ): DiscordAdapter {
-  const botToken = config?.botToken ?? process.env.DISCORD_BOT_TOKEN;
-  if (!botToken) {
-    throw new ValidationError(
-      "discord",
-      "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
-    );
-  }
-  const publicKey = config?.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
-  if (!publicKey) {
-    throw new ValidationError(
-      "discord",
-      "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
-    );
-  }
-  const applicationId =
-    config?.applicationId ?? process.env.DISCORD_APPLICATION_ID;
-  if (!applicationId) {
-    throw new ValidationError(
-      "discord",
-      "applicationId is required. Set DISCORD_APPLICATION_ID or provide it in config."
-    );
-  }
-  const mentionRoleIds =
-    config?.mentionRoleIds ??
-    (process.env.DISCORD_MENTION_ROLE_IDS
-      ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
-      : undefined);
-  const resolved: DiscordAdapterConfig & {
-    logger: Logger;
-    userName?: string;
-  } = {
-    botToken,
-    publicKey,
-    applicationId,
-    mentionRoleIds,
-    logger: config?.logger ?? new ConsoleLogger("info").child("discord"),
-    userName: config?.userName,
-  };
-  return new DiscordAdapter(resolved);
+  return new DiscordAdapter(config ?? {});
 }
 
 // Re-export card converter for advanced use

@@ -15,21 +15,23 @@ import {
   BaseFormatConverter,
   type Content,
   getNodeChildren,
-  getNodeValue,
   isBlockquoteNode,
   isCodeNode,
   isDeleteNode,
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
+  type MdastTable,
   parseMarkdown,
   type Root,
+  tableToAscii,
 } from "chat";
+import type { SlackBlock } from "./cards";
 
 export class SlackFormatConverter extends BaseFormatConverter {
   /**
@@ -76,12 +78,12 @@ export class SlackFormatConverter extends BaseFormatConverter {
     let markdown = mrkdwn;
 
     // User mentions: <@U123|name> -> @name or <@U123> -> @U123
-    markdown = markdown.replace(/<@([^|>]+)\|([^>]+)>/g, "@$2");
-    markdown = markdown.replace(/<@([^>]+)>/g, "@$1");
+    markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^>]+)>/g, "@$2");
+    markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
 
     // Channel mentions: <#C123|name> -> #name
-    markdown = markdown.replace(/<#[^|>]+\|([^>]+)>/g, "#$1");
-    markdown = markdown.replace(/<#([^>]+)>/g, "#$1");
+    markdown = markdown.replace(/<#[A-Z0-9_]+\|([^>]+)>/g, "#$1");
+    markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
 
     // Links: <url|text> -> [text](url)
     markdown = markdown.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "[$2]($1)");
@@ -97,6 +99,62 @@ export class SlackFormatConverter extends BaseFormatConverter {
     markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
 
     return parseMarkdown(markdown);
+  }
+
+  /**
+   * Convert AST to Slack blocks, using a native table block for the first table.
+   * Returns null if the AST contains no tables (caller should use regular text).
+   * Slack allows at most one table block per message; additional tables use ASCII.
+   */
+  toBlocksWithTable(ast: Root): SlackBlock[] | null {
+    const hasTable = ast.children.some((node) => isTableNode(node as Content));
+    if (!hasTable) {
+      return null;
+    }
+
+    const blocks: SlackBlock[] = [];
+    let usedNativeTable = false;
+    let textBuffer: string[] = [];
+
+    const flushText = () => {
+      if (textBuffer.length > 0) {
+        const text = textBuffer.join("\n\n");
+        if (text.trim()) {
+          blocks.push({
+            type: "section",
+            text: { type: "mrkdwn", text },
+          });
+        }
+        textBuffer = [];
+      }
+    };
+
+    for (const child of ast.children) {
+      const node = child as Content;
+      if (isTableNode(node)) {
+        flushText();
+        if (usedNativeTable) {
+          // Additional tables fall back to ASCII in a code block
+          blocks.push({
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `\`\`\`\n${tableToAscii(node)}\n\`\`\``,
+            },
+          });
+        } else {
+          blocks.push(
+            mdastTableToSlackBlock(node, this.nodeToMrkdwn.bind(this))
+          );
+          usedNativeTable = true;
+        }
+      } else {
+        textBuffer.push(this.nodeToMrkdwn(node));
+      }
+    }
+
+    flushText();
+    return blocks;
   }
 
   private nodeToMrkdwn(node: Content): string {
@@ -159,21 +217,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "•";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToMrkdwn(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToMrkdwn(child))
-        .join("");
+      return this.renderList(node, 0, (child) => this.nodeToMrkdwn(child), "•");
     }
 
     if (node.type === "break") {
@@ -184,13 +228,46 @@ export class SlackFormatConverter extends BaseFormatConverter {
       return "---";
     }
 
-    // For unsupported nodes, try to extract text
-    const children = getNodeChildren(node);
-    if (children.length > 0) {
-      return children.map((child) => this.nodeToMrkdwn(child)).join("");
+    if (isTableNode(node)) {
+      return `\`\`\`\n${tableToAscii(node)}\n\`\`\``;
     }
-    return getNodeValue(node);
+
+    return this.defaultNodeToText(node, (child) => this.nodeToMrkdwn(child));
   }
+}
+
+/**
+ * Convert an mdast Table node to a Slack table block.
+ * Uses the table block schema: first row = headers, cells are raw_text,
+ * column_settings carries alignment from mdast.
+ * @see https://docs.slack.dev/reference/block-kit/blocks/table-block/
+ */
+function mdastTableToSlackBlock(
+  node: MdastTable,
+  cellConverter: (node: Content) => string
+): SlackBlock {
+  const rows: Array<Array<{ type: "raw_text"; text: string }>> = [];
+
+  for (const row of node.children) {
+    const cells = getNodeChildren(row).map((cell) => ({
+      type: "raw_text" as const,
+      text: getNodeChildren(cell).map(cellConverter).join(""),
+    }));
+    rows.push(cells);
+  }
+
+  const block: SlackBlock = { type: "table", rows };
+
+  if (node.align) {
+    const columnSettings = node.align.map(
+      (a: "left" | "center" | "right" | null) => ({
+        align: a || "left",
+      })
+    );
+    block.column_settings = columnSettings;
+  }
+
+  return block;
 }
 
 // Backwards compatibility alias

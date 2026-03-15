@@ -11,23 +11,24 @@
  * Teams also accepts standard markdown in most cases.
  */
 
+import { escapeTableCell } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
   type Content,
   getNodeChildren,
-  getNodeValue,
   isBlockquoteNode,
   isCodeNode,
   isDeleteNode,
   isEmphasisNode,
   isInlineCodeNode,
   isLinkNode,
-  isListItemNode,
   isListNode,
   isParagraphNode,
   isStrongNode,
+  isTableNode,
   isTextNode,
+  type MdastTable,
   parseMarkdown,
   type Root,
 } from "chat";
@@ -107,16 +108,25 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     // Pre: <pre>text</pre> -> ```text```
     markdown = markdown.replace(/<pre>([^<]+)<\/pre>/gi, "```\n$1\n```");
 
-    // Strip remaining HTML tags
-    markdown = markdown.replace(/<[^>]+>/g, "");
+    // Strip remaining HTML tags (loop to handle nested/reconstructed tags)
+    let prev: string;
+    do {
+      prev = markdown;
+      markdown = markdown.replace(/<[^>]+>/g, "");
+    } while (markdown !== prev);
 
-    // Decode HTML entities
-    markdown = markdown
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    // Decode HTML entities in a single pass to prevent double-unescaping
+    const entityMap: Record<string, string> = {
+      "&lt;": "<",
+      "&gt;": ">",
+      "&amp;": "&",
+      "&quot;": '"',
+      "&#39;": "'",
+    };
+    markdown = markdown.replace(
+      /&(?:lt|gt|amp|quot|#39);/g,
+      (match) => entityMap[match] ?? match
+    );
 
     return parseMarkdown(markdown);
   }
@@ -181,21 +191,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     }
 
     if (isListNode(node)) {
-      return getNodeChildren(node)
-        .map((item, i) => {
-          const prefix = node.ordered ? `${i + 1}.` : "-";
-          const content = getNodeChildren(item)
-            .map((child) => this.nodeToTeams(child))
-            .join("");
-          return `${prefix} ${content}`;
-        })
-        .join("\n");
-    }
-
-    if (isListItemNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => this.nodeToTeams(child))
-        .join("");
+      return this.renderList(node, 0, (child) => this.nodeToTeams(child));
     }
 
     if (node.type === "break") {
@@ -206,11 +202,44 @@ export class TeamsFormatConverter extends BaseFormatConverter {
       return "---";
     }
 
-    // For unsupported nodes, try to extract text
-    const children = getNodeChildren(node);
-    if (children.length > 0) {
-      return children.map((child) => this.nodeToTeams(child)).join("");
+    if (isTableNode(node)) {
+      return this.tableToGfm(node);
     }
-    return getNodeValue(node);
+
+    return this.defaultNodeToText(node, (child) => this.nodeToTeams(child));
+  }
+
+  /**
+   * Render an mdast table node as a GFM markdown table.
+   * Teams renders markdown tables natively.
+   */
+  private tableToGfm(node: MdastTable): string {
+    const rows: string[][] = [];
+    for (const row of node.children) {
+      const cells: string[] = [];
+      for (const cell of row.children) {
+        const cellContent = getNodeChildren(cell)
+          .map((child) => this.nodeToTeams(child))
+          .join("");
+        cells.push(cellContent);
+      }
+      rows.push(cells);
+    }
+
+    if (rows.length === 0) {
+      return "";
+    }
+
+    const lines: string[] = [];
+    // Header row
+    lines.push(`| ${rows[0].map(escapeTableCell).join(" | ")} |`);
+    // Separator
+    const separators = rows[0].map(() => "---");
+    lines.push(`| ${separators.join(" | ")} |`);
+    // Data rows
+    for (let i = 1; i < rows.length; i++) {
+      lines.push(`| ${rows[i].map(escapeTableCell).join(" | ")} |`);
+    }
+    return lines.join("\n");
   }
 }

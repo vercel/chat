@@ -6,6 +6,7 @@ import {
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
+import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
@@ -22,9 +23,12 @@ import type {
   Channel,
   ChatConfig,
   ChatInstance,
+  DirectMessageHandler,
   EmojiValue,
   Logger,
   LogLevel,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
   MessageHandler,
   ModalCloseEvent,
@@ -182,8 +186,11 @@ export class Chat<
   private readonly _streamingUpdateIntervalMs: number;
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
+  private readonly _onLockConflict: ChatConfig["onLockConflict"];
+  private readonly _messageHistory: MessageHistoryCache;
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
@@ -197,6 +204,8 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
+    [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -219,6 +228,11 @@ export class Chat<
         ? config.fallbackStreamingPlaceholderText
         : "...";
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
+    this._onLockConflict = config.onLockConflict;
+    this._messageHistory = new MessageHistoryCache(
+      this._stateAdapter,
+      config.messageHistory
+    );
 
     // Initialize logger
     if (typeof config.logger === "string") {
@@ -349,6 +363,28 @@ export class Chat<
   onNewMention(handler: MentionHandler<TState>): void {
     this.mentionHandlers.push(handler);
     this.logger.debug("Registered mention handler");
+  }
+
+  /**
+   * Register a handler for direct messages.
+   *
+   * Called when a message is received in a DM thread that is not subscribed.
+   * If no `onDirectMessage` handlers are registered, DMs fall through to
+   * `onNewMention` for backward compatibility.
+   *
+   * @param handler - Handler called for DM messages
+   *
+   * @example
+   * ```typescript
+   * chat.onDirectMessage(async (thread, message) => {
+   *   await thread.subscribe();
+   *   await thread.post("Thanks for the DM!");
+   * });
+   * ```
+   */
+  onDirectMessage(handler: DirectMessageHandler<TState>): void {
+    this.directMessageHandlers.push(handler);
+    this.logger.debug("Registered direct message handler");
   }
 
   /**
@@ -614,6 +650,11 @@ export class Chat<
   onAppHomeOpened(handler: AppHomeOpenedHandler): void {
     this.appHomeOpenedHandlers.push(handler);
     this.logger.debug("Registered app home opened handler");
+  }
+
+  onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
+    this.memberJoinedChannelHandlers.push(handler);
+    this.logger.debug("Registered member joined channel handler");
   }
 
   /**
@@ -890,6 +931,27 @@ export class Chat<
     }
   }
 
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.memberJoinedChannelHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Member joined channel handler error", {
+        error: err,
+        channelId: event.channelId,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
   /**
    * Handle a slash command event internally.
    */
@@ -1099,7 +1161,7 @@ export class Chat<
           messageForThread,
           isSubscribed
         )
-      : (null as unknown as Thread<TState>);
+      : null;
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
@@ -1128,33 +1190,36 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
         let message: Message | undefined;
-        if (isEphemeralMessage) {
-          const recentMessage = thread.recentMessages[0];
-          if (recentMessage && typeof recentMessage.toJSON === "function") {
-            message = recentMessage as Message;
-          }
-        } else if (event.messageId && event.adapter.fetchMessage) {
-          const fetched = await event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch(() => null);
-          if (fetched) {
-            message = new Message(fetched);
-          } else {
+        if (thread) {
+          const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+          if (isEphemeralMessage) {
             const recentMessage = thread.recentMessages[0];
             if (recentMessage && typeof recentMessage.toJSON === "function") {
               message = recentMessage as Message;
             }
+          } else if (event.messageId && event.adapter.fetchMessage) {
+            const fetched = await event.adapter
+              .fetchMessage(event.threadId, event.messageId)
+              .catch(() => null);
+            if (fetched) {
+              message = new Message(fetched);
+            } else {
+              const recentMessage = thread.recentMessages[0];
+              if (recentMessage && typeof recentMessage.toJSON === "function") {
+                message = recentMessage as Message;
+              }
+            }
           }
         }
         const contextId = crypto.randomUUID();
-        const channel = (thread as ThreadImpl<TState>)
-          .channel as ChannelImpl<TState>;
+        const channel = thread
+          ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
+          : undefined;
         this.storeModalContext(
           event.adapter.name,
           contextId,
-          thread as ThreadImpl<TState>,
+          thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
           channel
         );
@@ -1465,29 +1530,60 @@ export class Chat<
       return;
     }
 
-    // Deduplicate messages - same message can arrive via multiple paths
+    // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
     const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
-    const alreadyProcessed = await this._stateAdapter.get<boolean>(dedupeKey);
-    if (alreadyProcessed) {
+    const isFirstProcess = await this._stateAdapter.setIfNotExists(
+      dedupeKey,
+      true,
+      this._dedupeTtlMs
+    );
+    if (!isFirstProcess) {
       this.logger.debug("Skipping duplicate message", {
         adapter: adapter.name,
         messageId: message.id,
       });
       return;
     }
-    await this._stateAdapter.set(dedupeKey, true, this._dedupeTtlMs);
+
+    // Persist incoming message BEFORE acquiring the lock.
+    // If the lock is already held (e.g., bot is processing a previous message),
+    // we still want to save this message to history so it's not lost.
+    if (adapter.persistMessageHistory) {
+      const channelId = adapter.channelIdFromThreadId(threadId);
+      const appends = [this._messageHistory.append(threadId, message)];
+      if (channelId !== threadId) {
+        appends.push(this._messageHistory.append(channelId, message));
+      }
+      await Promise.all(appends);
+    }
 
     // Try to acquire lock on thread
-    const lock = await this._stateAdapter.acquireLock(
+    let lock = await this._stateAdapter.acquireLock(
       threadId,
       DEFAULT_LOCK_TTL_MS
     );
     if (!lock) {
-      this.logger.warn("Could not acquire lock on thread", { threadId });
-      throw new LockError(
-        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
-      );
+      const resolution =
+        typeof this._onLockConflict === "function"
+          ? await this._onLockConflict(threadId, message)
+          : (this._onLockConflict ?? "drop");
+      if (resolution === "force") {
+        this.logger.info("Force-releasing lock on thread", { threadId });
+        await this._stateAdapter.forceReleaseLock(threadId);
+        // Note: another instance could acquire the lock between release and re-acquire.
+        // If that happens, lock will be null and we fall through to the LockError below.
+        lock = await this._stateAdapter.acquireLock(
+          threadId,
+          DEFAULT_LOCK_TTL_MS
+        );
+      }
+      if (!lock) {
+        this.logger.warn("Could not acquire lock on thread", { threadId });
+        throw new LockError(
+          `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
+        );
+      }
     }
 
     this.logger.debug("Lock acquired", { threadId, token: lock.token });
@@ -1498,7 +1594,7 @@ export class Chat<
       message.isMention =
         message.isMention || this.detectMention(adapter, message);
 
-      // Check if this is a subscribed thread first
+      // Check subscription status (needed for createThread optimization)
       const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
       this.logger.debug("Subscription check", {
         threadId,
@@ -1514,6 +1610,26 @@ export class Chat<
         isSubscribed
       );
 
+      // Check for DM first - always route to direct message handlers
+      const isDM = adapter.isDM?.(threadId) ?? false;
+      if (isDM && this.directMessageHandlers.length > 0) {
+        this.logger.debug("Direct message received - calling handlers", {
+          threadId,
+          handlerCount: this.directMessageHandlers.length,
+        });
+        const channel = thread.channel;
+        for (const handler of this.directMessageHandlers) {
+          await handler(thread, message, channel);
+        }
+        return;
+      }
+
+      // Backward compat: treat DMs as mentions when no DM handlers registered
+      if (isDM) {
+        message.isMention = true;
+      }
+
+      // Check subscription (non-DM threads only)
       if (isSubscribed) {
         this.logger.debug("Message in subscribed thread - calling handlers", {
           threadId,
@@ -1592,8 +1708,12 @@ export class Chat<
       isSubscribedContext,
       isDM,
       currentMessage: initialMessage,
+      logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
+      messageHistory: adapter.persistMessageHistory
+        ? this._messageHistory
+        : undefined,
     });
   }
 

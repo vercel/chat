@@ -43,11 +43,11 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
         }
       );
@@ -156,11 +156,11 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
         }
       );
@@ -232,11 +232,11 @@ describe("Replay Tests - Actions & Reactions", () => {
           },
           onAction: async (event) => {
             capturedAction = event;
-            await event.thread.post(`Action received: ${event.actionId}`);
+            await event.thread?.post(`Action received: ${event.actionId}`);
           },
           onReaction: async (event) => {
             capturedReaction = event;
-            await event.thread.post(`Thanks for the ${event.emoji}!`);
+            await event.thread?.post(`Thanks for the ${event.emoji}!`);
           },
         }
       );

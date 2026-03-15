@@ -335,7 +335,14 @@ const EMOJI_PLACEHOLDER_REGEX = /\{\{emoji:([a-z0-9_]+)\}\}/gi;
  */
 export function convertEmojiPlaceholders(
   text: string,
-  platform: "slack" | "gchat" | "teams" | "discord" | "github" | "linear",
+  platform:
+    | "slack"
+    | "gchat"
+    | "teams"
+    | "discord"
+    | "github"
+    | "linear"
+    | "whatsapp",
   resolver: EmojiResolver = defaultEmojiResolver
 ): string {
   return text.replace(EMOJI_PLACEHOLDER_REGEX, (_, emojiName: string) => {
@@ -355,6 +362,9 @@ export function convertEmojiPlaceholders(
         return resolver.toGChat(emojiName);
       case "linear":
         // Linear uses unicode emoji
+        return resolver.toGChat(emojiName);
+      case "whatsapp":
+        // WhatsApp uses unicode emoji
         return resolver.toGChat(emojiName);
       default:
         return resolver.toGChat(emojiName);

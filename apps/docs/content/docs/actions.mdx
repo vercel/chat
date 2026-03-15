@@ -46,7 +46,7 @@ The `event` object passed to action handlers:
 | `actionId` | `string` | The `id` from the Button or Select component |
 | `value` | `string` (optional) | The `value` from the Button or selected option |
 | `user` | `Author` | The user who clicked |
-| `thread` | `Thread` | The thread containing the card |
+| `thread` | `Thread \| null` | The thread containing the card (null for view-based actions like home tab buttons) |
 | `messageId` | `string` | The message containing the card |
 | `threadId` | `string` | Thread ID |
 | `adapter` | `Adapter` | The platform adapter |
