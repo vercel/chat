@@ -335,7 +335,7 @@ export class FacebookAdapter
         card
           ? cardToFallbackText(card)
           : this.formatConverter.renderPostable(message),
-        "gchat"
+        "facebook"
       )
     );
 
