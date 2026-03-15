@@ -316,32 +316,18 @@ describe("postMessage", () => {
 });
 
 describe("editMessage", () => {
-  it("edits a message", async () => {
+  it("throws ValidationError because editing is not supported", async () => {
     const adapter = new LinqAdapter({
       apiToken: "test-token",
       logger: mockLogger,
     });
     await adapter.initialize(createMockChat());
 
-    mockFetch.mockResolvedValueOnce(
-      linqOk({
-        id: "msg-456",
-        chat_id: "chat-123",
-        is_from_me: true,
-        is_delivered: true,
-        is_read: false,
-        created_at: "2025-01-01T00:00:00Z",
-        updated_at: "2025-01-01T00:01:00Z",
-        parts: [{ type: "text", value: "Updated", reactions: null }],
-      })
+    await expect(
+      adapter.editMessage("linq:chat-123", "msg-456", "Updated")
+    ).rejects.toThrow(
+      "Editing messages is not supported by the current Linq API schema"
     );
-
-    const result = await adapter.editMessage(
-      "linq:chat-123",
-      "msg-456",
-      "Updated"
-    );
-    expect(result.id).toBe("msg-456");
   });
 });
 
@@ -661,34 +647,18 @@ describe("fetchMessage", () => {
 });
 
 describe("editMessage result", () => {
-  it("returns correct structure from edit", async () => {
+  it("throws ValidationError because editing is not supported", async () => {
     const adapter = new LinqAdapter({
       apiToken: "test-token",
       logger: mockLogger,
     });
     await adapter.initialize(createMockChat());
 
-    mockFetch.mockResolvedValueOnce(
-      linqOk({
-        id: "msg-456",
-        chat_id: "chat-123",
-        is_from_me: true,
-        is_delivered: true,
-        is_read: false,
-        created_at: "2025-01-01T00:00:00Z",
-        updated_at: "2025-01-01T00:01:00Z",
-        parts: [{ type: "text", value: "Edited text", reactions: null }],
-      })
+    await expect(
+      adapter.editMessage("linq:chat-123", "msg-456", "Edited text")
+    ).rejects.toThrow(
+      "Editing messages is not supported by the current Linq API schema"
     );
-
-    const result = await adapter.editMessage(
-      "linq:chat-123",
-      "msg-456",
-      "Edited text"
-    );
-    expect(result.id).toBe("msg-456");
-    expect(result.threadId).toBe("linq:chat-123");
-    expect(result.raw.chat_id).toBe("chat-123");
   });
 });
 

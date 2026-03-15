@@ -259,40 +259,13 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
   async editMessage(
     _threadId: string,
-    messageId: string,
-    message: AdapterPostableMessage
+    _messageId: string,
+    _message: AdapterPostableMessage
   ): Promise<RawMessage<LinqRawMessage>> {
-    const card = extractCard(message);
-    const text = card
-      ? cardToFallbackText(card)
-      : this.formatConverter.renderPostable(message);
-
-    if (!text.trim()) {
-      throw new ValidationError("linq", "Message text cannot be empty");
-    }
-
-    const { data, error, response } = await this.client.PATCH(
-      "/v3/messages/{messageId}",
-      {
-        params: { path: { messageId } },
-        body: {
-          part_index: 0,
-          text,
-        },
-      }
+    throw new ValidationError(
+      "linq",
+      "Editing messages is not supported by the current Linq API schema"
     );
-
-    if (error || !data) {
-      this.handleApiError(response, "editMessage");
-    }
-
-    const threadId = this.encodeThreadId({ chatId: data.chat_id });
-
-    return {
-      id: data.id,
-      threadId,
-      raw: data,
-    };
   }
 
   async deleteMessage(_threadId: string, messageId: string): Promise<void> {
