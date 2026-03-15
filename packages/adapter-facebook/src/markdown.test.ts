@@ -52,6 +52,18 @@ describe("FacebookFormatConverter", () => {
       const result = converter.renderPostable({ markdown: "**bold**" });
       expect(result).toContain("bold");
     });
+
+    it("renders ast messages", () => {
+      const ast = converter.toAst("hello from ast");
+      const result = converter.renderPostable({ ast });
+      expect(result).toContain("hello from ast");
+    });
+
+    it("throws on invalid postable message shapes", () => {
+      expect(() =>
+        converter.renderPostable({ unknown: "value" } as never)
+      ).toThrow();
+    });
   });
 
   describe("extractPlainText", () => {
