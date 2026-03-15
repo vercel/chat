@@ -369,6 +369,37 @@ describe("convertEmojiPlaceholders", () => {
     const result = convertEmojiPlaceholders(text, "slack");
     expect(result).toBe("Just a regular message");
   });
+
+  it("should convert placeholders to Facebook format (unicode)", () => {
+    const text = `Thanks! ${emoji.thumbs_up} Great work! ${emoji.fire}`;
+    const result = convertEmojiPlaceholders(text, "facebook");
+    expect(result).toBe("Thanks! 👍 Great work! 🔥");
+  });
+
+  it("should convert multiple Facebook emoji in a message", () => {
+    const text = `${emoji.wave} Hello! ${emoji.smile} How are you? ${emoji.rocket}`;
+    const result = convertEmojiPlaceholders(text, "facebook");
+    expect(result).toBe("👋 Hello! 😊 How are you? 🚀");
+  });
+
+  it("should pass through unknown emoji for Facebook", () => {
+    const text = "Check this {{emoji:unknown_emoji}}!";
+    const result = convertEmojiPlaceholders(text, "facebook");
+    expect(result).toBe("Check this unknown_emoji!");
+  });
+
+  it("should handle Facebook emoji with no placeholders", () => {
+    const text = "Plain message with no emoji";
+    const result = convertEmojiPlaceholders(text, "facebook");
+    expect(result).toBe("Plain message with no emoji");
+  });
+
+  it("should produce identical output for Facebook and other unicode platforms", () => {
+    const text = `${emoji.heart} ${emoji.check} ${emoji.star} ${emoji.party}`;
+    const facebook = convertEmojiPlaceholders(text, "facebook");
+    const gchat = convertEmojiPlaceholders(text, "gchat");
+    expect(facebook).toBe(gchat);
+  });
 });
 
 describe("createEmoji", () => {
