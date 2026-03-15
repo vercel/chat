@@ -943,6 +943,38 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.text).toBe("raw id message");
   });
 
+  it("sets parse_mode for markdown messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      markdown: "**bold** and _italic_",
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string };
+
+    expect(sendMessageBody.parse_mode).toBe("Markdown");
+  });
+
   it("posts cards with inline keyboard buttons", async () => {
     mockFetch
       .mockResolvedValueOnce(
