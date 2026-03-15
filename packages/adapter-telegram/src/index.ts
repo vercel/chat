@@ -556,7 +556,10 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const hasMarkdown =
+      typeof message === "object" && message !== null && "markdown" in message;
+    const parseMode =
+      card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
@@ -642,7 +645,10 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const hasMarkdown =
+      typeof message === "object" && message !== null && "markdown" in message;
+    const parseMode =
+      card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
