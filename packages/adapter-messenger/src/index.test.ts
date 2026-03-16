@@ -17,6 +17,7 @@ import {
 
 const APP_SECRET = "test-app-secret";
 const TRAILING_ELLIPSIS_PATTERN = /\.\.\.$/;
+const MESSENGER_API_PATTERN = /Messenger API/;
 
 function signPayload(body: string): string {
   const hash = createHmac("sha256", APP_SECRET)
@@ -1345,5 +1346,658 @@ describe("MessengerAdapter", () => {
     const parsed = adapter.parseMessage(event);
     expect(parsed.id).toBe("event:1735689600000");
     expect(parsed.text).toBe("Get Started");
+  });
+
+  describe("multiple entries and events in a single webhook", () => {
+    it("processes multiple messaging events in a single entry", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      const payload = createWebhookPayload([
+        sampleMessagingEvent({ message: { mid: "mid.1", text: "first" } }),
+        sampleMessagingEvent({ message: { mid: "mid.2", text: "second" } }),
+        sampleMessagingEvent({ message: { mid: "mid.3", text: "third" } }),
+      ]);
+      const body = JSON.stringify(payload);
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      });
+
+      await adapter.handleWebhook(request);
+      expect(chat.processMessage).toHaveBeenCalledTimes(3);
+    });
+
+    it("processes multiple entries in a single webhook payload", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      const payload = {
+        object: "page",
+        entry: [
+          {
+            id: "PAGE_456",
+            time: 1735689600000,
+            messaging: [
+              sampleMessagingEvent({ message: { mid: "mid.a", text: "from entry 1" } }),
+            ],
+          },
+          {
+            id: "PAGE_456",
+            time: 1735689601000,
+            messaging: [
+              sampleMessagingEvent({ message: { mid: "mid.b", text: "from entry 2" } }),
+            ],
+          },
+        ],
+      };
+      const body = JSON.stringify(payload);
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      });
+
+      await adapter.handleWebhook(request);
+      expect(chat.processMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it("handles mixed event types in a single webhook", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      const payload = createWebhookPayload([
+        sampleMessagingEvent({ message: { mid: "mid.msg", text: "hello" } }),
+        sampleMessagingEvent({
+          message: undefined,
+          reaction: { mid: "mid.msg", action: "react", emoji: "👍", reaction: "like" },
+        }),
+        sampleMessagingEvent({
+          message: undefined,
+          delivery: { watermark: 1735689600000, mids: ["mid.msg"] },
+        }),
+        sampleMessagingEvent({
+          message: undefined,
+          read: { watermark: 1735689600000 },
+        }),
+      ]);
+      const body = JSON.stringify(payload);
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(chat.processMessage).toHaveBeenCalledTimes(1);
+      expect(chat.processReaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("postback edge cases", () => {
+    it("uses postback.mid as messageId when present", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      const event = sampleMessagingEvent({
+        message: undefined,
+        postback: { title: "Menu Item", payload: "MENU_1", mid: "mid.postback1" },
+      });
+      const payload = createWebhookPayload([event]);
+      const body = JSON.stringify(payload);
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      });
+
+      await adapter.handleWebhook(request);
+      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(actionArg.messageId).toBe("mid.postback1");
+      expect(actionArg.actionId).toBe("MENU_1");
+      expect(actionArg.value).toBe("MENU_1");
+    });
+
+    it("falls back to postback:{timestamp} when mid is absent", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      const event = sampleMessagingEvent({
+        timestamp: 1735689999000,
+        message: undefined,
+        postback: { title: "Get Started", payload: "GET_STARTED" },
+      });
+      const payload = createWebhookPayload([event]);
+      const body = JSON.stringify(payload);
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      });
+
+      await adapter.handleWebhook(request);
+      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(actionArg.messageId).toBe("postback:1735689999000");
+    });
+  });
+
+  describe("message parsing edge cases", () => {
+    it("all inbound messages have isMention set to true", () => {
+      const adapter = createAdapter();
+      const parsed = adapter.parseMessage(sampleMessagingEvent());
+      expect(parsed.isMention).toBe(true);
+    });
+
+    it("echo messages are marked as isMe and isBot", () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      // need to await but parseMessage is sync - init to set botUserId
+      return adapter.initialize(chat).then(() => {
+        const event = sampleMessagingEvent({
+          sender: { id: "PAGE_456" },
+          message: { mid: "mid.echo", text: "bot says", is_echo: true },
+        });
+        const parsed = adapter.parseMessage(event);
+        expect(parsed.author.isMe).toBe(true);
+        expect(parsed.author.isBot).toBe(true);
+      });
+    });
+
+    it("parses message with empty text as empty string", () => {
+      const adapter = createAdapter();
+      const event = sampleMessagingEvent({
+        message: { mid: "mid.empty", text: undefined } as never,
+      });
+      const parsed = adapter.parseMessage(event);
+      expect(parsed.text).toBe("");
+    });
+
+    it("parses message with quick_reply payload", () => {
+      const adapter = createAdapter();
+      const event = sampleMessagingEvent({
+        message: {
+          mid: "mid.qr",
+          text: "Yes",
+          quick_reply: { payload: "QR_YES" },
+        },
+      });
+      const parsed = adapter.parseMessage(event);
+      expect(parsed.text).toBe("Yes");
+      expect(parsed.id).toBe("mid.qr");
+    });
+
+    it("handles message with no text and no postback title", () => {
+      const adapter = createAdapter();
+      const event: MessengerMessagingEvent = {
+        sender: { id: "USER_123" },
+        recipient: { id: "PAGE_456" },
+        timestamp: 1735689600000,
+        message: {
+          mid: "mid.attach-only",
+          attachments: [
+            { type: "image", payload: { url: "https://example.com/img.jpg" } },
+          ],
+        },
+      };
+      const parsed = adapter.parseMessage(event);
+      expect(parsed.text).toBe("");
+      expect(parsed.attachments).toHaveLength(1);
+    });
+  });
+
+  describe("postMessage edge cases", () => {
+    it("caches sent message so it is fetchable", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.cached" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", "cached msg");
+
+      const fetched = await adapter.fetchMessage("messenger:USER_123", "mid.cached");
+      expect(fetched).not.toBeNull();
+      expect(fetched?.text).toContain("cached msg");
+      expect(fetched?.author.isMe).toBe(true);
+    });
+
+    it("posts message with markdown content", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.md" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", {
+        markdown: "**bold** and *italic*",
+      });
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.text).toContain("bold");
+      expect(body.message.text).toContain("italic");
+    });
+
+    it("posts message with AST content", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.ast" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", {
+        ast: {
+          type: "root",
+          children: [
+            { type: "paragraph", children: [{ type: "text", value: "ast content" }] },
+          ],
+        },
+      });
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.text).toContain("ast content");
+    });
+
+    it("truncates at exactly 2000 characters with ellipsis", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.trunc" })
+      );
+
+      const exactText = "x".repeat(2000);
+      await adapter.postMessage("messenger:USER_123", exactText);
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      // Exactly 2000 should not be truncated
+      expect(body.message.text).toBe(exactText);
+      expect(body.message.text.length).toBe(2000);
+    });
+
+    it("truncates at 2001 characters to 2000 with trailing ellipsis", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.trunc2" })
+      );
+
+      const overText = "y".repeat(2001);
+      await adapter.postMessage("messenger:USER_123", overText);
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.text.length).toBe(2000);
+      expect(body.message.text).toMatch(TRAILING_ELLIPSIS_PATTERN);
+    });
+  });
+
+  describe("webhook verification edge cases", () => {
+    it("returns challenge as empty string when hub.challenge is missing", async () => {
+      const adapter = createAdapter();
+      const request = new Request(
+        "https://example.com/webhook?hub.mode=subscribe&hub.verify_token=test-verify-token",
+        { method: "GET" }
+      );
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("");
+    });
+
+    it("rejects when hub.mode is not subscribe", async () => {
+      const adapter = createAdapter();
+      const request = new Request(
+        "https://example.com/webhook?hub.mode=unsubscribe&hub.verify_token=test-verify-token&hub.challenge=CHALLENGE",
+        { method: "GET" }
+      );
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe("fetchMessages pagination edge cases", () => {
+    async function initAdapterWithNumberedMessages(count: number) {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      for (let i = 1; i <= count; i++) {
+        adapter.parseMessage({
+          sender: { id: "USER_123" },
+          recipient: { id: "PAGE_456" },
+          timestamp: 1735689600000 + i * 1000,
+          message: { mid: `mid.${i}`, text: `message ${i}` },
+        });
+      }
+
+      return adapter;
+    }
+
+    it("clamps negative limit to 1", async () => {
+      const adapter = await initAdapterWithNumberedMessages(5);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        limit: -10,
+      });
+      expect(result.messages).toHaveLength(1);
+    });
+
+    it("clamps limit above 100 to 100", async () => {
+      const adapter = await initAdapterWithNumberedMessages(5);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        limit: 500,
+      });
+      // Only 5 messages exist, but limit should be capped at 100
+      expect(result.messages).toHaveLength(5);
+    });
+
+    it("returns no nextCursor for forward from last message", async () => {
+      const adapter = await initAdapterWithNumberedMessages(3);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        cursor: "mid.3",
+        direction: "forward",
+        limit: 10,
+      });
+      expect(result.messages).toHaveLength(0);
+      expect(result.nextCursor).toBeUndefined();
+    });
+
+    it("returns no nextCursor for backward from first message", async () => {
+      const adapter = await initAdapterWithNumberedMessages(3);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        cursor: "mid.1",
+        direction: "backward",
+        limit: 10,
+      });
+      expect(result.messages).toHaveLength(0);
+      expect(result.nextCursor).toBeUndefined();
+    });
+
+    it("ignores unknown cursor for backward and returns from end", async () => {
+      const adapter = await initAdapterWithNumberedMessages(3);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        cursor: "mid.nonexistent",
+        direction: "backward",
+        limit: 2,
+      });
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[1].id).toBe("mid.3");
+    });
+
+    it("ignores unknown cursor for forward and returns from start", async () => {
+      const adapter = await initAdapterWithNumberedMessages(3);
+      const result = await adapter.fetchMessages("messenger:USER_123", {
+        cursor: "mid.nonexistent",
+        direction: "forward",
+        limit: 2,
+      });
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].id).toBe("mid.1");
+    });
+
+    it("uses default limit of 50 when not specified", async () => {
+      const adapter = await initAdapterWithNumberedMessages(3);
+      const result = await adapter.fetchMessages("messenger:USER_123");
+      // Only 3 messages, but limit defaults to 50
+      expect(result.messages).toHaveLength(3);
+    });
+  });
+
+  describe("Graph API error handling - additional error codes", () => {
+    async function initAndMockError(
+      responseBody: unknown,
+      status: number
+    ) {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify(responseBody), { status })
+      );
+
+      return adapter;
+    }
+
+    it("throws AdapterRateLimitError on error code 32", async () => {
+      const adapter = await initAndMockError(
+        { error: { message: "Page rate limit", code: 32 } },
+        400
+      );
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AdapterRateLimitError
+      );
+    });
+
+    it("throws AdapterRateLimitError on error code 613", async () => {
+      const adapter = await initAndMockError(
+        { error: { message: "Custom rate limit", code: 613 } },
+        400
+      );
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AdapterRateLimitError
+      );
+    });
+
+    it("throws AuthenticationError on error code 190 regardless of status", async () => {
+      const adapter = await initAndMockError(
+        { error: { message: "Token expired", code: 190 } },
+        400
+      );
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AuthenticationError
+      );
+    });
+
+    it("throws ValidationError on error code 200 (permission)", async () => {
+      const adapter = await initAndMockError(
+        { error: { message: "Requires permission", code: 200 } },
+        400
+      );
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        SharedValidationError
+      );
+    });
+
+    it("uses fallback message when error object has no message", async () => {
+      const adapter = await initAndMockError(
+        { error: { code: 999 } },
+        500
+      );
+      await expect(
+        adapter.startTyping("messenger:USER_123")
+      ).rejects.toThrow(MESSENGER_API_PATTERN);
+    });
+
+    it("uses status as code when error object has no code", async () => {
+      const adapter = await initAndMockError(
+        { error: { message: "Something failed" } },
+        500
+      );
+      await expect(
+        adapter.startTyping("messenger:USER_123")
+      ).rejects.toThrow(NetworkError);
+    });
+
+    it("handles response with no error object at all", async () => {
+      const adapter = await initAndMockError({}, 500);
+      await expect(
+        adapter.startTyping("messenger:USER_123")
+      ).rejects.toThrow(NetworkError);
+    });
+  });
+
+  describe("thread ID edge cases", () => {
+    it("rejects thread ID with extra colons", () => {
+      const adapter = createAdapter();
+      expect(() => adapter.decodeThreadId("messenger:foo:bar")).toThrow(
+        ValidationError
+      );
+    });
+
+    it("rejects empty thread ID", () => {
+      const adapter = createAdapter();
+      expect(() => adapter.decodeThreadId("")).toThrow(ValidationError);
+    });
+  });
+
+  describe("attachment edge cases", () => {
+    it("maps location attachment type to file", () => {
+      const adapter = createAdapter();
+      const event = sampleMessagingEvent({
+        message: {
+          mid: "mid.loc",
+          text: "location",
+          attachments: [
+            { type: "location", payload: { url: "https://maps.example.com/loc" } },
+          ],
+        },
+      });
+      const parsed = adapter.parseMessage(event);
+      expect(parsed.attachments).toHaveLength(1);
+      expect(parsed.attachments[0].type).toBe("file");
+    });
+
+    it("handles mix of attachments with and without URLs", () => {
+      const adapter = createAdapter();
+      const event = sampleMessagingEvent({
+        message: {
+          mid: "mid.mixed",
+          text: "mixed",
+          attachments: [
+            { type: "image", payload: { url: "https://example.com/img.jpg" } },
+            { type: "image", payload: { sticker_id: 369239263222822 } },
+            { type: "video", payload: { url: "https://example.com/vid.mp4" } },
+            { type: "fallback" },
+          ],
+        },
+      });
+      const parsed = adapter.parseMessage(event);
+      // Only 2 attachments have URLs
+      expect(parsed.attachments).toHaveLength(2);
+      expect(parsed.attachments[0].type).toBe("image");
+      expect(parsed.attachments[1].type).toBe("video");
+    });
+
+    it("returns empty attachments when message has no attachments field", () => {
+      const adapter = createAdapter();
+      const event = sampleMessagingEvent({
+        message: { mid: "mid.noatt", text: "plain text" },
+      });
+      const parsed = adapter.parseMessage(event);
+      expect(parsed.attachments).toEqual([]);
+    });
+  });
+
+  describe("profile display name edge cases", () => {
+    it("uses only first name when last name is missing", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "USER_123", first_name: "Alice" })
+      );
+
+      const info = await adapter.fetchThread("messenger:USER_123");
+      expect(info.channelName).toBe("Alice");
+    });
+
+    it("uses only last name when first name is missing", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "USER_123", last_name: "Smith" })
+      );
+
+      const info = await adapter.fetchThread("messenger:USER_123");
+      expect(info.channelName).toBe("Smith");
+    });
   });
 });
