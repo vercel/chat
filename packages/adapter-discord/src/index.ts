@@ -56,7 +56,7 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, cardToFallbackText } from "./cards";
+import { cardToDiscordPayload } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
@@ -811,8 +811,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -1157,8 +1156,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -2378,7 +2376,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(

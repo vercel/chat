@@ -2551,9 +2551,12 @@ describe("postChannelMessage", () => {
     await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
 
     const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
       embeds?: unknown[];
       components?: unknown[];
     };
+    // Should NOT include content text when card is present (avoids duplicate display)
+    expect(calledPayload.content).toBeUndefined();
     expect(calledPayload.embeds).toBeDefined();
     expect(Array.isArray(calledPayload.embeds)).toBe(true);
     expect((calledPayload.embeds ?? []).length).toBeGreaterThan(0);
