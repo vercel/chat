@@ -103,6 +103,12 @@ describe("SupabaseStateAdapter", () => {
         createSupabaseState({} as Parameters<typeof createSupabaseState>[0])
       ).toThrow("Supabase client is required");
     });
+
+    it("should not call Supabase before connect", () => {
+      const mock = createMockSupabaseClient();
+      createSupabaseState({ client: mock.client, logger: mockLogger });
+      expect(mock.schema).not.toHaveBeenCalled();
+    });
   });
 
   describe("ensureConnected", () => {
@@ -143,6 +149,63 @@ describe("SupabaseStateAdapter", () => {
       await expect(adapter.appendToList("key", "value")).rejects.toThrow(
         "not connected"
       );
+    });
+
+    it("should throw when calling unsubscribe before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.unsubscribe("thread1")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling isSubscribed before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.isSubscribed("thread1")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling forceReleaseLock before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.forceReleaseLock("thread1")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling extendLock before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      const lock: Lock = {
+        expiresAt: Date.now() + 5000,
+        threadId: "thread1",
+        token: "tok",
+      };
+      await expect(adapter.extendLock(lock, 5000)).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling set before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.set("key", "value")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling setIfNotExists before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.setIfNotExists("key", "value")).rejects.toThrow(
+        "not connected"
+      );
+    });
+
+    it("should throw when calling delete before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.delete("key")).rejects.toThrow("not connected");
+    });
+
+    it("should throw when calling getList before connect", async () => {
+      const adapter = createUnconnectedAdapter();
+      await expect(adapter.getList("key")).rejects.toThrow("not connected");
     });
   });
 
@@ -216,6 +279,35 @@ describe("SupabaseStateAdapter", () => {
 
         await expect(failingAdapter.connect()).rejects.toThrow("migration missing");
         expect(mock.calls).toHaveLength(2);
+      });
+
+      it("should throw when calling any method after disconnect", async () => {
+        await adapter.disconnect();
+        await expect(adapter.subscribe("thread1")).rejects.toThrow(
+          "not connected"
+        );
+        await expect(adapter.get("key")).rejects.toThrow("not connected");
+      });
+    });
+
+    describe("RPC error propagation", () => {
+      it("should throw when RPC returns error", async () => {
+        const rpcError = new Error("rpc failed");
+        const mock = createMockSupabaseClient((_schema, fn) =>
+          fn === "chat_state_get" || fn === "chat_state_subscribe"
+            ? { data: null, error: rpcError }
+            : { data: true, error: null }
+        );
+        const errorAdapter = new SupabaseStateAdapter({
+          client: mock.client,
+          logger: mockLogger,
+        });
+        await errorAdapter.connect();
+
+        await expect(errorAdapter.get("key")).rejects.toThrow("rpc failed");
+        await expect(errorAdapter.subscribe("thread1")).rejects.toThrow(
+          "rpc failed"
+        );
       });
     });
 
@@ -322,6 +414,46 @@ describe("SupabaseStateAdapter", () => {
           schema: "chat_state",
         });
       });
+
+      it("should return false when lock extension fails", async () => {
+        response = { data: false, error: null };
+        const lock: Lock = {
+          expiresAt: Date.now() + 5000,
+          threadId: "thread1",
+          token: "sb_test-token",
+        };
+        const result = await adapter.extendLock(lock, 5000);
+        expect(result).toBe(false);
+      });
+
+      it("should normalize lock when RPC returns expiresAt as string", async () => {
+        const expiresAtMs = Date.now() + 5000;
+        response = {
+          data: {
+            expiresAt: String(expiresAtMs),
+            threadId: "thread1",
+            token: "sb_test-token",
+          },
+          error: null,
+        };
+        const lock = await adapter.acquireLock("thread1", 5000);
+        expect(lock).not.toBeNull();
+        expect(lock?.expiresAt).toBe(expiresAtMs);
+        expect(typeof lock?.expiresAt).toBe("number");
+      });
+
+      it("should return null when RPC returns lock with non-finite expiresAt", async () => {
+        response = {
+          data: {
+            expiresAt: Number.NaN,
+            threadId: "thread1",
+            token: "sb_test-token",
+          },
+          error: null,
+        };
+        const lock = await adapter.acquireLock("thread1", 5000);
+        expect(lock).toBeNull();
+      });
     });
 
     describe("cache", () => {
@@ -357,10 +489,50 @@ describe("SupabaseStateAdapter", () => {
         });
       });
 
+      it("should send p_ttl_ms null when set is called without TTL", async () => {
+        await adapter.set("key", { a: 1 });
+        expect(calls[0].args).toMatchObject({ p_ttl_ms: null });
+      });
+
+      it("should send p_ttl_ms null when set is called with 0 or negative TTL", async () => {
+        await adapter.set("key", "v", 0);
+        expect(calls[0].args).toMatchObject({ p_ttl_ms: null });
+        await adapter.set("key", "v", -1);
+        expect(calls[1].args).toMatchObject({ p_ttl_ms: null });
+      });
+
       it("should return true when setIfNotExists stores a value", async () => {
         response = { data: true, error: null };
         const result = await adapter.setIfNotExists("key", "value", 5000);
         expect(result).toBe(true);
+      });
+
+      it("should return false when setIfNotExists finds existing key", async () => {
+        response = { data: false, error: null };
+        const result = await adapter.setIfNotExists("key", "value");
+        expect(result).toBe(false);
+      });
+
+      it("should send p_ttl_ms null when setIfNotExists is called without TTL", async () => {
+        response = { data: true, error: null };
+        await adapter.setIfNotExists("key", "value");
+        expect(calls[0].args).toMatchObject({ p_ttl_ms: null });
+      });
+
+      it("should send p_ttl_ms null when setIfNotExists is called with 0 TTL", async () => {
+        response = { data: true, error: null };
+        await adapter.setIfNotExists("key", "value", 0);
+        expect(calls[0].args).toMatchObject({ p_ttl_ms: null });
+      });
+
+      it("should return array and number on cache hit", async () => {
+        response = { data: [1, 2, 3], error: null };
+        const arr = await adapter.get<number[]>("key");
+        expect(arr).toEqual([1, 2, 3]);
+
+        response = { data: 42, error: null };
+        const num = await adapter.get<number>("key");
+        expect(num).toBe(42);
       });
 
       it("should delete a key with the expected RPC arguments", async () => {
@@ -392,12 +564,36 @@ describe("SupabaseStateAdapter", () => {
         });
       });
 
-      it("should pass p_max_length null when maxLength is 0 or omitted (no trim)", async () => {
+      it("should pass p_max_length null when maxLength is 0, negative, or omitted (no trim)", async () => {
         await adapter.appendToList("mylist", { x: 1 }, { maxLength: 0 });
         expect(calls[0].args).toMatchObject({ p_max_length: null });
 
         await adapter.appendToList("mylist", { x: 2 });
         expect(calls[1].args).toMatchObject({ p_max_length: null });
+
+        await adapter.appendToList("mylist", { x: 3 }, { maxLength: -5 });
+        expect(calls[2].args).toMatchObject({ p_max_length: null });
+      });
+
+      it("should pass p_ttl_ms null when appendToList is called with only maxLength", async () => {
+        await adapter.appendToList("mylist", { x: 1 }, { maxLength: 5 });
+        expect(calls[0].args).toMatchObject({
+          p_max_length: 5,
+          p_ttl_ms: null,
+        });
+      });
+
+      it("should pass p_ttl_ms when appendToList is called with only ttlMs", async () => {
+        await adapter.appendToList("mylist", { x: 1 }, { ttlMs: 30_000 });
+        expect(calls[0].args).toMatchObject({
+          p_max_length: null,
+          p_ttl_ms: 30_000,
+        });
+      });
+
+      it("should pass p_ttl_ms null when appendToList is called with ttlMs 0", async () => {
+        await adapter.appendToList("mylist", { x: 1 }, { ttlMs: 0 });
+        expect(calls[0].args).toMatchObject({ p_ttl_ms: null });
       });
 
       it("should return parsed list items from getList", async () => {
@@ -417,6 +613,38 @@ describe("SupabaseStateAdapter", () => {
       it("should return the underlying client", () => {
         const client = adapter.getClient();
         expect(client).toBeDefined();
+      });
+    });
+
+    describe("StateAdapter contract", () => {
+      const stateAdapterMethods = [
+        "connect",
+        "disconnect",
+        "subscribe",
+        "unsubscribe",
+        "isSubscribed",
+        "acquireLock",
+        "forceReleaseLock",
+        "releaseLock",
+        "extendLock",
+        "get",
+        "set",
+        "setIfNotExists",
+        "delete",
+        "appendToList",
+        "getList",
+      ] as const;
+
+      it("should implement all StateAdapter methods", () => {
+        for (const method of stateAdapterMethods) {
+          expect(adapter).toHaveProperty(method);
+          expect(typeof adapter[method]).toBe("function");
+        }
+      });
+
+      it("should expose getClient for advanced usage", () => {
+        expect(adapter).toHaveProperty("getClient");
+        expect(typeof adapter.getClient).toBe("function");
       });
     });
   });
