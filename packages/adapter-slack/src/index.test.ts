@@ -3107,6 +3107,102 @@ describe("fetchMessage", () => {
 
     expect(msg).toBeNull();
   });
+  it("populates author email when available", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            type: "message",
+            user: "U1",
+            text: "Email test",
+            ts: "1234567890.123456",
+            channel: "C123",
+          },
+        ],
+      })
+    );
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          name: "user1",
+          real_name: "User One",
+          profile: { email: "user1@example.com" },
+        },
+      })
+    );
+
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const msg = await adapter.fetchMessage(
+      "slack:C123:1234567890.000000",
+      "1234567890.123456"
+    );
+
+    expect(msg?.author.email).toBe("user1@example.com");
+  });
+  it("sets author email to undefined when Slack profile email is missing", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            type: "message",
+            user: "U1",
+            text: "No email scope",
+            ts: "1234567890.123456",
+            channel: "C123",
+          },
+        ],
+      })
+    );
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          name: "user1",
+          real_name: "User One",
+          profile: {},
+        },
+      })
+    );
+
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const msg = await adapter.fetchMessage(
+      "slack:C123:1234567890.000000",
+      "1234567890.123456"
+    );
+
+    expect(msg?.author.email).toBeUndefined();
+  });
 });
 
 // ============================================================================
