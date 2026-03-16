@@ -1,5 +1,12 @@
 # @chat-adapter/discord
 
+## 4.20.2
+
+### Patch Changes
+
+- chat@4.20.2
+- @chat-adapter/shared@4.20.2
+
 ## 4.20.1
 
 ### Patch Changes

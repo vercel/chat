@@ -1,5 +1,13 @@
 # @chat-adapter/slack
 
+## 4.20.2
+
+### Patch Changes
+
+- f612b44: Fix duplicate mention resolution by using the replace callback offset instead of indexOf. Invalidate user cache on Slack user_change events so display name updates are picked up immediately.
+  - chat@4.20.2
+  - @chat-adapter/shared@4.20.2
+
 ## 4.20.1
 
 ### Patch Changes

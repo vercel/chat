@@ -1,5 +1,13 @@
 # @chat-adapter/github
 
+## 4.20.2
+
+### Patch Changes
+
+- 01bd059: Fix `removeReaction` in multi-tenant mode by lazily detecting `botUserId` via the per-installation octokit client when it wasn't set during `initialize()`
+  - chat@4.20.2
+  - @chat-adapter/shared@4.20.2
+
 ## 4.20.1
 
 ### Patch Changes
