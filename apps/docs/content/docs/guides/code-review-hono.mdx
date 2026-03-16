@@ -23,7 +23,7 @@ Scaffold a new Hono project and install dependencies:
 ```sh title="Terminal"
 pnpm create hono my-review-bot
 cd my-review-bot
-pnpm add @octokit/rest @vercel/sandbox ai bash-tool chat @chat-adapter/github @chat-adapter/state-redis
+pnpm add @octokit/rest @vercel/functions @vercel/sandbox ai bash-tool chat @chat-adapter/github @chat-adapter/state-redis
 ```
 
 <Callout type="info">
@@ -198,6 +198,7 @@ Create the Hono app with a single webhook route that delegates to Chat SDK:
 
 ```typescript title="src/index.ts" lineNumbers
 import { Hono } from "hono";
+import { waitUntil } from "@vercel/functions";
 import { bot } from "./bot";
 
 const app = new Hono();
@@ -208,15 +209,13 @@ app.post("/api/webhooks/github", async (c) => {
     return c.text("GitHub adapter not configured", 404);
   }
 
-  return handler(c.req.raw, {
-    waitUntil: (task) => c.executionCtx.waitUntil(task),
-  });
+  return handler(c.req.raw, { waitUntil });
 });
 
 export default app;
 ```
 
-Chat SDK's GitHub adapter handles signature verification, event parsing, and routing internally. The `waitUntil` option ensures the review completes after the HTTP response is sent.
+Chat SDK's GitHub adapter handles signature verification, event parsing, and routing internally. The `waitUntil` option ensures the review completes after the HTTP response is sent — required on serverless platforms where the function would otherwise terminate before your handlers finish.
 
 ## Test locally
 
