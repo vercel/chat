@@ -6,7 +6,7 @@ import {
   stringifyMarkdown,
 } from "chat";
 
-export class FacebookFormatConverter extends BaseFormatConverter {
+export class MessengerFormatConverter extends BaseFormatConverter {
   fromAst(ast: Root): string {
     return stringifyMarkdown(ast).trim();
   }

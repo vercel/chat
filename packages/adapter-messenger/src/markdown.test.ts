@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { FacebookFormatConverter } from "./markdown";
+import { MessengerFormatConverter } from "./markdown";
 
-const converter = new FacebookFormatConverter();
+const converter = new MessengerFormatConverter();
 
-describe("FacebookFormatConverter", () => {
+describe("MessengerFormatConverter", () => {
   describe("toAst", () => {
     it("parses plain text", () => {
       const ast = converter.toAst("Hello world");

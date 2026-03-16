@@ -10,9 +10,9 @@ import {
   ValidationError as SharedValidationError,
 } from "@chat-adapter/shared";
 import {
-  createFacebookAdapter,
-  FacebookAdapter,
-  type FacebookMessagingEvent,
+  createMessengerAdapter,
+  MessengerAdapter,
+  type MessengerMessagingEvent,
 } from "./index";
 
 const APP_SECRET = "test-app-secret";
@@ -70,8 +70,8 @@ function createMockChat(): ChatInstance {
 }
 
 function sampleMessagingEvent(
-  overrides?: Partial<FacebookMessagingEvent>
-): FacebookMessagingEvent {
+  overrides?: Partial<MessengerMessagingEvent>
+): MessengerMessagingEvent {
   return {
     sender: { id: "USER_123" },
     recipient: { id: "PAGE_456" },
@@ -84,7 +84,7 @@ function sampleMessagingEvent(
   };
 }
 
-function createWebhookPayload(events: FacebookMessagingEvent[]) {
+function createWebhookPayload(events: MessengerMessagingEvent[]) {
   return {
     object: "page",
     entry: [
@@ -98,7 +98,7 @@ function createWebhookPayload(events: FacebookMessagingEvent[]) {
 }
 
 function createAdapter() {
-  return new FacebookAdapter({
+  return new MessengerAdapter({
     appSecret: "test-app-secret",
     pageAccessToken: "test-page-token",
     verifyToken: "test-verify-token",
@@ -106,13 +106,13 @@ function createAdapter() {
   });
 }
 
-describe("createFacebookAdapter", () => {
+describe("createMessengerAdapter", () => {
   it("throws when app secret is missing", () => {
     process.env.FACEBOOK_APP_SECRET = "";
     process.env.FACEBOOK_PAGE_ACCESS_TOKEN = "token";
     process.env.FACEBOOK_VERIFY_TOKEN = "verify";
 
-    expect(() => createFacebookAdapter({ logger: mockLogger })).toThrow(
+    expect(() => createMessengerAdapter({ logger: mockLogger })).toThrow(
       ValidationError
     );
   });
@@ -122,7 +122,7 @@ describe("createFacebookAdapter", () => {
     process.env.FACEBOOK_PAGE_ACCESS_TOKEN = "";
     process.env.FACEBOOK_VERIFY_TOKEN = "verify";
 
-    expect(() => createFacebookAdapter({ logger: mockLogger })).toThrow(
+    expect(() => createMessengerAdapter({ logger: mockLogger })).toThrow(
       ValidationError
     );
   });
@@ -132,7 +132,7 @@ describe("createFacebookAdapter", () => {
     process.env.FACEBOOK_PAGE_ACCESS_TOKEN = "token";
     process.env.FACEBOOK_VERIFY_TOKEN = "";
 
-    expect(() => createFacebookAdapter({ logger: mockLogger })).toThrow(
+    expect(() => createMessengerAdapter({ logger: mockLogger })).toThrow(
       ValidationError
     );
   });
@@ -142,21 +142,21 @@ describe("createFacebookAdapter", () => {
     process.env.FACEBOOK_PAGE_ACCESS_TOKEN = "token";
     process.env.FACEBOOK_VERIFY_TOKEN = "verify";
 
-    const adapter = createFacebookAdapter({ logger: mockLogger });
-    expect(adapter).toBeInstanceOf(FacebookAdapter);
-    expect(adapter.name).toBe("facebook");
+    const adapter = createMessengerAdapter({ logger: mockLogger });
+    expect(adapter).toBeInstanceOf(MessengerAdapter);
+    expect(adapter.name).toBe("messenger");
   });
 });
 
-describe("FacebookAdapter", () => {
+describe("MessengerAdapter", () => {
   it("encodes and decodes thread IDs", () => {
     const adapter = createAdapter();
 
     expect(adapter.encodeThreadId({ recipientId: "USER_123" })).toBe(
-      "facebook:USER_123"
+      "messenger:USER_123"
     );
 
-    expect(adapter.decodeThreadId("facebook:USER_123")).toEqual({
+    expect(adapter.decodeThreadId("messenger:USER_123")).toEqual({
       recipientId: "USER_123",
     });
   });
@@ -165,7 +165,7 @@ describe("FacebookAdapter", () => {
     const adapter = createAdapter();
 
     expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
-    expect(() => adapter.decodeThreadId("facebook:")).toThrow(ValidationError);
+    expect(() => adapter.decodeThreadId("messenger:")).toThrow(ValidationError);
     expect(() => adapter.decodeThreadId("slack:C123:ts")).toThrow(
       ValidationError
     );
@@ -287,9 +287,9 @@ describe("FacebookAdapter", () => {
       graphApiOk({ recipient_id: "USER_123", message_id: "mid.sent" })
     );
 
-    const result = await adapter.postMessage("facebook:USER_123", "Hello!");
+    const result = await adapter.postMessage("messenger:USER_123", "Hello!");
     expect(result.id).toBe("mid.sent");
-    expect(result.threadId).toBe("facebook:USER_123");
+    expect(result.threadId).toBe("messenger:USER_123");
   });
 
   it("rejects empty messages", async () => {
@@ -302,7 +302,7 @@ describe("FacebookAdapter", () => {
     await adapter.initialize(chat);
 
     await expect(
-      adapter.postMessage("facebook:USER_123", "  ")
+      adapter.postMessage("messenger:USER_123", "  ")
     ).rejects.toThrow(ValidationError);
   });
 
@@ -317,7 +317,7 @@ describe("FacebookAdapter", () => {
 
     mockFetch.mockResolvedValueOnce(graphApiOk({ recipient_id: "USER_123" }));
 
-    await adapter.startTyping("facebook:USER_123");
+    await adapter.startTyping("messenger:USER_123");
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
     const [url, options] = mockFetch.mock.calls[1];
@@ -329,20 +329,20 @@ describe("FacebookAdapter", () => {
   it("throws on editMessage (unsupported)", async () => {
     const adapter = createAdapter();
     await expect(
-      adapter.editMessage("facebook:USER_123", "mid.1", "new text")
+      adapter.editMessage("messenger:USER_123", "mid.1", "new text")
     ).rejects.toThrow(ValidationError);
   });
 
   it("throws on deleteMessage (unsupported)", async () => {
     const adapter = createAdapter();
     await expect(
-      adapter.deleteMessage("facebook:USER_123", "mid.1")
+      adapter.deleteMessage("messenger:USER_123", "mid.1")
     ).rejects.toThrow(ValidationError);
   });
 
   it("always reports isDM as true", () => {
     const adapter = createAdapter();
-    expect(adapter.isDM("facebook:USER_123")).toBe(true);
+    expect(adapter.isDM("messenger:USER_123")).toBe(true);
   });
 
   it("parses raw messages", () => {
@@ -351,7 +351,7 @@ describe("FacebookAdapter", () => {
 
     const parsed = adapter.parseMessage(event);
     expect(parsed.text).toBe("hello");
-    expect(parsed.threadId).toBe("facebook:USER_123");
+    expect(parsed.threadId).toBe("messenger:USER_123");
     expect(parsed.id).toBe("mid.abc123");
   });
 
@@ -372,7 +372,7 @@ describe("FacebookAdapter", () => {
       })
     );
 
-    const threadInfo = await adapter.fetchThread("facebook:USER_123");
+    const threadInfo = await adapter.fetchThread("messenger:USER_123");
     expect(threadInfo.channelName).toBe("John Doe");
     expect(threadInfo.isDM).toBe(true);
   });
@@ -517,7 +517,7 @@ describe("FacebookAdapter", () => {
     // Echo should not trigger processMessage
     expect(chat.processMessage).not.toHaveBeenCalled();
     // But should be cached and fetchable
-    const cached = await adapter.fetchMessage("facebook:USER_123", "mid.echo1");
+    const cached = await adapter.fetchMessage("messenger:USER_123", "mid.echo1");
     expect(cached).not.toBeNull();
     expect(cached?.text).toBe("bot reply");
   });
@@ -594,7 +594,7 @@ describe("FacebookAdapter", () => {
       graphApiOk({ recipient_id: "USER_123", message_id: "mid.long" })
     );
 
-    await adapter.postMessage("facebook:USER_123", longText);
+    await adapter.postMessage("messenger:USER_123", longText);
 
     const [, options] = mockFetch.mock.calls[1];
     const body = JSON.parse(options?.body as string);
@@ -737,21 +737,21 @@ describe("FacebookAdapter", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("EVENT_RECEIVED");
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      "Chat instance not initialized, ignoring Facebook webhook"
+      "Chat instance not initialized, ignoring Messenger webhook"
     );
   });
 
   it("throws on addReaction (unsupported)", async () => {
     const adapter = createAdapter();
     await expect(
-      adapter.addReaction("facebook:USER_123", "mid.1", "thumbsup")
+      adapter.addReaction("messenger:USER_123", "mid.1", "thumbsup")
     ).rejects.toThrow(ValidationError);
   });
 
   it("throws on removeReaction (unsupported)", async () => {
     const adapter = createAdapter();
     await expect(
-      adapter.removeReaction("facebook:USER_123", "mid.1", "thumbsup")
+      adapter.removeReaction("messenger:USER_123", "mid.1", "thumbsup")
     ).rejects.toThrow(ValidationError);
   });
 
@@ -779,13 +779,13 @@ describe("FacebookAdapter", () => {
 
     it("returns empty result for unknown thread", async () => {
       const adapter = createAdapter();
-      const result = await adapter.fetchMessages("facebook:UNKNOWN");
+      const result = await adapter.fetchMessages("messenger:UNKNOWN");
       expect(result.messages).toEqual([]);
     });
 
     it("fetches messages backward (default)", async () => {
       const adapter = await initAdapterWithMessages();
-      const result = await adapter.fetchMessages("facebook:USER_123", {
+      const result = await adapter.fetchMessages("messenger:USER_123", {
         limit: 3,
       });
       expect(result.messages).toHaveLength(3);
@@ -796,7 +796,7 @@ describe("FacebookAdapter", () => {
 
     it("fetches messages backward with cursor", async () => {
       const adapter = await initAdapterWithMessages();
-      const result = await adapter.fetchMessages("facebook:USER_123", {
+      const result = await adapter.fetchMessages("messenger:USER_123", {
         limit: 2,
         cursor: "mid.3",
         direction: "backward",
@@ -808,7 +808,7 @@ describe("FacebookAdapter", () => {
 
     it("fetches messages forward", async () => {
       const adapter = await initAdapterWithMessages();
-      const result = await adapter.fetchMessages("facebook:USER_123", {
+      const result = await adapter.fetchMessages("messenger:USER_123", {
         limit: 2,
         direction: "forward",
       });
@@ -820,7 +820,7 @@ describe("FacebookAdapter", () => {
 
     it("fetches messages forward with cursor", async () => {
       const adapter = await initAdapterWithMessages();
-      const result = await adapter.fetchMessages("facebook:USER_123", {
+      const result = await adapter.fetchMessages("messenger:USER_123", {
         limit: 2,
         cursor: "mid.2",
         direction: "forward",
@@ -833,7 +833,7 @@ describe("FacebookAdapter", () => {
 
     it("returns no nextCursor when all messages are returned", async () => {
       const adapter = await initAdapterWithMessages();
-      const result = await adapter.fetchMessages("facebook:USER_123", {
+      const result = await adapter.fetchMessages("messenger:USER_123", {
         limit: 100,
       });
       expect(result.messages).toHaveLength(5);
@@ -844,7 +844,7 @@ describe("FacebookAdapter", () => {
   it("fetchMessage returns null for non-existent message", async () => {
     const adapter = createAdapter();
     const result = await adapter.fetchMessage(
-      "facebook:USER_123",
+      "messenger:USER_123",
       "mid.nonexistent"
     );
     expect(result).toBeNull();
@@ -895,7 +895,7 @@ describe("FacebookAdapter", () => {
 
     mockFetch.mockResolvedValueOnce(graphApiOk({ id: "USER_123" }));
 
-    const threadInfo = await adapter.fetchThread("facebook:USER_123");
+    const threadInfo = await adapter.fetchThread("messenger:USER_123");
     expect(threadInfo.channelName).toBe("USER_123");
   });
 
@@ -911,8 +911,8 @@ describe("FacebookAdapter", () => {
       graphApiOk({ id: "USER_123", first_name: "John" })
     );
 
-    await adapter.fetchThread("facebook:USER_123");
-    await adapter.fetchThread("facebook:USER_123");
+    await adapter.fetchThread("messenger:USER_123");
+    await adapter.fetchThread("messenger:USER_123");
 
     // Only 2 fetch calls: initialize + first profile fetch (second is cached)
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -920,13 +920,13 @@ describe("FacebookAdapter", () => {
 
   it("channelIdFromThreadId extracts the recipient ID", () => {
     const adapter = createAdapter();
-    expect(adapter.channelIdFromThreadId("facebook:USER_123")).toBe("USER_123");
+    expect(adapter.channelIdFromThreadId("messenger:USER_123")).toBe("USER_123");
   });
 
   it("openDM returns encoded thread ID", async () => {
     const adapter = createAdapter();
     const threadId = await adapter.openDM("USER_123");
-    expect(threadId).toBe("facebook:USER_123");
+    expect(threadId).toBe("messenger:USER_123");
   });
 
   it("renderFormatted converts AST to string", () => {
@@ -1066,7 +1066,7 @@ describe("FacebookAdapter", () => {
 
       expect(adapter.botUserId).toBeUndefined();
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        "Failed to fetch Facebook page identity",
+        "Failed to fetch Messenger page identity",
         expect.objectContaining({ error: expect.any(String) })
       );
     });
@@ -1095,7 +1095,7 @@ describe("FacebookAdapter", () => {
     });
 
     it("keeps explicit userName even when /me returns a name", async () => {
-      const adapter = new FacebookAdapter({
+      const adapter = new MessengerAdapter({
         appSecret: "test-app-secret",
         pageAccessToken: "test-page-token",
         verifyToken: "test-verify-token",
@@ -1129,7 +1129,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(AdapterRateLimitError);
     });
 
@@ -1151,7 +1151,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(AdapterRateLimitError);
     });
 
@@ -1173,7 +1173,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(AuthenticationError);
     });
 
@@ -1195,7 +1195,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(SharedValidationError);
     });
 
@@ -1215,7 +1215,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(ResourceNotFoundError);
     });
 
@@ -1237,7 +1237,7 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(NetworkError);
     });
 
@@ -1252,7 +1252,7 @@ describe("FacebookAdapter", () => {
       mockFetch.mockRejectedValueOnce(new Error("DNS failure"));
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(NetworkError);
     });
 
@@ -1272,12 +1272,12 @@ describe("FacebookAdapter", () => {
       );
 
       await expect(
-        adapter.startTyping("facebook:USER_123")
+        adapter.startTyping("messenger:USER_123")
       ).rejects.toThrow(NetworkError);
     });
   });
 
-  it("resolves raw thread ID without facebook: prefix", async () => {
+  it("resolves raw thread ID without messenger: prefix", async () => {
     const adapter = createAdapter();
     const chat = createMockChat();
     mockFetch.mockResolvedValueOnce(
@@ -1289,7 +1289,7 @@ describe("FacebookAdapter", () => {
       graphApiOk({ recipient_id: "USER_123", message_id: "mid.raw" })
     );
 
-    // postMessage accepts raw recipient IDs (without facebook: prefix)
+    // postMessage accepts raw recipient IDs (without messenger: prefix)
     const result = await adapter.postMessage("USER_123", "hi");
     expect(result.id).toBe("mid.raw");
   });
@@ -1326,16 +1326,16 @@ describe("FacebookAdapter", () => {
     });
 
     return adapter
-      .fetchMessages("facebook:USER_123")
+      .fetchMessages("messenger:USER_123")
       .then((result) => {
         expect(result.messages[0].text).toBe("first");
         expect(result.messages[1].text).toBe("second");
       });
   });
 
-  it("parseFacebookMessage uses event timestamp for ID when no mid", () => {
+  it("parseMessengerMessage uses event timestamp for ID when no mid", () => {
     const adapter = createAdapter();
-    const event: FacebookMessagingEvent = {
+    const event: MessengerMessagingEvent = {
       sender: { id: "USER_123" },
       recipient: { id: "PAGE_456" },
       timestamp: 1735689600000,

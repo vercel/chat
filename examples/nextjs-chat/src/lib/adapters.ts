@@ -3,9 +3,9 @@ import {
   type DiscordAdapter,
 } from "@chat-adapter/discord";
 import {
-  createFacebookAdapter,
-  type FacebookAdapter,
-} from "@chat-adapter/facebook";
+  createMessengerAdapter,
+  type MessengerAdapter,
+} from "@chat-adapter/messenger";
 import {
   createGoogleChatAdapter,
   type GoogleChatAdapter,
@@ -30,7 +30,7 @@ const logger = new ConsoleLogger("info");
 
 export interface Adapters {
   discord?: DiscordAdapter;
-  facebook?: FacebookAdapter;
+  messenger?: MessengerAdapter;
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
@@ -96,7 +96,7 @@ const LINEAR_METHODS = [
   "addReaction",
   "fetchMessages",
 ];
-const FACEBOOK_METHODS = [
+const MESSENGER_METHODS = [
   "postMessage",
   "startTyping",
   "openDM",
@@ -148,15 +148,15 @@ export function buildAdapters(): Adapters {
     );
   }
 
-  // Facebook Messenger adapter (optional) - env vars: FACEBOOK_APP_SECRET, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_VERIFY_TOKEN
+  // Messenger adapter (optional) - env vars: FACEBOOK_APP_SECRET, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_VERIFY_TOKEN
   if (process.env.FACEBOOK_APP_SECRET) {
-    adapters.facebook = withRecording(
-      createFacebookAdapter({
+    adapters.messenger = withRecording(
+      createMessengerAdapter({
         userName: "Chat SDK Bot",
-        logger: logger.child("facebook"),
+        logger: logger.child("messenger"),
       }),
-      "facebook",
-      FACEBOOK_METHODS
+      "messenger",
+      MESSENGER_METHODS
     );
   }
 

@@ -29,38 +29,38 @@ import {
   getEmoji,
   Message,
 } from "chat";
-import { FacebookFormatConverter } from "./markdown";
+import { MessengerFormatConverter } from "./markdown";
 import type {
-  FacebookAdapterConfig,
-  FacebookMessagingEvent,
-  FacebookRawMessage,
-  FacebookSendApiResponse,
-  FacebookThreadId,
-  FacebookUserProfile,
-  FacebookWebhookPayload,
+  MessengerAdapterConfig,
+  MessengerMessagingEvent,
+  MessengerRawMessage,
+  MessengerSendApiResponse,
+  MessengerThreadId,
+  MessengerUserProfile,
+  MessengerWebhookPayload,
 } from "./types";
 
 const GRAPH_API_BASE = "https://graph.facebook.com";
 const DEFAULT_API_VERSION = "v21.0";
-const FACEBOOK_MESSAGE_LIMIT = 2000;
+const MESSENGER_MESSAGE_LIMIT = 2000;
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
 
-export class FacebookAdapter
-  implements Adapter<FacebookThreadId, FacebookRawMessage>
+export class MessengerAdapter
+  implements Adapter<MessengerThreadId, MessengerRawMessage>
 {
-  readonly name = "facebook";
+  readonly name = "messenger";
 
   private readonly appSecret: string;
   private readonly pageAccessToken: string;
   private readonly verifyToken: string;
   private readonly apiVersion: string;
   private readonly logger: Logger;
-  private readonly formatConverter = new FacebookFormatConverter();
+  private readonly formatConverter = new MessengerFormatConverter();
   private readonly messageCache = new Map<
     string,
-    Message<FacebookRawMessage>[]
+    Message<MessengerRawMessage>[]
   >();
-  private readonly userProfileCache = new Map<string, FacebookUserProfile>();
+  private readonly userProfileCache = new Map<string, MessengerUserProfile>();
 
   private chat: ChatInstance | null = null;
   private _botUserId?: string;
@@ -76,7 +76,7 @@ export class FacebookAdapter
   }
 
   constructor(
-    config: FacebookAdapterConfig & { logger: Logger; userName?: string }
+    config: MessengerAdapterConfig & { logger: Logger; userName?: string }
   ) {
     this.appSecret = config.appSecret;
     this.pageAccessToken = config.pageAccessToken;
@@ -104,12 +104,12 @@ export class FacebookAdapter
         this._userName = me.name;
       }
 
-      this.logger.info("Facebook adapter initialized", {
+      this.logger.info("Messenger adapter initialized", {
         botUserId: this._botUserId,
         userName: this._userName,
       });
     } catch (error) {
-      this.logger.warn("Failed to fetch Facebook page identity", {
+      this.logger.warn("Failed to fetch Messenger page identity", {
         error: String(error),
       });
     }
@@ -126,13 +126,13 @@ export class FacebookAdapter
     const body = await request.text();
 
     if (!this.verifySignature(request, body)) {
-      this.logger.warn("Facebook webhook rejected due to invalid signature");
+      this.logger.warn("Messenger webhook rejected due to invalid signature");
       return new Response("Invalid signature", { status: 403 });
     }
 
-    let payload: FacebookWebhookPayload;
+    let payload: MessengerWebhookPayload;
     try {
-      payload = JSON.parse(body) as FacebookWebhookPayload;
+      payload = JSON.parse(body) as MessengerWebhookPayload;
     } catch {
       return new Response("Invalid JSON", { status: 400 });
     }
@@ -143,7 +143,7 @@ export class FacebookAdapter
 
     if (!this.chat) {
       this.logger.warn(
-        "Chat instance not initialized, ignoring Facebook webhook"
+        "Chat instance not initialized, ignoring Messenger webhook"
       );
       return new Response("EVENT_RECEIVED", { status: 200 });
     }
@@ -191,11 +191,11 @@ export class FacebookAdapter
     const challenge = url.searchParams.get("hub.challenge");
 
     if (mode === "subscribe" && token === this.verifyToken) {
-      this.logger.info("Facebook webhook verified");
+      this.logger.info("Messenger webhook verified");
       return new Response(challenge ?? "", { status: 200 });
     }
 
-    this.logger.warn("Facebook webhook verification failed");
+    this.logger.warn("Messenger webhook verification failed");
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -220,13 +220,13 @@ export class FacebookAdapter
         Buffer.from(computedHash, "hex")
       );
     } catch {
-      this.logger.warn("Failed to verify Facebook webhook signature");
+      this.logger.warn("Failed to verify Messenger webhook signature");
       return false;
     }
   }
 
   private handleIncomingMessage(
-    event: FacebookMessagingEvent,
+    event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
     if (!this.chat) {
@@ -237,14 +237,14 @@ export class FacebookAdapter
       recipientId: event.sender.id,
     });
 
-    const parsedMessage = this.parseFacebookMessage(event, threadId);
+    const parsedMessage = this.parseMessengerMessage(event, threadId);
     this.cacheMessage(parsedMessage);
 
     this.chat.processMessage(this, threadId, parsedMessage, options);
   }
 
   private handlePostback(
-    event: FacebookMessagingEvent,
+    event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
     if (!(this.chat && event.postback)) {
@@ -275,7 +275,7 @@ export class FacebookAdapter
     );
   }
 
-  private handleEcho(event: FacebookMessagingEvent): void {
+  private handleEcho(event: MessengerMessagingEvent): void {
     if (!event.message) {
       return;
     }
@@ -284,12 +284,12 @@ export class FacebookAdapter
       recipientId: event.recipient.id,
     });
 
-    const parsedMessage = this.parseFacebookMessage(event, threadId);
+    const parsedMessage = this.parseMessengerMessage(event, threadId);
     this.cacheMessage(parsedMessage);
   }
 
   private handleReaction(
-    event: FacebookMessagingEvent,
+    event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
     if (!(this.chat && event.reaction)) {
@@ -326,7 +326,7 @@ export class FacebookAdapter
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<FacebookRawMessage>> {
+  ): Promise<RawMessage<MessengerRawMessage>> {
     const { recipientId } = this.resolveThreadId(threadId);
 
     const card = extractCard(message);
@@ -335,15 +335,15 @@ export class FacebookAdapter
         card
           ? cardToFallbackText(card)
           : this.formatConverter.renderPostable(message),
-        "facebook"
+        "messenger"
       )
     );
 
     if (!text.trim()) {
-      throw new ValidationError("facebook", "Message text cannot be empty");
+      throw new ValidationError("messenger", "Message text cannot be empty");
     }
 
-    const result = await this.graphApiFetch<FacebookSendApiResponse>(
+    const result = await this.graphApiFetch<MessengerSendApiResponse>(
       "me/messages",
       "POST",
       {
@@ -353,7 +353,7 @@ export class FacebookAdapter
       }
     );
 
-    const rawMessage: FacebookMessagingEvent = {
+    const rawMessage: MessengerMessagingEvent = {
       sender: { id: this._botUserId ?? "" },
       recipient: { id: recipientId },
       timestamp: Date.now(),
@@ -364,7 +364,7 @@ export class FacebookAdapter
       },
     };
 
-    const parsedMessage = this.parseFacebookMessage(rawMessage, threadId);
+    const parsedMessage = this.parseMessengerMessage(rawMessage, threadId);
     this.cacheMessage(parsedMessage);
 
     return {
@@ -378,17 +378,17 @@ export class FacebookAdapter
     _threadId: string,
     _messageId: string,
     _message: AdapterPostableMessage
-  ): Promise<RawMessage<FacebookRawMessage>> {
+  ): Promise<RawMessage<MessengerRawMessage>> {
     throw new ValidationError(
-      "facebook",
-      "Facebook Messenger does not support editing messages"
+      "messenger",
+      "Messenger does not support editing messages"
     );
   }
 
   async deleteMessage(_threadId: string, _messageId: string): Promise<void> {
     throw new ValidationError(
-      "facebook",
-      "Facebook Messenger does not support deleting messages"
+      "messenger",
+      "Messenger does not support deleting messages"
     );
   }
 
@@ -398,8 +398,8 @@ export class FacebookAdapter
     _emoji: EmojiValue | string
   ): Promise<void> {
     throw new ValidationError(
-      "facebook",
-      "Facebook Messenger does not support reactions via API"
+      "messenger",
+      "Messenger does not support reactions via API"
     );
   }
 
@@ -409,8 +409,8 @@ export class FacebookAdapter
     _emoji: EmojiValue | string
   ): Promise<void> {
     throw new ValidationError(
-      "facebook",
-      "Facebook Messenger does not support reactions via API"
+      "messenger",
+      "Messenger does not support reactions via API"
     );
   }
 
@@ -425,7 +425,7 @@ export class FacebookAdapter
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}
-  ): Promise<FetchResult<FacebookRawMessage>> {
+  ): Promise<FetchResult<MessengerRawMessage>> {
     const messages = [...(this.messageCache.get(threadId) ?? [])].sort((a, b) =>
       this.compareMessages(a, b)
     );
@@ -436,7 +436,7 @@ export class FacebookAdapter
   async fetchMessage(
     _threadId: string,
     messageId: string
-  ): Promise<Message<FacebookRawMessage> | null> {
+  ): Promise<Message<MessengerRawMessage> | null> {
     return this.findCachedMessage(messageId) ?? null;
   }
 
@@ -478,36 +478,36 @@ export class FacebookAdapter
     return true;
   }
 
-  encodeThreadId(platformData: FacebookThreadId): string {
-    return `facebook:${platformData.recipientId}`;
+  encodeThreadId(platformData: MessengerThreadId): string {
+    return `messenger:${platformData.recipientId}`;
   }
 
-  decodeThreadId(threadId: string): FacebookThreadId {
+  decodeThreadId(threadId: string): MessengerThreadId {
     const parts = threadId.split(":");
-    if (parts[0] !== "facebook" || parts.length !== 2) {
+    if (parts[0] !== "messenger" || parts.length !== 2) {
       throw new ValidationError(
-        "facebook",
-        `Invalid Facebook thread ID: ${threadId}`
+        "messenger",
+        `Invalid Messenger thread ID: ${threadId}`
       );
     }
 
     const recipientId = parts[1];
     if (!recipientId) {
       throw new ValidationError(
-        "facebook",
-        `Invalid Facebook thread ID: ${threadId}`
+        "messenger",
+        `Invalid Messenger thread ID: ${threadId}`
       );
     }
 
     return { recipientId };
   }
 
-  parseMessage(raw: FacebookRawMessage): Message<FacebookRawMessage> {
+  parseMessage(raw: MessengerRawMessage): Message<MessengerRawMessage> {
     const threadId = this.encodeThreadId({
       recipientId: raw.sender.id,
     });
 
-    const message = this.parseFacebookMessage(raw, threadId);
+    const message = this.parseMessengerMessage(raw, threadId);
     this.cacheMessage(message);
     return message;
   }
@@ -516,15 +516,15 @@ export class FacebookAdapter
     return this.formatConverter.fromAst(content);
   }
 
-  private parseFacebookMessage(
-    event: FacebookMessagingEvent,
+  private parseMessengerMessage(
+    event: MessengerMessagingEvent,
     threadId: string
-  ): Message<FacebookRawMessage> {
+  ): Message<MessengerRawMessage> {
     const text = event.message?.text ?? event.postback?.title ?? "";
     const isEcho = event.message?.is_echo ?? false;
     const isMe = isEcho || event.sender.id === this._botUserId;
 
-    return new Message<FacebookRawMessage>({
+    return new Message<MessengerRawMessage>({
       id: event.message?.mid ?? `event:${event.timestamp}`,
       threadId,
       text,
@@ -546,7 +546,7 @@ export class FacebookAdapter
     });
   }
 
-  private extractAttachments(event: FacebookMessagingEvent): Attachment[] {
+  private extractAttachments(event: MessengerMessagingEvent): Attachment[] {
     if (!event.message?.attachments) {
       return [];
     }
@@ -584,30 +584,30 @@ export class FacebookAdapter
       response = await fetch(url);
     } catch (error) {
       throw new NetworkError(
-        "facebook",
-        "Failed to download Facebook attachment",
+        "messenger",
+        "Failed to download Messenger attachment",
         error instanceof Error ? error : undefined
       );
     }
 
     if (!response.ok) {
       throw new NetworkError(
-        "facebook",
-        `Failed to download Facebook attachment: ${response.status}`
+        "messenger",
+        `Failed to download Messenger attachment: ${response.status}`
       );
     }
 
     return Buffer.from(await response.arrayBuffer());
   }
 
-  private async fetchUserProfile(userId: string): Promise<FacebookUserProfile> {
+  private async fetchUserProfile(userId: string): Promise<MessengerUserProfile> {
     const cached = this.userProfileCache.get(userId);
     if (cached) {
       return cached;
     }
 
     try {
-      const profile = await this.graphApiFetch<FacebookUserProfile>(
+      const profile = await this.graphApiFetch<MessengerUserProfile>(
         userId,
         "GET",
         undefined,
@@ -620,13 +620,13 @@ export class FacebookAdapter
     }
   }
 
-  private profileDisplayName(profile: FacebookUserProfile): string {
+  private profileDisplayName(profile: MessengerUserProfile): string {
     const parts = [profile.first_name, profile.last_name].filter(Boolean);
     return parts.join(" ") || profile.id;
   }
 
-  private resolveThreadId(value: string): FacebookThreadId {
-    if (value.startsWith("facebook:")) {
+  private resolveThreadId(value: string): MessengerThreadId {
+    if (value.startsWith("messenger:")) {
       return this.decodeThreadId(value);
     }
 
@@ -634,17 +634,17 @@ export class FacebookAdapter
   }
 
   private truncateMessage(text: string): string {
-    if (text.length <= FACEBOOK_MESSAGE_LIMIT) {
+    if (text.length <= MESSENGER_MESSAGE_LIMIT) {
       return text;
     }
 
-    return `${text.slice(0, FACEBOOK_MESSAGE_LIMIT - 3)}...`;
+    return `${text.slice(0, MESSENGER_MESSAGE_LIMIT - 3)}...`;
   }
 
   private paginateMessages(
-    messages: Message<FacebookRawMessage>[],
+    messages: Message<MessengerRawMessage>[],
     options: FetchOptions
-  ): FetchResult<FacebookRawMessage> {
+  ): FetchResult<MessengerRawMessage> {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
     const direction = options.direction ?? "backward";
 
@@ -683,7 +683,7 @@ export class FacebookAdapter
     };
   }
 
-  private cacheMessage(message: Message<FacebookRawMessage>): void {
+  private cacheMessage(message: Message<MessengerRawMessage>): void {
     const existing = this.messageCache.get(message.threadId) ?? [];
     const index = existing.findIndex((item) => item.id === message.id);
 
@@ -699,7 +699,7 @@ export class FacebookAdapter
 
   private findCachedMessage(
     messageId: string
-  ): Message<FacebookRawMessage> | undefined {
+  ): Message<MessengerRawMessage> | undefined {
     for (const messages of this.messageCache.values()) {
       const found = messages.find((message) => message.id === messageId);
       if (found) {
@@ -711,8 +711,8 @@ export class FacebookAdapter
   }
 
   private compareMessages(
-    a: Message<FacebookRawMessage>,
-    b: Message<FacebookRawMessage>
+    a: Message<MessengerRawMessage>,
+    b: Message<MessengerRawMessage>
   ): number {
     const timeDiff =
       a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
@@ -755,8 +755,8 @@ export class FacebookAdapter
       });
     } catch (error) {
       throw new NetworkError(
-        "facebook",
-        `Network error calling Facebook Graph API ${endpoint}`,
+        "messenger",
+        `Network error calling Messenger Graph API ${endpoint}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -766,8 +766,8 @@ export class FacebookAdapter
       data = (await response.json()) as Record<string, unknown>;
     } catch {
       throw new NetworkError(
-        "facebook",
-        `Failed to parse Facebook API response for ${endpoint}`
+        "messenger",
+        `Failed to parse Messenger API response for ${endpoint}`
       );
     }
 
@@ -786,41 +786,41 @@ export class FacebookAdapter
     const error = data.error as
       | { message?: string; code?: number; type?: string }
       | undefined;
-    const message = error?.message ?? `Facebook API ${endpoint} failed`;
+    const message = error?.message ?? `Messenger API ${endpoint} failed`;
     const code = error?.code ?? status;
 
     if (status === 429 || code === 4 || code === 32 || code === 613) {
-      throw new AdapterRateLimitError("facebook");
+      throw new AdapterRateLimitError("messenger");
     }
 
     if (status === 401 || code === 190) {
-      throw new AuthenticationError("facebook", message);
+      throw new AuthenticationError("messenger", message);
     }
 
     if (status === 403 || code === 10 || code === 200) {
-      throw new ValidationError("facebook", message);
+      throw new ValidationError("messenger", message);
     }
 
     if (status === 404) {
-      throw new ResourceNotFoundError("facebook", endpoint);
+      throw new ResourceNotFoundError("messenger", endpoint);
     }
 
     throw new NetworkError(
-      "facebook",
+      "messenger",
       `${message} (status ${status}, code ${code})`
     );
   }
 }
 
-export function createFacebookAdapter(
+export function createMessengerAdapter(
   config?: Partial<
-    FacebookAdapterConfig & { logger: Logger; userName?: string }
+    MessengerAdapterConfig & { logger: Logger; userName?: string }
   >
-): FacebookAdapter {
+): MessengerAdapter {
   const appSecret = config?.appSecret ?? process.env.FACEBOOK_APP_SECRET;
   if (!appSecret) {
     throw new ValidationError(
-      "facebook",
+      "messenger",
       "appSecret is required. Set FACEBOOK_APP_SECRET or provide it in config."
     );
   }
@@ -829,7 +829,7 @@ export function createFacebookAdapter(
     config?.pageAccessToken ?? process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
   if (!pageAccessToken) {
     throw new ValidationError(
-      "facebook",
+      "messenger",
       "pageAccessToken is required. Set FACEBOOK_PAGE_ACCESS_TOKEN or provide it in config."
     );
   }
@@ -837,29 +837,29 @@ export function createFacebookAdapter(
   const verifyToken = config?.verifyToken ?? process.env.FACEBOOK_VERIFY_TOKEN;
   if (!verifyToken) {
     throw new ValidationError(
-      "facebook",
+      "messenger",
       "verifyToken is required. Set FACEBOOK_VERIFY_TOKEN or provide it in config."
     );
   }
 
-  return new FacebookAdapter({
+  return new MessengerAdapter({
     appSecret,
     pageAccessToken,
     verifyToken,
     apiVersion: config?.apiVersion,
-    logger: config?.logger ?? new ConsoleLogger("info").child("facebook"),
+    logger: config?.logger ?? new ConsoleLogger("info").child("messenger"),
     userName: config?.userName,
   });
 }
 
-export { FacebookFormatConverter } from "./markdown";
+export { MessengerFormatConverter } from "./markdown";
 export type {
-  FacebookAdapterConfig,
-  FacebookMessagingEvent,
-  FacebookRawMessage,
-  FacebookReaction,
-  FacebookSendApiResponse,
-  FacebookThreadId,
-  FacebookUserProfile,
-  FacebookWebhookPayload,
+  MessengerAdapterConfig,
+  MessengerMessagingEvent,
+  MessengerRawMessage,
+  MessengerReaction,
+  MessengerSendApiResponse,
+  MessengerThreadId,
+  MessengerUserProfile,
+  MessengerWebhookPayload,
 } from "./types";

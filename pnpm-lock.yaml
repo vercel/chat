@@ -180,9 +180,6 @@ importers:
       '@chat-adapter/discord':
         specifier: workspace:*
         version: link:../../packages/adapter-discord
-      '@chat-adapter/facebook':
-        specifier: workspace:*
-        version: link:../../packages/adapter-facebook
       '@chat-adapter/gchat':
         specifier: workspace:*
         version: link:../../packages/adapter-gchat
@@ -192,6 +189,9 @@ importers:
       '@chat-adapter/linear':
         specifier: workspace:*
         version: link:../../packages/adapter-linear
+      '@chat-adapter/messenger':
+        specifier: workspace:*
+        version: link:../../packages/adapter-messenger
       '@chat-adapter/slack':
         specifier: workspace:*
         version: link:../../packages/adapter-slack
@@ -279,28 +279,6 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
-  packages/adapter-facebook:
-    dependencies:
-      '@chat-adapter/shared':
-        specifier: workspace:*
-        version: link:../adapter-shared
-      chat:
-        specifier: workspace:*
-        version: link:../chat
-    devDependencies:
-      '@types/node':
-        specifier: ^25.3.2
-        version: 25.3.2
-      tsup:
-        specifier: ^8.3.5
-        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^4.0.18
-        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
-
   packages/adapter-gchat:
     dependencies:
       '@chat-adapter/shared':
@@ -365,6 +343,28 @@ importers:
       '@linear/sdk':
         specifier: ^76.0.0
         version: 76.0.0(graphql@15.10.1)
+      chat:
+        specifier: workspace:*
+        version: link:../chat
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.3.2
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
+  packages/adapter-messenger:
+    dependencies:
+      '@chat-adapter/shared':
+        specifier: workspace:*
+        version: link:../adapter-shared
       chat:
         specifier: workspace:*
         version: link:../chat

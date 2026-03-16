@@ -340,7 +340,7 @@ export function convertEmojiPlaceholders(
     | "gchat"
     | "teams"
     | "discord"
-    | "facebook"
+    | "messenger"
     | "github"
     | "linear"
     | "whatsapp",
@@ -358,8 +358,8 @@ export function convertEmojiPlaceholders(
       case "discord":
         // Discord uses unicode emoji
         return resolver.toDiscord(emojiName);
-      case "facebook":
-        // Facebook Messenger uses unicode emoji
+      case "messenger":
+        // Messenger uses unicode emoji
         return resolver.toGChat(emojiName);
       case "github":
         // GitHub uses unicode emoji

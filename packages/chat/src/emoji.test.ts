@@ -370,35 +370,35 @@ describe("convertEmojiPlaceholders", () => {
     expect(result).toBe("Just a regular message");
   });
 
-  it("should convert placeholders to Facebook format (unicode)", () => {
+  it("should convert placeholders to Messenger format (unicode)", () => {
     const text = `Thanks! ${emoji.thumbs_up} Great work! ${emoji.fire}`;
-    const result = convertEmojiPlaceholders(text, "facebook");
+    const result = convertEmojiPlaceholders(text, "messenger");
     expect(result).toBe("Thanks! 👍 Great work! 🔥");
   });
 
-  it("should convert multiple Facebook emoji in a message", () => {
+  it("should convert multiple Messenger emoji in a message", () => {
     const text = `${emoji.wave} Hello! ${emoji.smile} How are you? ${emoji.rocket}`;
-    const result = convertEmojiPlaceholders(text, "facebook");
+    const result = convertEmojiPlaceholders(text, "messenger");
     expect(result).toBe("👋 Hello! 😊 How are you? 🚀");
   });
 
-  it("should pass through unknown emoji for Facebook", () => {
+  it("should pass through unknown emoji for Messenger", () => {
     const text = "Check this {{emoji:unknown_emoji}}!";
-    const result = convertEmojiPlaceholders(text, "facebook");
+    const result = convertEmojiPlaceholders(text, "messenger");
     expect(result).toBe("Check this unknown_emoji!");
   });
 
-  it("should handle Facebook emoji with no placeholders", () => {
+  it("should handle Messenger emoji with no placeholders", () => {
     const text = "Plain message with no emoji";
-    const result = convertEmojiPlaceholders(text, "facebook");
+    const result = convertEmojiPlaceholders(text, "messenger");
     expect(result).toBe("Plain message with no emoji");
   });
 
-  it("should produce identical output for Facebook and other unicode platforms", () => {
+  it("should produce identical output for Messenger and other unicode platforms", () => {
     const text = `${emoji.heart} ${emoji.check} ${emoji.star} ${emoji.party}`;
-    const facebook = convertEmojiPlaceholders(text, "facebook");
+    const messenger = convertEmojiPlaceholders(text, "messenger");
     const gchat = convertEmojiPlaceholders(text, "gchat");
-    expect(facebook).toBe(gchat);
+    expect(messenger).toBe(gchat);
   });
 });
 

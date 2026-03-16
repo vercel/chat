@@ -1,5 +1,5 @@
 ---
-"@chat-adapter/facebook": minor
+"@chat-adapter/messenger": minor
 ---
 
-Add Facebook Messenger adapter with support for messages, reactions, postbacks, typing indicators, and webhook verification
+Add Messenger adapter with support for messages, reactions, postbacks, typing indicators, and webhook verification

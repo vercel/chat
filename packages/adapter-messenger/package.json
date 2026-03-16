@@ -1,7 +1,7 @@
 {
-  "name": "@chat-adapter/facebook",
+  "name": "@chat-adapter/messenger",
   "version": "4.15.0",
-  "description": "Facebook Messenger adapter for chat",
+  "description": "Messenger adapter for chat",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -36,7 +36,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vercel/chat.git",
-    "directory": "packages/adapter-facebook"
+    "directory": "packages/adapter-messenger"
   },
   "homepage": "https://github.com/vercel/chat#readme",
   "bugs": {
@@ -47,7 +47,6 @@
   },
   "keywords": [
     "chat",
-    "facebook",
     "messenger",
     "bot",
     "adapter"
