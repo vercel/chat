@@ -1105,6 +1105,31 @@ describe("GitHubAdapter", () => {
 
       expect(mockReactionsDeleteForIssueComment).not.toHaveBeenCalled();
     });
+
+    it("should lazily detect botUserId when not set", async () => {
+      const detectedBotId = 42;
+
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: detectedBotId, login: "test-bot[bot]" },
+      });
+      mockReactionsListForIssueComment.mockResolvedValueOnce({
+        data: [
+          { id: 70, content: "eyes", user: { id: detectedBotId } },
+          { id: 71, content: "eyes", user: { id: 999 } },
+        ],
+      });
+      mockReactionsDeleteForIssueComment.mockResolvedValueOnce({});
+
+      await adapter.removeReaction("github:acme/app:42", "100", "eyes");
+
+      expect(mockUsersGetAuthenticated).toHaveBeenCalled();
+      expect(mockReactionsDeleteForIssueComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        comment_id: 100,
+        reaction_id: 70,
+      });
+    });
   });
 
   describe("emojiToGitHubReaction (via addReaction)", () => {

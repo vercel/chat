@@ -865,6 +865,16 @@ export class GitHubAdapter
 
     const octokit = await this.getOctokitForThread(owner, repo);
 
+    // Multi-tenant mode has no global octokit, so initialize() can't detect _botUserId
+    if (!this._botUserId) {
+      try {
+        const { data: user } = await octokit.users.getAuthenticated();
+        this._botUserId = user.id;
+      } catch {
+        this.logger.warn("Could not detect bot user ID for reaction removal");
+      }
+    }
+
     // List reactions to find the one to delete
     const reactions = reviewCommentId
       ? (
