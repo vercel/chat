@@ -1,8 +1,6 @@
 -- Copy this file into your declarative schema folder.
 --
 -- By default it creates a `chat_state` schema that exposes RPC functions only.
--- If you want a different schema name, replace `chat_state` throughout this file
--- and pass the same schema to `createSupabaseState({ schema: "..." })`.
 --
 -- Important:
 -- 1. Add the schema to your Supabase API exposed schemas.
@@ -344,7 +342,7 @@ create or replace function chat_state.chat_state_append_to_list(
   p_key_prefix text,
   p_list_key text,
   p_value jsonb,
-  p_max_length integer default null,
+  p_max_length bigint default null,
   p_ttl_ms bigint default null
 )
 returns boolean
@@ -354,7 +352,13 @@ set search_path = pg_catalog, chat_state, pg_temp
 as $$
 declare
   v_expires_at timestamptz;
+  v_lock_key bigint;
 begin
+  -- Serialize concurrent appends for the same list so trim + TTL stay correct.
+  /* Separator must not appear in key_prefix/list_key; chr(1) is ASCII SOH, safe for wire protocol. */
+  v_lock_key := pg_catalog.hashtext(p_key_prefix || chr(1) || p_list_key);
+  perform pg_catalog.pg_advisory_xact_lock(v_lock_key);
+
   v_expires_at := case
     when p_ttl_ms is null then null
     else now() + (p_ttl_ms * interval '1 millisecond')

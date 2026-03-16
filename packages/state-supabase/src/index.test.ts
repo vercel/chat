@@ -467,8 +467,11 @@ describe("SupabaseStateAdapter", () => {
         await postgres.copyContentToContainer([
           { content: migrationSql, target: "/tmp/chat_state.sql" },
         ]);
+        // Stop on first error so we see which statement failed (e.g. CREATE FUNCTION).
         const exec = await postgres.exec([
           "psql",
+          "-v",
+          "ON_ERROR_STOP=1",
           "-U",
           "postgres",
           "-d",
@@ -477,7 +480,26 @@ describe("SupabaseStateAdapter", () => {
           "/tmp/chat_state.sql",
         ]);
         if (exec.exitCode !== 0) {
-          throw new Error(`Migration failed: exit ${exec.exitCode}\n${exec.output}`);
+          const out = exec.output ?? "";
+          const err = (exec as { errorOutput?: string }).errorOutput ?? "";
+          throw new Error(
+            `Migration failed: exit ${exec.exitCode}\nstdout:\n${out}\nstderr:\n${err}`
+          );
+        }
+
+        // Ensure append_to_list was created (catches CREATE failures that would otherwise surface as "function does not exist").
+        const { rows: procs } = await pool.query<{ proname: string; args: string }>(`
+          SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+          FROM pg_proc p
+          JOIN pg_namespace n ON p.pronamespace = n.oid
+          WHERE n.nspname = 'chat_state'
+          ORDER BY p.proname
+        `);
+        const appendFn = procs.find((r) => r.proname === "chat_state_append_to_list");
+        if (!appendFn) {
+          throw new Error(
+            `chat_state_append_to_list not found after migration. Functions in chat_state: ${procs.map((p) => `${p.proname}(${p.args})`).join(", ")}`
+          );
         }
       }, 90_000);
 
@@ -600,11 +622,11 @@ describe("SupabaseStateAdapter", () => {
 
         it("chat_state_append_to_list and get_list", async () => {
           await pool.query(
-            "SELECT chat_state.chat_state_append_to_list($1, $2, $3, $4, $5)",
+            "SELECT chat_state.chat_state_append_to_list($1::text, $2::text, $3::jsonb, $4::bigint, $5::bigint)",
             [KEY_PREFIX, "list-1", JSON.stringify({ id: 1 }), 10, 60_000]
           );
           await pool.query(
-            "SELECT chat_state.chat_state_append_to_list($1, $2, $3, $4, $5)",
+            "SELECT chat_state.chat_state_append_to_list($1::text, $2::text, $3::jsonb, $4::bigint, $5::bigint)",
             [KEY_PREFIX, "list-1", JSON.stringify({ id: 2 }), 10, 60_000]
           );
           const { rows } = await pool.query(
