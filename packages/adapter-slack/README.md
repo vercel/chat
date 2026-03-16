@@ -132,6 +132,8 @@ oauth_config:
       - reactions:read
       - reactions:write
       - users:read
+      # Optional: required only for fetching user emails (message.author.email)
+      # - users:read.email
 
 settings:
   event_subscriptions:
@@ -152,6 +154,8 @@ settings:
   socket_mode_enabled: false
   token_rotation_enabled: false
 ```
+
+> **Note on optional scopes**: To fetch user emails (available on the `email` property of `message.author`), you must add `users:read.email` to the `bot` scopes above. Existing app installations will need to be re-installed to grant this new scope if you add it later.
 
 4. Replace `https://your-domain.com/api/webhooks/slack` with your deployed webhook URL
 5. Click **Create**

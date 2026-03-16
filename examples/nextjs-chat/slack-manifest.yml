@@ -26,6 +26,8 @@ oauth_config:
       - reactions:write
       # User info for display names
       - users:read
+      # Optional: required to fetch user emails (message.author.email)
+      # - users:read.email
 
 settings:
   event_subscriptions:
