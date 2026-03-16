@@ -24,8 +24,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@chat-adapter/shared": "workspace:*",
-    "chat": "workspace:*"
+    "@chat-adapter/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "chat": ">=4.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

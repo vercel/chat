@@ -26,8 +26,10 @@
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
     "@googleapis/chat": "^44.6.0",
-    "@googleapis/workspaceevents": "^9.1.0",
-    "chat": "workspace:*"
+    "@googleapis/workspaceevents": "^9.1.0"
+  },
+  "peerDependencies": {
+    "chat": ">=4.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
