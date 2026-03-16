@@ -8,6 +8,7 @@ import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
 import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
+import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
   ActionEvent,
@@ -795,21 +796,7 @@ export class Chat<
   reviver(): (key: string, value: unknown) => unknown {
     // Ensure this chat instance is registered as singleton for thread deserialization
     this.registerSingleton();
-    return function reviver(_key: string, value: unknown): unknown {
-      if (value && typeof value === "object" && "_type" in value) {
-        const typed = value as { _type: string };
-        if (typed._type === "chat:Thread") {
-          return ThreadImpl.fromJSON(value as SerializedThread);
-        }
-        if (typed._type === "chat:Channel") {
-          return ChannelImpl.fromJSON(value as SerializedChannel);
-        }
-        if (typed._type === "chat:Message") {
-          return Message.fromJSON(value as SerializedMessage);
-        }
-      }
-      return value;
-    };
+    return standaloneReviver;
   }
 
   // ChatInstance interface implementations
