@@ -241,6 +241,19 @@ async initialize(chat: ChatInstance): Promise<void> {
 }
 ```
 
+### Disconnect
+
+The optional `disconnect()` method is called during `chat.shutdown()` to clean up resources. Use it to close persistent connections, tear down subscriptions, or release any platform-specific resources.
+
+```typescript title="src/adapter.ts"
+async disconnect(): Promise<void> {
+  // Close WebSocket connections, clean up subscriptions, etc.
+  // Example: await this.matrixClient.stop();
+}
+```
+
+Adapters that don't hold persistent connections can skip this method entirely.
+
 ### Thread ID encode/decode
 
 Thread IDs typically follow the pattern `{adapter}:{segment1}:{segment2}`, though some adapters use more or fewer segments. The `encodeThreadId` and `decodeThreadId` methods must roundtrip consistently. Use `base64url` encoding for segments that contain special characters.
@@ -530,6 +543,7 @@ These methods are not required but extend your adapter's capabilities:
 
 | Method | Purpose |
 |--------|---------|
+| `disconnect()` | Clean up connections and resources during shutdown |
 | `openDM(userId)` | Open a direct message conversation |
 | `isDM(threadId)` | Check if a thread is a DM |
 | `stream(threadId, textStream)` | Stream AI responses in real-time |

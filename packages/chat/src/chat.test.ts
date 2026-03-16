@@ -52,10 +52,6 @@ describe("Chat", () => {
   it("should disconnect adapters during shutdown", async () => {
     await chat.shutdown();
 
-    if (!mockAdapter.disconnect) {
-      throw new Error("Expected mock adapter disconnect to be defined");
-    }
-
     expect(mockAdapter.disconnect).toHaveBeenCalledTimes(1);
     expect(mockState.disconnect).toHaveBeenCalledTimes(1);
   });
@@ -63,15 +59,12 @@ describe("Chat", () => {
   it("should disconnect adapter before state adapter during shutdown", async () => {
     await chat.shutdown();
 
-    if (!mockAdapter.disconnect) {
-      throw new Error("Expected mock adapter disconnect to be defined");
-    }
-
-    const adapterDisconnectCall =
-      (mockAdapter.disconnect as ReturnType<typeof vi.fn>).mock
-        .invocationCallOrder[0];
-    const stateDisconnectCall = (mockState.disconnect as ReturnType<typeof vi.fn>)
-      .mock.invocationCallOrder[0];
+    const adapterDisconnectCall = (
+      mockAdapter.disconnect as ReturnType<typeof vi.fn>
+    ).mock.invocationCallOrder[0];
+    const stateDisconnectCall = (
+      mockState.disconnect as ReturnType<typeof vi.fn>
+    ).mock.invocationCallOrder[0];
     expect(adapterDisconnectCall).toBeLessThan(stateDisconnectCall);
   });
 
@@ -111,12 +104,31 @@ describe("Chat", () => {
     );
     await multiAdapterChat.shutdown();
 
-    if (!slackAdapter.disconnect || !discordAdapter.disconnect) {
-      throw new Error("Expected mock adapter disconnect to be defined");
-    }
-
     expect(slackAdapter.disconnect).toHaveBeenCalledTimes(1);
     expect(discordAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should continue shutdown even if an adapter disconnect fails", async () => {
+    const failingAdapter = createMockAdapter("slack");
+    const healthyAdapter = createMockAdapter("discord");
+    (failingAdapter.disconnect as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("connection lost")
+    );
+    const state = createMockState();
+    const multiAdapterChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: failingAdapter, discord: healthyAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await multiAdapterChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await expect(multiAdapterChat.shutdown()).resolves.toBeUndefined();
+
+    expect(healthyAdapter.disconnect).toHaveBeenCalledTimes(1);
     expect(state.disconnect).toHaveBeenCalledTimes(1);
   });
 

@@ -329,7 +329,12 @@ export class Chat<
         this.logger.debug("Adapter disconnected", adapter.name);
       }
     );
-    await Promise.all(shutdownPromises);
+    const results = await Promise.allSettled(shutdownPromises);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        this.logger.error("Adapter disconnect failed", result.reason);
+      }
+    }
     await this._stateAdapter.disconnect();
     this.initialized = false;
     this.initPromise = null;
