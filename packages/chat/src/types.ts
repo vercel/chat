@@ -1068,6 +1068,8 @@ export interface RawMessage<TRawMessage = unknown> {
 }
 
 export interface Author {
+  /** Email address (if supported by platform and scopes) */
+  email?: string;
   /** Display name */
   fullName: string;
   /** Whether the author is a bot */
