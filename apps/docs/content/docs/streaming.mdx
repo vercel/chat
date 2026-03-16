@@ -28,7 +28,7 @@ bot.onNewMention(async (thread, message) => {
 
 ### Why `fullStream` over `textStream`?
 
-When AI SDK agents make tool calls between text steps, `textStream` concatenates all text without separators — `"hello.how are you?"` instead of `"hello.\n\nhow are you?"`. The `fullStream` contains explicit `step-finish` events that Chat SDK uses to inject paragraph breaks between steps automatically.
+When AI SDK agents make tool calls between text steps, `textStream` concatenates all text without separators — `"hello.how are you?"` instead of `"hello.\n\nhow are you?"`. The `fullStream` contains explicit `finish-step` events that Chat SDK uses to inject paragraph breaks between steps automatically.
 
 Both stream types are auto-detected:
 

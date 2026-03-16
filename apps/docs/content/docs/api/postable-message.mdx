@@ -150,7 +150,7 @@ await thread.post(result.fullStream);
 await thread.post(result.textStream);
 ```
 
-When using `fullStream`, the SDK auto-detects `text-delta` and `step-finish` events, extracting text and inserting paragraph breaks between agent steps.
+When using `fullStream`, the SDK auto-detects `text-delta` and `finish-step` events, extracting text and inserting paragraph breaks between agent steps.
 
 ## FileUpload
 
