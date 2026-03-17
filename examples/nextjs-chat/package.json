@@ -23,7 +23,7 @@
     "@chat-adapter/whatsapp": "workspace:*",
     "ai": "^6.0.5",
     "chat": "workspace:*",
-    "next": "^16.1.5",
+    "next": "^16.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redis": "^5.11.0"
