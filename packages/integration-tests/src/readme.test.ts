@@ -207,9 +207,7 @@ function findPackageReadmes(): Array<{ path: string; name: string }> {
 /**
  * Recursively find all MDX files in the docs content directory.
  */
-function findDocsMdxFiles(
-  dir: string
-): Array<{ path: string; name: string }> {
+function findDocsMdxFiles(dir: string): Array<{ path: string; name: string }> {
   const files: Array<{ path: string; name: string }> = [];
 
   if (!existsSync(dir)) {
