@@ -75,7 +75,12 @@ export function setupWhatsAppFetchMock(
         url = input.url;
       }
 
-      if (!url.includes("graph.facebook.com")) {
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.hostname !== "graph.facebook.com") {
+          return originalFetch(input, init);
+        }
+      } catch {
         return originalFetch(input, init);
       }
 

@@ -1715,13 +1715,19 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // For HTML content, strip tags (basic implementation)
     let text = "";
     if (msg.body?.content) {
-      // Loop to handle nested/reconstructed tags (e.g. "<scr<script>ipt>")
-      let stripped = msg.body.content;
-      let prev: string;
-      do {
-        prev = stripped;
-        stripped = stripped.replace(/<[^>]*>/g, "");
-      } while (stripped !== prev);
+      // Single-pass tag stripping: walk the string and skip anything between < and >
+      // Handles nested/reconstructed tags by iterating only once
+      let stripped = "";
+      let inTag = false;
+      for (const ch of msg.body.content) {
+        if (ch === "<") {
+          inTag = true;
+        } else if (ch === ">") {
+          inTag = false;
+        } else if (!inTag) {
+          stripped += ch;
+        }
+      }
       text = stripped.trim();
     }
 
