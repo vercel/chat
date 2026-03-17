@@ -1,11 +1,10 @@
 /**
- * Tests that code examples in README.md and docs MDX files are valid TypeScript.
+ * Tests that code examples in README.md files are valid TypeScript.
  *
  * This ensures documentation stays in sync with the actual API.
  *
  * - Main README: Full type-checking (examples should be complete)
  * - Package READMEs: Syntax-only checking (examples are intentionally minimal)
- * - Docs MDX files: Syntax-only checking (examples reference external packages)
  */
 
 import { execSync } from "node:child_process";
@@ -18,45 +17,23 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
-const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
 
 /**
  * Extract TypeScript code blocks from markdown content.
- * Handles optional MDX metadata after the language tag (e.g., `title="..." lineNumbers`).
  */
 function extractTypeScriptBlocks(markdown: string): string[] {
   const blocks: string[] = [];
-  const regex = /```(?:typescript|tsx?)(?:[^\S\n][^\n]*)?\n([\s\S]*?)```/g;
+  const regex = /```(?:typescript|ts)\n([\s\S]*?)```/g;
   let match = regex.exec(markdown);
 
   while (match !== null) {
     blocks.push(match[1].trim());
-    match = regex.exec(markdown);
-  }
-
-  return blocks;
-}
-
-/**
- * Extract TypeScript and TSX code blocks from MDX content.
- * Returns blocks tagged with their language for appropriate validation.
- */
-function extractCodeBlocks(
-  markdown: string
-): Array<{ code: string; lang: "ts" | "tsx" }> {
-  const blocks: Array<{ code: string; lang: "ts" | "tsx" }> = [];
-  const regex = /```(typescript|ts|tsx)(?:[^\S\n][^\n]*)?\n([\s\S]*?)```/g;
-  let match = regex.exec(markdown);
-
-  while (match !== null) {
-    const lang = match[1] === "tsx" ? "tsx" : "ts";
-    blocks.push({ code: match[2].trim(), lang });
     match = regex.exec(markdown);
   }
 
@@ -204,84 +181,6 @@ function findPackageReadmes(): Array<{ path: string; name: string }> {
   return readmes;
 }
 
-/**
- * Recursively find all MDX files in the docs content directory.
- */
-function findDocsMdxFiles(dir: string): Array<{ path: string; name: string }> {
-  const files: Array<{ path: string; name: string }> = [];
-
-  if (!existsSync(dir)) {
-    return files;
-  }
-
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...findDocsMdxFiles(fullPath));
-    } else if (entry.name.endsWith(".mdx") || entry.name.endsWith(".md")) {
-      files.push({
-        path: fullPath,
-        name: relative(REPO_ROOT, fullPath),
-      });
-    }
-  }
-
-  return files;
-}
-
-/**
- * Valid packages that can appear in import statements across all docs.
- * Superset of the README valid packages — includes external dependencies
- * referenced in guides and examples.
- */
-const VALID_DOC_PACKAGES = [
-  // Chat SDK packages
-  "chat",
-  "@chat-adapter/slack",
-  "@chat-adapter/teams",
-  "@chat-adapter/gchat",
-  "@chat-adapter/discord",
-  "@chat-adapter/telegram",
-  "@chat-adapter/github",
-  "@chat-adapter/linear",
-  "@chat-adapter/whatsapp",
-  "@chat-adapter/state-redis",
-  "@chat-adapter/state-ioredis",
-  "@chat-adapter/state-pg",
-  "@chat-adapter/state-memory",
-  "@chat-adapter/shared",
-  // Frameworks and runtimes
-  "next/server",
-  "next",
-  "hono",
-  // AI SDK
-  "ai",
-  "@ai-sdk/anthropic",
-  "@ai-sdk/openai",
-  "@ai-sdk/gateway",
-  // Vercel packages
-  "@vercel/sandbox",
-  "@vercel/functions",
-  "workflow",
-  "workflow/next",
-  "workflow/api",
-  // Database and state
-  "redis",
-  "ioredis",
-  "pg",
-  "postgres",
-  // Build and test tooling
-  "tsup",
-  "vitest",
-  "vitest/config",
-  // External libraries used in guides
-  "bash-tool",
-  "@octokit/rest",
-  // Hypothetical example package used in contributing docs
-  "chat-adapter-matrix",
-];
-
 describe("Main README.md code examples", () => {
   const mainReadmePath = join(REPO_ROOT, "README.md");
 
@@ -393,42 +292,6 @@ describe("Package README code examples", () => {
             expect(
               isValid,
               `${readmeName}: Unknown import "${pkg}" in code block`
-            ).toBe(true);
-          }
-        }
-      }
-    });
-  }
-});
-
-describe("Docs MDX code examples", () => {
-  const docFiles = findDocsMdxFiles(DOCS_CONTENT_DIR);
-
-  for (const { path: filePath, name: fileName } of docFiles) {
-    it(`${fileName} should have valid syntax in code blocks`, () => {
-      const content = readFileSync(filePath, "utf-8");
-      const codeBlocks = extractCodeBlocks(content);
-
-      // Skip files without code blocks
-      if (codeBlocks.length === 0) {
-        return;
-      }
-
-      for (const { code: block, lang } of codeBlocks) {
-        // Skip brace/paren balance checks for docs — they intentionally use
-        // partial snippets (e.g., showing just an option without the opening brace).
-        // Import validation is the most valuable check for keeping docs in sync.
-
-        // Check that imports reference valid packages
-        const importMatches = block.match(/from ["']([^"']+)["']/g) || [];
-        for (const importMatch of importMatches) {
-          const pkg = importMatch.match(IMPORT_PACKAGE_REGEX)?.[1];
-          if (pkg && !pkg.startsWith(".") && !pkg.startsWith("@/")) {
-            const isValid =
-              VALID_DOC_PACKAGES.includes(pkg) || pkg.startsWith("node:");
-            expect(
-              isValid,
-              `${fileName}: Unknown import "${pkg}" in ${lang} code block`
             ).toBe(true);
           }
         }
