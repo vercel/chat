@@ -184,7 +184,7 @@ await thread.stream(textStream, {
 ## Streaming with conversation history
 
 Combine message history with streaming for multi-turn AI conversations.
-Use `toAiMessages()` to convert chat messages into the `{ role, content }` format expected by AI SDKs:
+Use [`toAiMessages()`](/docs/api/to-ai-messages) to convert chat messages into the `{ role, content }` format expected by AI SDKs:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { toAiMessages } from "chat";
@@ -200,51 +200,4 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-### `toAiMessages(messages, options?)`
-
-Converts an array of `Message` objects into AI SDK conversation format:
-
-- Maps `author.isMe` to `"assistant"` role, all others to `"user"`
-- Filters out empty messages
-- Sorts chronologically (oldest first)
-- Appends link metadata (URLs, titles, descriptions) when present
-- Labels embedded message links (e.g. shared Slack messages) as `[Embedded message: ...]`
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `includeNames` | `boolean` | `false` | Prefix user messages with `[username]: ` for multi-user context |
-| `transformMessage` | `(aiMessage, source) => AiMessage \| Promise<AiMessage \| null> \| null` | — | Transform or filter each message after default processing. Return `null` to skip. |
-| `onUnsupportedAttachment` | `(attachment, message) => void` | `console.warn` | Called when an attachment type is not supported |
-
-### Customizing messages with `transformMessage`
-
-Use `transformMessage` to modify, enrich, or filter messages after default processing:
-
-```typescript title="lib/bot.ts" lineNumbers
-import { toAiMessages } from "chat";
-
-const history = await toAiMessages(result.messages, {
-  transformMessage: (aiMessage, source) => {
-    // Replace bot user IDs with readable names
-    if (typeof aiMessage.content === "string") {
-      return {
-        ...aiMessage,
-        content: aiMessage.content.replace(/<@U123>/g, "@VercelBot"),
-      };
-    }
-    return aiMessage;
-  },
-});
-```
-
-Return `null` to skip a message entirely:
-
-```typescript
-const history = await toAiMessages(result.messages, {
-  transformMessage: (aiMessage, source) => {
-    // Skip messages from a specific user
-    if (source.author.userId === "U_NOISY_BOT") return null;
-    return aiMessage;
-  },
-});
-```
+See the [`toAiMessages` API reference](/docs/api/to-ai-messages) for all options including `includeNames`, `transformMessage`, and attachment handling.
