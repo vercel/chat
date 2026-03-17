@@ -29,7 +29,7 @@
     "@octokit/rest": "^22.0.1"
   },
   "peerDependencies": {
-    "chat": ">=4.0.0"
+    "chat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

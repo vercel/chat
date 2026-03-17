@@ -28,7 +28,7 @@
     "@linear/sdk": "^76.0.0"
   },
   "peerDependencies": {
-    "chat": ">=4.0.0"
+    "chat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

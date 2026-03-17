@@ -30,7 +30,7 @@
     "discord.js": "^14.25.1"
   },
   "peerDependencies": {
-    "chat": ">=4.0.0"
+    "chat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

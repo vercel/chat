@@ -30,7 +30,7 @@
     "botframework-connector": "^4.23.3"
   },
   "peerDependencies": {
-    "chat": ">=4.0.0"
+    "chat": "workspace:*"
   },
   "devDependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",
