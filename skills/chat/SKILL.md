@@ -2,39 +2,56 @@
 name: chat-sdk
 description: >
   Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
-  (1) Build a Slack, Teams, Google Chat, Discord, GitHub, or Linear bot,
-  (2) Use the Chat SDK to handle mentions, messages, reactions, slash commands, cards, modals, or streaming,
-  (3) Set up webhook handlers for chat platforms,
-  (4) Send interactive cards or stream AI responses to chat platforms,
-  (5) Build a custom adapter for a new chat platform.
-  Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "discord bot", "@chat-adapter",
-  "custom adapter", "build adapter", building bots that work across multiple chat platforms.
+  (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot,
+  (2) Use Chat SDK to handle mentions, direct messages, subscribed threads, reactions, slash
+  commands, cards, modals, files, or AI streaming,
+  (3) Set up webhook routes or multi-adapter bots,
+  (4) Send rich cards or streamed AI responses to chat platforms,
+  (5) Build or maintain a custom adapter or state adapter.
+  Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "google chat bot", "discord bot",
+  "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
+  "state adapter", "build adapter", and building bots that work across multiple chat platforms.
 ---
 
 # Chat SDK
 
-Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, GitHub, and Linear. Write bot logic once, deploy everywhere.
+Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp. Write bot logic once, deploy everywhere.
 
-## Critical: Read the bundled docs
+## Start with published sources
 
-The `chat` package ships with full documentation in `node_modules/chat/docs/` and TypeScript source types. **Always read these before writing code:**
+When Chat SDK is installed in a user project, inspect the published files that ship in `node_modules`:
 
 ```
-node_modules/chat/docs/           # Full documentation (MDX files)
-node_modules/chat/dist/           # Built types (.d.ts files)
+node_modules/chat/docs/                    # bundled docs
+node_modules/chat/dist/index.d.ts          # core API types
+node_modules/chat/dist/jsx-runtime.d.ts    # JSX runtime types
+node_modules/chat/docs/contributing/       # adapter-authoring docs
+node_modules/chat/docs/guides/             # framework/platform guides
 ```
 
-Key docs to read based on task:
-- `docs/getting-started.mdx` — setup guides
-- `docs/usage.mdx` — event handlers, threads, messages, channels
-- `docs/streaming.mdx` — AI streaming with AI SDK
-- `docs/cards.mdx` — JSX interactive cards
-- `docs/actions.mdx` — button/dropdown handlers
-- `docs/modals.mdx` — form dialogs (Slack only)
-- `docs/adapters.mdx` — platform-specific adapter setup
-- `docs/state.mdx` — state adapter config (Redis, ioredis, PostgreSQL, memory)
+If one of the paths below does not exist, that package is not installed in the project yet.
 
-Also read the TypeScript types from `node_modules/chat/dist/` to understand the full API surface.
+Read these before writing code:
+- `node_modules/chat/docs/getting-started.mdx` — install and setup
+- `node_modules/chat/docs/usage.mdx` — `Chat` config and lifecycle
+- `node_modules/chat/docs/handling-events.mdx` — event routing and handlers
+- `node_modules/chat/docs/threads-messages-channels.mdx` — thread/channel/message model
+- `node_modules/chat/docs/posting-messages.mdx` — post, edit, delete, schedule
+- `node_modules/chat/docs/streaming.mdx` — AI SDK integration and streaming semantics
+- `node_modules/chat/docs/cards.mdx` — JSX cards
+- `node_modules/chat/docs/actions.mdx` — button/select interactions
+- `node_modules/chat/docs/modals.mdx` — modal submit/close flows
+- `node_modules/chat/docs/slash-commands.mdx` — slash command routing
+- `node_modules/chat/docs/direct-messages.mdx` — DM behavior and `openDM()`
+- `node_modules/chat/docs/files.mdx` — attachments/uploads
+- `node_modules/chat/docs/state.mdx` — persistence, locking, dedupe
+- `node_modules/chat/docs/adapters.mdx` — cross-platform feature matrix
+- `node_modules/chat/docs/api/chat.mdx` — exact `Chat` API
+- `node_modules/chat/docs/api/thread.mdx` — exact `Thread` API
+- `node_modules/chat/docs/api/message.mdx` — exact `Message` API
+- `node_modules/chat/docs/api/modals.mdx` — modal element and event details
+
+For the specific adapter or state package you are using, inspect that installed package's `dist/index.d.ts` export surface in `node_modules`.
 
 ## Quick start
 
@@ -46,12 +63,10 @@ import { createRedisState } from "@chat-adapter/state-redis";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-    }),
+    slack: createSlackAdapter(),
   },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
+  state: createRedisState(),
+  dedupeTtlMs: 600_000,
 });
 
 bot.onNewMention(async (thread) => {
@@ -66,48 +81,67 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ## Core concepts
 
-- **Chat** — main entry point, coordinates adapters and routes events
-- **Adapters** — platform-specific (Slack, Teams, GChat, Discord, GitHub, Linear)
-- **State** — pluggable persistence (Redis or PostgreSQL for prod, memory for dev)
-- **Thread** — conversation thread with `post()`, `schedule()`, `subscribe()`, `startTyping()`
-- **Message** — normalized format with `text`, `formatted` (mdast AST), `raw`
-- **Channel** — container for threads, supports listing and posting
+- **Chat** — main entry point; coordinates adapters, routing, locks, and state
+- **Adapters** — platform-specific integrations for Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp
+- **State adapters** — persistence for subscriptions, locks, dedupe, and thread state
+- **Thread** — conversation context with `post()`, `stream()`, `subscribe()`, `setState()`, `startTyping()`
+- **Message** — normalized content with `text`, `formatted`, attachments, author info, and platform `raw`
+- **Channel** — container for threads and top-level posts
 
 ## Event handlers
 
 | Handler | Trigger |
 |---------|---------|
-| `onNewMention` | Bot @-mentioned in unsubscribed thread |
-| `onSubscribedMessage` | Any message in subscribed thread |
-| `onNewMessage(regex)` | Messages matching pattern in unsubscribed threads |
-| `onSlashCommand("/cmd")` | Slash command invocations |
-| `onReaction(emojis)` | Emoji reactions added/removed |
-| `onAction(actionId)` | Button clicks and dropdown selections |
-| `onAssistantThreadStarted` | Slack Assistants API thread opened |
-| `onAppHomeOpened` | Slack App Home tab opened |
+| `onNewMention` | Bot @-mentioned in an unsubscribed thread |
+| `onDirectMessage` | New DM in an unsubscribed DM thread |
+| `onSubscribedMessage` | Any message in a subscribed thread |
+| `onNewMessage(regex)` | Regex match in an unsubscribed thread |
+| `onReaction(emojis?)` | Emoji added or removed |
+| `onAction(actionIds?)` | Button clicks and select/radio interactions |
+| `onModalSubmit(callbackId?)` | Modal form submitted |
+| `onModalClose(callbackId?)` | Modal dismissed/cancelled |
+| `onSlashCommand(commands?)` | Slash command invocation |
+| `onAssistantThreadStarted` | Slack assistant thread opened |
+| `onAssistantContextChanged` | Slack assistant context changed |
+| `onAppHomeOpened` | Slack App Home opened |
+| `onMemberJoinedChannel` | Slack member joined channel event |
+
+Read `node_modules/chat/docs/handling-events.mdx`, `node_modules/chat/docs/actions.mdx`, `node_modules/chat/docs/modals.mdx`, and `node_modules/chat/docs/slash-commands.mdx` before wiring handlers. `onDirectMessage` behavior is documented in `node_modules/chat/docs/direct-messages.mdx`.
 
 ## Streaming
 
-Pass any `AsyncIterable<string>` to `thread.post()`. Works with AI SDK's `textStream`:
+Pass any `AsyncIterable<string>` to `thread.post()` or `thread.stream()`. For AI SDK, prefer `result.fullStream` over `result.textStream` when available so step boundaries are preserved.
 
 ```typescript
 import { ToolLoopAgent } from "ai";
+
 const agent = new ToolLoopAgent({ model: "anthropic/claude-4.5-sonnet" });
 
 bot.onNewMention(async (thread, message) => {
   const result = await agent.stream({ prompt: message.text });
-  await thread.post(result.textStream);
+  await thread.post(result.fullStream);
 });
 ```
 
-## Cards (JSX)
+Key details:
+- `streamingUpdateIntervalMs` controls post+edit fallback cadence
+- `fallbackStreamingPlaceholderText` defaults to `"..."`; set `null` to disable
+- Structured `StreamChunk` support is Slack-only; other adapters ignore non-text chunks
 
-Set `jsxImportSource: "chat"` in tsconfig. Components: `Card`, `CardText`, `Button`, `Actions`, `Fields`, `Field`, `Select`, `SelectOption`, `Image`, `Divider`, `LinkButton`, `Section`, `RadioSelect`.
+## Cards and modals (JSX)
+
+Set `jsxImportSource: "chat"` in `tsconfig.json`.
+
+Card components:
+- `Card`, `CardText`, `Section`, `Fields`, `Field`, `Button`, `CardLink`, `LinkButton`, `Actions`, `Select`, `SelectOption`, `RadioSelect`, `Table`, `Image`, `Divider`
+
+Modal components:
+- `Modal`, `TextInput`, `Select`, `SelectOption`, `RadioSelect`
 
 ```tsx
 await thread.post(
   <Card title="Order #1234">
-    <CardText>Your order has been received!</CardText>
+    <CardText>Your order has been received.</CardText>
     <Actions>
       <Button id="approve" style="primary">Approve</Button>
       <Button id="reject" style="danger">Reject</Button>
@@ -116,45 +150,60 @@ await thread.post(
 );
 ```
 
-## Packages
+## Adapter inventory
 
-| Package | Purpose |
-|---------|---------|
-| `chat` | Core SDK |
-| `@chat-adapter/slack` | Slack |
-| `@chat-adapter/teams` | Microsoft Teams |
-| `@chat-adapter/gchat` | Google Chat |
-| `@chat-adapter/discord` | Discord |
-| `@chat-adapter/github` | GitHub Issues |
-| `@chat-adapter/linear` | Linear Issues |
-| `@chat-adapter/state-redis` | Redis state (production) |
-| `@chat-adapter/state-ioredis` | ioredis state (alternative) |
-| `@chat-adapter/state-pg` | PostgreSQL state (production) |
-| `@chat-adapter/state-memory` | In-memory state (development) |
+### Official platform adapters
 
-## Changesets (Release Flow)
+| Platform | Package | Factory |
+|---------|---------|---------|
+| Slack | `@chat-adapter/slack` | `createSlackAdapter` |
+| Microsoft Teams | `@chat-adapter/teams` | `createTeamsAdapter` |
+| Google Chat | `@chat-adapter/gchat` | `createGoogleChatAdapter` |
+| Discord | `@chat-adapter/discord` | `createDiscordAdapter` |
+| GitHub | `@chat-adapter/github` | `createGitHubAdapter` |
+| Linear | `@chat-adapter/linear` | `createLinearAdapter` |
+| Telegram | `@chat-adapter/telegram` | `createTelegramAdapter` |
+| WhatsApp Business Cloud | `@chat-adapter/whatsapp` | `createWhatsAppAdapter` |
 
-This monorepo uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs. Every PR that changes a package's behavior must include a changeset.
+### Official state adapters
 
-```bash
-pnpm changeset
-# → select affected package(s) (e.g. @chat-adapter/slack, chat)
-# → choose bump type: patch (fixes), minor (features), major (breaking)
-# → write a short summary for the CHANGELOG
-```
+| State backend | Package | Factory |
+|--------------|---------|---------|
+| Redis | `@chat-adapter/state-redis` | `createRedisState` |
+| ioredis | `@chat-adapter/state-ioredis` | `createIoRedisState` |
+| PostgreSQL | `@chat-adapter/state-pg` | `createPostgresState` |
+| Memory | `@chat-adapter/state-memory` | `createMemoryState` |
 
-This creates a file in `.changeset/` — commit it with the PR. When merged to `main`, the Changesets GitHub Action opens a "Version Packages" PR to bump versions and update CHANGELOGs. Merging that PR publishes to npm.
+### Community adapters
+
+- `chat-state-cloudflare-do`
+- `@beeper/chat-adapter-matrix`
+- `chat-adapter-imessage`
+- `@bitbasti/chat-adapter-webex`
+- `@resend/chat-sdk-adapter`
+- `chat-adapter-baileys`
+
+### Coming-soon platform entries
+
+- Instagram
+- Signal
+- X
+- Messenger
 
 ## Building a custom adapter
 
-To create a community or vendor adapter, implement the `Adapter` interface from `chat` and read:
+Read these published docs first:
+- `node_modules/chat/docs/contributing/building.mdx`
+- `node_modules/chat/docs/contributing/testing.mdx`
+- `node_modules/chat/docs/contributing/publishing.mdx`
 
-- `docs/contributing/building.mdx` — full step-by-step guide (uses a Matrix adapter as example)
-- `docs/contributing/testing.mdx` — testing your adapter
-- `docs/contributing/publishing.mdx` — npm naming conventions and publishing
+Also inspect:
+- `node_modules/chat/dist/index.d.ts` — `Adapter` and related interfaces
+- `node_modules/@chat-adapter/shared/dist/index.d.ts` — shared errors and utilities
+- Installed official adapter `dist/index.d.ts` files — reference implementations for config and APIs
 
-The adapter must implement `handleWebhook`, `parseMessage`, `postMessage`, `editMessage`, `deleteMessage`, thread ID encoding/decoding, and a `FormatConverter` (extend `BaseFormatConverter` from `chat`). Use `@chat-adapter/shared` for error classes and message utilities.
+A custom adapter needs request verification, webhook parsing, message/thread/channel operations, ID encoding/decoding, and a format converter. Use `BaseFormatConverter` from `chat` and shared utilities from `@chat-adapter/shared`.
 
 ## Webhook setup
 
-Each adapter exposes a webhook handler via `bot.webhooks.{platform}`. Wire these to your HTTP framework's routes (e.g. Next.js API routes, Hono, Express).
+Each registered adapter exposes `bot.webhooks.<name>`. Wire those directly to your HTTP framework routes. See `node_modules/chat/docs/guides/slack-nextjs.mdx` and `node_modules/chat/docs/guides/discord-nuxt.mdx` for framework-specific route patterns.

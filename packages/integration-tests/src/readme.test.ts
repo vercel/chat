@@ -8,7 +8,7 @@
  * - Docs MDX files: Syntax-only checking (examples reference external packages)
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -17,7 +17,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -25,6 +25,242 @@ const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
+const ADAPTERS_JSON_PATH = join(REPO_ROOT, "apps/docs/adapters.json");
+const CHAT_SKILL_PATH = join(REPO_ROOT, "skills/chat/SKILL.md");
+const ROOT_PACKAGE_JSON = readJsonFile<{ packageManager?: string }>(
+  join(REPO_ROOT, "package.json")
+);
+const PNPM_VERSION = ROOT_PACKAGE_JSON.packageManager?.startsWith("pnpm@")
+  ? ROOT_PACKAGE_JSON.packageManager.slice("pnpm@".length)
+  : null;
+const DIRECT_PNPM_CLI_PATH = PNPM_VERSION
+  ? join(
+      homedir(),
+      ".cache/node/corepack/v1/pnpm",
+      PNPM_VERSION,
+      "bin/pnpm.cjs"
+    )
+  : null;
+const PACK_DEST_ROOT = mkdtempSync(join(tmpdir(), "pnpm-pack-check-"));
+
+interface AdapterCatalogEntry {
+  name: string;
+  type: "platform" | "state";
+  packageName?: string;
+  community?: boolean;
+  comingSoon?: boolean;
+}
+
+function readJsonFile<T>(path: string): T {
+  return JSON.parse(readFileSync(path, "utf-8")) as T;
+}
+
+function loadPackageDirsByName(): Map<string, string> {
+  const packageDirs = new Map<string, string>();
+
+  for (const entry of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const packageJsonPath = join(PACKAGES_DIR, entry.name, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    const packageJson = readJsonFile<{ name?: string }>(packageJsonPath);
+    if (packageJson.name) {
+      packageDirs.set(packageJson.name, join(PACKAGES_DIR, entry.name));
+    }
+  }
+
+  return packageDirs;
+}
+
+function extractSection(markdown: string, heading: string): string {
+  const lines = markdown.split("\n");
+  const headingLine = `### ${heading}`;
+  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
+
+  expect(startIndex, `Missing section "${heading}" in SKILL.md`).not.toBe(-1);
+
+  const sectionLines: string[] = [];
+  for (let i = startIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("### ") || line.startsWith("## ")) {
+      break;
+    }
+    sectionLines.push(line);
+  }
+
+  return sectionLines.join("\n").trim();
+}
+
+function extractMarkdownTableRows(section: string): string[][] {
+  const tableLines = section
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"));
+
+  if (tableLines.length < 3) {
+    return [];
+  }
+
+  return tableLines.slice(2).map((line) =>
+    line
+      .split("|")
+      .slice(1, -1)
+      .map((cell) => cell.trim().replace(/^`|`$/g, ""))
+  );
+}
+
+function extractBulletItems(section: string): string[] {
+  return section
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim().replace(/^`|`$/g, ""));
+}
+
+function extractPublishedPaths(markdown: string): string[] {
+  const paths = new Set<string>();
+
+  for (const match of markdown.matchAll(/`(node_modules\/[^`\n]+)`/g)) {
+    paths.add(match[1]);
+  }
+
+  for (const match of markdown.matchAll(/^node_modules\/[^\s#]+/gm)) {
+    paths.add(match[0]);
+  }
+
+  return [...paths].sort();
+}
+
+function parsePublishedPath(publishedPath: string): {
+  packageName: string;
+  relativePath: string;
+} | null {
+  const normalizedPath = publishedPath.endsWith("/")
+    ? publishedPath.slice(0, -1)
+    : publishedPath;
+  const parts = normalizedPath.split("/");
+
+  if (parts[0] !== "node_modules") {
+    return null;
+  }
+
+  if (parts[1]?.startsWith("@")) {
+    if (!parts[2]) {
+      return null;
+    }
+
+    return {
+      packageName: `${parts[1]}/${parts[2]}`,
+      relativePath: parts.slice(3).join("/"),
+    };
+  }
+
+  if (!parts[1]) {
+    return null;
+  }
+
+  return {
+    packageName: parts[1],
+    relativePath: parts.slice(2).join("/"),
+  };
+}
+
+function runPnpmCommand(args: string[], cwd: string): string {
+  try {
+    return execFileSync("pnpm", args, {
+      cwd,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch (error) {
+    if (!DIRECT_PNPM_CLI_PATH || !existsSync(DIRECT_PNPM_CLI_PATH)) {
+      throw error;
+    }
+
+    return execFileSync(process.execPath, [DIRECT_PNPM_CLI_PATH, ...args], {
+      cwd,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  }
+}
+
+const PACKED_TARBALL_ENTRIES = new Map<string, string[]>();
+
+function getPackedTarballEntries(
+  packageName: string,
+  packageDirsByName: Map<string, string>
+): string[] {
+  const cached = PACKED_TARBALL_ENTRIES.get(packageName);
+  if (cached) {
+    return cached;
+  }
+
+  const packageDir = packageDirsByName.get(packageName);
+  expect(packageDir, `Missing local package for ${packageName}`).toBeDefined();
+
+  const packDestDir = mkdtempSync(
+    join(PACK_DEST_ROOT, `${packageName.replace(/[@/]/g, "-")}-`)
+  );
+  runPnpmCommand(["pack", "--pack-destination", packDestDir], packageDir!);
+
+  const tarballs = readdirSync(packDestDir).filter((file) => file.endsWith(".tgz"));
+  expect(tarballs, `Expected one tarball for ${packageName}`).toHaveLength(1);
+
+  const tarballPath = join(packDestDir, tarballs[0]);
+  const entries = execFileSync("tar", ["-tf", tarballPath], {
+    encoding: "utf-8",
+    stdio: "pipe",
+  })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  PACKED_TARBALL_ENTRIES.set(packageName, entries);
+  return entries;
+}
+
+function extractFactoryName(
+  packageName: string,
+  packageDirsByName: Map<string, string>
+): string {
+  const packageDir = packageDirsByName.get(packageName);
+  expect(packageDir, `Missing local package for ${packageName}`).toBeDefined();
+
+  const sourcePath = join(packageDir!, "src/index.ts");
+  expect(
+    existsSync(sourcePath),
+    `Expected ${packageName} to have ${relative(REPO_ROOT, sourcePath)}`
+  ).toBe(true);
+
+  const source = readFileSync(sourcePath, "utf-8");
+  const factoryNames = [
+    ...new Set(
+      [...source.matchAll(/export function (create[A-Za-z0-9_]+)\(/g)].map(
+        (match) => match[1]
+      )
+    ),
+  ];
+
+  expect(
+    factoryNames.length,
+    `${packageName} should export exactly one create* factory`
+  ).toBe(1);
+
+  return factoryNames[0];
+}
+
+const PACKAGE_DIRS_BY_NAME = loadPackageDirsByName();
+const ADAPTER_CATALOG = readJsonFile<AdapterCatalogEntry[]>(ADAPTERS_JSON_PATH);
+
+process.on("exit", () => {
+  rmSync(PACK_DEST_ROOT, { recursive: true, force: true });
+});
 
 /**
  * Extract TypeScript code blocks from markdown content.
@@ -435,4 +671,147 @@ describe("Docs MDX code examples", () => {
       }
     });
   }
+});
+
+describe("skills/chat/SKILL.md", () => {
+  const skill = readFileSync(CHAT_SKILL_PATH, "utf-8");
+
+  it("should only reference published-source paths", () => {
+    const monorepoOnlyMarkers = [
+      "packages/",
+      "apps/docs/",
+      "examples/nextjs-chat/",
+      ".changeset/",
+      ".github/",
+    ];
+
+    for (const marker of monorepoOnlyMarkers) {
+      expect(
+        skill.includes(marker),
+        `SKILL.md should not reference monorepo-only path "${marker}"`
+      ).toBe(false);
+    }
+  });
+
+  it("should reference published paths that exist", () => {
+    const publishedPaths = extractPublishedPaths(skill);
+
+    expect(publishedPaths.length).toBeGreaterThan(0);
+
+    for (const publishedPath of publishedPaths) {
+      const parsedPath = parsePublishedPath(publishedPath);
+      expect(
+        parsedPath,
+        `Could not parse published path "${publishedPath}"`
+      ).not.toBeNull();
+
+      const packedEntries = getPackedTarballEntries(
+        parsedPath!.packageName,
+        PACKAGE_DIRS_BY_NAME
+      );
+      const tarballRelativePath = parsedPath!.relativePath
+        ? `package/${parsedPath!.relativePath}`
+        : "package";
+      const existsInTarball = parsedPath!.relativePath
+        ? packedEntries.includes(tarballRelativePath) ||
+          packedEntries.some((entry) => entry.startsWith(`${tarballRelativePath}/`))
+        : packedEntries.some((entry) => entry.startsWith("package/"));
+
+      expect(
+        existsInTarball,
+        `Published path "${publishedPath}" should exist in the packed tarball for ${parsedPath!.packageName}`
+      ).toBe(true);
+    }
+  });
+
+  it("should pack adapter and state packages with dist entrypoints", () => {
+    const officialPackageNames = ADAPTER_CATALOG.filter(
+      (entry) => !entry.community && !entry.comingSoon && entry.packageName
+    ).map((entry) => entry.packageName!);
+
+    for (const packageName of [
+      ...officialPackageNames,
+      "@chat-adapter/shared",
+    ]) {
+      const packedEntries = getPackedTarballEntries(
+        packageName,
+        PACKAGE_DIRS_BY_NAME
+      );
+
+      expect(
+        packedEntries.includes("package/dist/index.d.ts"),
+        `${packageName} tarball should include package/dist/index.d.ts`
+      ).toBe(true);
+    }
+  });
+
+  it("should list all official platform adapters with correct factories", () => {
+    const section = extractSection(skill, "Official platform adapters");
+    const actualRows = extractMarkdownTableRows(section).map(
+      ([name, packageName, factory]) => ({
+        name,
+        packageName,
+        factory,
+      })
+    );
+
+    const expectedRows = ADAPTER_CATALOG.filter(
+      (entry) =>
+        entry.type === "platform" &&
+        !entry.community &&
+        !entry.comingSoon &&
+        entry.packageName
+    ).map((entry) => ({
+      name: entry.name,
+      packageName: entry.packageName!,
+      factory: extractFactoryName(entry.packageName!, PACKAGE_DIRS_BY_NAME),
+    }));
+
+    expect(actualRows).toEqual(expectedRows);
+  });
+
+  it("should list all official state adapters with correct factories", () => {
+    const section = extractSection(skill, "Official state adapters");
+    const actualRows = extractMarkdownTableRows(section).map(
+      ([name, packageName, factory]) => ({
+        name,
+        packageName,
+        factory,
+      })
+    );
+
+    const expectedRows = ADAPTER_CATALOG.filter(
+      (entry) =>
+        entry.type === "state" &&
+        !entry.community &&
+        !entry.comingSoon &&
+        entry.packageName
+    ).map((entry) => ({
+      name: entry.name,
+      packageName: entry.packageName!,
+      factory: extractFactoryName(entry.packageName!, PACKAGE_DIRS_BY_NAME),
+    }));
+
+    expect(actualRows).toEqual(expectedRows);
+  });
+
+  it("should list all community adapters", () => {
+    const section = extractSection(skill, "Community adapters");
+    const actualItems = extractBulletItems(section);
+    const expectedItems = ADAPTER_CATALOG.filter(
+      (entry) => entry.community && entry.packageName
+    ).map((entry) => entry.packageName!);
+
+    expect(actualItems).toEqual(expectedItems);
+  });
+
+  it("should list all coming-soon platform entries", () => {
+    const section = extractSection(skill, "Coming-soon platform entries");
+    const actualItems = extractBulletItems(section);
+    const expectedItems = ADAPTER_CATALOG.filter(
+      (entry) => entry.type === "platform" && entry.comingSoon
+    ).map((entry) => entry.name);
+
+    expect(actualItems).toEqual(expectedItems);
+  });
 });
