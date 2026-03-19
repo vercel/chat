@@ -9,9 +9,9 @@ import {
   extractPublishedPaths,
   extractSection,
   getPackedTarballEntries,
-  hasPackageName,
   invariant,
   isCommunityEntry,
+  isOfficialCatalogEntry,
   isOfficialPlatformEntry,
   isOfficialStateEntry,
   parsePublishedPath,
@@ -71,7 +71,7 @@ describe("skills/chat/SKILL.md", () => {
 
   it("should pack adapter and state packages with dist entrypoints", () => {
     const officialPackageNames = ADAPTER_CATALOG.filter(
-      (entry) => !(entry.community || entry.comingSoon) && hasPackageName(entry)
+      isOfficialCatalogEntry
     ).map((entry) => entry.packageName);
 
     for (const packageName of [

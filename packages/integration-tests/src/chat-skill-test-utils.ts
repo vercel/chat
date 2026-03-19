@@ -36,7 +36,7 @@ export function invariant(
   }
 }
 
-export function hasPackageName(
+function hasPackageName(
   entry: AdapterCatalogEntry
 ): entry is AdapterCatalogEntry & { packageName: string } {
   return typeof entry.packageName === "string" && entry.packageName.length > 0;
@@ -66,6 +66,12 @@ export function isOfficialStateEntry(
     !(entry.community || entry.comingSoon) &&
     hasPackageName(entry)
   );
+}
+
+export function isOfficialCatalogEntry(
+  entry: AdapterCatalogEntry
+): entry is AdapterCatalogEntry & { packageName: string } {
+  return !(entry.community || entry.comingSoon) && hasPackageName(entry);
 }
 
 function loadPackageDirsByName(): Map<string, string> {
@@ -107,7 +113,7 @@ const DIRECT_PNPM_CLI_PATH = PNPM_VERSION
 const PACK_DEST_ROOT = mkdtempSync(join(tmpdir(), "pnpm-pack-check-"));
 const PACKED_TARBALL_ENTRIES = new Map<string, string[]>();
 
-export const PACKAGE_DIRS_BY_NAME = loadPackageDirsByName();
+const PACKAGE_DIRS_BY_NAME = loadPackageDirsByName();
 export const ADAPTER_CATALOG =
   readJsonFile<AdapterCatalogEntry[]>(ADAPTERS_JSON_PATH);
 export const CHAT_SKILL = readFileSync(CHAT_SKILL_PATH, "utf-8");

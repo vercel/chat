@@ -28,7 +28,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "ioredis",
   "pg",
   "postgres",
-] as const;
+];
 
 export const VALID_DOC_PACKAGES = [
   "chat",
@@ -67,7 +67,7 @@ export const VALID_DOC_PACKAGES = [
   "bash-tool",
   "@octokit/rest",
   "chat-adapter-matrix",
-] as const;
+];
 
 export function extractTypeScriptBlocks(markdown: string): string[] {
   const blocks: string[] = [];
