@@ -38,6 +38,20 @@ export interface ChatConfig<
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
   /**
+   * How to handle messages that arrive while a handler is already
+   * processing on the same thread.
+   *
+   * - `'drop'` (default) — discard the message (throw `LockError`)
+   * - `'queue'` — queue the message; when the current handler finishes,
+   *   process only the latest queued message with `context.skipped` containing
+   *   all intermediate messages
+   * - `'debounce'` — all messages start/reset a debounce timer; only the
+   *   final message in a burst is processed
+   * - `'concurrent'` — no locking; all messages processed in parallel
+   * - `ConcurrencyConfig` — fine-grained control over strategy and parameters
+   */
+  concurrency?: ConcurrencyStrategy | ConcurrencyConfig;
+  /**
    * TTL for message deduplication entries in milliseconds.
    * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
    * cause platform retries that arrive after the default TTL expires.
@@ -67,6 +81,8 @@ export interface ChatConfig<
     ttlMs?: number;
   };
   /**
+   * @deprecated Use `concurrency` instead.
+   *
    * Behavior when a thread lock cannot be acquired (another handler is processing).
    * - `'drop'` (default) — throw `LockError`, preserving current behavior
    * - `'force'` — force-release the existing lock and re-acquire
@@ -558,6 +574,56 @@ export interface ChatInstance {
 }
 
 // =============================================================================
+// Concurrency
+// =============================================================================
+
+/** Concurrency strategy for overlapping messages on the same thread. */
+export type ConcurrencyStrategy = "drop" | "queue" | "debounce" | "concurrent";
+
+/** Fine-grained concurrency configuration. */
+export interface ConcurrencyConfig {
+  /** Debounce window in milliseconds (debounce strategy). Default: 1500. */
+  debounceMs?: number;
+  /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
+  maxConcurrent?: number;
+  /** Max queued messages per thread (queue/debounce strategy). Default: 10. */
+  maxQueueSize?: number;
+  /** What to do when queue is full. Default: 'drop-oldest'. */
+  onQueueFull?: "drop-oldest" | "drop-newest";
+  /** TTL for queued entries in milliseconds. Default: 90000 (90s). */
+  queueEntryTtlMs?: number;
+  /** The concurrency strategy to use. */
+  strategy: ConcurrencyStrategy;
+}
+
+/**
+ * An entry in the per-thread message queue.
+ * Used by the `queue` and `debounce` concurrency strategies.
+ */
+export interface QueueEntry {
+  /** When this entry was enqueued (Unix ms). */
+  enqueuedAt: number;
+  /** When this entry expires (Unix ms). Stale entries are discarded on dequeue. */
+  expiresAt: number;
+  /** The queued message. */
+  message: Message;
+}
+
+/**
+ * Context provided to message handlers when messages were queued
+ * while a previous handler was running.
+ */
+export interface MessageContext {
+  /**
+   * Messages that arrived while the previous handler was running,
+   * in chronological order, excluding the current message (which is the latest).
+   */
+  skipped: Message[];
+  /** Total messages received since last handler ran (skipped.length + 1). */
+  totalSinceLastHandler: number;
+}
+
+// =============================================================================
 // State Adapter Interface
 // =============================================================================
 
@@ -578,8 +644,18 @@ export interface StateAdapter {
   /** Delete a cached value */
   delete(key: string): Promise<void>;
 
+  /** Pop the next message from the thread's queue. Returns null if empty. */
+  dequeue(threadId: string): Promise<QueueEntry | null>;
+
   /** Disconnect from the state backend */
   disconnect(): Promise<void>;
+
+  /** Atomically append a message to the thread's pending queue. Returns new queue depth. */
+  enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number>;
 
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
@@ -599,6 +675,9 @@ export interface StateAdapter {
 
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
+
+  /** Get the current queue depth for a thread. */
+  queueDepth(threadId: string): Promise<number>;
 
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;
@@ -1334,7 +1413,8 @@ export interface FileUpload {
  */
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1348,7 +1428,8 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 export type DirectMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message,
-  channel: Channel<TState>
+  channel: Channel<TState>,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1359,7 +1440,8 @@ export type DirectMessageHandler<TState = Record<string, unknown>> = (
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1387,7 +1469,8 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  */
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 // =============================================================================

@@ -1,4 +1,4 @@
-import type { Lock, Logger, StateAdapter } from "chat";
+import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
@@ -35,7 +35,7 @@ export class RedisStateAdapter implements StateAdapter {
     });
   }
 
-  private key(type: "sub" | "lock" | "cache", id: string): string {
+  private key(type: "sub" | "lock" | "cache" | "queue", id: string): string {
     return `${this.keyPrefix}:${type}:${id}`;
   }
 
@@ -239,6 +239,56 @@ export class RedisStateAdapter implements StateAdapter {
       keys: [listKey],
       arguments: [serialized, maxLength.toString(), ttlMs.toString()],
     });
+  }
+
+  async enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    const serialized = JSON.stringify(entry);
+
+    // Atomic RPUSH + LTRIM + PEXPIRE via Lua
+    const script = `
+      redis.call("rpush", KEYS[1], ARGV[1])
+      if tonumber(ARGV[2]) > 0 then
+        redis.call("ltrim", KEYS[1], -tonumber(ARGV[2]), -1)
+      end
+      redis.call("pexpire", KEYS[1], ARGV[3])
+      return redis.call("llen", KEYS[1])
+    `;
+
+    const ttlMs = Math.max(entry.expiresAt - Date.now(), 60_000).toString();
+
+    const result = await this.client.eval(script, {
+      keys: [queueKey],
+      arguments: [serialized, maxSize.toString(), ttlMs],
+    });
+
+    return result as number;
+  }
+
+  async dequeue(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    const value = await this.client.lPop(queueKey);
+
+    if (value === null) {
+      return null;
+    }
+
+    return JSON.parse(value) as QueueEntry;
+  }
+
+  async queueDepth(threadId: string): Promise<number> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    return await this.client.lLen(queueKey);
   }
 
   async getList<T = unknown>(key: string): Promise<T[]> {

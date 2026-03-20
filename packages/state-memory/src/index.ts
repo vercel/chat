@@ -1,4 +1,4 @@
-import type { Lock, StateAdapter } from "chat";
+import type { Lock, QueueEntry, StateAdapter } from "chat";
 
 interface MemoryLock extends Lock {
   expiresAt: number;
@@ -21,6 +21,7 @@ export class MemoryStateAdapter implements StateAdapter {
   private readonly subscriptions = new Set<string>();
   private readonly locks = new Map<string, MemoryLock>();
   private readonly cache = new Map<string, CachedValue>();
+  private readonly queues = new Map<string, QueueEntry[]>();
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
@@ -50,6 +51,7 @@ export class MemoryStateAdapter implements StateAdapter {
     this.connectPromise = null;
     this.subscriptions.clear();
     this.locks.clear();
+    this.queues.clear();
   }
 
   async subscribe(threadId: string): Promise<void> {
@@ -205,6 +207,53 @@ export class MemoryStateAdapter implements StateAdapter {
       value: list,
       expiresAt: options?.ttlMs ? Date.now() + options.ttlMs : null,
     });
+  }
+
+  async enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number> {
+    this.ensureConnected();
+
+    let queue = this.queues.get(threadId);
+    if (!queue) {
+      queue = [];
+      this.queues.set(threadId, queue);
+    }
+
+    queue.push(entry);
+
+    // Trim to maxSize (keep newest)
+    if (queue.length > maxSize) {
+      queue.splice(0, queue.length - maxSize);
+    }
+
+    return queue.length;
+  }
+
+  async dequeue(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected();
+
+    const queue = this.queues.get(threadId);
+    if (!queue || queue.length === 0) {
+      return null;
+    }
+
+    const entry = queue.shift();
+
+    if (queue.length === 0) {
+      this.queues.delete(threadId);
+    }
+
+    return entry ?? null;
+  }
+
+  async queueDepth(threadId: string): Promise<number> {
+    this.ensureConnected();
+
+    const queue = this.queues.get(threadId);
+    return queue?.length ?? 0;
   }
 
   async getList<T = unknown>(key: string): Promise<T[]> {
