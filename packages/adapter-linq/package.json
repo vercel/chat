@@ -18,7 +18,6 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "generate-types": "pnpm dlx openapi-typescript lib/linq/linq-api-v3.yaml -o src/schema.ts",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -26,12 +25,14 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "chat": "workspace:*",
-    "openapi-fetch": "^0.14.0"
+    "chat": "workspace:*"
+  },
+  "peerDependencies": {
+    "@linqapp/sdk": "^0.12.2"
   },
   "devDependencies": {
+    "@linqapp/sdk": "^0.12.2",
     "@types/node": "^25.3.2",
-    "openapi-typescript": "^7.8.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"

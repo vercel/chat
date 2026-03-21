@@ -27,9 +27,15 @@ import type {
   WebhookOptions,
 } from "chat";
 import { ConsoleLogger, getEmoji, Message } from "chat";
-import createClient from "openapi-fetch";
+import LinqAPIV3, {
+  APIError,
+  NotFoundError,
+  RateLimitError,
+  AuthenticationError as SDKAuthenticationError,
+  PermissionDeniedError,
+} from "@linqapp/sdk";
+type SupportedContentType = LinqAPIV3.SupportedContentType;
 import { LinqFormatConverter } from "./markdown";
-import type { components, paths } from "./schema";
 import type {
   LinqAdapterConfig,
   LinqChat,
@@ -43,7 +49,6 @@ import type {
   LinqWebhookPayload,
 } from "./types";
 
-const LINQ_API_BASE = "https://api.linqapp.com/api/partner";
 const WEBHOOK_SIGNATURE_HEADER = "x-webhook-signature";
 const WEBHOOK_TIMESTAMP_HEADER = "x-webhook-timestamp";
 const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
@@ -69,13 +74,12 @@ const EMOJI_TO_LINQ_REACTION: Record<string, string> = {
 export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
   readonly name = "linq";
 
-  private readonly apiToken: string;
   private readonly signingSecret?: string;
   private readonly phoneNumber?: string;
   private readonly preferredService?: LinqServiceType;
   private readonly logger: Logger;
   private readonly formatConverter = new LinqFormatConverter();
-  private readonly client: ReturnType<typeof createClient<paths>>;
+  private readonly client: LinqAPIV3;
 
   private chat: ChatInstance | null = null;
   private _userName: string;
@@ -89,15 +93,14 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
   }
 
   constructor(config: LinqAdapterConfig = {}) {
-    const apiToken = config.apiToken ?? process.env.LINQ_API_TOKEN;
-    if (!apiToken) {
+    const apiKey = config.apiToken ?? process.env.LINQ_API_TOKEN;
+    if (!apiKey) {
       throw new ValidationError(
         "linq",
         "apiToken is required. Set LINQ_API_TOKEN or provide it in config."
       );
     }
 
-    this.apiToken = apiToken;
     this.signingSecret =
       config.signingSecret ?? process.env.LINQ_SIGNING_SECRET;
     this.phoneNumber = config.phoneNumber ?? process.env.LINQ_PHONE_NUMBER;
@@ -105,11 +108,9 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     this.logger = config.logger ?? new ConsoleLogger("info").child("linq");
     this._userName = config.userName ?? "bot";
 
-    this.client = createClient<paths>({
-      baseUrl: LINQ_API_BASE,
-      headers: {
-        Authorization: `Bearer ${this.apiToken}`,
-      },
+    this.client = new LinqAPIV3({
+      apiKey,
+      maxRetries: 0,
     });
   }
 
@@ -217,7 +218,9 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     }
 
     const files = extractFiles(message);
-    const parts: unknown[] = [{ type: "text", value: text }];
+    const parts: Array<{ type: "text"; value: string } | { type: "media"; attachment_id: string }> = [
+      { type: "text", value: text },
+    ];
 
     for (const file of files) {
       try {
@@ -231,30 +234,24 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       }
     }
 
-    const { data, error, response } = await this.client.POST(
-      "/v3/chats/{chatId}/messages",
-      {
-        params: { path: { chatId } },
-        body: {
-          message: {
-            parts: parts as [{ type: "text"; value: string }],
-            preferred_service: this.preferredService,
-          },
+    try {
+      const data = await this.client.chats.messages.send(chatId, {
+        message: {
+          parts,
+          preferred_service: this.preferredService,
         },
-      }
-    );
+      });
 
-    if (error || !data) {
-      this.handleApiError(response, "postMessage");
+      const sentMessage = data.message;
+
+      return {
+        id: sentMessage.id,
+        threadId,
+        raw: this.sentMessageToRawMessage(sentMessage, chatId),
+      };
+    } catch (error) {
+      throw this.handleApiError(error, "postMessage");
     }
-
-    const sentMessage = data.message;
-
-    return {
-      id: sentMessage.id,
-      threadId,
-      raw: this.sentMessageToRawMessage(sentMessage, chatId),
-    };
   }
 
   async editMessage(
@@ -269,18 +266,10 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
   }
 
   async deleteMessage(_threadId: string, messageId: string): Promise<void> {
-    const { chatId } = this.decodeThreadId(_threadId);
-
-    const { error, response } = await this.client.DELETE(
-      "/v3/messages/{messageId}",
-      {
-        params: { path: { messageId } },
-        body: { chat_id: chatId },
-      }
-    );
-
-    if (error) {
-      this.handleApiError(response, "deleteMessage");
+    try {
+      await this.client.messages.delete(messageId);
+    } catch (error) {
+      throw this.handleApiError(error, "deleteMessage");
     }
   }
 
@@ -291,87 +280,61 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     const { chatId } = this.decodeThreadId(threadId);
     const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
 
-    const { data, error, response } = await this.client.GET(
-      "/v3/chats/{chatId}/messages",
-      {
-        params: {
-          path: { chatId },
-          query: {
-            limit,
-            cursor: options.cursor ?? undefined,
-          },
-        },
-      }
-    );
+    try {
+      const page = await this.client.chats.messages.list(chatId, {
+        limit,
+        cursor: options.cursor ?? undefined,
+      });
 
-    if (error || !data) {
-      this.handleApiError(response, "fetchMessages");
+      const messages = page.messages.map((msg: LinqAPIV3.Message) =>
+        this.parseLinqMessage(msg, threadId)
+      );
+
+      return {
+        messages,
+        nextCursor: page.next_cursor ?? undefined,
+      };
+    } catch (error) {
+      throw this.handleApiError(error, "fetchMessages");
     }
-
-    const messages = data.messages.map((msg) =>
-      this.parseLinqMessage(msg, threadId)
-    );
-
-    return {
-      messages,
-      nextCursor: data.next_cursor ?? undefined,
-    };
   }
 
   async fetchMessage(
     threadId: string,
     messageId: string
   ): Promise<Message<LinqRawMessage> | null> {
-    const { data, error } = await this.client.GET("/v3/messages/{messageId}", {
-      params: { path: { messageId } },
-    });
-
-    if (error || !data) {
+    try {
+      const data = await this.client.messages.retrieve(messageId);
+      return this.parseLinqMessage(data, threadId);
+    } catch {
       return null;
     }
-
-    return this.parseLinqMessage(data, threadId);
   }
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
     const { chatId } = this.decodeThreadId(threadId);
 
-    const { data, error, response } = await this.client.GET(
-      "/v3/chats/{chatId}",
-      {
-        params: { path: { chatId } },
-      }
-    );
-
-    if (error || !data) {
-      this.handleApiError(response, "fetchThread");
+    try {
+      const data = await this.client.chats.retrieve(chatId);
+      return this.chatToThreadInfo(data, threadId);
+    } catch (error) {
+      throw this.handleApiError(error, "fetchThread");
     }
-
-    return this.chatToThreadInfo(data, threadId);
   }
 
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
-    const threadId = this.encodeThreadId({ chatId: channelId });
-    const { chatId } = this.decodeThreadId(threadId);
-
-    const { data, error, response } = await this.client.GET(
-      "/v3/chats/{chatId}",
-      {
-        params: { path: { chatId } },
-      }
-    );
-
-    if (error || !data) {
-      this.handleApiError(response, "fetchChannelInfo");
+    try {
+      const data = await this.client.chats.retrieve(channelId);
+      return {
+        id: channelId,
+        name: data.display_name ?? channelId,
+        isDM: !data.is_group,
+        memberCount: data.handles?.length,
+        metadata: { chat: data },
+      };
+    } catch (error) {
+      throw this.handleApiError(error, "fetchChannelInfo");
     }
-
-    return {
-      id: channelId,
-      name: data.display_name ?? channelId,
-      isDM: !data.is_group,
-      memberCount: data.handles?.length,
-      metadata: { chat: data },
-    };
   }
 
   // TODO: Linq chats can be group chats (is_group). This synchronous method
@@ -388,24 +351,14 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
   ): Promise<void> {
     const reactionType = this.emojiToLinqReaction(emoji);
 
-    const body: Record<string, unknown> = {
-      operation: "add",
-      type: reactionType.type,
-    };
-    if (reactionType.customEmoji) {
-      body.custom_emoji = reactionType.customEmoji;
-    }
-
-    const { error, response } = await this.client.POST(
-      "/v3/messages/{messageId}/reactions",
-      {
-        params: { path: { messageId } },
-        body: body as { operation: "add"; type: "love" },
-      }
-    );
-
-    if (error) {
-      this.handleApiError(response, "addReaction");
+    try {
+      await this.client.messages.addReaction(messageId, {
+        operation: "add",
+        type: reactionType.type as LinqAPIV3.ReactionType,
+        custom_emoji: reactionType.customEmoji,
+      });
+    } catch (error) {
+      throw this.handleApiError(error, "addReaction");
     }
   }
 
@@ -416,39 +369,24 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
   ): Promise<void> {
     const reactionType = this.emojiToLinqReaction(emoji);
 
-    const body: Record<string, unknown> = {
-      operation: "remove",
-      type: reactionType.type,
-    };
-    if (reactionType.customEmoji) {
-      body.custom_emoji = reactionType.customEmoji;
-    }
-
-    const { error, response } = await this.client.POST(
-      "/v3/messages/{messageId}/reactions",
-      {
-        params: { path: { messageId } },
-        body: body as { operation: "remove"; type: "love" },
-      }
-    );
-
-    if (error) {
-      this.handleApiError(response, "removeReaction");
+    try {
+      await this.client.messages.addReaction(messageId, {
+        operation: "remove",
+        type: reactionType.type as LinqAPIV3.ReactionType,
+        custom_emoji: reactionType.customEmoji,
+      });
+    } catch (error) {
+      throw this.handleApiError(error, "removeReaction");
     }
   }
 
   async startTyping(threadId: string): Promise<void> {
     const { chatId } = this.decodeThreadId(threadId);
 
-    const { error, response } = await this.client.POST(
-      "/v3/chats/{chatId}/typing",
-      {
-        params: { path: { chatId } },
-      }
-    );
-
-    if (error) {
-      this.handleApiError(response, "startTyping");
+    try {
+      await this.client.chats.typing.start(chatId);
+    } catch (error) {
+      throw this.handleApiError(error, "startTyping");
     }
   }
 
@@ -460,23 +398,20 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       );
     }
 
-    const { data, error, response } = await this.client.POST("/v3/chats", {
-      body: {
+    try {
+      const data = await this.client.chats.create({
         from: this.phoneNumber,
         to: [userId],
-        // Linq API requires a message to create a chat
         message: {
           parts: [{ type: "text", value: " " }],
           preferred_service: this.preferredService,
         },
-      },
-    });
+      });
 
-    if (error || !data) {
-      this.handleApiError(response, "openDM");
+      return this.encodeThreadId({ chatId: data.chat.id });
+    } catch (error) {
+      throw this.handleApiError(error, "openDM");
     }
-
-    return this.encodeThreadId({ chatId: data.chat.id });
   }
 
   async postChannelMessage(
@@ -508,39 +443,40 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
     const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
 
-    const { data, error, response } = await this.client.GET("/v3/chats", {
-      params: {
-        query: {
-          from: this.phoneNumber,
-          limit,
-          cursor: options.cursor ?? undefined,
-        },
-      },
-    });
+    try {
+      const page = await this.client.chats.listChats({
+        from: this.phoneNumber,
+        limit,
+        cursor: options.cursor ?? undefined,
+      });
 
-    if (error || !data) {
-      this.handleApiError(response, "listThreads");
+      const threads = await Promise.all(
+        page.chats.map(async (chat: LinqAPIV3.Chat) => {
+          const threadId = this.encodeThreadId({ chatId: chat.id });
+          const messagesResult = await this.fetchMessages(threadId, {
+            limit: 1,
+          });
+          const rootMessage =
+            messagesResult.messages[0] ??
+            this.createEmptyMessage(chat, threadId);
+
+          return {
+            id: threadId,
+            rootMessage,
+            lastReplyAt: chat.updated_at
+              ? new Date(chat.updated_at)
+              : undefined,
+          };
+        })
+      );
+
+      return {
+        threads,
+        nextCursor: page.next_cursor ?? undefined,
+      };
+    } catch (error) {
+      throw this.handleApiError(error, "listThreads");
     }
-
-    const threads = await Promise.all(
-      data.chats.map(async (chat) => {
-        const threadId = this.encodeThreadId({ chatId: chat.id });
-        const messagesResult = await this.fetchMessages(threadId, { limit: 1 });
-        const rootMessage =
-          messagesResult.messages[0] ?? this.createEmptyMessage(chat, threadId);
-
-        return {
-          id: threadId,
-          rootMessage,
-          lastReplyAt: chat.updated_at ? new Date(chat.updated_at) : undefined,
-        };
-      })
-    );
-
-    return {
-      threads,
-      nextCursor: data.next_cursor ?? undefined,
-    };
   }
 
   parseMessage(raw: LinqRawMessage): Message<LinqRawMessage> {
@@ -812,36 +748,38 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
       fileData = Buffer.from(await (file.data as Blob).arrayBuffer());
     }
 
-    const { data, error, response } = await this.client.POST(
-      "/v3/attachments",
-      {
-        body: {
-          filename: file.filename,
-          content_type:
-            mimeType as components["schemas"]["SupportedContentType"],
-          size_bytes: fileData.byteLength,
-        },
+    try {
+      const data = await this.client.attachments.create({
+        filename: file.filename,
+        content_type: mimeType as SupportedContentType,
+        size_bytes: fileData.byteLength,
+      });
+
+      const uploadResponse = await fetch(data.upload_url, {
+        method: data.http_method,
+        headers: data.required_headers,
+        body: fileData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new NetworkError(
+          "linq",
+          `File upload PUT failed with status ${uploadResponse.status}`
+        );
       }
-    );
 
-    if (error || !data) {
-      this.handleApiError(response, "uploadFile");
+      return data.attachment_id;
+    } catch (error) {
+      if (
+        error instanceof NetworkError ||
+        error instanceof AdapterRateLimitError ||
+        error instanceof AuthenticationError ||
+        error instanceof ResourceNotFoundError
+      ) {
+        throw error;
+      }
+      throw this.handleApiError(error, "uploadFile");
     }
-
-    const uploadResponse = await fetch(data.upload_url, {
-      method: data.http_method,
-      headers: data.required_headers,
-      body: fileData,
-    });
-
-    if (!uploadResponse.ok) {
-      throw new NetworkError(
-        "linq",
-        `File upload PUT failed with status ${uploadResponse.status}`
-      );
-    }
-
-    return data.attachment_id;
   }
 
   private createEmptyMessage(
@@ -916,22 +854,30 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
     }
   }
 
-  private handleApiError(response: Response, operation: string): never {
-    const status = response.status;
-
-    if (status === 401 || status === 403) {
-      throw new AuthenticationError(
+  private handleApiError(error: unknown, operation: string): Error {
+    if (error instanceof APIError) {
+      const status = error.status;
+      if (
+        error instanceof SDKAuthenticationError ||
+        error instanceof PermissionDeniedError
+      ) {
+        return new AuthenticationError(
+          "linq",
+          `${operation} failed: unauthorized (${status})`
+        );
+      }
+      if (error instanceof NotFoundError) {
+        return new ResourceNotFoundError("linq", "resource", operation);
+      }
+      if (error instanceof RateLimitError) {
+        return new AdapterRateLimitError("linq");
+      }
+      return new NetworkError(
         "linq",
-        `${operation} failed: unauthorized (${status})`
+        `${operation} failed with status ${status}`
       );
     }
-    if (status === 404) {
-      throw new ResourceNotFoundError("linq", "resource", operation);
-    }
-    if (status === 429) {
-      throw new AdapterRateLimitError("linq");
-    }
-    throw new NetworkError("linq", `${operation} failed with status ${status}`);
+    return new NetworkError("linq", `${operation} failed: ${String(error)}`);
   }
 
   private chatToThreadInfo(chat: LinqChat, threadId: string): ThreadInfo {

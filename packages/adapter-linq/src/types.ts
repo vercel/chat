@@ -1,7 +1,7 @@
 import type { Logger } from "chat";
-import type { components } from "./schema";
+import type LinqAPIV3 from "@linqapp/sdk";
 
-export type LinqServiceType = components["schemas"]["ServiceType"];
+export type LinqServiceType = LinqAPIV3.ServiceType;
 
 export interface LinqAdapterConfig {
   apiToken?: string;
@@ -42,19 +42,24 @@ export interface LinqWebhookPayload {
   webhook_version: string;
 }
 
-export type LinqMessage = components["schemas"]["Message"];
+export type LinqMessage = LinqAPIV3.Message;
 
-export type LinqChat = components["schemas"]["Chat"];
+export type LinqChat = LinqAPIV3.Chat;
 
-export type LinqChatHandle = components["schemas"]["ChatHandle"];
+export type LinqChatHandle = LinqAPIV3.ChatHandle;
 
-export type LinqReactionType = components["schemas"]["ReactionType"];
+export type LinqReactionType = LinqAPIV3.ReactionType;
 
-export type LinqMessageEventV2 = components["schemas"]["MessageEventV2"];
+export type LinqMessageEventV2 = LinqAPIV3.MessageEventV2;
 
-export type LinqReactionEventBase = components["schemas"]["ReactionEventBase"];
+export type LinqReactionEventBase = LinqAPIV3.ReactionEventBase;
 
-export type LinqMessageFailedEvent =
-  components["schemas"]["MessageFailedEvent"];
+export interface LinqMessageFailedEvent {
+  code: number;
+  failed_at: string;
+  chat_id?: string;
+  message_id?: string;
+  reason?: string;
+}
 
 export type LinqRawMessage = LinqMessage;
