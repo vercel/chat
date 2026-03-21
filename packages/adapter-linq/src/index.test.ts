@@ -1038,10 +1038,7 @@ describe("postMessage with preferredService", () => {
     await adapter.postMessage("linq:chat-123", "Hello");
 
     const fetchCall = mockFetch.mock.calls[0];
-    const requestBody = JSON.parse(
-      // openapi-fetch passes a Request object
-      await (fetchCall[0] as Request).text()
-    );
+    const requestBody = JSON.parse(fetchCall[1]?.body as string);
     expect(requestBody.message.preferred_service).toBe("iMessage");
   });
 
@@ -1070,7 +1067,7 @@ describe("postMessage with preferredService", () => {
     await adapter.postMessage("linq:chat-123", "Hello");
 
     const fetchCall = mockFetch.mock.calls[0];
-    const requestBody = JSON.parse(await (fetchCall[0] as Request).text());
+    const requestBody = JSON.parse(fetchCall[1]?.body as string);
     expect(requestBody.message.preferred_service).toBeUndefined();
   });
 });

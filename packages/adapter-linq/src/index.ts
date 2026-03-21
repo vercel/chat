@@ -292,7 +292,7 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
       return {
         messages,
-        nextCursor: page.next_cursor ?? undefined,
+        nextCursor: page.next_cursor || undefined,
       };
     } catch (error) {
       throw this.handleApiError(error, "fetchMessages");
@@ -472,7 +472,7 @@ export class LinqAdapter implements Adapter<LinqThreadId, LinqRawMessage> {
 
       return {
         threads,
-        nextCursor: page.next_cursor ?? undefined,
+        nextCursor: page.next_cursor || undefined,
       };
     } catch (error) {
       throw this.handleApiError(error, "listThreads");
