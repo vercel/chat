@@ -25,13 +25,12 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "chat": "workspace:*"
-  },
-  "peerDependencies": {
     "@linqapp/sdk": "^0.12.2"
   },
+  "peerDependencies": {
+    "chat": "workspace:*"
+  },
   "devDependencies": {
-    "@linqapp/sdk": "^0.12.2",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

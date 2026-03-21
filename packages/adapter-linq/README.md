@@ -8,10 +8,10 @@ Linq adapter for [Chat SDK](https://chat-sdk.dev), supporting iMessage, SMS, and
 ## Installation
 
 ```bash
-pnpm add @chat-adapter/linq @linqapp/sdk
+pnpm add @chat-adapter/linq
 ```
 
-The adapter uses the official [`@linqapp/sdk`](https://www.npmjs.com/package/@linqapp/sdk) as a peer dependency. This keeps you in control of the SDK version and lets you use the SDK directly for features the adapter doesn't cover (contact cards, voicememos, phone number management, etc.).
+The adapter includes the official [`@linqapp/sdk`](https://www.npmjs.com/package/@linqapp/sdk) as a dependency. You can also use the SDK directly for features the adapter doesn't cover (contact cards, voicememos, phone number management, etc.).
 
 ## Usage
 

@@ -365,13 +365,13 @@ importers:
       '@chat-adapter/shared':
         specifier: workspace:*
         version: link:../adapter-shared
+      '@linqapp/sdk':
+        specifier: ^0.12.2
+        version: 0.12.2
       chat:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
-      '@linqapp/sdk':
-        specifier: ^0.12.2
-        version: 0.12.2
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
