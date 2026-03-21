@@ -24,9 +24,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.750.0",
-    "@aws-sdk/lib-dynamodb": "^3.750.0",
     "chat": "workspace:*"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0"
   },
   "repository": {
     "type": "git",
@@ -41,6 +43,8 @@
     "access": "public"
   },
   "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.750.0",
+    "@aws-sdk/lib-dynamodb": "^3.750.0",
     "@types/node": "^25.3.2",
     "@vitest/coverage-v8": "^4.0.18",
     "tsup": "^8.3.5",
