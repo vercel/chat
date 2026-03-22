@@ -350,14 +350,19 @@ export function buildExpiredCard(title: string): CardElement {
 export function parseApprovalAction(
   actionId: string
 ): { id: string; approved: boolean } | null {
-  if (!actionId.startsWith(`${APPROVAL_PREFIX}:`)) {
+  const prefix = `${APPROVAL_PREFIX}:`;
+  if (!actionId.startsWith(prefix)) {
     return null;
   }
-  const parts = actionId.split(":");
-  if (parts.length !== 3) {
+  // Extract decision from the last segment, ID is everything in between.
+  // This supports IDs containing colons (e.g. "tool:call_abc").
+  const rest = actionId.slice(prefix.length);
+  const lastColon = rest.lastIndexOf(":");
+  if (lastColon === -1 || lastColon === 0) {
     return null;
   }
-  const [, id, decision] = parts;
+  const id = rest.slice(0, lastColon);
+  const decision = rest.slice(lastColon + 1);
   if (decision !== "approve" && decision !== "deny") {
     return null;
   }

@@ -322,9 +322,19 @@ describe("parseApprovalAction", () => {
     expect(parseApprovalAction("")).toBeNull();
   });
 
-  it("should return null when there are too many colon-separated segments", () => {
-    // An ID containing a colon produces 4+ segments
-    expect(parseApprovalAction("__approval:a:b:approve")).toBeNull();
+  it("should handle IDs containing colons", () => {
+    const result = parseApprovalAction("__approval:a:b:approve");
+    expect(result).toEqual({ id: "a:b", approved: true });
+  });
+
+  it("should handle IDs with multiple colons", () => {
+    const result = parseApprovalAction("__approval:tool:call:abc_123:deny");
+    expect(result).toEqual({ id: "tool:call:abc_123", approved: false });
+  });
+
+  it("should handle an ID that is only a colon", () => {
+    const result = parseApprovalAction("__approval:::approve");
+    expect(result).toEqual({ id: ":", approved: true });
   });
 
   it("should return null for prefix-only with trailing colon", () => {
