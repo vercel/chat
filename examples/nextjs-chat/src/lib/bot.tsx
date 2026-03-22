@@ -119,14 +119,14 @@ bot.onNewMention(async (thread, message) => {
         <Button id="info">Show Info</Button>
         <Button id="choose_plan">Choose Plan</Button>
         <Button id="feedback">Send Feedback</Button>
-        <Button id="deploy" value="v2.4.1">
-          Deploy
-        </Button>
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="show-table">Show Table</Button>
         <Button id="report" value="bug">
           Report Bug
+        </Button>
+        <Button id="workflow_modal" style="primary">
+          Open Modal
         </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
@@ -352,50 +352,38 @@ bot.onAction("goodbye", async (event) => {
   );
 });
 
-// callbackUrl + Workflow: no onAction handler needed for approve/reject.
-// Each button gets its own webhook URL, and the workflow awaits the result.
-bot.onAction("deploy", async (event) => {
+// Workflow-powered modal: clicking "Open Modal" opens a modal with a select.
+// The modal's callbackUrl points to a workflow webhook, so submitting the modal
+// resumes the workflow which then posts the user's selection to the thread.
+bot.onAction("workflow_modal", async (event) => {
   if (!event.thread) {
     return;
   }
-  const version = event.value ?? "latest";
   const { thread } = event;
 
-  const approve = createWebhook();
-  const reject = createWebhook();
+  using webhook = createWebhook();
 
-  await thread.post(
-    <Card title={`${emoji.rocket} Deploy Request: ${version}`}>
-      <Text>{`**${event.user.fullName}** wants to deploy **${version}** to production.`}</Text>
-      <Divider />
-      <Actions>
-        <Button
-          callbackUrl={approve.url}
-          id="deploy_approve"
-          style="primary"
-          value={version}
-        >
-          Approve
-        </Button>
-        <Button
-          callbackUrl={reject.url}
-          id="deploy_reject"
-          style="danger"
-          value={version}
-        >
-          Reject
-        </Button>
-      </Actions>
-    </Card>
+  await event.openModal(
+    <Modal
+      callbackId="workflow_modal_form"
+      callbackUrl={webhook.url}
+      submitLabel="Submit"
+      title="Pick an Option"
+    >
+      <Select id="choice" label="Choose something" placeholder="Select...">
+        <SelectOption label="Option A" value="option_a" />
+        <SelectOption label="Option B" value="option_b" />
+        <SelectOption label="Option C" value="option_c" />
+      </Select>
+    </Modal>
   );
 
-  const { action } = await Promise.race([
-    approve.then(() => ({ action: "approved" as const })),
-    reject.then(() => ({ action: "rejected" as const })),
-  ]);
+  const request = await webhook;
+  const payload = await request.json();
 
-  const icon = action === "approved" ? emoji.check : emoji.warning;
-  await thread.post(`${icon} Deploy **${version}** was **${action}**`);
+  await thread.post(
+    `${emoji.check} You selected **${payload.values?.choice ?? "nothing"}**`
+  );
 });
 
 bot.onAction("show-table", async (event) => {
