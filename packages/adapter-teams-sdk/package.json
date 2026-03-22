@@ -1,0 +1,66 @@
+{
+  "name": "@chat-adapter/teams-sdk",
+  "version": "0.1.0",
+  "description": "Microsoft Teams adapter for chat using the teams.ts SDK (native streaming, reactions, ephemeral messages)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.13.0",
+    "@chat-adapter/shared": "workspace:*",
+    "@microsoft/teams.api": "^2.0.5",
+    "@microsoft/teams.apps": "^2.0.5",
+    "botbuilder": "^4.23.1",
+    "botframework-connector": "^4.23.3"
+  },
+  "peerDependencies": {
+    "chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-teams-sdk"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "teams",
+    "microsoft",
+    "bot",
+    "adapter",
+    "streaming",
+    "teams-sdk"
+  ],
+  "license": "MIT"
+}
