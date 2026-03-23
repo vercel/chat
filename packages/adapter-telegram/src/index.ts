@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -194,6 +195,7 @@ export class TelegramAdapter
   private readonly botToken: string;
   private readonly apiBaseUrl: string;
   private readonly secretToken?: string;
+  private warnedNoVerification = false;
   private readonly logger: Logger;
   private readonly formatConverter = new TelegramFormatConverter();
   private readonly messageCache = new Map<
@@ -313,12 +315,28 @@ export class TelegramAdapter
   ): Promise<Response> {
     if (this.secretToken) {
       const headerToken = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER);
-      if (headerToken !== this.secretToken) {
+      let valid = false;
+      try {
+        valid =
+          !!headerToken &&
+          timingSafeEqual(
+            Buffer.from(headerToken),
+            Buffer.from(this.secretToken)
+          );
+      } catch {
+        // Length mismatch throws — treat as invalid
+      }
+      if (!valid) {
         this.logger.warn(
           "Telegram webhook rejected due to invalid secret token"
         );
         return new Response("Invalid secret token", { status: 401 });
       }
+    } else if (!this.warnedNoVerification) {
+      this.warnedNoVerification = true;
+      this.logger.warn(
+        "Telegram webhook verification is disabled. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or secretToken to verify incoming requests."
+      );
     }
 
     let update: TelegramUpdate;
