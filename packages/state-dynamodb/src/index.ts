@@ -8,32 +8,39 @@ import { ConsoleLogger } from "chat";
 
 const DEFAULT_TABLE_NAME = "chat-state";
 const DEFAULT_KEY_PREFIX = "chat-sdk";
+const DEFAULT_PK_NAME = "pk";
+const DEFAULT_SK_NAME = "sk";
+const DEFAULT_TTL_NAME = "expiresAt";
 
 const SEQ_PAD_LENGTH = 16;
 const BATCH_WRITE_LIMIT = 25;
 
-export interface DynamoDBStateAdapterOptions {
-  /** Custom DynamoDB endpoint (for DynamoDB Local development) */
-  endpoint?: string;
+export interface DynamoDBStateSharedOptions {
   /** Key prefix for multi-tenancy (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger?: Logger;
-  /** AWS region (default: from environment) */
-  region?: string;
+  /** Partition key attribute name (default: "pk") */
+  pkName?: string;
+  /** Sort key attribute name (default: "sk") */
+  skName?: string;
   /** DynamoDB table name (default: "chat-state") */
   tableName?: string;
+  /** TTL attribute name (default: "expiresAt") */
+  ttlName?: string;
 }
 
-export interface DynamoDBStateClientOptions {
+export interface DynamoDBStateAdapterOptions
+  extends DynamoDBStateSharedOptions {
+  /** Custom DynamoDB endpoint (for DynamoDB Local development) */
+  endpoint?: string;
+  /** AWS region (default: from environment) */
+  region?: string;
+}
+
+export interface DynamoDBStateClientOptions extends DynamoDBStateSharedOptions {
   /** Existing DynamoDBDocument instance */
   client: DynamoDBDocument;
-  /** Key prefix for multi-tenancy (default: "chat-sdk") */
-  keyPrefix?: string;
-  /** Logger instance for error reporting */
-  logger?: Logger;
-  /** DynamoDB table name (default: "chat-state") */
-  tableName?: string;
 }
 
 export type CreateDynamoDBStateOptions =
@@ -46,6 +53,9 @@ export class DynamoDBStateAdapter implements StateAdapter {
   private readonly docClient: DynamoDBDocument;
   private readonly tableName: string;
   private readonly keyPrefix: string;
+  private readonly pkName: string;
+  private readonly skName: string;
+  private readonly ttlName: string;
   private readonly logger: Logger;
   private readonly ownsClient: boolean;
   private connected = false;
@@ -69,6 +79,9 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     this.tableName = options.tableName ?? DEFAULT_TABLE_NAME;
     this.keyPrefix = options.keyPrefix ?? DEFAULT_KEY_PREFIX;
+    this.pkName = options.pkName ?? DEFAULT_PK_NAME;
+    this.skName = options.skName ?? DEFAULT_SK_NAME;
+    this.ttlName = options.ttlName ?? DEFAULT_TTL_NAME;
     this.logger = options.logger ?? new ConsoleLogger("info").child("dynamodb");
   }
 
@@ -93,10 +106,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     await this.docClient.put({
       TableName: this.tableName,
-      Item: {
-        pk: this.subKey(threadId),
-        sk: "_",
-      },
+      Item: this.key(this.subKey(threadId), "_"),
     });
   }
 
@@ -105,7 +115,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     await this.docClient.delete({
       TableName: this.tableName,
-      Key: { pk: this.subKey(threadId), sk: "_" },
+      Key: this.key(this.subKey(threadId), "_"),
     });
   }
 
@@ -114,8 +124,8 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     const result = await this.docClient.get({
       TableName: this.tableName,
-      Key: { pk: this.subKey(threadId), sk: "_" },
-      ProjectionExpression: "pk",
+      Key: this.key(this.subKey(threadId), "_"),
+      ProjectionExpression: this.pkName,
     });
 
     return result.Item !== undefined;
@@ -132,13 +142,13 @@ export class DynamoDBStateAdapter implements StateAdapter {
       await this.docClient.put({
         TableName: this.tableName,
         Item: {
-          pk: this.lockKey(threadId),
-          sk: "_",
+          ...this.key(this.lockKey(threadId), "_"),
           token,
           expiresAtMs,
-          expiresAt: msToSeconds(expiresAtMs),
+          [this.ttlName]: msToSeconds(expiresAtMs),
         },
-        ConditionExpression: "attribute_not_exists(pk) OR expiresAtMs <= :now",
+        ConditionExpression: "attribute_not_exists(#pk) OR expiresAtMs <= :now",
+        ExpressionAttributeNames: { "#pk": this.pkName },
         ExpressionAttributeValues: { ":now": now },
       });
 
@@ -157,7 +167,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
     try {
       await this.docClient.delete({
         TableName: this.tableName,
-        Key: { pk: this.lockKey(lock.threadId), sk: "_" },
+        Key: this.key(this.lockKey(lock.threadId), "_"),
         ConditionExpression: "#t = :token",
         ExpressionAttributeNames: { "#t": "token" },
         ExpressionAttributeValues: { ":token": lock.token },
@@ -175,7 +185,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     await this.docClient.delete({
       TableName: this.tableName,
-      Key: { pk: this.lockKey(threadId), sk: "_" },
+      Key: this.key(this.lockKey(threadId), "_"),
     });
   }
 
@@ -188,10 +198,10 @@ export class DynamoDBStateAdapter implements StateAdapter {
     try {
       await this.docClient.update({
         TableName: this.tableName,
-        Key: { pk: this.lockKey(lock.threadId), sk: "_" },
-        UpdateExpression: "SET expiresAtMs = :newMs, expiresAt = :newSec",
+        Key: this.key(this.lockKey(lock.threadId), "_"),
+        UpdateExpression: "SET expiresAtMs = :newMs, #ttl = :newSec",
         ConditionExpression: "#t = :token AND expiresAtMs > :now",
-        ExpressionAttributeNames: { "#t": "token" },
+        ExpressionAttributeNames: { "#t": "token", "#ttl": this.ttlName },
         ExpressionAttributeValues: {
           ":token": lock.token,
           ":now": now,
@@ -214,7 +224,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     const result = await this.docClient.get({
       TableName: this.tableName,
-      Key: { pk: this.cacheKey(key), sk: "_" },
+      Key: this.key(this.cacheKey(key), "_"),
     });
 
     if (!result.Item) {
@@ -235,15 +245,14 @@ export class DynamoDBStateAdapter implements StateAdapter {
     this.ensureConnected();
 
     const item: Record<string, unknown> = {
-      pk: this.cacheKey(key),
-      sk: "_",
+      ...this.key(this.cacheKey(key), "_"),
       value,
     };
 
     if (ttlMs !== undefined) {
       const expiresAtMs = Date.now() + ttlMs;
       item.expiresAtMs = expiresAtMs;
-      item.expiresAt = msToSeconds(expiresAtMs);
+      item[this.ttlName] = msToSeconds(expiresAtMs);
     }
 
     await this.docClient.put({ TableName: this.tableName, Item: item });
@@ -258,22 +267,22 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     const now = Date.now();
     const item: Record<string, unknown> = {
-      pk: this.cacheKey(key),
-      sk: "_",
+      ...this.key(this.cacheKey(key), "_"),
       value,
     };
 
     if (ttlMs !== undefined) {
       const expiresAtMs = now + ttlMs;
       item.expiresAtMs = expiresAtMs;
-      item.expiresAt = msToSeconds(expiresAtMs);
+      item[this.ttlName] = msToSeconds(expiresAtMs);
     }
 
     try {
       await this.docClient.put({
         TableName: this.tableName,
         Item: item,
-        ConditionExpression: "attribute_not_exists(pk) OR expiresAtMs <= :now",
+        ConditionExpression: "attribute_not_exists(#pk) OR expiresAtMs <= :now",
+        ExpressionAttributeNames: { "#pk": this.pkName },
         ExpressionAttributeValues: { ":now": now },
       });
       return true;
@@ -290,7 +299,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     await this.docClient.delete({
       TableName: this.tableName,
-      Key: { pk: this.cacheKey(key), sk: "_" },
+      Key: this.key(this.cacheKey(key), "_"),
     });
   }
 
@@ -303,7 +312,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
 
     const counterResult = await this.docClient.update({
       TableName: this.tableName,
-      Key: { pk: this.listCounterKey(key), sk: "_" },
+      Key: this.key(this.listCounterKey(key), "_"),
       UpdateExpression: "ADD seq :one",
       ExpressionAttributeValues: { ":one": 1 },
       ReturnValues: "ALL_NEW",
@@ -313,15 +322,14 @@ export class DynamoDBStateAdapter implements StateAdapter {
     const sk = String(seq).padStart(SEQ_PAD_LENGTH, "0");
 
     const item: Record<string, unknown> = {
-      pk: this.listKey(key),
-      sk,
+      ...this.key(this.listKey(key), sk),
       value,
     };
 
     if (options?.ttlMs !== undefined) {
       const expiresAtMs = Date.now() + options.ttlMs;
       item.expiresAtMs = expiresAtMs;
-      item.expiresAt = msToSeconds(expiresAtMs);
+      item[this.ttlName] = msToSeconds(expiresAtMs);
     }
 
     await this.docClient.put({ TableName: this.tableName, Item: item });
@@ -389,7 +397,8 @@ export class DynamoDBStateAdapter implements StateAdapter {
     do {
       const result = await this.docClient.query({
         TableName: this.tableName,
-        KeyConditionExpression: "pk = :pk",
+        KeyConditionExpression: "#pk = :pk",
+        ExpressionAttributeNames: { "#pk": this.pkName },
         ExpressionAttributeValues: { ":pk": this.listKey(key) },
         ScanIndexForward: true,
         ExclusiveStartKey: exclusiveStartKey,
@@ -411,16 +420,17 @@ export class DynamoDBStateAdapter implements StateAdapter {
     do {
       const result = await this.docClient.query({
         TableName: this.tableName,
-        KeyConditionExpression: "pk = :pk",
+        KeyConditionExpression: "#pk = :pk",
+        ExpressionAttributeNames: { "#pk": this.pkName },
         ExpressionAttributeValues: { ":pk": this.listKey(key) },
-        ProjectionExpression: "sk",
+        ProjectionExpression: this.skName,
         ScanIndexForward: true,
         ExclusiveStartKey: exclusiveStartKey,
       });
 
       if (result.Items) {
         for (const item of result.Items) {
-          allKeys.push(item.sk as string);
+          allKeys.push(item[this.skName] as string);
         }
       }
       exclusiveStartKey = result.LastEvaluatedKey;
@@ -432,7 +442,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
     }
 
     const keysToDelete = allKeys.slice(0, overflow);
-    const pk = this.listKey(key);
+    const pkValue = this.listKey(key);
 
     for (let i = 0; i < keysToDelete.length; i += BATCH_WRITE_LIMIT) {
       const batch = keysToDelete.slice(i, i + BATCH_WRITE_LIMIT);
@@ -440,7 +450,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
       const result = await this.docClient.batchWrite({
         RequestItems: {
           [this.tableName]: batch.map((sk) => ({
-            DeleteRequest: { Key: { pk, sk } },
+            DeleteRequest: { Key: this.key(pkValue, sk) },
           })),
         },
       });
@@ -458,7 +468,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
     const items = await this.queryAllListItems(key);
     const now = Date.now();
     const expiresAtMs = now + ttlMs;
-    const expiresAt = msToSeconds(expiresAtMs);
+    const ttlSeconds = msToSeconds(expiresAtMs);
 
     for (let i = 0; i < items.length; i += BATCH_WRITE_LIMIT) {
       const batch = items.slice(i, i + BATCH_WRITE_LIMIT);
@@ -467,7 +477,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
         RequestItems: {
           [this.tableName]: batch.map((item) => ({
             PutRequest: {
-              Item: { ...item, expiresAtMs, expiresAt },
+              Item: { ...item, expiresAtMs, [this.ttlName]: ttlSeconds },
             },
           })),
         },
@@ -480,6 +490,10 @@ export class DynamoDBStateAdapter implements StateAdapter {
         );
       }
     }
+  }
+
+  private key(pk: string, sk: string): Record<string, string> {
+    return { [this.pkName]: pk, [this.skName]: sk };
   }
 
   private ensureConnected(): void {
@@ -507,6 +521,9 @@ export function createDynamoDBState(
       client: options.client,
       tableName: options.tableName,
       keyPrefix: options.keyPrefix,
+      pkName: options.pkName,
+      skName: options.skName,
+      ttlName: options.ttlName,
       logger: options.logger,
     });
   }
@@ -515,6 +532,9 @@ export function createDynamoDBState(
   return new DynamoDBStateAdapter({
     tableName: opts.tableName,
     keyPrefix: opts.keyPrefix,
+    pkName: opts.pkName,
+    skName: opts.skName,
+    ttlName: opts.ttlName,
     region: opts.region,
     endpoint: opts.endpoint,
     logger: opts.logger,

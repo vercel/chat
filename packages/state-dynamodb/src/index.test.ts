@@ -616,4 +616,173 @@ describe("DynamoDBStateAdapter", () => {
       });
     });
   });
+
+  describe("custom attribute names", () => {
+    let adapter: DynamoDBStateAdapter;
+    let client: DynamoDBDocument;
+
+    beforeEach(async () => {
+      client = createMockDocClient();
+      adapter = new DynamoDBStateAdapter({
+        client,
+        pkName: "PK",
+        skName: "SK",
+        ttlName: "ttl",
+        logger: createMockLogger(),
+      });
+      await adapter.connect();
+    });
+
+    afterEach(async () => {
+      await adapter.disconnect();
+    });
+
+    it("should use custom pk and sk names in subscribe", async () => {
+      await adapter.subscribe("thread1");
+
+      expect(client.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Item: { PK: "chat-sdk#sub#thread1", SK: "_" },
+        })
+      );
+    });
+
+    it("should use custom pk and sk names in key lookups", async () => {
+      vi.mocked(client.get).mockResolvedValue({
+        Item: { PK: "chat-sdk#sub#thread1", SK: "_" },
+        $metadata: {},
+      });
+
+      const result = await adapter.isSubscribed("thread1");
+      expect(result).toBe(true);
+      expect(client.get).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Key: { PK: "chat-sdk#sub#thread1", SK: "_" },
+          ProjectionExpression: "PK",
+        })
+      );
+    });
+
+    it("should use custom ttl name in acquireLock", async () => {
+      const lock = await adapter.acquireLock("thread1", 5000);
+      expect(lock).not.toBeNull();
+
+      expect(client.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Item: expect.objectContaining({
+            PK: expect.any(String),
+            SK: "_",
+            ttl: expect.any(Number),
+          }),
+        })
+      );
+    });
+
+    it("should use custom ttl name in cache set", async () => {
+      await adapter.set("key", "value", 5000);
+
+      expect(client.put).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Item: expect.objectContaining({
+            PK: "chat-sdk#cache#key",
+            SK: "_",
+            ttl: expect.any(Number),
+          }),
+        })
+      );
+    });
+
+    it("should use custom sk name in trimList", async () => {
+      vi.mocked(client.update).mockResolvedValue({
+        Attributes: { seq: 3 },
+        $metadata: {},
+      });
+      vi.mocked(client.query).mockResolvedValue({
+        Items: [
+          { SK: "0000000000000001" },
+          { SK: "0000000000000002" },
+          { SK: "0000000000000003" },
+        ],
+        $metadata: {},
+      });
+
+      await adapter.appendToList("mylist", { id: 3 }, { maxLength: 1 });
+
+      expect(client.batchWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          RequestItems: {
+            "chat-state": expect.arrayContaining([
+              {
+                DeleteRequest: {
+                  Key: { PK: "chat-sdk#list#mylist", SK: "0000000000000001" },
+                },
+              },
+              {
+                DeleteRequest: {
+                  Key: { PK: "chat-sdk#list#mylist", SK: "0000000000000002" },
+                },
+              },
+            ]),
+          },
+        })
+      );
+    });
+
+    it("should return list items with custom key names in getList", async () => {
+      vi.mocked(client.query).mockResolvedValue({
+        Items: [
+          {
+            PK: "chat-sdk#list#mylist",
+            SK: "0000000000000001",
+            value: { id: 1 },
+          },
+          {
+            PK: "chat-sdk#list#mylist",
+            SK: "0000000000000002",
+            value: { id: 2 },
+          },
+        ],
+        $metadata: {},
+      });
+
+      const result = await adapter.getList("mylist");
+      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+
+    it("should use custom ttl name in refreshListTtl", async () => {
+      vi.mocked(client.update).mockResolvedValue({
+        Attributes: { seq: 1 },
+        $metadata: {},
+      });
+      vi.mocked(client.query).mockResolvedValue({
+        Items: [
+          {
+            PK: "chat-sdk#list#mylist",
+            SK: "0000000000000001",
+            value: { id: 1 },
+          },
+        ],
+        $metadata: {},
+      });
+
+      await adapter.appendToList("mylist", { id: 1 }, { ttlMs: 60000 });
+
+      expect(client.batchWrite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          RequestItems: {
+            "chat-state": expect.arrayContaining([
+              {
+                PutRequest: {
+                  Item: expect.objectContaining({
+                    ttl: expect.any(Number),
+                    expiresAtMs: expect.any(Number),
+                  }),
+                },
+              },
+            ]),
+          },
+        })
+      );
+    });
+  });
 });
