@@ -658,7 +658,8 @@ describe("DynamoDBStateAdapter", () => {
       expect(client.get).toHaveBeenCalledWith(
         expect.objectContaining({
           Key: { PK: "chat-sdk#sub#thread1", SK: "_" },
-          ProjectionExpression: "PK",
+          ProjectionExpression: "#pk",
+          ExpressionAttributeNames: { "#pk": "PK" },
         })
       );
     });

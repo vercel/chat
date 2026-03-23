@@ -125,7 +125,8 @@ export class DynamoDBStateAdapter implements StateAdapter {
     const result = await this.docClient.get({
       TableName: this.tableName,
       Key: this.key(this.subKey(threadId), "_"),
-      ProjectionExpression: this.pkName,
+      ProjectionExpression: "#pk",
+      ExpressionAttributeNames: { "#pk": this.pkName },
     });
 
     return result.Item !== undefined;
@@ -421,9 +422,9 @@ export class DynamoDBStateAdapter implements StateAdapter {
       const result = await this.docClient.query({
         TableName: this.tableName,
         KeyConditionExpression: "#pk = :pk",
-        ExpressionAttributeNames: { "#pk": this.pkName },
+        ExpressionAttributeNames: { "#pk": this.pkName, "#sk": this.skName },
         ExpressionAttributeValues: { ":pk": this.listKey(key) },
-        ProjectionExpression: this.skName,
+        ProjectionExpression: "#sk",
         ScanIndexForward: true,
         ExclusiveStartKey: exclusiveStartKey,
       });
