@@ -25,9 +25,7 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@slack/web-api": "^7.14.0"
-  },
-  "peerDependencies": {
+    "@slack/web-api": "^7.14.0",
     "chat": "workspace:*"
   },
   "devDependencies": {

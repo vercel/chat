@@ -26,9 +26,7 @@
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
     "@octokit/auth-app": "^8.2.0",
-    "@octokit/rest": "^22.0.1"
-  },
-  "peerDependencies": {
+    "@octokit/rest": "^22.0.1",
     "chat": "workspace:*"
   },
   "devDependencies": {

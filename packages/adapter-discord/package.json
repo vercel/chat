@@ -25,12 +25,10 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*",
     "discord-api-types": "^0.37.119",
     "discord-interactions": "^4.4.0",
     "discord.js": "^14.25.1"
-  },
-  "peerDependencies": {
-    "chat": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
