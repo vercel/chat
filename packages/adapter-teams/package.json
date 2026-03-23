@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/teams",
-  "version": "4.20.2",
+  "version": "5.0.0",
   "description": "Microsoft Teams adapter for chat",
   "type": "module",
   "main": "./dist/index.js",

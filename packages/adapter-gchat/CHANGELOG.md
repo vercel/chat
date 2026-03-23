@@ -1,5 +1,16 @@
 # @chat-adapter/gchat
 
+## 5.0.0
+
+### Patch Changes
+
+- 000792b: Introduce optional gchat signature verification
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@5.0.0
+  - @chat-adapter/shared@5.0.0
+
 ## 4.20.2
 
 ### Patch Changes
