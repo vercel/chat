@@ -116,7 +116,7 @@ describe("Replay Tests - Channel", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
     });

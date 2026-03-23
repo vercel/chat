@@ -70,7 +70,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
@@ -91,7 +91,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         added: true,
         userId: "U00FAKEUSER1",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         messageId: "1767326126.896109",
         isDM: false,
       });
@@ -110,7 +110,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
@@ -129,7 +129,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
