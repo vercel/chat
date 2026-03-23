@@ -1707,10 +1707,8 @@ export class Chat<
     initialMessage: Message,
     isSubscribedContext = false
   ): Thread<TState> {
-    // Parse thread ID to get channel info
-    // Format: "adapter:channel:thread"
-    const parts = threadId.split(":");
-    const channelId = parts[1] || "";
+    // Parse thread ID to get channel ID with adapter
+    const channelId = adapter.channelIdFromThreadId(threadId);
 
     // Check if this is a DM
     const isDM = adapter.isDM?.(threadId) ?? false;
