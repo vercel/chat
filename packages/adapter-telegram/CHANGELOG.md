@@ -1,5 +1,21 @@
 # @chat-adapter/telegram
 
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- 1d36004: Set `parse_mode` to `"Markdown"` when posting messages with a `markdown` field, not only for card messages
+- 85a1d7f: Convert Telegram message entities to markdown in parsed messages
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
 ## 4.20.2
 
 ### Patch Changes

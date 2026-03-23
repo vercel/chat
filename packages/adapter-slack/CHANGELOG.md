@@ -1,5 +1,19 @@
 # @chat-adapter/slack
 
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
 ## 4.20.2
 
 ### Patch Changes
