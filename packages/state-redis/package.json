@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-redis",
-  "version": "4.20.2",
+  "version": "5.0.0",
   "description": "Redis state adapter for chat (production)",
   "type": "module",
   "main": "./dist/index.js",
