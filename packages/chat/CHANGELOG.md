@@ -1,5 +1,11 @@
 # chat
 
+## 4.22.0
+
+### Minor Changes
+
+- f2d8957: Implement new concurrency strategies for overlapping messages
+
 ## 4.21.0
 
 ### Minor Changes
