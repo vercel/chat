@@ -3044,6 +3044,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
 
+    // After streaming, tables were rendered as code-fenced ASCII for the
+    // append-only API. Replace with native Block Kit table blocks if present.
+    const accumulated = renderer.getText();
+    const tableBlocks = this.renderWithTableBlocks({ markdown: accumulated });
+    if (tableBlocks) {
+      // Preserve any stopBlocks the caller attached when stopping the stream
+      const allBlocks = options?.stopBlocks
+        ? [...tableBlocks.blocks, ...(options.stopBlocks as SlackBlock[])]
+        : tableBlocks.blocks;
+
+      this.logger.debug(
+        "Slack: upgrading streamed tables to native table blocks",
+        { messageId: messageTs, blockCount: allBlocks.length }
+      );
+      const updateResult = await this.client.chat.update(
+        this.withToken({
+          channel,
+          ts: messageTs,
+          text: tableBlocks.text,
+          blocks: allBlocks,
+        })
+      );
+      return {
+        id: (updateResult.ts as string) ?? messageTs,
+        threadId,
+        raw: updateResult,
+      };
+    }
+
     return {
       id: messageTs,
       threadId,

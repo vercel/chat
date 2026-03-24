@@ -2438,6 +2438,205 @@ describe("editMessage", () => {
 });
 
 // ============================================================================
+// postMessage with native table blocks
+// ============================================================================
+
+describe("postMessage with tables", () => {
+  const secret = "test-signing-secret";
+
+  it("posts markdown with a table using native table blocks", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    const markdown =
+      "Here are results:\n\n| Name | Age |\n|------|-----|\n| Alice | 30 |";
+    const result = await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown,
+    });
+
+    expect(result.id).toBe("1234567890.999999");
+
+    const client = getClient(adapter);
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: "section" }),
+          expect.objectContaining({ type: "table" }),
+        ]),
+      })
+    );
+  });
+
+  it("posts markdown without tables as regular text (no blocks)", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown: "Just some text, no tables here.",
+    });
+
+    const client = getClient(adapter);
+    const callArgs = (client.chat.postMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
+    expect(callArgs.blocks).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// stream with native table upgrade
+// ============================================================================
+
+describe("stream with table upgrade", () => {
+  const secret = "test-signing-secret";
+
+  function createMockStreamer() {
+    return {
+      append: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" }),
+    };
+  }
+
+  it("upgrades streamed tables to native table blocks via chat.update", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const mockStreamer = createMockStreamer();
+    const client = getClient(adapter);
+    (client as unknown as Record<string, unknown>).chatStream = vi
+      .fn()
+      .mockReturnValue(mockStreamer);
+
+    const chatUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.999999" });
+    mockClientMethod(adapter, "chat.update", chatUpdate);
+
+    async function* tableStream() {
+      yield "Here are results:\n\n";
+      yield "| Name | Age |\n";
+      yield "|------|-----|\n";
+      yield "| Alice | 30 |\n";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      tableStream(),
+      { recipientUserId: "U123", recipientTeamId: "T123" }
+    );
+
+    expect(result.id).toBe("1234567890.999999");
+    expect(mockStreamer.stop).toHaveBeenCalled();
+    expect(chatUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        ts: "1234567890.999999",
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: "table" }),
+        ]),
+      })
+    );
+  });
+
+  it("skips chat.update when stream has no tables", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const mockStreamer = createMockStreamer();
+    const client = getClient(adapter);
+    (client as unknown as Record<string, unknown>).chatStream = vi
+      .fn()
+      .mockReturnValue(mockStreamer);
+
+    const chatUpdate = vi.fn();
+    mockClientMethod(adapter, "chat.update", chatUpdate);
+
+    async function* plainStream() {
+      yield "Hello ";
+      yield "world!";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", plainStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(mockStreamer.stop).toHaveBeenCalled();
+    expect(chatUpdate).not.toHaveBeenCalled();
+  });
+
+  it("preserves stopBlocks when upgrading tables", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const mockStreamer = createMockStreamer();
+    const client = getClient(adapter);
+    (client as unknown as Record<string, unknown>).chatStream = vi
+      .fn()
+      .mockReturnValue(mockStreamer);
+
+    const chatUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.999999" });
+    mockClientMethod(adapter, "chat.update", chatUpdate);
+
+    const stopButton = {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Retry" },
+          action_id: "retry",
+        },
+      ],
+    };
+
+    async function* tableStream() {
+      yield "| A | B |\n|---|---|\n| 1 | 2 |\n";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", tableStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+      stopBlocks: [stopButton],
+    });
+
+    expect(chatUpdate).toHaveBeenCalled();
+    const updateCall = chatUpdate.mock.calls[0][0];
+    const blockTypes = updateCall.blocks.map((b: { type: string }) => b.type);
+    expect(blockTypes).toContain("table");
+    expect(blockTypes).toContain("actions");
+  });
+});
+
+// ============================================================================
 // deleteMessage Tests
 // ============================================================================
 
