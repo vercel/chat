@@ -10,6 +10,20 @@ import type { Message } from "./message";
 import type { ModalElement } from "./modals";
 
 // =============================================================================
+// Channel Visibility
+// =============================================================================
+
+/**
+ * Represents the visibility scope of a channel.
+ *
+ * - `private`: Channel is only visible to invited members (e.g., private Slack channels)
+ * - `workspace`: Channel is visible to all workspace members (e.g., public Slack channels)
+ * - `external`: Channel is shared with external organizations (e.g., Slack Connect)
+ * - `unknown`: Visibility cannot be determined
+ */
+export type ChannelVisibility = "private" | "workspace" | "external" | "unknown";
+
+// =============================================================================
 // Re-exports from extracted modules
 // =============================================================================
 
@@ -203,8 +217,20 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    *
    * @param threadId - The thread ID to check
    * @returns True if the thread is in an external channel, false otherwise
+   * @deprecated Use `getChannelVisibility` instead for more granular visibility control
    */
   isExternalChannel?(threadId: string): boolean;
+
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * This provides more granular control than `isExternalChannel` by distinguishing
+   * between private channels, workspace-visible channels, and externally shared channels.
+   *
+   * @param threadId - The thread ID to check
+   * @returns The channel visibility scope
+   */
+  getChannelVisibility?(threadId: string): ChannelVisibility;
 
   /**
    * List threads in a channel.
@@ -517,8 +543,13 @@ export interface Postable<
   readonly id: string;
   /** Whether this is a direct message conversation */
   readonly isDM: boolean;
-  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  /**
+   * Whether this is an external/shared channel (e.g., Slack Connect).
+   * @deprecated Use `channelVisibility` instead for more granular visibility control
+   */
   readonly isExternalChannel: boolean;
+  /** The visibility scope of this channel */
+  readonly channelVisibility: ChannelVisibility;
 
   /**
    * Get a platform-specific mention string for a user.
@@ -613,8 +644,13 @@ export interface ThreadSummary<TRawMessage = unknown> {
 export interface ChannelInfo {
   id: string;
   isDM?: boolean;
-  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  /**
+   * Whether this is an external/shared channel (e.g., Slack Connect).
+   * @deprecated Use `channelVisibility` instead for more granular visibility control
+   */
   isExternalChannel?: boolean;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   memberCount?: number;
   metadata: Record<string, unknown>;
   name?: string;
@@ -812,8 +848,13 @@ export interface ThreadInfo {
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
-  /** Whether this is an external/shared channel (e.g., Slack Connect) */
+  /**
+   * Whether this is an external/shared channel (e.g., Slack Connect).
+   * @deprecated Use `channelVisibility` instead for more granular visibility control
+   */
   isExternalChannel?: boolean;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   /** Platform-specific metadata */
   metadata: Record<string, unknown>;
 }

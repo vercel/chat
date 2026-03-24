@@ -16,6 +16,7 @@ import type {
   Author,
   Channel,
   ChannelInfo,
+  ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
   PostEphemeralOptions,
@@ -34,8 +35,12 @@ const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
 export interface SerializedChannel {
   _type: "chat:Channel";
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM: boolean;
+  /**
+   * @deprecated Use `channelVisibility` instead
+   */
   isExternalChannel?: boolean;
 }
 
@@ -44,8 +49,12 @@ export interface SerializedChannel {
  */
 interface ChannelImplConfigWithAdapter {
   adapter: Adapter;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
+  /**
+   * @deprecated Use `channelVisibility` instead
+   */
   isExternalChannel?: boolean;
   stateAdapter: StateAdapter;
 }
@@ -55,8 +64,12 @@ interface ChannelImplConfigWithAdapter {
  */
 interface ChannelImplConfigLazy {
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
+  /**
+   * @deprecated Use `channelVisibility` instead
+   */
   isExternalChannel?: boolean;
 }
 
@@ -82,7 +95,14 @@ export class ChannelImpl<TState = Record<string, unknown>>
 {
   readonly id: string;
   readonly isDM: boolean;
-  readonly isExternalChannel: boolean;
+  readonly channelVisibility: ChannelVisibility;
+
+  /**
+   * @deprecated Use `channelVisibility === 'external'` instead
+   */
+  get isExternalChannel(): boolean {
+    return this.channelVisibility === "external";
+  }
 
   private _adapter?: Adapter;
   private readonly _adapterName?: string;
@@ -92,7 +112,10 @@ export class ChannelImpl<TState = Record<string, unknown>>
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
     this.isDM = config.isDM ?? false;
-    this.isExternalChannel = config.isExternalChannel ?? false;
+    // Support both new channelVisibility and deprecated isExternalChannel
+    this.channelVisibility =
+      config.channelVisibility ??
+      (config.isExternalChannel ? "external" : "unknown");
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
@@ -337,7 +360,9 @@ export class ChannelImpl<TState = Record<string, unknown>>
       _type: "chat:Channel",
       id: this.id,
       adapterName: this.adapter.name,
+      channelVisibility: this.channelVisibility,
       isDM: this.isDM,
+      // Keep isExternalChannel for backwards compatibility
       ...(this.isExternalChannel ? { isExternalChannel: true } : {}),
     };
   }
@@ -349,6 +374,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
     const channel = new ChannelImpl<TState>({
       id: json.id,
       adapterName: json.adapterName,
+      // Prefer channelVisibility, fall back to isExternalChannel for backwards compat
+      channelVisibility: json.channelVisibility,
       isDM: json.isDM,
       isExternalChannel: json.isExternalChannel,
     });

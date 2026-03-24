@@ -1576,8 +1576,10 @@ export class Chat<
     // Check if this is a DM
     const isDM = adapter.isDM?.(threadId) ?? false;
 
-    // Check if this is an external/shared channel (e.g., Slack Connect)
-    const isExternalChannel = adapter.isExternalChannel?.(threadId) ?? false;
+    // Get channel visibility (prefer new API, fall back to deprecated isExternalChannel)
+    const channelVisibility =
+      adapter.getChannelVisibility?.(threadId) ??
+      (adapter.isExternalChannel?.(threadId) ? "external" : "unknown");
 
     return new ThreadImpl<TState>({
       id: threadId,
@@ -1587,7 +1589,7 @@ export class Chat<
       initialMessage,
       isSubscribedContext,
       isDM,
-      isExternalChannel,
+      channelVisibility,
       currentMessage: initialMessage,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
     });
