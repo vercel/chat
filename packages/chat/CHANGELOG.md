@@ -1,5 +1,11 @@
 # chat
 
+## 4.23.0
+
+### Minor Changes
+
+- 4166e09: Add `channelVisibility` enum to distinguish private, workspace, external, and unknown channel scopes. Implements `getChannelVisibility()` on the Adapter interface and Slack adapter, replacing the previous `isExternalChannel` boolean.
+
 ## 4.22.0
 
 ### Minor Changes
