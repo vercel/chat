@@ -15,6 +15,7 @@ import type {
   AdapterPostableMessage,
   Attachment,
   ChannelInfo,
+  ChannelVisibility,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
@@ -2399,6 +2400,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         | {
             name?: string;
             is_ext_shared?: boolean;
+            is_private?: boolean;
           }
         | undefined;
 
@@ -2412,11 +2414,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         ok: result.ok,
       });
 
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (channelInfo?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (channelInfo?.is_private || channel.startsWith("D")) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: threadId,
         channelId: channel,
         channelName: channelInfo?.name,
-        isExternalChannel: channelInfo?.is_ext_shared ?? false,
+        channelVisibility,
         metadata: {
           threadTs,
           channel: result.channel,
@@ -2473,13 +2485,32 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Check if a thread is in an external/shared channel (Slack Connect).
-   * Uses the `is_ext_shared_channel` flag from incoming webhook payloads,
-   * cached per channel ID.
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * - `external`: Slack Connect channel shared with external organizations
+   * - `private`: Private channel (starts with G) or DM (starts with D)
+   * - `workspace`: Public channel visible to all workspace members
+   * - `unknown`: Visibility cannot be determined (not yet cached)
    */
-  isExternalChannel(threadId: string): boolean {
+  getChannelVisibility(threadId: string): ChannelVisibility {
     const { channel } = this.decodeThreadId(threadId);
-    return this._externalChannels.has(channel);
+
+    // Check for external channel first (Slack Connect)
+    if (this._externalChannels.has(channel)) {
+      return "external";
+    }
+
+    // Private channels start with G, DMs start with D
+    if (channel.startsWith("G") || channel.startsWith("D")) {
+      return "private";
+    }
+
+    // Public channels start with C
+    if (channel.startsWith("C")) {
+      return "workspace";
+    }
+
+    return "unknown";
   }
 
   decodeThreadId(threadId: string): SlackThreadId {
@@ -2793,6 +2824,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         name?: string;
         is_im?: boolean;
         is_mpim?: boolean;
+        is_private?: boolean;
         is_ext_shared?: boolean;
         num_members?: number;
         purpose?: { value?: string };
@@ -2804,11 +2836,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         this._externalChannels.add(channel);
       }
 
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (info?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (
+        info?.is_im ||
+        info?.is_mpim ||
+        info?.is_private ||
+        channel.startsWith("D")
+      ) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: channelId,
         name: info?.name ? `#${info.name}` : undefined,
         isDM: Boolean(info?.is_im || info?.is_mpim),
-        isExternalChannel: info?.is_ext_shared ?? false,
+        channelVisibility,
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,

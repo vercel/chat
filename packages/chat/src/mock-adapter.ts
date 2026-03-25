@@ -68,7 +68,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     isDM: vi
       .fn()
       .mockImplementation((threadId: string) => threadId.includes(":D")),
-    isExternalChannel: vi.fn().mockReturnValue(false),
+    getChannelVisibility: vi.fn().mockReturnValue("unknown"),
     openModal: vi.fn().mockResolvedValue({ viewId: "V123" }),
     channelIdFromThreadId: vi
       .fn()
