@@ -2,22 +2,41 @@
  * Tests for markdown parsing, AST building, and format conversion utilities.
  */
 
-import type { Root } from "mdast";
+import type { Content, Root } from "mdast";
 import { describe, expect, it } from "vitest";
 import {
   Actions,
   Button,
   Card,
   Text as CardText,
+  Divider,
   Field,
   Fields,
+  Section,
+  Table,
 } from "./cards";
 import {
   BaseFormatConverter,
   blockquote,
   codeBlock,
   emphasis,
+  getNodeChildren,
+  getNodeValue,
   inlineCode,
+  isBlockquoteNode,
+  isCodeNode,
+  isDeleteNode,
+  isEmphasisNode,
+  isInlineCodeNode,
+  isLinkNode,
+  isListItemNode,
+  isListNode,
+  isParagraphNode,
+  isStrongNode,
+  isTableCellNode,
+  isTableNode,
+  isTableRowNode,
+  isTextNode,
   link,
   markdownToPlainText,
   paragraph,
@@ -26,6 +45,8 @@ import {
   strikethrough,
   stringifyMarkdown,
   strong,
+  tableElementToAscii,
+  tableToAscii,
   text,
   toPlainText,
   walkAst,
@@ -541,5 +562,547 @@ describe("BaseFormatConverter", () => {
       // @ts-expect-error Testing invalid input
       expect(() => converter.renderPostable({ invalid: true })).toThrow();
     });
+
+    it("handles card with table element", () => {
+      const card = Card({
+        children: [
+          Table({
+            headers: ["Name", "Age"],
+            rows: [
+              ["Alice", "30"],
+              ["Bob", "25"],
+            ],
+          }),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Name");
+      expect(result).toContain("Age");
+      expect(result).toContain("Alice");
+      expect(result).toContain("30");
+    });
+  });
+
+  describe("deprecated toPlainText method", () => {
+    it("extracts plain text from platform format", () => {
+      const result = converter.toPlainText("**bold** text");
+      expect(result).toBe("bold text");
+    });
+  });
+
+  describe("fromAstWithNodeConverter", () => {
+    class NodeConverterTestConverter extends BaseFormatConverter {
+      fromAst(ast: Root): string {
+        return this.fromAstWithNodeConverter(ast, (node) => {
+          if (node.type === "paragraph") {
+            return `[para:${toPlainText({ type: "root", children: [node] })}]`;
+          }
+          return toPlainText({ type: "root", children: [node] });
+        });
+      }
+
+      toAst(inputText: string): Root {
+        return parseMarkdown(inputText);
+      }
+    }
+
+    const nodeConverter = new NodeConverterTestConverter();
+
+    it("joins multiple paragraphs with double newlines", () => {
+      const ast = root([
+        paragraph([text("First")]),
+        paragraph([text("Second")]),
+      ]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("[para:First]\n\n[para:Second]");
+    });
+
+    it("handles single paragraph", () => {
+      const ast = root([paragraph([text("Only")])]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("[para:Only]");
+    });
+
+    it("handles empty AST", () => {
+      const ast = root([]);
+      const result = nodeConverter.fromAst(ast);
+      expect(result).toBe("");
+    });
+  });
+
+  describe("cardToFallbackText via renderPostable", () => {
+    it("handles card with section children", () => {
+      const card = Card({
+        children: [
+          Section([CardText("Section content"), CardText("More content")]),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Section content");
+      expect(result).toContain("More content");
+    });
+
+    it("handles card with only title (no children)", () => {
+      const card = Card({ title: "Title Only" });
+      const result = converter.renderPostable({ card });
+      expect(result).toBe("**Title Only**");
+    });
+
+    it("handles card with divider child (returns null for divider)", () => {
+      const card = Card({
+        title: "With Divider",
+        children: [Divider()],
+      });
+      const result = converter.renderPostable({ card });
+      // Divider falls to default case and returns null, so only title
+      expect(result).toBe("**With Divider**");
+    });
+
+    it("handles card with mixed children including actions (excluded)", () => {
+      const card = Card({
+        title: "Mixed",
+        children: [
+          CardText("Visible text"),
+          Actions([Button({ id: "ok", label: "OK" })]),
+          Fields([Field({ label: "Key", value: "Val" })]),
+        ],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toContain("Visible text");
+      expect(result).not.toContain("OK");
+      expect(result).toContain("**Key**: Val");
+    });
+  });
+
+  describe("fromAstWithNodeConverter", () => {
+    it("joins multiple paragraphs with double newlines", () => {
+      const ast = root([
+        paragraph([text("First")]),
+        paragraph([text("Second")]),
+        paragraph([text("Third")]),
+      ]);
+      const result = converter.fromAst(ast);
+      // TestConverter uses toPlainText which concatenates
+      expect(result).toContain("First");
+      expect(result).toContain("Second");
+      expect(result).toContain("Third");
+    });
+  });
+});
+
+// ============================================================================
+// Table Parsing and Rendering Tests
+// ============================================================================
+
+describe("parseMarkdown (tables)", () => {
+  it("parses GFM tables", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    expect(ast.children[0].type).toBe("table");
+  });
+
+  it("parses table with multiple rows", () => {
+    const md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |";
+    const ast = parseMarkdown(md);
+    const table = ast.children[0] as import("mdast").Table;
+    expect(table.type).toBe("table");
+    expect(table.children).toHaveLength(3); // header + 2 data rows
+  });
+});
+
+describe("table type guards", () => {
+  it("isTableNode identifies table nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const tableNode = ast.children[0] as import("mdast").Content;
+    expect(isTableNode(tableNode)).toBe(true);
+    expect(isTableNode({ type: "paragraph" } as import("mdast").Content)).toBe(
+      false
+    );
+  });
+
+  it("isTableRowNode identifies table row nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const row = table.children[0] as import("mdast").Content;
+    expect(isTableRowNode(row)).toBe(true);
+  });
+
+  it("isTableCellNode identifies table cell nodes", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const row = table.children[0];
+    const cell = row.children[0] as import("mdast").Content;
+    expect(isTableCellNode(cell)).toBe(true);
+  });
+});
+
+describe("tableToAscii", () => {
+  it("renders a simple table", () => {
+    const ast = parseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+    const table = ast.children[0] as import("mdast").Table;
+    const result = tableToAscii(table);
+    expect(result).toContain("A");
+    expect(result).toContain("B");
+    expect(result).toContain("1");
+    expect(result).toContain("2");
+    // Separator line with dashes
+    expect(result).toContain("-|");
+  });
+
+  it("pads columns to equal width", () => {
+    const md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |";
+    const ast = parseMarkdown(md);
+    const table = ast.children[0] as import("mdast").Table;
+    const result = tableToAscii(table);
+    const lines = result.split("\n");
+    // Header
+    expect(lines[0]).toBe("Name  | Age");
+    // Separator
+    expect(lines[1]).toBe("------|----");
+    // Data rows
+    expect(lines[2]).toBe("Alice | 30");
+    expect(lines[3]).toBe("Bob   | 25");
+  });
+
+  it("handles empty table", () => {
+    const table: import("mdast").Table = {
+      type: "table",
+      children: [],
+    };
+    expect(tableToAscii(table)).toBe("");
+  });
+});
+
+describe("tableElementToAscii", () => {
+  it("renders headers and rows", () => {
+    const result = tableElementToAscii(
+      ["Name", "Age"],
+      [
+        ["Alice", "30"],
+        ["Bob", "25"],
+      ]
+    );
+    const lines = result.split("\n");
+    expect(lines).toHaveLength(4); // header + separator + 2 data rows
+    expect(lines[0]).toContain("Name");
+    expect(lines[0]).toContain("Age");
+    expect(lines[1]).toContain("---");
+    expect(lines[2]).toContain("Alice");
+    expect(lines[3]).toContain("Bob");
+  });
+
+  it("pads columns correctly", () => {
+    const result = tableElementToAscii(
+      ["Name", "Age", "Role"],
+      [
+        ["Alice", "30", "Engineer"],
+        ["Bob", "25", "Designer"],
+      ]
+    );
+    const lines = result.split("\n");
+    expect(lines[0]).toBe("Name  | Age | Role");
+    expect(lines[2]).toBe("Alice | 30  | Engineer");
+    expect(lines[3]).toBe("Bob   | 25  | Designer");
+  });
+});
+
+// ============================================================================
+// Type Guard Tests
+// ============================================================================
+
+describe("Type guards", () => {
+  describe("isTextNode", () => {
+    it("returns true for text nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isTextNode(node)).toBe(true);
+    });
+
+    it("returns false for non-text nodes", () => {
+      const node: Content = { type: "paragraph", children: [] };
+      expect(isTextNode(node)).toBe(false);
+    });
+  });
+
+  describe("isParagraphNode", () => {
+    it("returns true for paragraph nodes", () => {
+      const node: Content = { type: "paragraph", children: [] };
+      expect(isParagraphNode(node)).toBe(true);
+    });
+
+    it("returns false for non-paragraph nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isParagraphNode(node)).toBe(false);
+    });
+  });
+
+  describe("isStrongNode", () => {
+    it("returns true for strong nodes", () => {
+      const node: Content = {
+        type: "strong",
+        children: [{ type: "text", value: "bold" }],
+      };
+      expect(isStrongNode(node)).toBe(true);
+    });
+
+    it("returns false for non-strong nodes", () => {
+      const node: Content = {
+        type: "emphasis",
+        children: [{ type: "text", value: "italic" }],
+      };
+      expect(isStrongNode(node)).toBe(false);
+    });
+  });
+
+  describe("isEmphasisNode", () => {
+    it("returns true for emphasis nodes", () => {
+      const node: Content = {
+        type: "emphasis",
+        children: [{ type: "text", value: "italic" }],
+      };
+      expect(isEmphasisNode(node)).toBe(true);
+    });
+
+    it("returns false for non-emphasis nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isEmphasisNode(node)).toBe(false);
+    });
+  });
+
+  describe("isDeleteNode", () => {
+    it("returns true for delete (strikethrough) nodes", () => {
+      const node: Content = {
+        type: "delete",
+        children: [{ type: "text", value: "deleted" }],
+      };
+      expect(isDeleteNode(node)).toBe(true);
+    });
+
+    it("returns false for non-delete nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isDeleteNode(node)).toBe(false);
+    });
+  });
+
+  describe("isInlineCodeNode", () => {
+    it("returns true for inline code nodes", () => {
+      const node: Content = { type: "inlineCode", value: "code" };
+      expect(isInlineCodeNode(node)).toBe(true);
+    });
+
+    it("returns false for non-inline-code nodes", () => {
+      const node: Content = { type: "code", value: "block code" };
+      expect(isInlineCodeNode(node)).toBe(false);
+    });
+  });
+
+  describe("isCodeNode", () => {
+    it("returns true for code block nodes", () => {
+      const node: Content = { type: "code", value: "const x = 1" };
+      expect(isCodeNode(node)).toBe(true);
+    });
+
+    it("returns false for inline code nodes", () => {
+      const node: Content = { type: "inlineCode", value: "code" };
+      expect(isCodeNode(node)).toBe(false);
+    });
+  });
+
+  describe("isLinkNode", () => {
+    it("returns true for link nodes", () => {
+      const node: Content = {
+        type: "link",
+        url: "https://example.com",
+        children: [{ type: "text", value: "link" }],
+      };
+      expect(isLinkNode(node)).toBe(true);
+    });
+
+    it("returns false for non-link nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isLinkNode(node)).toBe(false);
+    });
+  });
+
+  describe("isBlockquoteNode", () => {
+    it("returns true for blockquote nodes", () => {
+      const node: Content = {
+        type: "blockquote",
+        children: [
+          { type: "paragraph", children: [{ type: "text", value: "quoted" }] },
+        ],
+      };
+      expect(isBlockquoteNode(node)).toBe(true);
+    });
+
+    it("returns false for non-blockquote nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isBlockquoteNode(node)).toBe(false);
+    });
+  });
+
+  describe("isListNode", () => {
+    it("returns true for list nodes", () => {
+      const ast = parseMarkdown("- item 1\n- item 2");
+      const listNode = ast.children[0] as Content;
+      expect(isListNode(listNode)).toBe(true);
+    });
+
+    it("returns false for non-list nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isListNode(node)).toBe(false);
+    });
+  });
+
+  describe("isListItemNode", () => {
+    it("returns true for list item nodes", () => {
+      const ast = parseMarkdown("- item 1");
+      const listNode = ast.children[0] as { children: Content[] };
+      const listItemNode = listNode.children[0];
+      expect(isListItemNode(listItemNode)).toBe(true);
+    });
+
+    it("returns false for non-list-item nodes", () => {
+      const node: Content = { type: "text", value: "hello" };
+      expect(isListItemNode(node)).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// Helper Function Tests
+// ============================================================================
+
+describe("getNodeChildren", () => {
+  it("returns children for paragraph node", () => {
+    const node = paragraph([text("hello"), text(" world")]);
+    const children = getNodeChildren(node);
+    expect(children).toHaveLength(2);
+    expect((children[0] as { value: string }).value).toBe("hello");
+  });
+
+  it("returns children for strong node", () => {
+    const node = strong([text("bold")]);
+    const children = getNodeChildren(node);
+    expect(children).toHaveLength(1);
+  });
+
+  it("returns empty array for text node (no children)", () => {
+    const node = text("hello");
+    const children = getNodeChildren(node);
+    expect(children).toEqual([]);
+  });
+
+  it("returns empty array for inline code node (no children)", () => {
+    const node = inlineCode("code");
+    const children = getNodeChildren(node);
+    expect(children).toEqual([]);
+  });
+
+  it("returns empty array for code block node (no children)", () => {
+    const node = codeBlock("code", "js");
+    const children = getNodeChildren(node);
+    expect(children).toEqual([]);
+  });
+
+  it("returns children for blockquote node", () => {
+    const node = blockquote([paragraph([text("quoted")])]);
+    const children = getNodeChildren(node);
+    expect(children).toHaveLength(1);
+    expect(children[0].type).toBe("paragraph");
+  });
+
+  it("returns children for emphasis node", () => {
+    const node = emphasis([text("italic")]);
+    const children = getNodeChildren(node);
+    expect(children).toHaveLength(1);
+  });
+
+  it("returns children for link node", () => {
+    const node = link("https://example.com", [text("link")]);
+    const children = getNodeChildren(node);
+    expect(children).toHaveLength(1);
+  });
+});
+
+describe("getNodeValue", () => {
+  it("returns value for text node", () => {
+    const node = text("hello");
+    expect(getNodeValue(node)).toBe("hello");
+  });
+
+  it("returns value for inline code node", () => {
+    const node = inlineCode("const x = 1");
+    expect(getNodeValue(node)).toBe("const x = 1");
+  });
+
+  it("returns value for code block node", () => {
+    const node = codeBlock("function() {}");
+    expect(getNodeValue(node)).toBe("function() {}");
+  });
+
+  it("returns empty string for paragraph node (no value)", () => {
+    const node = paragraph([text("hello")]);
+    expect(getNodeValue(node)).toBe("");
+  });
+
+  it("returns empty string for strong node (no value)", () => {
+    const node = strong([text("bold")]);
+    expect(getNodeValue(node)).toBe("");
+  });
+
+  it("returns empty string for emphasis node (no value)", () => {
+    const node = emphasis([text("italic")]);
+    expect(getNodeValue(node)).toBe("");
+  });
+
+  it("returns empty string for blockquote (no value)", () => {
+    const node = blockquote([paragraph([text("quoted")])]);
+    expect(getNodeValue(node)).toBe("");
+  });
+
+  it("returns value for text with empty string", () => {
+    const node = text("");
+    expect(getNodeValue(node)).toBe("");
+  });
+});
+
+// ============================================================================
+// Additional parseMarkdown edge cases
+// ============================================================================
+
+describe("parseMarkdown edge cases", () => {
+  it("handles markdown with only whitespace", () => {
+    const ast = parseMarkdown("   ");
+    expect(ast.type).toBe("root");
+    // Whitespace-only may produce empty or single-element AST
+    expect(ast.children.length).toBeGreaterThanOrEqual(0);
+  });
+
+  it("handles markdown with special characters", () => {
+    const ast = parseMarkdown('Hello <world> & "quotes"');
+    expect(ast.type).toBe("root");
+    const plainText = toPlainText(ast);
+    expect(plainText).toContain("Hello");
+  });
+
+  it("handles very long markdown input", () => {
+    const longText = "word ".repeat(1000);
+    const ast = parseMarkdown(longText);
+    expect(ast.type).toBe("root");
+    expect(ast.children.length).toBeGreaterThan(0);
+  });
+
+  it("handles markdown with mixed heading levels", () => {
+    const ast = parseMarkdown("# H1\n## H2\n### H3");
+    expect(ast.children).toHaveLength(3);
+    expect(ast.children[0].type).toBe("heading");
+    expect(ast.children[1].type).toBe("heading");
+    expect(ast.children[2].type).toBe("heading");
+  });
+
+  it("handles markdown with thematic break (hr)", () => {
+    const ast = parseMarkdown("before\n\n---\n\nafter");
+    expect(ast.children.length).toBeGreaterThanOrEqual(3);
+    const types = ast.children.map((c) => c.type);
+    expect(types).toContain("thematicBreak");
   });
 });

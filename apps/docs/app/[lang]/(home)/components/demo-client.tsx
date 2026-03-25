@@ -1,19 +1,19 @@
 "use client";
 
+import { HashIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { HashIcon } from "lucide-react";
 
-type ChatMessage = {
-  id: string;
+interface ChatMessage {
   author: string;
-  initials: string;
   color: string;
+  id: string;
+  initials: string;
   text: string;
-};
+}
 
 type ReactionTarget = string | null;
 type ActiveHandler =
@@ -22,15 +22,15 @@ type ActiveHandler =
   | "onSubscribedMessage"
   | null;
 
-type SerializedToken = {
+interface SerializedToken {
   content: string;
   htmlStyle?: Record<string, string>;
-};
+}
 
-export type SerializedHandler = {
+export interface SerializedHandler {
   key: "onNewMention" | "onReaction" | "onSubscribedMessage";
   lines: SerializedToken[][];
-};
+}
 
 const MESSAGES: ChatMessage[] = [
   {
@@ -98,12 +98,12 @@ const MESSAGES: ChatMessage[] = [
   },
 ];
 
-type TimelineEntry = {
+interface TimelineEntry {
   delay: number;
-  visibleCount: number;
-  reaction: ReactionTarget;
   handler: ActiveHandler;
-};
+  reaction: ReactionTarget;
+  visibleCount: number;
+}
 
 const TIMELINE: TimelineEntry[] = [
   { delay: 0, visibleCount: 0, reaction: null, handler: null },
@@ -130,7 +130,6 @@ const TIMELINE: TimelineEntry[] = [
   { delay: 3000, visibleCount: 0, reaction: null, handler: null },
 ];
 
-
 const ReactionBadge = () => (
   <motion.span
     animate={{ opacity: 1, scale: 1 }}
@@ -151,10 +150,7 @@ const TokenSpan = ({ token }: { token: SerializedToken }) => {
     for (const [key, value] of Object.entries(token.htmlStyle)) {
       if (key === "color" || key === "--shiki-light") {
         tokenStyle["--sdm-c"] = value;
-      } else if (
-        key === "background-color" ||
-        key === "--shiki-light-bg"
-      ) {
+      } else if (key === "background-color" || key === "--shiki-light-bg") {
         tokenStyle["--sdm-tbg"] = value;
       } else {
         tokenStyle[key] = value;
@@ -226,7 +222,7 @@ const ChatPanel = ({
 }) => (
   <div className="flex h-[300px] flex-col overflow-hidden rounded-sm border bg-background">
     <div className="flex items-center gap-2 border-b bg-sidebar py-2.5 pl-4 text-muted-foreground">
-      <div className="font-normal flex items-center gap-2 text-muted-foreground text-sm">
+      <div className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
         <HashIcon className="size-4" /> <span>general</span>
       </div>
     </div>
@@ -235,7 +231,11 @@ const ChatPanel = ({
         {MESSAGES.slice(0, visibleCount).map((msg) => (
           <motion.div
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2, ease: "easeIn" } }}
+            exit={{
+              opacity: 0,
+              scale: 0.95,
+              transition: { duration: 0.2, ease: "easeIn" },
+            }}
             initial={{ opacity: 0, y: 16, scale: 0.97 }}
             key={msg.id}
             layout
@@ -404,7 +404,7 @@ export const DemoClient = ({
   const current = TIMELINE[step];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2 lg:h-[300px]" ref={containerRef}>
+    <div className="grid gap-4 lg:h-[300px] lg:grid-cols-2" ref={containerRef}>
       <ChatPanel
         reaction={current.reaction}
         visibleCount={current.visibleCount}

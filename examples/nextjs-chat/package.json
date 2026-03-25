@@ -16,17 +16,20 @@
     "@chat-adapter/github": "workspace:*",
     "@chat-adapter/linear": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
+    "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
+    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
+    "@chat-adapter/whatsapp": "workspace:*",
     "ai": "^6.0.5",
     "chat": "workspace:*",
-    "next": "^16.1.0",
+    "next": "^16.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "redis": "^4.7.1"
+    "redis": "^5.11.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "dotenv": "^17.2.3",

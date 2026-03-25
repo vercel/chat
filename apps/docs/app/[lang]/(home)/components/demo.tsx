@@ -1,7 +1,6 @@
 import { SiTypescript } from "@icons-pack/react-simple-icons";
 import type { CSSProperties } from "react";
 import { codeToTokens } from "shiki";
-import { cn } from "@/lib/utils";
 import { DemoClient, type SerializedHandler } from "./demo-client";
 
 const HANDLER_CODE = [
@@ -65,8 +64,7 @@ export const Demo = async () => {
 
   for (const line of allTokens) {
     const isBlank =
-      line.length === 0 ||
-      (line.length === 1 && line[0].content.trim() === "");
+      line.length === 0 || (line.length === 1 && line[0].content.trim() === "");
 
     if (isBlank && currentLines.length > 0) {
       const def = HANDLER_CODE[handlerIdx];
@@ -76,9 +74,7 @@ export const Demo = async () => {
           lines: currentLines.map((line) =>
             line.map((token) => ({
               content: token.content,
-              htmlStyle: token.htmlStyle as
-                | Record<string, string>
-                | undefined,
+              htmlStyle: token.htmlStyle as Record<string, string> | undefined,
             }))
           ),
         });
@@ -99,9 +95,7 @@ export const Demo = async () => {
         lines: currentLines.map((line) =>
           line.map((token) => ({
             content: token.content,
-            htmlStyle: token.htmlStyle as
-              | Record<string, string>
-              | undefined,
+            htmlStyle: token.htmlStyle as Record<string, string> | undefined,
           }))
         ),
       });

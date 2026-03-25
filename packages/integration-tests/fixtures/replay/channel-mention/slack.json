@@ -1,0 +1,42 @@
+{
+  "botName": "Chat SDK ExampleBot",
+  "botUserId": "U00FAKEBOT01",
+  "mention": {
+    "token": "xAbCdEfGhIjKlMnOpQrStUvW",
+    "team_id": "T00FAKE00AA",
+    "api_app_id": "A00FAKEAPP01",
+    "event": {
+      "type": "message",
+      "user": "U00FAKEUSER1",
+      "ts": "1773327463.619929",
+      "client_msg_id": "b52bd6ac-498d-4640-8bbc-5ef15c82ff8f",
+      "text": "<@U00FAKEBOT01> Can you see the name of this channel: <#C00FAKECHAN2>?",
+      "team": "T00FAKE00AA",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "3xPun",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                { "type": "user", "user_id": "U00FAKEBOT01" },
+                {
+                  "type": "text",
+                  "text": " Can you see the name of this channel: "
+                },
+                { "type": "channel", "channel_id": "C00FAKECHAN2" },
+                { "type": "text", "text": "?" }
+              ]
+            }
+          ]
+        }
+      ],
+      "channel": "C00FAKECHAN1",
+      "event_ts": "1773327463.619929",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "authorizations": [{ "user_id": "U00FAKEBOT01", "is_bot": true }]
+  }
+}

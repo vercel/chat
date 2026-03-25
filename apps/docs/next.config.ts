@@ -8,6 +8,36 @@ const config: NextConfig = {
     turbopackFileSystemCacheForDev: true,
   },
 
+  async redirects() {
+    return [
+      {
+        source: "/docs/contributing",
+        destination: "/docs/contributing/building",
+        permanent: true,
+      },
+      {
+        source: "/marketplace",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
+        source: "/adapters/gchat",
+        destination: "/adapters/google-chat",
+        permanent: true,
+      },
+      {
+        source: "/docs/adapters/:slug",
+        destination: "/adapters/:slug",
+        permanent: true,
+      },
+      {
+        source: "/docs/state/:slug",
+        destination: "/adapters/:slug",
+        permanent: true,
+      },
+    ];
+  },
+
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [

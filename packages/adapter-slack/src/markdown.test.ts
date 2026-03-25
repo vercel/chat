@@ -73,6 +73,11 @@ describe("SlackMarkdownConverter", () => {
       const result = converter.toMarkdown("Join <#C123|general>");
       expect(result).toContain("#general");
     });
+
+    it("should convert bare channel ID mentions", () => {
+      const result = converter.toMarkdown("Join <#C123>");
+      expect(result).toContain("#C123");
+    });
   });
 
   describe("mentions", () => {
@@ -137,6 +142,120 @@ describe("SlackMarkdownConverter", () => {
       // Should not contain formatting characters
       expect(result).not.toContain("*");
       expect(result).not.toContain("<");
+    });
+  });
+
+  describe("table rendering", () => {
+    it("should render markdown tables as code blocks in fromMarkdown", () => {
+      const result = converter.fromMarkdown(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      expect(result).toContain("```");
+      expect(result).toContain("Name");
+      expect(result).toContain("Age");
+      expect(result).toContain("Alice");
+      expect(result).toContain("30");
+    });
+
+    it("should preserve table structure in code block", () => {
+      const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
+      // Should be wrapped in code fences
+      expect(result.startsWith("```\n")).toBe(true);
+      expect(result.endsWith("\n```")).toBe(true);
+    });
+  });
+
+  describe("toBlocksWithTable", () => {
+    it("should return null when AST has no tables", () => {
+      const ast = converter.toAst("Hello world");
+      expect(converter.toBlocksWithTable(ast)).toBeNull();
+    });
+
+    it("should return native table block for a markdown table", () => {
+      const ast = converter.toAst(
+        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+      );
+      const blocks = converter.toBlocksWithTable(ast);
+      expect(blocks).toHaveLength(1);
+      expect(blocks?.[0].type).toBe("table");
+      expect(blocks?.[0].rows).toEqual([
+        [
+          { type: "raw_text", text: "Name" },
+          { type: "raw_text", text: "Age" },
+        ],
+        [
+          { type: "raw_text", text: "Alice" },
+          { type: "raw_text", text: "30" },
+        ],
+      ]);
+    });
+
+    it("should include surrounding text as section blocks", () => {
+      const markdown =
+        "Here are the results:\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAll done.";
+      const ast = converter.toAst(markdown);
+      const blocks = converter.toBlocksWithTable(ast);
+      expect(blocks).toHaveLength(3);
+      expect(blocks?.[0].type).toBe("section");
+      expect(blocks?.[0].text.text).toContain("Here are the results");
+      expect(blocks?.[1].type).toBe("table");
+      expect(blocks?.[2].type).toBe("section");
+      expect(blocks?.[2].text.text).toContain("All done");
+    });
+
+    it("should use native block for first table and ASCII for second", () => {
+      const markdown =
+        "| A | B |\n|---|---|\n| 1 | 2 |\n\n| C | D |\n|---|---|\n| 3 | 4 |";
+      const ast = converter.toAst(markdown);
+      const blocks = converter.toBlocksWithTable(ast);
+      expect(blocks).toHaveLength(2);
+      expect(blocks?.[0].type).toBe("table");
+      // Second table falls back to ASCII in section
+      expect(blocks?.[1].type).toBe("section");
+      expect(blocks?.[1].text.text).toContain("```");
+    });
+  });
+
+  describe("nested lists", () => {
+    it("should indent nested unordered lists", () => {
+      const result = converter.fromMarkdown(
+        "- parent\n  - child 1\n  - child 2"
+      );
+      expect(result).toBe("• parent\n  • child 1\n  • child 2");
+    });
+
+    it("should indent nested ordered lists", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   1. sub-first\n   2. sub-second\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  1. sub-first");
+      expect(result).toContain("  2. sub-second");
+      expect(result).toContain("2. second");
+    });
+
+    it("should handle deeply nested lists", () => {
+      const result = converter.fromMarkdown(
+        "- level 1\n  - level 2\n    - level 3"
+      );
+      expect(result).toContain("• level 1");
+      expect(result).toContain("  • level 2");
+      expect(result).toContain("    • level 3");
+    });
+
+    it("should keep sibling items at the same indent level", () => {
+      const result = converter.fromMarkdown("- item 1\n- item 2\n- item 3");
+      expect(result).toBe("• item 1\n• item 2\n• item 3");
+    });
+
+    it("should handle mixed ordered and unordered nesting", () => {
+      const result = converter.fromMarkdown(
+        "1. first\n   - sub a\n   - sub b\n2. second"
+      );
+      expect(result).toContain("1. first");
+      expect(result).toContain("  • sub a");
+      expect(result).toContain("  • sub b");
+      expect(result).toContain("2. second");
     });
   });
 });

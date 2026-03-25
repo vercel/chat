@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -12,6 +13,7 @@ import {
   Section,
   Select,
   SelectOption,
+  Table,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
@@ -698,5 +700,101 @@ describe("markdown bold to Slack mrkdwn conversion", () => {
     const blocks = cardToBlockKit(card);
 
     expect(blocks[0].text.text).toBe("*Start* and *end*");
+  });
+});
+
+describe("cardToBlockKit with CardLink", () => {
+  it("converts CardLink to a mrkdwn section block with Slack link syntax", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const blocks = cardToBlockKit(card);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "<https://example.com|Click here>",
+      },
+    });
+  });
+
+  it("converts CardLink alongside other children", () => {
+    const card = Card({
+      title: "Test",
+      children: [
+        CardText("Hello"),
+        CardLink({ url: "https://example.com", label: "Link" }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+
+    // header + text section + link section
+    expect(blocks).toHaveLength(3);
+    expect(blocks[2]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "<https://example.com|Link>",
+      },
+    });
+  });
+
+  it("converts a card with table element to Block Kit Table", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["Name", "Age"],
+          rows: [
+            ["Alice", "30"],
+            ["Bob", "25"],
+          ],
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("table");
+    // First row is headers, subsequent rows are data
+    expect(blocks[0].rows).toEqual([
+      [
+        { type: "raw_text", text: "Name" },
+        { type: "raw_text", text: "Age" },
+      ],
+      [
+        { type: "raw_text", text: "Alice" },
+        { type: "raw_text", text: "30" },
+      ],
+      [
+        { type: "raw_text", text: "Bob" },
+        { type: "raw_text", text: "25" },
+      ],
+    ]);
+  });
+
+  it("falls back to ASCII for second table in same card", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["A"],
+          rows: [["1"]],
+        }),
+        Table({
+          headers: ["B"],
+          rows: [["2"]],
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe("table");
+    // Second table falls back to ASCII in a section block
+    expect(blocks[1].type).toBe("section");
+    expect(blocks[1].text.text).toContain("```");
   });
 });

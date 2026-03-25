@@ -122,7 +122,6 @@ export function createPersistentListener(config: PersistentListenerConfig) {
         return new Response(
           JSON.stringify({
             error: `Failed to run ${name} listener`,
-            message: error instanceof Error ? error.message : String(error),
           }),
           {
             status: 500,
@@ -183,8 +182,8 @@ export function createPersistentListener(config: PersistentListenerConfig) {
       } finally {
         await subClient.unsubscribe(channel).catch(() => {});
         await Promise.all([
-          pubClient.quit().catch(() => {}),
-          subClient.quit().catch(() => {}),
+          pubClient.close().catch(() => {}),
+          subClient.close().catch(() => {}),
         ]);
         console.log(`[${name}] ${listenerId} pub/sub cleanup complete`);
       }

@@ -1,0 +1,102 @@
+{
+  "botName": "WhatsApp Test Bot",
+  "phoneNumberId": "100000000000001",
+  "firstMessage": {
+    "object": "whatsapp_business_account",
+    "entry": [
+      {
+        "id": "100000000000002",
+        "changes": [
+          {
+            "value": {
+              "messaging_product": "whatsapp",
+              "metadata": {
+                "display_phone_number": "15550001111",
+                "phone_number_id": "100000000000001"
+              },
+              "contacts": [
+                {
+                  "profile": { "name": "Test User" },
+                  "wa_id": "15550002222"
+                }
+              ],
+              "messages": [
+                {
+                  "from": "15550002222",
+                  "id": "wamid.FAKE_MSG_ID_001",
+                  "timestamp": "1772998024",
+                  "text": { "body": "What is Vercel?" },
+                  "type": "text"
+                }
+              ]
+            },
+            "field": "messages"
+          }
+        ]
+      }
+    ]
+  },
+  "secondMessage": {
+    "object": "whatsapp_business_account",
+    "entry": [
+      {
+        "id": "100000000000002",
+        "changes": [
+          {
+            "value": {
+              "messaging_product": "whatsapp",
+              "metadata": {
+                "display_phone_number": "15550001111",
+                "phone_number_id": "100000000000001"
+              },
+              "contacts": [
+                {
+                  "profile": { "name": "Test User" },
+                  "wa_id": "15550002222"
+                }
+              ],
+              "messages": [
+                {
+                  "from": "15550002222",
+                  "id": "wamid.FAKE_MSG_ID_002",
+                  "timestamp": "1772998054",
+                  "text": { "body": "Tell me more" },
+                  "type": "text"
+                }
+              ]
+            },
+            "field": "messages"
+          }
+        ]
+      }
+    ]
+  },
+  "statusUpdate": {
+    "object": "whatsapp_business_account",
+    "entry": [
+      {
+        "id": "100000000000002",
+        "changes": [
+          {
+            "value": {
+              "messaging_product": "whatsapp",
+              "metadata": {
+                "display_phone_number": "15550001111",
+                "phone_number_id": "100000000000001"
+              },
+              "statuses": [
+                {
+                  "id": "wamid.FAKE_MSG_SENT_001",
+                  "status": "sent",
+                  "timestamp": "1772998034",
+                  "recipient_id": "15550002222"
+                }
+              ]
+            },
+            "field": "messages"
+          }
+        ]
+      }
+    ]
+  }
+}

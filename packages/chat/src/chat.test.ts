@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const HELP_REGEX = /help/i;
+const HELLO_REGEX = /hello/i;
 
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
+import { LockError } from "./errors";
 import { jsx } from "./jsx-runtime";
 import {
   createMockAdapter,
@@ -47,9 +49,135 @@ describe("Chat", () => {
     expect(mockState.connect).toHaveBeenCalled();
   });
 
+  it("should disconnect adapters during shutdown", async () => {
+    await chat.shutdown();
+
+    expect(mockAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(mockState.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should disconnect adapter before state adapter during shutdown", async () => {
+    await chat.shutdown();
+
+    const adapterDisconnectCall = (
+      mockAdapter.disconnect as ReturnType<typeof vi.fn>
+    ).mock.invocationCallOrder[0];
+    const stateDisconnectCall = (
+      mockState.disconnect as ReturnType<typeof vi.fn>
+    ).mock.invocationCallOrder[0];
+    expect(adapterDisconnectCall).toBeLessThan(stateDisconnectCall);
+  });
+
+  it("should allow adapters without disconnect during shutdown", async () => {
+    const adapterWithoutDisconnect: Adapter = {
+      ...createMockAdapter("slack"),
+      disconnect: undefined,
+    };
+    const state = createMockState();
+    const localChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: adapterWithoutDisconnect },
+      state,
+      logger: mockLogger,
+    });
+
+    await localChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await expect(localChat.shutdown()).resolves.toBeUndefined();
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should disconnect all adapters during shutdown", async () => {
+    const slackAdapter = createMockAdapter("slack");
+    const discordAdapter = createMockAdapter("discord");
+    const state = createMockState();
+    const multiAdapterChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: slackAdapter, discord: discordAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await multiAdapterChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await multiAdapterChat.shutdown();
+
+    expect(slackAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(discordAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("should continue shutdown even if an adapter disconnect fails", async () => {
+    const failingAdapter = createMockAdapter("slack");
+    const healthyAdapter = createMockAdapter("discord");
+    (failingAdapter.disconnect as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("connection lost")
+    );
+    const state = createMockState();
+    const multiAdapterChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: failingAdapter, discord: healthyAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await multiAdapterChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+    await expect(multiAdapterChat.shutdown()).resolves.toBeUndefined();
+
+    expect(healthyAdapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(state.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it("should register webhook handlers", () => {
     expect(chat.webhooks.slack).toBeDefined();
     expect(typeof chat.webhooks.slack).toBe("function");
+  });
+
+  it("should preserve null fallback streaming placeholder config", async () => {
+    mockAdapter.stream = undefined;
+
+    const customChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: mockAdapter },
+      state: mockState,
+      logger: mockLogger,
+      fallbackStreamingPlaceholderText: null,
+    });
+
+    await customChat.webhooks.slack(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    // Use a mention handler to exercise the full Chat → Thread pipeline
+    customChat.onNewMention(async (_thread, _message) => {
+      await _thread.post({
+        async *[Symbol.asyncIterator]() {
+          yield "H";
+          yield "i";
+        },
+      });
+    });
+
+    const message = createTestMessage("msg-1", "Hey @slack-bot help me");
+    await customChat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      message
+    );
+
+    expect(mockAdapter.postMessage).not.toHaveBeenCalledWith(
+      "slack:C123:1234.5678",
+      "..."
+    );
+    expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+      "slack:C123:1234.5678",
+      "msg-1",
+      { markdown: "Hi" }
+    );
   });
 
   it("should call onNewMention handler when bot is mentioned", async () => {
@@ -113,6 +241,155 @@ describe("Chat", () => {
     );
 
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  describe("message deduplication", () => {
+    it("should skip duplicate messages with the same id", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message1 = createTestMessage("msg-1", "Hey @slack-bot help");
+      const message2 = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message1
+      );
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message2
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should use default dedupe TTL of 5 minutes", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
+        "dedupe:slack:msg-1",
+        true,
+        300_000
+      );
+    });
+
+    it("should use custom dedupeTtlMs when configured", async () => {
+      const customChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        dedupeTtlMs: 300_000,
+      });
+
+      await customChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      customChat.onNewMention(handler);
+
+      const message = createTestMessage("msg-2", "Hey @slack-bot help");
+      await customChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.setIfNotExists).toHaveBeenCalledWith(
+        "dedupe:slack:msg-2",
+        true,
+        300_000
+      );
+    });
+
+    it("should use atomic setIfNotExists for deduplication", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      // Verify setIfNotExists was called (not separate get+set)
+      expect(mockState.setIfNotExists).toHaveBeenCalledTimes(1);
+      expect(mockState.get).not.toHaveBeenCalledWith(
+        expect.stringContaining("dedupe:")
+      );
+    });
+
+    it("should handle concurrent duplicates atomically", async () => {
+      // Simulate the race: make setIfNotExists return false on second call
+      let callCount = 0;
+      (mockState.setIfNotExists as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => {
+          callCount++;
+          return callCount === 1;
+        }
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const msg1 = createTestMessage("ts-1", "Hey @slack-bot help");
+      const msg2 = createTestMessage("ts-1", "Hey @slack-bot help");
+
+      // Send both concurrently
+      await Promise.allSettled([
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg1),
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:ts-1", msg2),
+      ]);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should trigger onNewMention for message events containing a bot mention", async () => {
+      // Simulates the Slack message.channels event (not app_mention) that
+      // contains <@BOT_ID> — detectMention should still identify it
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not trigger onNewMention when message event has no bot mention", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      const patternHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+      chat.onNewMessage(HELLO_REGEX, patternHandler);
+
+      const message = createTestMessage("msg-1", "hello everyone");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(patternHandler).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("should match message patterns", async () => {
@@ -238,6 +515,86 @@ describe("Chat", () => {
       // onNewMention should fire, NOT onSubscribedMessage
       expect(mentionHandler).toHaveBeenCalled();
       expect(subscribedHandler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("onDirectMessage", () => {
+    it("should route DMs to directMessage handler with channel", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(dmHandler).toHaveBeenCalled();
+      expect(mentionHandler).not.toHaveBeenCalled();
+      // Verify channel is passed as third argument
+      const callArgs = dmHandler.mock.calls[0];
+      expect(callArgs.length).toBeGreaterThanOrEqual(3);
+      expect(callArgs[2]).toBeDefined();
+      expect(callArgs[2].id).toBe("slack:DU123");
+    });
+
+    it("should fall through to onNewMention when no DM handlers registered", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hello bot");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+    });
+
+    it("should route subscribed DM threads to onDirectMessage, not onSubscribedMessage", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const subscribedHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onSubscribedMessage(subscribedHandler);
+
+      await mockState.subscribe("slack:DU123:1234.5678");
+      const message = createTestMessage("msg-1", "Follow up DM");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:DU123:1234.5678",
+        message
+      );
+
+      expect(dmHandler).toHaveBeenCalled();
+      expect(subscribedHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not route non-DM mentions to directMessage handler", async () => {
+      const dmHandler = vi.fn().mockResolvedValue(undefined);
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+
+      chat.onDirectMessage(dmHandler);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot help");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+      expect(dmHandler).not.toHaveBeenCalled();
     });
   });
 
@@ -964,6 +1321,64 @@ describe("Chat", () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         "Cannot open modal: slack does not support modals"
       );
+    });
+
+    it("should open modal when action has empty threadId (no thread context)", async () => {
+      let capturedEvent: ActionEvent | undefined;
+      const handler = vi.fn().mockImplementation(async (event: ActionEvent) => {
+        capturedEvent = event;
+      });
+      chat.onAction(handler);
+
+      // Home tab actions have no thread context → empty threadId
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "home_select_scope",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "",
+        threadId: "",
+        adapter: mockAdapter,
+        raw: {},
+        triggerId: "trigger-456",
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(handler).toHaveBeenCalled();
+      // thread should be null for empty threadId
+      expect(capturedEvent?.thread).toBeNull();
+      expect(capturedEvent?.openModal).toBeDefined();
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "select_scope_form",
+        title: "Select a team",
+        children: [],
+      };
+      const result = await capturedEvent?.openModal(modal);
+
+      expect(mockAdapter.openModal).toHaveBeenCalledWith(
+        "trigger-456",
+        modal,
+        expect.any(String)
+      );
+      expect(result).toEqual({ viewId: "V123" });
+
+      // Modal context should store undefined thread
+      const calls = (mockState.set as ReturnType<typeof vi.fn>).mock.calls;
+      const modalContextCall = calls.find((c: unknown[]) =>
+        (c[0] as string).startsWith("modal-context:")
+      );
+      expect(modalContextCall).toBeDefined();
+      expect(modalContextCall?.[1]).toMatchObject({
+        thread: undefined,
+      });
     });
   });
 
@@ -1707,6 +2122,938 @@ describe("Chat", () => {
       expect(modalSubmitEvent?.relatedChannel?.id).toBe("slack:C789");
       expect(modalSubmitEvent?.relatedThread).toBeDefined();
       expect(modalSubmitEvent?.relatedThread?.id).toBe("slack:C789:1234.5678");
+    });
+  });
+
+  describe("onLockConflict", () => {
+    it("should drop by default when lock is held", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      // Acquire lock to simulate another handler
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-1", "Hey @slack-bot");
+
+      await expect(
+        chat.handleIncomingMessage(mockAdapter, "slack:C123:1234.5678", message)
+      ).rejects.toThrow(LockError);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should force-release lock when onLockConflict is 'force'", async () => {
+      const forceChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: "force",
+      });
+
+      await forceChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      forceChat.onNewMention(handler);
+
+      // Acquire lock to simulate another handler
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-2", "Hey @slack-bot");
+
+      await forceChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mockState.forceReleaseLock).toHaveBeenCalledWith(
+        "slack:C123:1234.5678"
+      );
+      // Verify lock was re-acquired after force-release
+      const lastAcquireCall = mockState.acquireLock.mock.calls.at(-1);
+      expect(lastAcquireCall[0]).toBe("slack:C123:1234.5678");
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should support callback returning 'force'", async () => {
+      const callbackChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: (_threadId, _message) => "force",
+      });
+
+      await callbackChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      callbackChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-3", "Hey @slack-bot");
+
+      await callbackChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it("should support callback returning 'drop'", async () => {
+      const callbackChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: (_threadId, _message) => "drop",
+      });
+
+      await callbackChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      callbackChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-4", "Hey @slack-bot");
+
+      await expect(
+        callbackChat.handleIncomingMessage(
+          mockAdapter,
+          "slack:C123:1234.5678",
+          message
+        )
+      ).rejects.toThrow(LockError);
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should support async callback", async () => {
+      const asyncChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        onLockConflict: async (_threadId, _message) => "force",
+      });
+
+      await asyncChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      asyncChat.onNewMention(handler);
+
+      await mockState.acquireLock("slack:C123:1234.5678", 30000);
+
+      const message = createTestMessage("msg-lock-5", "Hey @slack-bot");
+
+      await asyncChat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe("concurrency: queue", () => {
+    it("should process queued messages with skipped context after handler finishes", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedContexts: Array<
+        { skipped: string[]; totalSinceLastHandler: number } | undefined
+      > = [];
+      const handler = vi
+        .fn()
+        .mockImplementation(async (_thread, _message, context) => {
+          receivedContexts.push(
+            context
+              ? {
+                  skipped: context.skipped.map((m: { text: string }) => m.text),
+                  totalSinceLastHandler: context.totalSinceLastHandler,
+                }
+              : undefined
+          );
+        });
+      queueChat.onNewMention(handler);
+
+      // First message processes immediately (lock acquired)
+      const msg1 = createTestMessage("msg-q-1", "Hey @slack-bot first");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg1
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(receivedContexts[0]).toBeUndefined();
+    });
+
+    it("should enqueue messages when lock is held and drain after", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedMessages: string[] = [];
+      const receivedContexts: Array<
+        { skipped: string[]; totalSinceLastHandler: number } | undefined
+      > = [];
+
+      const handler = vi
+        .fn()
+        .mockImplementation(async (_thread, message, context) => {
+          receivedMessages.push(message.text);
+          receivedContexts.push(
+            context
+              ? {
+                  skipped: context.skipped.map((m: { text: string }) => m.text),
+                  totalSinceLastHandler: context.totalSinceLastHandler,
+                }
+              : undefined
+          );
+        });
+      queueChat.onNewMention(handler);
+
+      // Pre-acquire lock to simulate busy handler
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // These messages should be enqueued
+      const msg1 = createTestMessage("msg-q-2", "Hey @slack-bot second");
+      const msg2 = createTestMessage("msg-q-3", "Hey @slack-bot third");
+      const msg3 = createTestMessage("msg-q-4", "Hey @slack-bot fourth");
+
+      // Messages go to queue (no error thrown)
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg1
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg2
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg3
+      );
+
+      // Handler not called yet — lock was held
+      expect(handler).not.toHaveBeenCalled();
+
+      // Now release the lock and send a new message that acquires it
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const msg4 = createTestMessage("msg-q-5", "Hey @slack-bot fifth");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg4
+      );
+
+      // Handler should have been called for msg4 (direct) then msg3 (latest from queue)
+      // msg4 runs first (lock holder), then drains queue: gets [msg1, msg2, msg3]
+      // and calls handler with msg3 as message, [msg1, msg2] as skipped
+      expect(handler).toHaveBeenCalledTimes(2);
+      expect(receivedMessages[0]).toBe("Hey @slack-bot fifth");
+      expect(receivedContexts[0]).toBeUndefined();
+      expect(receivedMessages[1]).toBe("Hey @slack-bot fourth");
+      expect(receivedContexts[1]).toEqual({
+        skipped: ["Hey @slack-bot second", "Hey @slack-bot third"],
+        totalSinceLastHandler: 3,
+      });
+    });
+  });
+
+  describe("concurrency: queue with onSubscribedMessage", () => {
+    it("should pass skipped context to subscribed message handlers", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedMessages: string[] = [];
+      const receivedContexts: Array<
+        { skipped: string[]; totalSinceLastHandler: number } | undefined
+      > = [];
+
+      queueChat.onNewMention(async (thread) => {
+        await thread.subscribe();
+      });
+
+      queueChat.onSubscribedMessage(async (_thread, message, context) => {
+        receivedMessages.push(message.text);
+        receivedContexts.push(
+          context
+            ? {
+                skipped: context.skipped.map((m: { text: string }) => m.text),
+                totalSinceLastHandler: context.totalSinceLastHandler,
+              }
+            : undefined
+        );
+      });
+
+      // First message: mention that subscribes the thread
+      const msg0 = createTestMessage(
+        "msg-sub-0",
+        "Hey @slack-bot subscribe me"
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg0
+      );
+
+      // Now the thread is subscribed. Pre-acquire lock to simulate busy handler.
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // These messages go to subscribed handler — but lock is held, so they queue
+      const msg1 = createTestMessage("msg-sub-1", "first follow-up");
+      const msg2 = createTestMessage("msg-sub-2", "second follow-up");
+      const msg3 = createTestMessage("msg-sub-3", "third follow-up");
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg1
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg2
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg3
+      );
+
+      // Release lock and send another message
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const msg4 = createTestMessage("msg-sub-4", "fourth follow-up");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg4
+      );
+
+      // msg4 processed directly (no context), then queue drained:
+      // [msg1, msg2, msg3] → handler(msg3, { skipped: [msg1, msg2] })
+      expect(receivedMessages).toEqual(["fourth follow-up", "third follow-up"]);
+      expect(receivedContexts[0]).toBeUndefined();
+      expect(receivedContexts[1]).toEqual({
+        skipped: ["first follow-up", "second follow-up"],
+        totalSinceLastHandler: 3,
+      });
+    });
+  });
+
+  describe("concurrency: queue edge cases", () => {
+    it("should drop newest when queue is full with drop-newest policy", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: {
+          strategy: "queue",
+          maxQueueSize: 2,
+          onQueueFull: "drop-newest",
+        },
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      queueChat.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      // Hold the lock
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // Enqueue 2 messages (fills the queue)
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-dq-1", "Hey @slack-bot one")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-dq-2", "Hey @slack-bot two")
+      );
+
+      // Third message should be silently dropped (drop-newest)
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-dq-3", "Hey @slack-bot three")
+      );
+
+      // Queue should still have depth 2
+      expect(await state.queueDepth("slack:C123:1234.5678")).toBe(2);
+    });
+
+    it("should drop oldest when queue is full with drop-oldest policy", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: {
+          strategy: "queue",
+          maxQueueSize: 2,
+          onQueueFull: "drop-oldest",
+        },
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedMessages: string[] = [];
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedMessages.push(message.text);
+        })
+      );
+
+      // Hold the lock
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // Enqueue 3 messages with maxSize 2 → first should be evicted
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-do-1", "Hey @slack-bot one")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-do-2", "Hey @slack-bot two")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-do-3", "Hey @slack-bot three")
+      );
+
+      expect(await state.queueDepth("slack:C123:1234.5678")).toBe(2);
+
+      // Release and trigger drain
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-do-4", "Hey @slack-bot four")
+      );
+
+      // msg-do-4 processed directly, then drain gets [msg-do-2, msg-do-3]
+      // (msg-do-1 was evicted), processes msg-do-3 with skipped [msg-do-2]
+      expect(receivedMessages[0]).toBe("Hey @slack-bot four");
+      expect(receivedMessages[1]).toBe("Hey @slack-bot three");
+    });
+
+    it("should skip expired entries during drain", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: {
+          strategy: "queue",
+          queueEntryTtlMs: 1, // Expire almost immediately
+        },
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedMessages: string[] = [];
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedMessages.push(message.text);
+        })
+      );
+
+      // Hold the lock
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // Enqueue a message with 1ms TTL
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-exp-1", "Hey @slack-bot expired")
+      );
+
+      // Wait for TTL to expire
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Release and trigger drain
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-exp-2", "Hey @slack-bot fresh")
+      );
+
+      // Only the fresh message should be processed (expired one skipped)
+      expect(receivedMessages).toEqual(["Hey @slack-bot fresh"]);
+    });
+
+    it("should work with onNewMessage pattern handlers", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedMessages: string[] = [];
+      queueChat.onNewMessage(
+        HELP_REGEX,
+        vi.fn().mockImplementation(async (_thread, message, context) => {
+          receivedMessages.push(message.text);
+          if (context) {
+            for (const s of context.skipped) {
+              receivedMessages.push(`skipped:${s.text}`);
+            }
+          }
+        })
+      );
+
+      // Hold the lock
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-pat-1", "!help first")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-pat-2", "!help second")
+      );
+
+      // Release and trigger drain
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-pat-3", "!help third")
+      );
+
+      // Direct message processed, then drain with skipped context
+      expect(receivedMessages[0]).toBe("!help third");
+      expect(receivedMessages[1]).toBe("!help second");
+      expect(receivedMessages[2]).toBe("skipped:!help first");
+    });
+  });
+
+  describe("concurrency: debounce", () => {
+    it("should debounce the first message and process after delay", async () => {
+      vi.useFakeTimers();
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const debounceChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy: "debounce", debounceMs: 100 },
+      });
+
+      await debounceChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      debounceChat.onNewMention(handler);
+
+      const msg = createTestMessage("msg-d-1", "Hey @slack-bot debounce");
+
+      // Start processing — acquires lock, enters debounce loop
+      const promise = debounceChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      // Handler should NOT be called yet (debounce timer hasn't fired)
+      expect(handler).not.toHaveBeenCalled();
+
+      // Advance past debounce window
+      await vi.advanceTimersByTimeAsync(150);
+      await promise;
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][1].text).toBe("Hey @slack-bot debounce");
+
+      vi.useRealTimers();
+    });
+
+    it("should only process the last message in a burst", async () => {
+      vi.useFakeTimers();
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const debounceChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy: "debounce", debounceMs: 100 },
+      });
+
+      await debounceChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      debounceChat.onNewMention(handler);
+
+      // First message acquires lock and enters debounce loop
+      const msg1 = createTestMessage("msg-d-2", "Hey @slack-bot first");
+      const promise = debounceChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg1
+      );
+
+      // Second message while debounce is waiting — overwrites pending
+      const msg2 = createTestMessage("msg-d-3", "Hey @slack-bot second");
+      await debounceChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg2
+      );
+
+      // Third message — overwrites again
+      const msg3 = createTestMessage("msg-d-4", "Hey @slack-bot third");
+      await debounceChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg3
+      );
+
+      // Advance past first debounce — should see msg3 replaced msg1
+      // but msg3 superseded it, so debounce loops again
+      await vi.advanceTimersByTimeAsync(150);
+      // Advance past second debounce
+      await vi.advanceTimersByTimeAsync(150);
+      await promise;
+
+      // Only one handler call with the last message
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][1].text).toBe("Hey @slack-bot third");
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe("concurrency: concurrent", () => {
+    it("should process messages without acquiring a lock", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const concurrentChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "concurrent",
+      });
+
+      await concurrentChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      concurrentChat.onNewMention(handler);
+
+      // Pre-acquire lock — should NOT block concurrent strategy
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      const msg = createTestMessage("msg-c-1", "Hey @slack-bot concurrent");
+      await concurrentChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      // Handler should be called even though lock was held
+      expect(handler).toHaveBeenCalledTimes(1);
+      // Lock methods should not have been called by concurrent strategy
+      // (the pre-acquire above is manual)
+    });
+  });
+
+  describe("lockScope", () => {
+    it("should use threadId as lock key with default (thread) scope", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const chat2 = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await chat2.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      chat2.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      const msg = createTestMessage("msg-ls-1", "Hey @slack-bot");
+      await chat2.handleIncomingMessage(adapter, "slack:C123:1234.5678", msg);
+
+      // Lock should have been acquired on the full threadId
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Number)
+      );
+    });
+
+    it("should use channelId as lock key with channel scope on adapter", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("telegram");
+      (adapter as { lockScope: string }).lockScope = "channel";
+
+      const chat2 = new Chat({
+        userName: "testbot",
+        adapters: { telegram: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await chat2.webhooks.telegram(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      chat2.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      const msg = createTestMessage("msg-ls-2", "Hey @telegram-bot");
+      await chat2.handleIncomingMessage(adapter, "telegram:C123:topic456", msg);
+
+      // channelIdFromThreadId returns first two parts: "telegram:C123"
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        "telegram:C123",
+        expect.any(Number)
+      );
+    });
+
+    it("should use channelId as lock key with channel scope on config", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const chat2 = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        lockScope: "channel",
+      });
+
+      await chat2.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      chat2.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      const msg = createTestMessage("msg-ls-3", "Hey @slack-bot");
+      await chat2.handleIncomingMessage(adapter, "slack:C123:1234.5678", msg);
+
+      // channelIdFromThreadId returns "slack:C123"
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        "slack:C123",
+        expect.any(Number)
+      );
+    });
+
+    it("should support async lockScope resolver function", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("telegram");
+
+      const chat2 = new Chat({
+        userName: "testbot",
+        adapters: { telegram: adapter },
+        state,
+        logger: mockLogger,
+        lockScope: async ({ isDM }) => {
+          // Simulate async lookup (e.g., checking channel config in DB)
+          return isDM ? "thread" : "channel";
+        },
+      });
+
+      await chat2.webhooks.telegram(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      chat2.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      // Non-DM: should use channel scope
+      const msg = createTestMessage("msg-ls-4", "Hey @telegram-bot");
+      await chat2.handleIncomingMessage(adapter, "telegram:C123:topic456", msg);
+
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        "telegram:C123",
+        expect.any(Number)
+      );
+    });
+
+    it("should queue on channel-scoped lock key", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("telegram");
+      (adapter as { lockScope: string }).lockScope = "channel";
+
+      const chat2 = new Chat({
+        userName: "testbot",
+        adapters: { telegram: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await chat2.webhooks.telegram(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      chat2.onNewMention(vi.fn().mockResolvedValue(undefined));
+
+      // Pre-hold the channel lock to force the second message to enqueue
+      await state.acquireLock("telegram:C123", 30000);
+
+      // Both messages from different topics should use the channel lock key
+      const msg1 = createTestMessage("msg-ls-5", "Hey @telegram-bot first");
+      await chat2.handleIncomingMessage(adapter, "telegram:C123:topic1", msg1);
+
+      const msg2 = createTestMessage("msg-ls-6", "Hey @telegram-bot second");
+      await chat2.handleIncomingMessage(adapter, "telegram:C123:topic2", msg2);
+
+      // Both should have been enqueued on the channel key (not topic keys)
+      const enqueueCalls = state.enqueue.mock.calls;
+      expect(enqueueCalls.length).toBe(2);
+      for (const call of enqueueCalls) {
+        expect(call[0]).toBe("telegram:C123");
+      }
+    });
+  });
+
+  describe("persistMessageHistory", () => {
+    it("should cache incoming messages when adapter has persistMessageHistory", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistMessageHistory: boolean }).persistMessageHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello from WhatsApp");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      // Check that message was stored in state cache
+      const stored = state.cache.get("msg-history:whatsapp:phone:user1");
+      expect(stored).toBeDefined();
+      expect(Array.isArray(stored)).toBe(true);
+      expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
+    });
+
+    it("should NOT cache incoming messages when adapter does not set persistMessageHistory", async () => {
+      const message = createTestMessage("msg-2", "Hello from Slack");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      // No msg-history key should exist
+      const stored = (mockState as unknown as { cache: Map<string, unknown> })
+        .cache;
+      const historyKeys = [...stored.keys()].filter((k) =>
+        k.startsWith("msg-history:")
+      );
+      expect(historyKeys).toHaveLength(0);
     });
   });
 });

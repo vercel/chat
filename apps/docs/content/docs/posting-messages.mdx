@@ -16,7 +16,7 @@ related:
 
 The simplest option. Pass a string and it goes through as-is to the platform.
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 await thread.post("Hello world");
 ```
 
@@ -26,7 +26,7 @@ This sends the string directly without any formatting conversion.
 
 Pass a `{ markdown }` object to have the SDK convert standard markdown to each platform's native format — mrkdwn for Slack, HTML for Teams, and so on.
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
   markdown: "**Bold**, _italic_, and `code`",
 });
@@ -38,7 +38,7 @@ Under the hood, the SDK parses the markdown into an mdast AST, then each adapter
 
 For programmatic control over message formatting, use the mdast AST builder functions exported from `chat`. This is the recommended approach for most use cases — it gives you fine-grained control without the overhead of card rendering.
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 import { root, paragraph, text, strong, link } from "chat";
 
 await thread.post({
@@ -71,7 +71,7 @@ await thread.post({
 
 You can also parse a markdown string into an AST, manipulate it, then send it:
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 import { parseMarkdown, stringifyMarkdown } from "chat";
 
 const ast = parseMarkdown("**Hello** world");
@@ -87,7 +87,7 @@ When you need interactive elements like buttons, dropdowns, or structured layout
 
 Use the function-call API for type-safe card construction:
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 import { Card, Text, Actions, Button } from "chat";
 
 await thread.post(
@@ -139,14 +139,19 @@ See the [Cards](/docs/cards) page for the full list of card components.
 
 ## Streaming
 
-Pass an `AsyncIterable<string>` (like the AI SDK's `textStream`) to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit on other platforms.
+Pass an AI SDK stream to `thread.post()` to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit on other platforms.
 
-```typescript title="lib/bot.ts"
-import { streamText } from "ai";
+```typescript title="lib/bot.ts" lineNumbers
+import { ToolLoopAgent } from "ai";
 
-const result = streamText({ model, prompt: message.text });
-await thread.post(result.textStream);
+const agent = new ToolLoopAgent({ model, instructions: "You are a helpful assistant." });
+const result = await agent.stream({ prompt: message.text });
+await thread.post(result.fullStream);
 ```
+
+Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams.
+
+For multi-turn conversations, use [`toAiMessages()`](/docs/api/to-ai-messages) to convert thread history into the `{ role, content }[]` format expected by AI SDKs.
 
 See the [Streaming](/docs/streaming) page for details on platform behavior and configuration.
 
@@ -154,7 +159,7 @@ See the [Streaming](/docs/streaming) page for details on platform behavior and c
 
 Any structured message format (`markdown`, `ast`, or `card`) supports `files` for uploading attachments alongside the message:
 
-```typescript title="lib/bot.ts"
+```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
   markdown: "Here's the report:",
   files: [{ data: buffer, filename: "report.pdf" }],

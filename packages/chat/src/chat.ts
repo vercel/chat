@@ -6,6 +6,7 @@ import {
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
+import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
@@ -18,14 +19,25 @@ import type {
   AssistantContextChangedHandler,
   AssistantThreadStartedEvent,
   AssistantThreadStartedHandler,
+  Attachment,
   Author,
   Channel,
   ChatConfig,
   ChatInstance,
+  ConcurrencyConfig,
+  ConcurrencyStrategy,
+  DirectMessageHandler,
   EmojiValue,
+  FormattedContent,
+  LinkPreview,
+  Lock,
+  LockScope,
   Logger,
   LogLevel,
+  MemberJoinedChannelEvent,
+  MemberJoinedChannelHandler,
   MentionHandler,
+  MessageContext,
   MessageHandler,
   ModalCloseEvent,
   ModalCloseHandler,
@@ -45,10 +57,15 @@ import type {
 import { ChatError, ConsoleLogger, LockError } from "./types";
 
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
+
+/** Promise-based sleep for debounce timing. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
 /** TTL for message deduplication entries */
-const DEDUPE_TTL_MS = 60_000; // 60 seconds
+const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
@@ -180,8 +197,18 @@ export class Chat<
   private readonly userName: string;
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
+  private readonly _fallbackStreamingPlaceholderText: string | null;
+  private readonly _dedupeTtlMs: number;
+  private readonly _onLockConflict: ChatConfig["onLockConflict"];
+  private readonly _messageHistory: MessageHistoryCache;
+  private readonly _concurrencyStrategy: ConcurrencyStrategy;
+  private readonly _concurrencyConfig: Required<
+    Omit<ConcurrencyConfig, "strategy">
+  >;
+  private readonly _lockScope: ChatConfig["lockScope"];
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
+  private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
@@ -195,6 +222,8 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
+    [];
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -212,6 +241,51 @@ export class Chat<
     this._stateAdapter = config.state;
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
+    this._fallbackStreamingPlaceholderText =
+      config.fallbackStreamingPlaceholderText !== undefined
+        ? config.fallbackStreamingPlaceholderText
+        : "...";
+    this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
+    this._onLockConflict = config.onLockConflict;
+    this._lockScope = config.lockScope;
+
+    // Parse concurrency config — new `concurrency` option takes precedence over deprecated `onLockConflict`
+    const concurrency = config.concurrency;
+    if (concurrency) {
+      if (typeof concurrency === "string") {
+        this._concurrencyStrategy = concurrency;
+        this._concurrencyConfig = {
+          debounceMs: 1500,
+          maxConcurrent: Number.POSITIVE_INFINITY,
+          maxQueueSize: 10,
+          onQueueFull: "drop-oldest",
+          queueEntryTtlMs: 90_000,
+        };
+      } else {
+        this._concurrencyStrategy = concurrency.strategy;
+        this._concurrencyConfig = {
+          debounceMs: concurrency.debounceMs ?? 1500,
+          maxConcurrent: concurrency.maxConcurrent ?? Number.POSITIVE_INFINITY,
+          maxQueueSize: concurrency.maxQueueSize ?? 10,
+          onQueueFull: concurrency.onQueueFull ?? "drop-oldest",
+          queueEntryTtlMs: concurrency.queueEntryTtlMs ?? 90_000,
+        };
+      }
+    } else {
+      this._concurrencyStrategy = "drop";
+      this._concurrencyConfig = {
+        debounceMs: 1500,
+        maxConcurrent: Number.POSITIVE_INFINITY,
+        maxQueueSize: 10,
+        onQueueFull: "drop-oldest",
+        queueEntryTtlMs: 90_000,
+      };
+    }
+
+    this._messageHistory = new MessageHistoryCache(
+      this._stateAdapter,
+      config.messageHistory
+    );
 
     // Initialize logger
     if (typeof config.logger === "string") {
@@ -298,6 +372,22 @@ export class Chat<
    */
   async shutdown(): Promise<void> {
     this.logger.info("Shutting down chat instance...");
+    const shutdownPromises = Array.from(this.adapters.values()).map(
+      async (adapter) => {
+        if (!adapter.disconnect) {
+          return;
+        }
+        this.logger.debug("Disconnecting adapter", adapter.name);
+        await adapter.disconnect();
+        this.logger.debug("Adapter disconnected", adapter.name);
+      }
+    );
+    const results = await Promise.allSettled(shutdownPromises);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        this.logger.error("Adapter disconnect failed", result.reason);
+      }
+    }
     await this._stateAdapter.disconnect();
     this.initialized = false;
     this.initPromise = null;
@@ -342,6 +432,28 @@ export class Chat<
   onNewMention(handler: MentionHandler<TState>): void {
     this.mentionHandlers.push(handler);
     this.logger.debug("Registered mention handler");
+  }
+
+  /**
+   * Register a handler for direct messages.
+   *
+   * Called when a message is received in a DM thread that is not subscribed.
+   * If no `onDirectMessage` handlers are registered, DMs fall through to
+   * `onNewMention` for backward compatibility.
+   *
+   * @param handler - Handler called for DM messages
+   *
+   * @example
+   * ```typescript
+   * chat.onDirectMessage(async (thread, message) => {
+   *   await thread.subscribe();
+   *   await thread.post("Thanks for the DM!");
+   * });
+   * ```
+   */
+  onDirectMessage(handler: DirectMessageHandler<TState>): void {
+    this.directMessageHandlers.push(handler);
+    this.logger.debug("Registered direct message handler");
   }
 
   /**
@@ -607,6 +719,11 @@ export class Chat<
   onAppHomeOpened(handler: AppHomeOpenedHandler): void {
     this.appHomeOpenedHandlers.push(handler);
     this.logger.debug("Registered app home opened handler");
+  }
+
+  onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
+    this.memberJoinedChannelHandlers.push(handler);
+    this.logger.debug("Registered member joined channel handler");
   }
 
   /**
@@ -883,6 +1000,27 @@ export class Chat<
     }
   }
 
+  processMemberJoinedChannel(
+    event: MemberJoinedChannelEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.memberJoinedChannelHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("Member joined channel handler error", {
+        error: err,
+        channelId: event.channelId,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
   /**
    * Handle a slash command event internally.
    */
@@ -1092,7 +1230,7 @@ export class Chat<
           messageForThread,
           isSubscribed
         )
-      : (null as unknown as Thread<TState>);
+      : null;
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
@@ -1121,33 +1259,36 @@ export class Chat<
         }
 
         // Store context server-side and pass contextId to adapter
-        const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
         let message: Message | undefined;
-        if (isEphemeralMessage) {
-          const recentMessage = thread.recentMessages[0];
-          if (recentMessage && typeof recentMessage.toJSON === "function") {
-            message = recentMessage as Message;
-          }
-        } else if (event.messageId && event.adapter.fetchMessage) {
-          const fetched = await event.adapter
-            .fetchMessage(event.threadId, event.messageId)
-            .catch(() => null);
-          if (fetched) {
-            message = new Message(fetched);
-          } else {
+        if (thread) {
+          const isEphemeralMessage = event.messageId?.startsWith("ephemeral:");
+          if (isEphemeralMessage) {
             const recentMessage = thread.recentMessages[0];
             if (recentMessage && typeof recentMessage.toJSON === "function") {
               message = recentMessage as Message;
             }
+          } else if (event.messageId && event.adapter.fetchMessage) {
+            const fetched = await event.adapter
+              .fetchMessage(event.threadId, event.messageId)
+              .catch(() => null);
+            if (fetched) {
+              message = new Message(fetched);
+            } else {
+              const recentMessage = thread.recentMessages[0];
+              if (recentMessage && typeof recentMessage.toJSON === "function") {
+                message = recentMessage as Message;
+              }
+            }
           }
         }
         const contextId = crypto.randomUUID();
-        const channel = (thread as ThreadImpl<TState>)
-          .channel as ChannelImpl<TState>;
+        const channel = thread
+          ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
+          : undefined;
         this.storeModalContext(
           event.adapter.name,
           contextId,
-          thread as ThreadImpl<TState>,
+          thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
           channel
         );
@@ -1423,6 +1564,33 @@ export class Chat<
   }
 
   /**
+   * Resolve the lock key for a message based on lock scope.
+   * With 'thread' scope, returns threadId. With 'channel' scope,
+   * returns channelId (derived via adapter.channelIdFromThreadId).
+   */
+  private async getLockKey(
+    adapter: Adapter,
+    threadId: string
+  ): Promise<string> {
+    const channelId = adapter.channelIdFromThreadId(threadId);
+
+    let scope: LockScope;
+    if (typeof this._lockScope === "function") {
+      const isDM = adapter.isDM?.(threadId) ?? false;
+      scope = await this._lockScope({
+        adapter,
+        channelId,
+        isDM,
+        threadId,
+      });
+    } else {
+      scope = this._lockScope ?? adapter.lockScope ?? "thread";
+    }
+
+    return scope === "channel" ? channelId : threadId;
+  }
+
+  /**
    * Handle an incoming message from an adapter.
    * This is called by adapters when they receive a webhook.
    *
@@ -1430,7 +1598,7 @@ export class Chat<
    * - Deduplication: Same message may arrive multiple times (e.g., Slack sends
    *   both `message` and `app_mention` events, GChat sends direct webhook + Pub/Sub)
    * - Bot filtering: Messages from the bot itself are skipped
-   * - Locking: Only one instance processes a thread at a time
+   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, concurrent)
    */
   async handleIncomingMessage(
     adapter: Adapter,
@@ -1458,107 +1626,448 @@ export class Chat<
       return;
     }
 
-    // Deduplicate messages - same message can arrive via multiple paths
+    // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
     const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
-    const alreadyProcessed = await this._stateAdapter.get<boolean>(dedupeKey);
-    if (alreadyProcessed) {
+    const isFirstProcess = await this._stateAdapter.setIfNotExists(
+      dedupeKey,
+      true,
+      this._dedupeTtlMs
+    );
+    if (!isFirstProcess) {
       this.logger.debug("Skipping duplicate message", {
         adapter: adapter.name,
         messageId: message.id,
       });
       return;
     }
-    await this._stateAdapter.set(dedupeKey, true, DEDUPE_TTL_MS);
 
-    // Try to acquire lock on thread
-    const lock = await this._stateAdapter.acquireLock(
-      threadId,
+    // Persist incoming message BEFORE acquiring the lock.
+    // If the lock is already held (e.g., bot is processing a previous message),
+    // we still want to save this message to history so it's not lost.
+    if (adapter.persistMessageHistory) {
+      const channelId = adapter.channelIdFromThreadId(threadId);
+      const appends = [this._messageHistory.append(threadId, message)];
+      if (channelId !== threadId) {
+        appends.push(this._messageHistory.append(channelId, message));
+      }
+      await Promise.all(appends);
+    }
+
+    // Resolve lock key based on lock scope (thread vs channel)
+    const lockKey = await this.getLockKey(adapter, threadId);
+
+    // Route to the appropriate concurrency strategy
+    const strategy = this._concurrencyStrategy;
+
+    if (strategy === "concurrent") {
+      await this.handleConcurrent(adapter, threadId, message);
+      return;
+    }
+
+    if (strategy === "queue" || strategy === "debounce") {
+      await this.handleQueueOrDebounce(
+        adapter,
+        threadId,
+        lockKey,
+        message,
+        strategy
+      );
+      return;
+    }
+
+    // Default: 'drop' strategy (original behavior)
+    await this.handleDrop(adapter, threadId, lockKey, message);
+  }
+
+  /**
+   * Drop strategy: acquire lock or fail. Original behavior.
+   */
+  private async handleDrop(
+    adapter: Adapter,
+    threadId: string,
+    lockKey: string,
+    message: Message
+  ): Promise<void> {
+    let lock = await this._stateAdapter.acquireLock(
+      lockKey,
       DEFAULT_LOCK_TTL_MS
     );
     if (!lock) {
-      this.logger.warn("Could not acquire lock on thread", { threadId });
-      throw new LockError(
-        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
-      );
+      // Legacy onLockConflict support
+      const resolution =
+        typeof this._onLockConflict === "function"
+          ? await this._onLockConflict(threadId, message)
+          : (this._onLockConflict ?? "drop");
+      if (resolution === "force") {
+        this.logger.info("Force-releasing lock on thread", {
+          threadId,
+          lockKey,
+        });
+        await this._stateAdapter.forceReleaseLock(lockKey);
+        lock = await this._stateAdapter.acquireLock(
+          lockKey,
+          DEFAULT_LOCK_TTL_MS
+        );
+      }
+      if (!lock) {
+        this.logger.warn("Could not acquire lock on thread", {
+          threadId,
+          lockKey,
+        });
+        throw new LockError(
+          `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
+        );
+      }
     }
 
-    this.logger.debug("Lock acquired", { threadId, token: lock.token });
+    this.logger.debug("Lock acquired", {
+      threadId,
+      lockKey,
+      token: lock.token,
+    });
 
     try {
-      // Set isMention on the message for handler access
-      // Preserve existing isMention if already set (e.g., from Gateway detection)
-      message.isMention =
-        message.isMention || this.detectMention(adapter, message);
+      await this.dispatchToHandlers(adapter, threadId, message);
+    } finally {
+      await this._stateAdapter.releaseLock(lock);
+      this.logger.debug("Lock released", { threadId, lockKey });
+    }
+  }
 
-      // Check if this is a subscribed thread first
-      const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
-      this.logger.debug("Subscription check", {
-        threadId,
-        isSubscribed,
-        subscribedHandlerCount: this.subscribedMessageHandlers.length,
-      });
+  /**
+   * Queue/Debounce strategy: enqueue if lock is busy, drain after processing.
+   */
+  private async handleQueueOrDebounce(
+    adapter: Adapter,
+    threadId: string,
+    lockKey: string,
+    message: Message,
+    strategy: "queue" | "debounce"
+  ): Promise<void> {
+    const { maxQueueSize, queueEntryTtlMs, onQueueFull, debounceMs } =
+      this._concurrencyConfig;
 
-      // Create thread object (with subscription context for optimization)
-      const thread = await this.createThread(
-        adapter,
-        threadId,
-        message,
-        isSubscribed
+    // Try to acquire lock
+    const lock = await this._stateAdapter.acquireLock(
+      lockKey,
+      DEFAULT_LOCK_TTL_MS
+    );
+
+    if (!lock) {
+      // Lock is busy — enqueue this message for later processing
+      const effectiveMaxSize = strategy === "debounce" ? 1 : maxQueueSize;
+      const depth = await this._stateAdapter.queueDepth(lockKey);
+
+      if (
+        depth >= effectiveMaxSize &&
+        strategy !== "debounce" &&
+        onQueueFull === "drop-newest"
+      ) {
+        this.logger.info("message-dropped", {
+          threadId,
+          lockKey,
+          messageId: message.id,
+          reason: "queue-full",
+        });
+        return;
+      }
+
+      await this._stateAdapter.enqueue(
+        lockKey,
+        {
+          message,
+          enqueuedAt: Date.now(),
+          expiresAt: Date.now() + queueEntryTtlMs,
+        },
+        effectiveMaxSize
       );
 
-      if (isSubscribed) {
-        this.logger.debug("Message in subscribed thread - calling handlers", {
+      this.logger.info(
+        strategy === "debounce" ? "message-debounce-reset" : "message-queued",
+        {
           threadId,
-          handlerCount: this.subscribedMessageHandlers.length,
-        });
-        await this.runHandlers(this.subscribedMessageHandlers, thread, message);
-        return;
-      }
-
-      // Check for @-mention of bot
-      if (message.isMention) {
-        this.logger.debug("Bot mentioned", {
-          threadId,
-          text: message.text.slice(0, 100),
-        });
-        await this.runHandlers(this.mentionHandlers, thread, message);
-        return;
-      }
-
-      // Check message patterns
-      this.logger.debug("Checking message patterns", {
-        patternCount: this.messagePatterns.length,
-        patterns: this.messagePatterns.map((p) => p.pattern.toString()),
-        messageText: message.text,
-      });
-      let matchedPattern = false;
-      for (const { pattern, handler } of this.messagePatterns) {
-        const matches = pattern.test(message.text);
-        this.logger.debug("Pattern test", {
-          pattern: pattern.toString(),
-          text: message.text,
-          matches,
-        });
-        if (matches) {
-          this.logger.debug("Message matched pattern - calling handler", {
-            pattern: pattern.toString(),
-          });
-          matchedPattern = true;
-          await handler(thread, message);
+          lockKey,
+          messageId: message.id,
+          queueDepth: Math.min(depth + 1, effectiveMaxSize),
         }
-      }
+      );
+      return;
+    }
 
-      // Log if no handlers matched
-      if (!matchedPattern) {
-        this.logger.debug("No handlers matched message", {
+    // We hold the lock
+    this.logger.debug("Lock acquired", {
+      threadId,
+      lockKey,
+      token: lock.token,
+    });
+
+    try {
+      if (strategy === "debounce") {
+        // Debounce: enqueue our own message and enter the debounce loop
+        await this._stateAdapter.enqueue(
+          lockKey,
+          {
+            message,
+            enqueuedAt: Date.now(),
+            expiresAt: Date.now() + queueEntryTtlMs,
+          },
+          1
+        );
+        this.logger.info("message-debouncing", {
           threadId,
-          text: message.text.slice(0, 100),
+          lockKey,
+          messageId: message.id,
+          debounceMs,
         });
+        await this.debounceLoop(lock, adapter, threadId, lockKey);
+      } else {
+        // Queue: process our message immediately, then drain any queued messages
+        await this.dispatchToHandlers(adapter, threadId, message);
+        await this.drainQueue(lock, adapter, threadId, lockKey);
       }
     } finally {
       await this._stateAdapter.releaseLock(lock);
-      this.logger.debug("Lock released", { threadId });
+      this.logger.debug("Lock released", { threadId, lockKey });
+    }
+  }
+
+  /**
+   * Debounce loop: wait for debounceMs, check if newer message arrived,
+   * repeat until no new messages, then process the final message.
+   */
+  private async debounceLoop(
+    lock: Lock,
+    adapter: Adapter,
+    threadId: string,
+    lockKey: string
+  ): Promise<void> {
+    const { debounceMs } = this._concurrencyConfig;
+
+    while (true) {
+      await sleep(debounceMs);
+      await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
+
+      // Atomically take the pending message
+      const entry = await this._stateAdapter.dequeue(lockKey);
+      if (!entry) {
+        break;
+      }
+
+      // Reconstruct Message instance after JSON roundtrip through state adapter
+      const msg = this.rehydrateMessage(entry.message);
+
+      if (Date.now() > entry.expiresAt) {
+        this.logger.info("message-expired", {
+          threadId,
+          lockKey,
+          messageId: msg.id,
+        });
+        continue;
+      }
+
+      // Check if anything new arrived during sleep
+      const depth = await this._stateAdapter.queueDepth(lockKey);
+      if (depth > 0) {
+        // Newer message superseded this one — loop again
+        this.logger.info("message-superseded", {
+          threadId,
+          lockKey,
+          droppedId: msg.id,
+        });
+        continue;
+      }
+
+      // Nothing new — this is the final message in the burst
+      this.logger.info("message-dequeued", {
+        threadId,
+        lockKey,
+        messageId: msg.id,
+      });
+      await this.dispatchToHandlers(adapter, threadId, msg);
+      break;
+    }
+  }
+
+  /**
+   * Drain queue: collect all pending messages, dispatch the latest with
+   * skipped context, then check for more.
+   */
+  private async drainQueue(
+    lock: Lock,
+    adapter: Adapter,
+    threadId: string,
+    lockKey: string
+  ): Promise<void> {
+    while (true) {
+      // Collect all pending messages, rehydrating after JSON roundtrip
+      const pending: Array<{ message: Message; expiresAt: number }> = [];
+      while (true) {
+        const entry = await this._stateAdapter.dequeue(lockKey);
+        if (!entry) {
+          break;
+        }
+        const msg = this.rehydrateMessage(entry.message);
+        if (Date.now() <= entry.expiresAt) {
+          pending.push({ message: msg, expiresAt: entry.expiresAt });
+        } else {
+          this.logger.info("message-expired", {
+            threadId,
+            lockKey,
+            messageId: msg.id,
+          });
+        }
+      }
+
+      if (pending.length === 0) {
+        return;
+      }
+
+      await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
+
+      // Latest message is the one we process
+      const latest = pending.at(-1);
+      if (!latest) {
+        return;
+      }
+      // Everything before it is "skipped" context
+      const skipped = pending.slice(0, -1).map((e) => e.message);
+
+      this.logger.info("message-dequeued", {
+        threadId,
+        lockKey,
+        messageId: latest.message.id,
+        skippedCount: skipped.length,
+        totalSinceLastHandler: pending.length,
+      });
+
+      const context: MessageContext = {
+        skipped,
+        totalSinceLastHandler: pending.length,
+      };
+
+      await this.dispatchToHandlers(adapter, threadId, latest.message, context);
+
+      // After processing, check if MORE messages arrived during this handler
+      // (loop continues)
+    }
+  }
+
+  /**
+   * Concurrent strategy: no locking, process immediately.
+   */
+  private async handleConcurrent(
+    adapter: Adapter,
+    threadId: string,
+    message: Message
+  ): Promise<void> {
+    await this.dispatchToHandlers(adapter, threadId, message);
+  }
+
+  /**
+   * Dispatch a message to the appropriate handler chain based on
+   * subscription status, mention detection, and pattern matching.
+   */
+  private async dispatchToHandlers(
+    adapter: Adapter,
+    threadId: string,
+    message: Message,
+    context?: MessageContext
+  ): Promise<void> {
+    // Set isMention on the message for handler access
+    // Preserve existing isMention if already set (e.g., from Gateway detection)
+    message.isMention =
+      message.isMention || this.detectMention(adapter, message);
+
+    // Check subscription status (needed for createThread optimization)
+    const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
+    this.logger.debug("Subscription check", {
+      threadId,
+      isSubscribed,
+      subscribedHandlerCount: this.subscribedMessageHandlers.length,
+    });
+
+    // Create thread object (with subscription context for optimization)
+    const thread = await this.createThread(
+      adapter,
+      threadId,
+      message,
+      isSubscribed
+    );
+
+    // Check for DM first - always route to direct message handlers
+    const isDM = adapter.isDM?.(threadId) ?? false;
+    if (isDM && this.directMessageHandlers.length > 0) {
+      this.logger.debug("Direct message received - calling handlers", {
+        threadId,
+        handlerCount: this.directMessageHandlers.length,
+      });
+      const channel = thread.channel;
+      for (const handler of this.directMessageHandlers) {
+        await handler(thread, message, channel, context);
+      }
+      return;
+    }
+
+    // Backward compat: treat DMs as mentions when no DM handlers registered
+    if (isDM) {
+      message.isMention = true;
+    }
+
+    // Check subscription (non-DM threads only)
+    if (isSubscribed) {
+      this.logger.debug("Message in subscribed thread - calling handlers", {
+        threadId,
+        handlerCount: this.subscribedMessageHandlers.length,
+      });
+      await this.runHandlers(
+        this.subscribedMessageHandlers,
+        thread,
+        message,
+        context
+      );
+      return;
+    }
+
+    // Check for @-mention of bot
+    if (message.isMention) {
+      this.logger.debug("Bot mentioned", {
+        threadId,
+        text: message.text.slice(0, 100),
+      });
+      await this.runHandlers(this.mentionHandlers, thread, message, context);
+      return;
+    }
+
+    // Check message patterns
+    this.logger.debug("Checking message patterns", {
+      patternCount: this.messagePatterns.length,
+      patterns: this.messagePatterns.map((p) => p.pattern.toString()),
+      messageText: message.text,
+    });
+    let matchedPattern = false;
+    for (const { pattern, handler } of this.messagePatterns) {
+      const matches = pattern.test(message.text);
+      this.logger.debug("Pattern test", {
+        pattern: pattern.toString(),
+        text: message.text,
+        matches,
+      });
+      if (matches) {
+        this.logger.debug("Message matched pattern - calling handler", {
+          pattern: pattern.toString(),
+        });
+        matchedPattern = true;
+        await handler(thread, message, context);
+      }
+    }
+
+    // Log if no handlers matched
+    if (!matchedPattern) {
+      this.logger.debug("No handlers matched message", {
+        threadId,
+        text: message.text.slice(0, 100),
+      });
     }
   }
 
@@ -1590,7 +2099,12 @@ export class Chat<
       isDM,
       channelVisibility,
       currentMessage: initialMessage,
+      logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
+      fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
+      messageHistory: adapter.persistMessageHistory
+        ? this._messageHistory
+        : undefined,
     });
   }
 
@@ -1638,15 +2152,66 @@ export class Chat<
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  /**
+   * Reconstruct a proper Message instance from a dequeued entry.
+   * After JSON roundtrip through the state adapter, the message is a plain
+   * object (not a Message instance). This restores class invariants like
+   * `links` defaulting to `[]` and `metadata.dateSent` being a Date.
+   */
+  private rehydrateMessage(raw: Message | Record<string, unknown>): Message {
+    if (raw instanceof Message) {
+      return raw;
+    }
+    // After JSON roundtrip, Message.toJSON() was called during stringify,
+    // so the shape matches SerializedMessage
+    const obj = raw as Record<string, unknown>;
+    if (obj._type === "chat:Message") {
+      return Message.fromJSON(obj as unknown as SerializedMessage);
+    }
+    // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
+    // Reconstruct with defensive defaults
+    const metadata = obj.metadata as Record<string, unknown>;
+    const dateSent = metadata.dateSent;
+    const editedAt = metadata.editedAt;
+    return new Message({
+      id: obj.id as string,
+      threadId: obj.threadId as string,
+      text: obj.text as string,
+      formatted: obj.formatted as FormattedContent,
+      raw: obj.raw,
+      author: obj.author as Author,
+      metadata: {
+        dateSent:
+          dateSent instanceof Date ? dateSent : new Date(dateSent as string),
+        edited: metadata.edited as boolean,
+        editedAt: editedAt
+          ? new Date(
+              editedAt instanceof Date
+                ? editedAt.toISOString()
+                : (editedAt as string)
+            )
+          : undefined,
+      },
+      attachments: (obj.attachments as Attachment[]) ?? [],
+      isMention: obj.isMention as boolean | undefined,
+      links: (obj.links as LinkPreview[] | undefined) ?? [],
+    });
+  }
+
   private async runHandlers(
     handlers: Array<
-      (thread: Thread<TState>, message: Message) => void | Promise<void>
+      (
+        thread: Thread<TState>,
+        message: Message,
+        context?: MessageContext
+      ) => void | Promise<void>
     >,
     thread: Thread<TState>,
-    message: Message
+    message: Message,
+    context?: MessageContext
   ): Promise<void> {
     for (const handler of handlers) {
-      await handler(thread, message);
+      await handler(thread, message, context);
     }
   }
 }

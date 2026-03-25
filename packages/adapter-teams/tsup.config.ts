@@ -7,4 +7,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   external: ["botbuilder"],
+  noExternal: ["@microsoft/microsoft-graph-client"],
 });

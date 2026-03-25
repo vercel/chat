@@ -1,4 +1,4 @@
-import type { Lock, StateAdapter } from "chat";
+import type { Lock, QueueEntry, StateAdapter } from "chat";
 
 interface MemoryLock extends Lock {
   expiresAt: number;
@@ -21,6 +21,7 @@ export class MemoryStateAdapter implements StateAdapter {
   private readonly subscriptions = new Set<string>();
   private readonly locks = new Map<string, MemoryLock>();
   private readonly cache = new Map<string, CachedValue>();
+  private readonly queues = new Map<string, QueueEntry[]>();
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
@@ -50,6 +51,7 @@ export class MemoryStateAdapter implements StateAdapter {
     this.connectPromise = null;
     this.subscriptions.clear();
     this.locks.clear();
+    this.queues.clear();
   }
 
   async subscribe(threadId: string): Promise<void> {
@@ -86,6 +88,11 @@ export class MemoryStateAdapter implements StateAdapter {
 
     this.locks.set(threadId, lock);
     return lock;
+  }
+
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+    this.locks.delete(threadId);
   }
 
   async releaseLock(lock: Lock): Promise<void> {
@@ -142,9 +149,131 @@ export class MemoryStateAdapter implements StateAdapter {
     });
   }
 
+  async setIfNotExists(
+    key: string,
+    value: unknown,
+    ttlMs?: number
+  ): Promise<boolean> {
+    this.ensureConnected();
+
+    const existing = this.cache.get(key);
+    if (existing) {
+      // Check if expired
+      if (existing.expiresAt !== null && existing.expiresAt <= Date.now()) {
+        this.cache.delete(key);
+      } else {
+        return false;
+      }
+    }
+
+    this.cache.set(key, {
+      value,
+      expiresAt: ttlMs ? Date.now() + ttlMs : null,
+    });
+    return true;
+  }
+
   async delete(key: string): Promise<void> {
     this.ensureConnected();
     this.cache.delete(key);
+  }
+
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    let list: unknown[];
+
+    if (cached && cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      // Expired — start fresh
+      list = [];
+    } else if (cached && Array.isArray(cached.value)) {
+      list = cached.value;
+    } else {
+      list = [];
+    }
+
+    list.push(value);
+
+    if (options?.maxLength && list.length > options.maxLength) {
+      list = list.slice(list.length - options.maxLength);
+    }
+
+    this.cache.set(key, {
+      value: list,
+      expiresAt: options?.ttlMs ? Date.now() + options.ttlMs : null,
+    });
+  }
+
+  async enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number> {
+    this.ensureConnected();
+
+    let queue = this.queues.get(threadId);
+    if (!queue) {
+      queue = [];
+      this.queues.set(threadId, queue);
+    }
+
+    queue.push(entry);
+
+    // Trim to maxSize (keep newest)
+    if (queue.length > maxSize) {
+      queue.splice(0, queue.length - maxSize);
+    }
+
+    return queue.length;
+  }
+
+  async dequeue(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected();
+
+    const queue = this.queues.get(threadId);
+    if (!queue || queue.length === 0) {
+      return null;
+    }
+
+    const entry = queue.shift();
+
+    if (queue.length === 0) {
+      this.queues.delete(threadId);
+    }
+
+    return entry ?? null;
+  }
+
+  async queueDepth(threadId: string): Promise<number> {
+    this.ensureConnected();
+
+    const queue = this.queues.get(threadId);
+    return queue?.length ?? 0;
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const cached = this.cache.get(key);
+    if (!cached) {
+      return [];
+    }
+
+    if (cached.expiresAt !== null && cached.expiresAt <= Date.now()) {
+      this.cache.delete(key);
+      return [];
+    }
+
+    if (Array.isArray(cached.value)) {
+      return cached.value as T[];
+    }
+
+    return [];
   }
 
   private ensureConnected(): void {

@@ -2,6 +2,7 @@ import {
   Actions,
   Button,
   Card,
+  CardLink,
   CardText,
   Divider,
   Field,
@@ -136,6 +137,41 @@ describe("cardToDiscordPayload", () => {
       style: ButtonStyle.Secondary,
       label: "Skip",
       custom_id: "skip",
+    });
+  });
+
+  it("sets disabled on button when specified", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({
+            id: "cancel",
+            label: "Cancelled",
+            style: "danger",
+            disabled: true,
+          }),
+          Button({ id: "retry", label: "Retry" }),
+        ]),
+      ],
+    });
+    const { components } = cardToDiscordPayload(card);
+
+    const buttons = components[0].components;
+    expect(buttons).toHaveLength(2);
+
+    expect(buttons[0]).toEqual({
+      type: 2,
+      style: ButtonStyle.Danger,
+      label: "Cancelled",
+      custom_id: "cancel",
+      disabled: true,
+    });
+
+    expect(buttons[1]).toEqual({
+      type: 2,
+      style: ButtonStyle.Secondary,
+      label: "Retry",
+      custom_id: "retry",
     });
   });
 
@@ -332,5 +368,20 @@ describe("cardToFallbackText", () => {
     expect(text).toContain("**A**: 1");
     expect(text).toContain("**B**: 2");
     expect(text).toContain("**C**: 3");
+  });
+});
+
+describe("cardToDiscordPayload with CardLink", () => {
+  it("appends markdown link to embed description", () => {
+    const card = Card({
+      children: [CardLink({ url: "https://example.com", label: "Click here" })],
+    });
+
+    const payload = cardToDiscordPayload(card);
+
+    expect(payload.embeds).toHaveLength(1);
+    expect(payload.embeds[0].description).toBe(
+      "[Click here](https://example.com)"
+    );
   });
 });

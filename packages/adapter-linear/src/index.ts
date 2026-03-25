@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractCard, ValidationError } from "@chat-adapter/shared";
+import {
+  AdapterError,
+  AuthenticationError,
+  extractCard,
+  ValidationError,
+} from "@chat-adapter/shared";
 import type { LinearFetch, User } from "@linear/sdk";
 import { LinearClient } from "@linear/sdk";
 import type {
@@ -21,6 +26,7 @@ import { cardToLinearMarkdown } from "./cards";
 import { LinearFormatConverter } from "./markdown";
 import type {
   CommentWebhookPayload,
+  LinearAdapterAutoConfig,
   LinearAdapterConfig,
   LinearCommentData,
   LinearRawMessage,
@@ -111,10 +117,19 @@ export class LinearAdapter
     return this._botUserId ?? undefined;
   }
 
-  constructor(config: LinearAdapterConfig) {
-    this.webhookSecret = config.webhookSecret;
-    this.logger = config.logger;
-    this.userName = config.userName;
+  constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
+    const webhookSecret =
+      config.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      throw new ValidationError(
+        "linear",
+        "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
+      );
+    }
+    this.webhookSecret = webhookSecret;
+    this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
+    this.userName =
+      config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
 
     // Create LinearClient based on auth method
     // @see https://linear.app/developers/sdk
@@ -131,9 +146,27 @@ export class LinearAdapter
         clientSecret: config.clientSecret,
       };
     } else {
-      throw new Error(
-        "LinearAdapter requires either apiKey, accessToken, or clientId/clientSecret"
-      );
+      // Auto-detect from env vars
+      const apiKey = process.env.LINEAR_API_KEY;
+      if (apiKey) {
+        this.linearClient = new LinearClient({ apiKey });
+      } else {
+        const accessToken = process.env.LINEAR_ACCESS_TOKEN;
+        if (accessToken) {
+          this.linearClient = new LinearClient({ accessToken });
+        } else {
+          const clientId = process.env.LINEAR_CLIENT_ID;
+          const clientSecret = process.env.LINEAR_CLIENT_SECRET;
+          if (clientId && clientSecret) {
+            this.clientCredentials = { clientId, clientSecret };
+          } else {
+            throw new ValidationError(
+              "linear",
+              "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
+            );
+          }
+        }
+      }
     }
   }
 
@@ -187,7 +220,8 @@ export class LinearAdapter
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(
+      throw new AuthenticationError(
+        "linear",
         `Failed to fetch Linear client credentials token: ${response.status} ${errorBody}`
       );
     }
@@ -457,7 +491,10 @@ export class LinearAdapter
 
     const comment = await commentPayload.comment;
     if (!comment) {
-      throw new Error("Failed to create comment on Linear issue");
+      throw new AdapterError(
+        "Failed to create comment on Linear issue",
+        "linear"
+      );
     }
 
     return {
@@ -510,7 +547,7 @@ export class LinearAdapter
 
     const comment = await commentPayload.comment;
     if (!comment) {
-      throw new Error("Failed to update comment on Linear");
+      throw new AdapterError("Failed to update comment on Linear", "linear");
     }
 
     return {
@@ -627,7 +664,7 @@ export class LinearAdapter
     return {
       messages,
       nextCursor: commentsConnection.pageInfo.hasNextPage
-        ? commentsConnection.pageInfo.endCursor
+        ? (commentsConnection.pageInfo.endCursor ?? undefined)
         : undefined,
     };
   }
@@ -666,7 +703,7 @@ export class LinearAdapter
     return {
       messages: [...rootMessages, ...childMessages],
       nextCursor: childrenConnection.pageInfo.hasNextPage
-        ? childrenConnection.pageInfo.endCursor
+        ? (childrenConnection.pageInfo.endCursor ?? undefined)
         : undefined,
     };
   }
@@ -902,77 +939,8 @@ export class LinearAdapter
  * });
  * ```
  */
-export function createLinearAdapter(config?: {
-  accessToken?: string;
-  apiKey?: string;
-  clientId?: string;
-  clientSecret?: string;
-  logger?: Logger;
-  userName?: string;
-  webhookSecret?: string;
-}): LinearAdapter {
-  const logger = config?.logger ?? new ConsoleLogger("info").child("linear");
-  const webhookSecret =
-    config?.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    throw new ValidationError(
-      "linear",
-      "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
-    );
-  }
-  const userName =
-    config?.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
-
-  // Auto-detect auth mode. Only fall back to env vars for auth fields when
-  // the caller hasn't provided ANY auth field, so we don't mix auth modes.
-  const hasAuthConfig = !!(
-    config?.apiKey ||
-    config?.accessToken ||
-    config?.clientId ||
-    config?.clientSecret
-  );
-
-  const apiKey =
-    config?.apiKey ?? (hasAuthConfig ? undefined : process.env.LINEAR_API_KEY);
-  if (apiKey) {
-    return new LinearAdapter({
-      apiKey,
-      webhookSecret,
-      userName,
-      logger,
-    });
-  }
-
-  const accessToken =
-    config?.accessToken ??
-    (hasAuthConfig ? undefined : process.env.LINEAR_ACCESS_TOKEN);
-  if (accessToken) {
-    return new LinearAdapter({
-      accessToken,
-      webhookSecret,
-      userName,
-      logger,
-    });
-  }
-
-  const clientId =
-    config?.clientId ??
-    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_ID);
-  const clientSecret =
-    config?.clientSecret ??
-    (hasAuthConfig ? undefined : process.env.LINEAR_CLIENT_SECRET);
-  if (clientId && clientSecret) {
-    return new LinearAdapter({
-      clientId,
-      clientSecret,
-      webhookSecret,
-      userName,
-      logger,
-    });
-  }
-
-  throw new ValidationError(
-    "linear",
-    "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
-  );
+export function createLinearAdapter(
+  config?: LinearAdapterConfig
+): LinearAdapter {
+  return new LinearAdapter(config);
 }

@@ -1,5 +1,97 @@
 # @chat-adapter/state-memory
 
+## 4.22.0
+
+### Patch Changes
+
+- Updated dependencies [f2d8957]
+  - chat@4.22.0
+
+## 4.21.0
+
+### Patch Changes
+
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+
+## 4.20.2
+
+### Patch Changes
+
+- chat@4.20.2
+
+## 4.20.1
+
+### Patch Changes
+
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+
+## 4.20.0
+
+### Patch Changes
+
+- chat@4.20.0
+
+## 4.19.0
+
+### Minor Changes
+
+- eb49b2a: Add `forceReleaseLock` to StateAdapter and `onLockConflict` config option for interrupt/steerability of long-running handlers
+
+### Patch Changes
+
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+
+## 4.18.0
+
+### Patch Changes
+
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+
+## 4.17.0
+
+### Patch Changes
+
+- cc65dc3: fix: non-atomic message deduplication causes app_mention events to be silently dropped
+- Updated dependencies [cc65dc3]
+  - chat@4.17.0
+
+## 4.16.1
+
+### Patch Changes
+
+- Updated dependencies [130e780]
+- Updated dependencies [ff954f9]
+- Updated dependencies [f27c89b]
+  - chat@4.16.1
+
+## 4.16.0
+
+### Patch Changes
+
+- Updated dependencies [02e7ef6]
+- Updated dependencies [9522b04]
+- Updated dependencies [f5a75c9]
+- Updated dependencies [f0c7050]
+- Updated dependencies [73de82d]
+  - chat@4.16.0
+
+## 4.15.0
+
+### Patch Changes
+
+- Updated dependencies [0f85031]
+- Updated dependencies [5b3090a]
+  - chat@4.15.0
+
 ## 4.14.0
 
 ### Patch Changes

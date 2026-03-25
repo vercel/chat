@@ -8,9 +8,12 @@ updates:
       interval: "monthly"
     labels: ["dependencies"]
 
-  # Maintain dependencies for npm (all workspace packages)
+  # Maintain dependencies for npm (excluding apps/docs)
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/packages/*"
+      - "/examples/*"
     open-pull-requests-limit: 10
     schedule:
       interval: "monthly"

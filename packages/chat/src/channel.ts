@@ -1,7 +1,8 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
-import { type CardJSXElement, isJSX, toCardElement } from "./jsx-runtime";
+import { fromFullStream } from "./from-full-stream";
+import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
   paragraph,
   parseMarkdown,
@@ -10,6 +11,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
+import type { MessageHistoryCache } from "./message-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -20,11 +22,12 @@ import type {
   EphemeralMessage,
   PostableMessage,
   PostEphemeralOptions,
+  ScheduledMessage,
   SentMessage,
   StateAdapter,
   ThreadSummary,
 } from "./types";
-import { THREAD_STATE_TTL_MS } from "./types";
+import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /** State key prefix for channel state */
 const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
@@ -48,6 +51,7 @@ interface ChannelImplConfigWithAdapter {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
+  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
 }
 
@@ -89,6 +93,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
+  private readonly _messageHistory?: MessageHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
@@ -100,6 +105,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
+      this._messageHistory = config.messageHistory;
     }
   }
 
@@ -167,10 +173,12 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
+    const messageHistory = this._messageHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
         let cursor: string | undefined;
+        let yieldedAny = false;
 
         while (true) {
           const fetchOptions = { cursor, direction: "backward" as const };
@@ -182,6 +190,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           // but we want newest first, so reverse the page
           const reversed = [...result.messages].reverse();
           for (const message of reversed) {
+            yieldedAny = true;
             yield message;
           }
 
@@ -190,6 +199,15 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
 
           cursor = result.nextCursor;
+        }
+
+        // Fall back to cached history if adapter returned nothing
+        if (!yieldedAny && messageHistory) {
+          const cached = await messageHistory.getMessages(channelId);
+          // Yield newest first
+          for (let i = cached.length - 1; i >= 0; i--) {
+            yield cached[i];
+          }
         }
       },
     };
@@ -246,17 +264,19 @@ export class ChannelImpl<TState = Record<string, unknown>>
   }
 
   async post(
-    message: string | PostableMessage | CardJSXElement
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage> {
     // Handle AsyncIterable (streaming) — not supported at channel level,
     // fall through to postMessage
     if (isAsyncIterable(message)) {
       // For channel-level streaming, accumulate and post as single message
       let accumulated = "";
-      for await (const chunk of message) {
-        accumulated += chunk;
+      for await (const chunk of fromFullStream(message)) {
+        if (typeof chunk === "string") {
+          accumulated += chunk;
+        }
       }
-      return this.postSingleMessage(accumulated);
+      return this.postSingleMessage({ markdown: accumulated });
     }
 
     // Auto-convert JSX elements to CardElement
@@ -281,12 +301,22 @@ export class ChannelImpl<TState = Record<string, unknown>>
       ? await this.adapter.postChannelMessage(this.id, postable)
       : await this.adapter.postMessage(this.id, postable);
 
-    return this.createSentMessage(rawMessage.id, postable, rawMessage.threadId);
+    const sent = this.createSentMessage(
+      rawMessage.id,
+      postable,
+      rawMessage.threadId
+    );
+
+    if (this._messageHistory) {
+      await this._messageHistory.append(this.id, new Message(sent));
+    }
+
+    return sent;
   }
 
   async postEphemeral(
     user: string | Author,
-    message: AdapterPostableMessage | CardJSXElement,
+    message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
   ): Promise<EphemeralMessage | null> {
     const { fallbackToDM } = options;
@@ -323,6 +353,31 @@ export class ChannelImpl<TState = Record<string, unknown>>
     }
 
     return null;
+  }
+
+  async schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    let postable: AdapterPostableMessage;
+    if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    if (!this.adapter.scheduleMessage) {
+      throw new NotImplementedError(
+        "Scheduled messages are not supported by this adapter",
+        "scheduling"
+      );
+    }
+
+    return this.adapter.scheduleMessage(this.id, postable, options);
   }
 
   async startTyping(status?: string): Promise<void> {
@@ -397,13 +452,14 @@ export class ChannelImpl<TState = Record<string, unknown>>
         edited: false,
       },
       attachments,
+      links: [],
 
       toJSON() {
         return new Message(this).toJSON();
       },
 
       async edit(
-        newContent: string | PostableMessage | CardJSXElement
+        newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
         let editPostable: string | AdapterPostableMessage = newContent as
           | string
@@ -438,16 +494,9 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
 /**
  * Derive the channel ID from a thread ID.
- * Uses adapter.channelIdFromThreadId if available, otherwise defaults to
- * first two colon-separated parts.
  */
 export function deriveChannelId(adapter: Adapter, threadId: string): string {
-  if (adapter.channelIdFromThreadId) {
-    return adapter.channelIdFromThreadId(threadId);
-  }
-  // Default: first two colon-separated parts
-  const parts = threadId.split(":");
-  return parts.slice(0, 2).join(":");
+  return adapter.channelIdFromThreadId(threadId);
 }
 
 /**

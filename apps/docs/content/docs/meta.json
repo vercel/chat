@@ -3,18 +3,23 @@
   "pages": [
     "index",
     "getting-started",
+    "---Usage---",
     "usage",
+    "threads-messages-channels",
+    "handling-events",
     "posting-messages",
+    "---Adapters---",
+    "adapters",
+    "state",
     "---Features---",
+    "concurrency",
     "...",
     "error-handling",
-    "---Platform Adapters---",
-    "...adapters",
-    "---State Adapters---",
-    "...state",
     "---Guides---",
     "...guides",
     "---API Reference---",
-    "...api"
+    "...api",
+    "---Contributing---",
+    "...contributing"
   ]
 }

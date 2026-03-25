@@ -406,6 +406,47 @@ describe("Serialization", () => {
       expect(json.isMention).toBe(true);
     });
 
+    it("should serialize links without fetchMessage", () => {
+      const message = createTestMessage("msg-1", "Check this out", {
+        links: [
+          {
+            url: "https://example.com",
+            title: "Example",
+            fetchMessage: async () => createTestMessage("linked", "linked"),
+          },
+          { url: "https://vercel.com", siteName: "Vercel" },
+        ],
+      });
+
+      const json = message.toJSON();
+
+      expect(json.links).toHaveLength(2);
+      expect(json.links?.[0]).toEqual({
+        url: "https://example.com",
+        title: "Example",
+        description: undefined,
+        imageUrl: undefined,
+        siteName: undefined,
+      });
+      expect(json.links?.[1]).toEqual({
+        url: "https://vercel.com",
+        title: undefined,
+        description: undefined,
+        imageUrl: undefined,
+        siteName: "Vercel",
+      });
+      // fetchMessage should NOT be in serialized output
+      expect("fetchMessage" in (json.links?.[0] ?? {})).toBe(false);
+    });
+
+    it("should omit links when empty", () => {
+      const message = createTestMessage("msg-1", "No links");
+
+      const json = message.toJSON();
+
+      expect(json.links).toBeUndefined();
+    });
+
     it("should produce JSON-serializable output", () => {
       const message = createTestMessage("msg-1", "Hello **world**");
 
@@ -546,6 +587,26 @@ describe("Serialization", () => {
           name: "file.pdf",
         },
       ]);
+    });
+
+    it("should round-trip links correctly", () => {
+      const original = createTestMessage("msg-1", "Links test", {
+        links: [
+          { url: "https://example.com", title: "Example" },
+          { url: "https://vercel.com", siteName: "Vercel" },
+        ],
+      });
+
+      const json = original.toJSON();
+      const restored = Message.fromJSON(json);
+
+      expect(restored.links).toHaveLength(2);
+      expect(restored.links[0]?.url).toBe("https://example.com");
+      expect(restored.links[0]?.title).toBe("Example");
+      expect(restored.links[1]?.url).toBe("https://vercel.com");
+      expect(restored.links[1]?.siteName).toBe("Vercel");
+      // fetchMessage is not preserved across serialization
+      expect(restored.links[0]?.fetchMessage).toBeUndefined();
     });
   });
 
