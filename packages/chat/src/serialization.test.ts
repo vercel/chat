@@ -71,7 +71,6 @@ describe("Serialization", () => {
 
       expect(json._type).toBe("chat:Thread");
       expect(json.channelVisibility).toBe("external");
-      expect(json.isExternalChannel).toBe(true);
     });
 
     it("should serialize private channel thread correctly", () => {
@@ -90,10 +89,9 @@ describe("Serialization", () => {
 
       expect(json._type).toBe("chat:Thread");
       expect(json.channelVisibility).toBe("private");
-      expect(json.isExternalChannel).toBeUndefined();
     });
 
-    it("should omit isExternalChannel when not external", () => {
+    it("should serialize workspace channel thread correctly", () => {
       const mockAdapter = createMockAdapter("slack");
       const mockState = createMockState();
 
@@ -107,7 +105,6 @@ describe("Serialization", () => {
 
       const json = thread.toJSON();
 
-      expect(json.isExternalChannel).toBeUndefined();
       expect(json.channelVisibility).toBe("workspace");
     });
 
@@ -235,7 +232,6 @@ describe("Serialization", () => {
       const restored = ThreadImpl.fromJSON(json);
 
       expect(restored.channelVisibility).toBe("external");
-      expect(restored.isExternalChannel).toBe(true);
     });
 
     it("should default channelVisibility to unknown when missing from JSON", () => {
@@ -250,23 +246,6 @@ describe("Serialization", () => {
       const thread = ThreadImpl.fromJSON(json);
 
       expect(thread.channelVisibility).toBe("unknown");
-      expect(thread.isExternalChannel).toBe(false);
-    });
-
-    it("should migrate legacy isExternalChannel to channelVisibility", () => {
-      const json: SerializedThread = {
-        _type: "chat:Thread",
-        id: "slack:C123:1234.5678",
-        channelId: "C123",
-        isDM: false,
-        adapterName: "slack",
-        isExternalChannel: true,
-      };
-
-      const thread = ThreadImpl.fromJSON(json);
-
-      expect(thread.channelVisibility).toBe("external");
-      expect(thread.isExternalChannel).toBe(true);
     });
 
     it("should serialize currentMessage", () => {

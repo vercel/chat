@@ -38,10 +38,6 @@ export interface SerializedChannel {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
 }
 
 /**
@@ -52,10 +48,6 @@ interface ChannelImplConfigWithAdapter {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
   stateAdapter: StateAdapter;
 }
 
@@ -67,10 +59,6 @@ interface ChannelImplConfigLazy {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
 }
 
 type ChannelImplConfig = ChannelImplConfigWithAdapter | ChannelImplConfigLazy;
@@ -97,13 +85,6 @@ export class ChannelImpl<TState = Record<string, unknown>>
   readonly isDM: boolean;
   readonly channelVisibility: ChannelVisibility;
 
-  /**
-   * @deprecated Use `channelVisibility === 'external'` instead
-   */
-  get isExternalChannel(): boolean {
-    return this.channelVisibility === "external";
-  }
-
   private _adapter?: Adapter;
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
@@ -112,10 +93,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
     this.isDM = config.isDM ?? false;
-    // Support both new channelVisibility and deprecated isExternalChannel
-    this.channelVisibility =
-      config.channelVisibility ??
-      (config.isExternalChannel ? "external" : "unknown");
+    this.channelVisibility = config.channelVisibility ?? "unknown";
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
@@ -362,8 +340,6 @@ export class ChannelImpl<TState = Record<string, unknown>>
       adapterName: this.adapter.name,
       channelVisibility: this.channelVisibility,
       isDM: this.isDM,
-      // Keep isExternalChannel for backwards compatibility
-      ...(this.isExternalChannel ? { isExternalChannel: true } : {}),
     };
   }
 
@@ -374,10 +350,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
     const channel = new ChannelImpl<TState>({
       id: json.id,
       adapterName: json.adapterName,
-      // Prefer channelVisibility, fall back to isExternalChannel for backwards compat
       channelVisibility: json.channelVisibility,
       isDM: json.isDM,
-      isExternalChannel: json.isExternalChannel,
     });
     if (adapter) {
       channel._adapter = adapter;

@@ -2429,8 +2429,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         channelId: channel,
         channelName: channelInfo?.name,
         channelVisibility,
-        // Keep isExternalChannel for backwards compatibility
-        isExternalChannel: channelInfo?.is_ext_shared ?? false,
         metadata: {
           threadTs,
           channel: result.channel,
@@ -2484,17 +2482,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   isDM(threadId: string): boolean {
     const { channel } = this.decodeThreadId(threadId);
     return channel.startsWith("D");
-  }
-
-  /**
-   * Check if a thread is in an external/shared channel (Slack Connect).
-   * Uses the `is_ext_shared_channel` flag from incoming webhook payloads,
-   * cached per channel ID.
-   * @deprecated Use `getChannelVisibility` instead
-   */
-  isExternalChannel(threadId: string): boolean {
-    const { channel } = this.decodeThreadId(threadId);
-    return this._externalChannels.has(channel);
   }
 
   /**
@@ -2869,8 +2856,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         name: info?.name ? `#${info.name}` : undefined,
         isDM: Boolean(info?.is_im || info?.is_mpim),
         channelVisibility,
-        // Keep isExternalChannel for backwards compatibility
-        isExternalChannel: info?.is_ext_shared ?? false,
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,

@@ -210,22 +210,10 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   isDM?(threadId: string): boolean;
 
   /**
-   * Check if a thread is in an external/shared channel (e.g., Slack Connect).
-   *
-   * External channels are shared between different organizations. Bots should
-   * be careful about what information they expose in external channels.
-   *
-   * @param threadId - The thread ID to check
-   * @returns True if the thread is in an external channel, false otherwise
-   * @deprecated Use `getChannelVisibility` instead for more granular visibility control
-   */
-  isExternalChannel?(threadId: string): boolean;
-
-  /**
    * Get the visibility scope of a channel containing the thread.
    *
-   * This provides more granular control than `isExternalChannel` by distinguishing
-   * between private channels, workspace-visible channels, and externally shared channels.
+   * This distinguishes between private channels, workspace-visible channels,
+   * and externally shared channels (e.g., Slack Connect).
    *
    * @param threadId - The thread ID to check
    * @returns The channel visibility scope
@@ -543,11 +531,6 @@ export interface Postable<
   readonly id: string;
   /** Whether this is a direct message conversation */
   readonly isDM: boolean;
-  /**
-   * Whether this is an external/shared channel (e.g., Slack Connect).
-   * @deprecated Use `channelVisibility` instead for more granular visibility control
-   */
-  readonly isExternalChannel: boolean;
   /** The visibility scope of this channel */
   readonly channelVisibility: ChannelVisibility;
 
@@ -644,11 +627,6 @@ export interface ThreadSummary<TRawMessage = unknown> {
 export interface ChannelInfo {
   id: string;
   isDM?: boolean;
-  /**
-   * Whether this is an external/shared channel (e.g., Slack Connect).
-   * @deprecated Use `channelVisibility` instead for more granular visibility control
-   */
-  isExternalChannel?: boolean;
   /** The visibility scope of this channel */
   channelVisibility?: ChannelVisibility;
   memberCount?: number;
@@ -848,11 +826,6 @@ export interface ThreadInfo {
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
-  /**
-   * Whether this is an external/shared channel (e.g., Slack Connect).
-   * @deprecated Use `channelVisibility` instead for more granular visibility control
-   */
-  isExternalChannel?: boolean;
   /** The visibility scope of this channel */
   channelVisibility?: ChannelVisibility;
   /** Platform-specific metadata */

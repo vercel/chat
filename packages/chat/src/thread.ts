@@ -40,10 +40,6 @@ export interface SerializedThread {
   currentMessage?: SerializedMessage;
   id: string;
   isDM: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
 }
 
 /**
@@ -57,10 +53,6 @@ interface ThreadImplConfigWithAdapter {
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
   isSubscribedContext?: boolean;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
@@ -78,10 +70,6 @@ interface ThreadImplConfigLazy {
   id: string;
   initialMessage?: Message;
   isDM?: boolean;
-  /**
-   * @deprecated Use `channelVisibility` instead
-   */
-  isExternalChannel?: boolean;
   isSubscribedContext?: boolean;
   streamingUpdateIntervalMs?: number;
 }
@@ -114,13 +102,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
   readonly isDM: boolean;
   readonly channelVisibility: ChannelVisibility;
 
-  /**
-   * @deprecated Use `channelVisibility === 'external'` instead
-   */
-  get isExternalChannel(): boolean {
-    return this.channelVisibility === "external";
-  }
-
   /** Direct adapter instance (if provided) */
   private _adapter?: Adapter;
   /** Adapter name for lazy resolution */
@@ -140,10 +121,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this.id = config.id;
     this.channelId = config.channelId;
     this.isDM = config.isDM ?? false;
-    // Support both new channelVisibility and deprecated isExternalChannel
-    this.channelVisibility =
-      config.channelVisibility ??
-      (config.isExternalChannel ? "external" : "unknown");
+    this.channelVisibility = config.channelVisibility ?? "unknown";
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
@@ -582,8 +560,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       channelVisibility: this.channelVisibility,
       currentMessage: this._currentMessage?.toJSON(),
       isDM: this.isDM,
-      // Keep isExternalChannel for backwards compatibility
-      ...(this.isExternalChannel ? { isExternalChannel: true } : {}),
       adapterName: this.adapter.name,
     };
   }
@@ -610,13 +586,11 @@ export class ThreadImpl<TState = Record<string, unknown>>
       id: json.id,
       adapterName: json.adapterName,
       channelId: json.channelId,
-      // Prefer channelVisibility, fall back to isExternalChannel for backwards compat
       channelVisibility: json.channelVisibility,
       currentMessage: json.currentMessage
         ? Message.fromJSON(json.currentMessage)
         : undefined,
       isDM: json.isDM,
-      isExternalChannel: json.isExternalChannel,
     });
     if (adapter) {
       thread._adapter = adapter;

@@ -1576,10 +1576,9 @@ export class Chat<
     // Check if this is a DM
     const isDM = adapter.isDM?.(threadId) ?? false;
 
-    // Get channel visibility (prefer new API, fall back to deprecated isExternalChannel)
+    // Get channel visibility
     const channelVisibility =
-      adapter.getChannelVisibility?.(threadId) ??
-      (adapter.isExternalChannel?.(threadId) ? "external" : "unknown");
+      adapter.getChannelVisibility?.(threadId) ?? "unknown";
 
     return new ThreadImpl<TState>({
       id: threadId,

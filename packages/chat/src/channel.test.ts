@@ -580,7 +580,6 @@ describe("thread.channel", () => {
     });
 
     expect(thread.channel.channelVisibility).toBe("external");
-    expect(thread.channel.isExternalChannel).toBe(true);
   });
 
   it("should default channelVisibility to unknown", () => {
@@ -595,7 +594,6 @@ describe("thread.channel", () => {
     });
 
     expect(thread.channel.channelVisibility).toBe("unknown");
-    expect(thread.channel.isExternalChannel).toBe(false);
   });
 
   it("should support private channel visibility", () => {
@@ -611,7 +609,6 @@ describe("thread.channel", () => {
     });
 
     expect(thread.channel.channelVisibility).toBe("private");
-    expect(thread.channel.isExternalChannel).toBe(false);
   });
 });
 
