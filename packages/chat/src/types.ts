@@ -23,7 +23,11 @@ import type { SerializedThread } from "./thread";
  * - `external`: Channel is shared with external organizations (e.g., Slack Connect)
  * - `unknown`: Visibility cannot be determined
  */
-export type ChannelVisibility = "private" | "workspace" | "external" | "unknown";
+export type ChannelVisibility =
+  | "private"
+  | "workspace"
+  | "external"
+  | "unknown";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -271,6 +275,17 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
 
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * This distinguishes between private channels, workspace-visible channels,
+   * and externally shared channels (e.g., Slack Connect).
+   *
+   * @param threadId - The thread ID to check
+   * @returns The channel visibility scope
+   */
+  getChannelVisibility?(threadId: string): ChannelVisibility;
+
   /** Handle incoming webhook request */
   handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
 
@@ -284,17 +299,6 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @returns True if the thread is a DM, false otherwise
    */
   isDM?(threadId: string): boolean;
-
-  /**
-   * Get the visibility scope of a channel containing the thread.
-   *
-   * This distinguishes between private channels, workspace-visible channels,
-   * and externally shared channels (e.g., Slack Connect).
-   *
-   * @param threadId - The thread ID to check
-   * @returns The channel visibility scope
-   */
-  getChannelVisibility?(threadId: string): ChannelVisibility;
 
   /**
    * List threads in a channel.
@@ -776,12 +780,12 @@ export interface Postable<
 > {
   /** The adapter this entity belongs to */
   readonly adapter: Adapter;
+  /** The visibility scope of this channel */
+  readonly channelVisibility: ChannelVisibility;
   /** Unique ID */
   readonly id: string;
   /** Whether this is a direct message conversation */
   readonly isDM: boolean;
-  /** The visibility scope of this channel */
-  readonly channelVisibility: ChannelVisibility;
 
   /**
    * Get a platform-specific mention string for a user.
@@ -905,10 +909,10 @@ export interface ThreadSummary<TRawMessage = unknown> {
  * Channel metadata returned by fetchInfo().
  */
 export interface ChannelInfo {
-  id: string;
-  isDM?: boolean;
   /** The visibility scope of this channel */
   channelVisibility?: ChannelVisibility;
+  id: string;
+  isDM?: boolean;
   memberCount?: number;
   metadata: Record<string, unknown>;
   name?: string;
@@ -1109,11 +1113,11 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
 export interface ThreadInfo {
   channelId: string;
   channelName?: string;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
-  /** The visibility scope of this channel */
-  channelVisibility?: ChannelVisibility;
   /** Platform-specific metadata */
   metadata: Record<string, unknown>;
 }

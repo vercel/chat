@@ -1779,6 +1779,7 @@ describe("ThreadImpl", () => {
         _type: "chat:Thread",
         id: "slack:C123:1234.5678",
         channelId: "C123",
+        channelVisibility: "unknown",
         currentMessage: undefined,
         isDM: true,
         adapterName: "slack",
