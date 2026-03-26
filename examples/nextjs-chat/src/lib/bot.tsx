@@ -1,6 +1,4 @@
 /** @jsxImportSource chat */
-
-import { createOpenAI } from "@ai-sdk/openai";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
@@ -56,31 +54,9 @@ export const bot = new Chat<typeof adapters, ThreadState>({
   logger: "debug",
 });
 
-// AI agent for AI mode — using Azure OpenAI via @ai-sdk/openai with custom baseURL
-const deploymentName =
-  process.env.AZURE_OPENAI_MODEL_DEPLOYMENT_NAME || "gpt-5-mini";
-const resourceName =
-  process.env.AZURE_OPENAI_ENDPOINT?.replace(
-    /^https?:\/\/|\.cognitiveservices\.azure\.com\/?$|\.openai\.azure\.com\/?$/g,
-    ""
-  ) || "ai-teamssdk-bami1";
-
-const azureOpenAI = createOpenAI({
-  apiKey: "azure",
-  baseURL: `https://${resourceName}.openai.azure.com/openai/deployments/${deploymentName}`,
-  headers: { "api-key": process.env.AZURE_OPENAI_API_KEY || "" },
-  fetch: (url, init) => {
-    const u = new URL(url as string);
-    u.searchParams.set(
-      "api-version",
-      process.env.AZURE_OPENAI_API_VERSION || "2024-10-21"
-    );
-    return globalThis.fetch(u.toString(), init);
-  },
-});
-
+// AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: azureOpenAI.chat(deploymentName),
+  model: "anthropic/claude-4.5-sonnet",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -171,12 +147,27 @@ bot.onMemberJoinedChannel(async (event) => {
 });
 
 // Handle direct messages — AI conversation by default
+// This fires on every DM, regardless of subscription status
 bot.onDirectMessage(async (_thread, message, channel) => {
   await channel.startTyping("Thinking...");
+  let history: AiMessage[];
   try {
-    const result = await agent.stream({
-      prompt: await toAiMessages([message]),
-    });
+    const messages: (typeof message)[] = [];
+    for await (const msg of channel.messages) {
+      messages.push(msg);
+      if (messages.length >= 20) {
+        break;
+      }
+    }
+    history =
+      messages.length > 0
+        ? await toAiMessages(messages)
+        : await toAiMessages([message]);
+  } catch {
+    history = await toAiMessages([message]);
+  }
+  try {
+    const result = await agent.stream({ prompt: history });
     await channel.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
