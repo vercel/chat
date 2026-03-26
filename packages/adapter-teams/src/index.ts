@@ -11,8 +11,9 @@ import {
 } from "@chat-adapter/shared";
 import type {
   Activity,
+  IAdaptiveCardActionInvokeActivity,
   IMessageActivity,
-  MessageReactionActivity,
+  IMessageReactionActivity,
   MessageReactionType,
 } from "@microsoft/teams.api";
 import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
@@ -227,7 +228,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle message activities (normal messages + Action.Submit button clicks).
    */
-  private async handleMessageActivity(ctx: IActivityContext): Promise<void> {
+  private async handleMessageActivity(
+    ctx: IActivityContext<IMessageActivity>
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring event");
       return;
@@ -236,8 +239,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const activity = ctx.activity;
 
     // Check if this message activity is actually a button click (Action.Submit)
-    // IMessageActivity.value contains action data for Action.Submit clicks
-    const actionValue = (activity as IMessageActivity).value as
+    const actionValue = activity.value as
       | { actionId?: string; value?: string }
       | undefined;
     if (actionValue?.actionId) {
@@ -321,21 +323,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle adaptive card button clicks (invoke-based).
    */
-  private async handleAdaptiveCardAction(ctx: IActivityContext): Promise<void> {
+  private async handleAdaptiveCardAction(
+    ctx: IActivityContext<IAdaptiveCardActionInvokeActivity>
+  ): Promise<void> {
     if (!this.chat) {
       return;
     }
 
     const activity = ctx.activity;
-    // Invoke activities carry action data in activity.value
-    const activityValue = (activity as IMessageActivity).value as
-      | { action?: { data?: { actionId?: string; value?: string } } }
-      | undefined;
-    const actionData = activityValue?.action?.data;
+    const actionData = activity.value.action.data as {
+      actionId?: string;
+      value?: string;
+    };
 
-    if (!actionData?.actionId) {
+    if (!actionData.actionId) {
       this.logger.debug("Adaptive card action missing actionId", {
-        value: activityValue,
+        value: activity.value,
       });
       return;
     }
@@ -376,12 +379,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle Teams reaction events.
    */
-  private handleReactionFromContext(ctx: IActivityContext): void {
+  private handleReactionFromContext(
+    ctx: IActivityContext<IMessageReactionActivity>
+  ): void {
     if (!this.chat) {
       return;
     }
 
-    const activity = ctx.activity as MessageReactionActivity;
+    const activity = ctx.activity;
     const conversationId = activity.conversation?.id || "";
     const messageIdMatch = conversationId.match(MESSAGEID_CAPTURE_PATTERN);
     const messageId = messageIdMatch?.[1] || activity.replyToId || "";
@@ -589,15 +594,6 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
   }
 
-  /**
-   * Get the appropriate API client for outbound operations.
-   * During webhook turns, uses the context's request-scoped API (correct serviceUrl).
-   * For proactive sends, uses the app-level API.
-   */
-  private get api() {
-    return this.app.api;
-  }
-
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
@@ -730,7 +726,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       });
 
       try {
-        await this.api.conversations
+        await this.app.api.conversations
           .activities(conversationId)
           .update(messageId, activity);
       } catch (error) {
@@ -760,7 +756,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.api.conversations
+      await this.app.api.conversations
         .activities(conversationId)
         .update(messageId, activity);
     } catch (error) {
@@ -786,7 +782,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.api.conversations.activities(conversationId).delete(messageId);
+      await this.app.api.conversations
+        .activities(conversationId)
+        .delete(messageId);
     } catch (error) {
       this.logger.error("Teams API: deleteActivity failed", {
         conversationId,
@@ -814,7 +812,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.api.reactions.add(
+      await this.app.api.reactions.add(
         conversationId,
         messageId,
         reactionType as MessageReactionType
@@ -844,7 +842,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.api.reactions.remove(
+      await this.app.api.reactions.remove(
         conversationId,
         messageId,
         reactionType as MessageReactionType
@@ -906,7 +904,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       if (messageId) {
         const activity = new MessageActivity(accumulated);
         activity.textFormat = "markdown";
-        await this.api.conversations
+        await this.app.api.conversations
           .activities(conversationId)
           .update(messageId, activity);
       } else {
@@ -931,7 +929,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const serviceUrl =
       cachedServiceUrl ||
-      this.api.serviceUrl ||
+      this.app.api.serviceUrl ||
       "https://smba.trafficmanager.net/teams/";
     const tenantId = cachedTenantId || this.config.tenantId;
 
@@ -951,7 +949,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const result = await this.api.conversations.create({
+      const result = await this.app.api.conversations.create({
         isGroup: false,
         bot: { id: this.app.id, name: this.userName },
         // Account requires role/name but Teams API only needs id for DM members
