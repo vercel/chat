@@ -1,4 +1,5 @@
 import type { Logger } from "chat";
+import type { RedisClientType } from "redis";
 import { describe, expect, it, vi } from "vitest";
 import { createRedisState, RedisStateAdapter } from "./index";
 
@@ -20,6 +21,31 @@ describe("RedisStateAdapter", () => {
       logger: mockLogger,
     });
     expect(adapter).toBeInstanceOf(RedisStateAdapter);
+  });
+
+  it("should create an adapter with url and default logger", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+    });
+
+    expect(adapter).toBeInstanceOf(RedisStateAdapter);
+  });
+
+  it("should accept an existing redis client", () => {
+    const client = {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      on: vi.fn(),
+    } as unknown as RedisClientType;
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    expect(adapter).toBeInstanceOf(RedisStateAdapter);
+    expect(adapter.getClient()).toBe(client);
   });
 
   it("should have appendToList method", () => {
