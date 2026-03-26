@@ -11,6 +11,7 @@ import {
 import type { Logger } from "chat";
 import { NotImplementedError } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handleTeamsError } from "./errors";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
 
 const TEAMS_PREFIX_PATTERN = /^teams:/;
@@ -696,28 +697,9 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("handleTeamsError", () => {
-    function callHandleTeamsError(
-      adapter: TeamsAdapter,
-      error: unknown,
-      operation: string
-    ): never {
-      return (
-        adapter as Record<string, unknown> as {
-          handleTeamsError: (e: unknown, op: string) => never;
-        }
-      ).handleTeamsError(error, operation);
-    }
-
     it("should throw AuthenticationError for 401 status", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { statusCode: 401, message: "Unauthorized" },
           "postMessage"
         )
@@ -725,15 +707,8 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw AuthenticationError for 403 status", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { statusCode: 403, message: "Forbidden" },
           "postMessage"
         )
@@ -741,15 +716,8 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw NetworkError for 404 status", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { statusCode: 404, message: "Not found" },
           "editMessage"
         )
@@ -757,31 +725,14 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw AdapterRateLimitError for 429 status", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
-          { statusCode: 429, retryAfter: 30 },
-          "postMessage"
-        )
+        handleTeamsError({ statusCode: 429, retryAfter: 30 }, "postMessage")
       ).toThrow(AdapterRateLimitError);
     });
 
     it("should handle TeamsSDK HttpError with innerHttpError", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { innerHttpError: { statusCode: 401 }, message: "Auth failed" },
           "postMessage"
         )
@@ -789,18 +740,8 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw AdapterRateLimitError with retryAfter for 429", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       try {
-        callHandleTeamsError(
-          adapter,
-          { statusCode: 429, retryAfter: 60 },
-          "postMessage"
-        );
+        handleTeamsError({ statusCode: 429, retryAfter: 60 }, "postMessage");
       } catch (error) {
         expect(error).toBeInstanceOf(AdapterRateLimitError);
         expect((error as AdapterRateLimitError).retryAfter).toBe(60);
@@ -808,15 +749,8 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw PermissionError for messages containing 'permission'", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { message: "Insufficient Permission to complete the operation" },
           "deleteMessage"
         )
@@ -824,55 +758,24 @@ describe("TeamsAdapter", () => {
     });
 
     it("should throw NetworkError for generic errors with message", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
-          { message: "Connection reset" },
-          "startTyping"
-        )
+        handleTeamsError({ message: "Connection reset" }, "startTyping")
       ).toThrow(NetworkError);
     });
 
     it("should throw NetworkError for unknown error types", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(adapter, "some string error", "postMessage")
+        handleTeamsError("some string error", "postMessage")
       ).toThrow(NetworkError);
     });
 
     it("should throw NetworkError for null/undefined errors", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
-      expect(() => callHandleTeamsError(adapter, null, "postMessage")).toThrow(
-        NetworkError
-      );
+      expect(() => handleTeamsError(null, "postMessage")).toThrow(NetworkError);
     });
 
     it("should use status field if statusCode not present", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
       expect(() =>
-        callHandleTeamsError(
-          adapter,
+        handleTeamsError(
           { status: 401, message: "Unauthorized" },
           "postMessage"
         )
@@ -880,15 +783,9 @@ describe("TeamsAdapter", () => {
     });
 
     it("should use code field if statusCode and status not present", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
-      });
-
-      expect(() =>
-        callHandleTeamsError(adapter, { code: 429 }, "postMessage")
-      ).toThrow(AdapterRateLimitError);
+      expect(() => handleTeamsError({ code: 429 }, "postMessage")).toThrow(
+        AdapterRateLimitError
+      );
     });
   });
 
@@ -899,10 +796,10 @@ describe("TeamsAdapter", () => {
   describe("extractTextFromGraphMessage", () => {
     function callExtractText(adapter: TeamsAdapter, msg: unknown): string {
       return (
-        adapter as Record<string, unknown> as {
-          extractTextFromGraphMessage: (m: unknown) => string;
+        adapter as unknown as {
+          graphReader: { extractTextFromGraphMessage: (m: unknown) => string };
         }
-      ).extractTextFromGraphMessage(msg);
+      ).graphReader.extractTextFromGraphMessage(msg);
     }
 
     it("should extract plain text content", () => {
@@ -1029,10 +926,10 @@ describe("TeamsAdapter", () => {
       card: unknown
     ): string | null {
       return (
-        adapter as Record<string, unknown> as {
-          extractCardTitle: (c: unknown) => string | null;
+        adapter as unknown as {
+          graphReader: { extractCardTitle: (c: unknown) => string | null };
         }
-      ).extractCardTitle(card);
+      ).graphReader.extractCardTitle(card);
     }
 
     it("should return null for null/undefined", () => {
