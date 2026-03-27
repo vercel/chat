@@ -55,13 +55,6 @@ export class TeamsGraphReader {
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    if (!this.deps.config.tenantId) {
-      throw new NotImplementedError(
-        "Teams fetchMessages requires appTenantId to be configured for Microsoft Graph API access.",
-        "fetchMessages"
-      );
-    }
-
     const { conversationId } = this.deps.decodeThreadId(threadId);
     const limit = options.limit || 50;
     const cursor = options.cursor;
@@ -210,13 +203,6 @@ export class TeamsGraphReader {
     channelId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    if (!this.deps.config.tenantId) {
-      throw new NotImplementedError(
-        "Teams fetchChannelMessages requires appTenantId for Microsoft Graph API access.",
-        "fetchChannelMessages"
-      );
-    }
-
     const { conversationId } = this.deps.decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
@@ -448,13 +434,6 @@ export class TeamsGraphReader {
     channelId: string,
     options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
-    if (!this.deps.config.tenantId) {
-      throw new NotImplementedError(
-        "Teams listThreads requires appTenantId for Microsoft Graph API access.",
-        "listThreads"
-      );
-    }
-
     const { conversationId, serviceUrl } = this.deps.decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
