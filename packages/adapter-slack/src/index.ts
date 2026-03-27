@@ -613,9 +613,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     const redirectUri =
-      options?.redirectUri ??
-      url.searchParams.get("redirect_uri") ??
-      undefined;
+      options?.redirectUri ?? url.searchParams.get("redirect_uri") ?? undefined;
 
     const result = await this.client.oauth.v2.access({
       client_id: this.clientId,
