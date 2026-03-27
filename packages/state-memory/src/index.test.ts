@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryState, type MemoryStateAdapter } from "./index";
 
 describe("MemoryStateAdapter", () => {
@@ -186,13 +186,20 @@ describe("MemoryStateAdapter", () => {
     });
 
     it("should refresh TTL on subsequent appends", async () => {
-      await adapter.appendToList("list1", { id: 1 }, { ttlMs: 50 });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      // Append again — refreshes TTL
-      await adapter.appendToList("list1", { id: 2 }, { ttlMs: 50 });
+      vi.useFakeTimers();
 
-      const result = await adapter.getList("list1");
-      expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+      try {
+        await adapter.appendToList("list1", { id: 1 }, { ttlMs: 50 });
+        await vi.advanceTimersByTimeAsync(30);
+
+        // Append again — refreshes TTL
+        await adapter.appendToList("list1", { id: 2 }, { ttlMs: 50 });
+
+        const result = await adapter.getList("list1");
+        expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("should keep lists isolated by key", async () => {
