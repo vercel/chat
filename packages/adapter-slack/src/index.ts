@@ -119,6 +119,11 @@ export interface SlackAdapterConfig {
   userName?: string;
 }
 
+export interface SlackOAuthCallbackOptions {
+  /** Redirect URI to send to Slack during the OAuth code exchange. */
+  redirectUri?: string;
+}
+
 /** Data stored per Slack workspace installation */
 export interface SlackInstallation {
   botToken: string;
@@ -588,7 +593,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * exchanges it for tokens, and saves the installation.
    */
   async handleOAuthCallback(
-    request: Request
+    request: Request,
+    options?: SlackOAuthCallbackOptions
   ): Promise<{ teamId: string; installation: SlackInstallation }> {
     if (!(this.clientId && this.clientSecret)) {
       throw new ValidationError(
@@ -606,13 +612,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       );
     }
 
-    const redirectUri = url.searchParams.get("redirect_uri") ?? undefined;
+    const redirectUri =
+      options?.redirectUri ??
+      url.searchParams.get("redirect_uri") ??
+      undefined;
 
     const result = await this.client.oauth.v2.access({
       client_id: this.clientId,
       client_secret: this.clientSecret,
       code,
-      redirect_uri: redirectUri,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
     if (!(result.ok && result.access_token && result.team?.id)) {
