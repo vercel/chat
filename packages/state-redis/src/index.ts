@@ -76,23 +76,34 @@ export class RedisStateAdapter implements StateAdapter {
     }
 
     await new Promise<void>((resolve, reject) => {
+      let lastError: unknown;
+
       const handleReady = () => {
         cleanup();
         resolve();
       };
 
       const handleError = (error: unknown) => {
+        lastError = error;
+      };
+
+      const handleEnd = () => {
         cleanup();
-        reject(error);
+        reject(
+          lastError ??
+            new Error("Redis client connection ended before becoming ready.")
+        );
       };
 
       const cleanup = () => {
         this.client.off("ready", handleReady);
         this.client.off("error", handleError);
+        this.client.off("end", handleEnd);
       };
 
       this.client.on("ready", handleReady);
       this.client.on("error", handleError);
+      this.client.on("end", handleEnd);
 
       if (this.client.isReady) {
         cleanup();
