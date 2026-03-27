@@ -49,6 +49,7 @@ import {
 } from "chat";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import { cardToAdaptiveCard } from "./cards";
+import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
 import { TeamsFormatConverter } from "./markdown";
@@ -85,10 +86,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // Create the BridgeHttpAdapter for serverless dispatch
     this.bridgeAdapter = new BridgeHttpAdapter();
 
-    // Pass config through to App — it resolves CLIENT_ID, CLIENT_SECRET, TENANT_ID from env
-    const { logger: _logger, userName: _userName, ...appConfig } = config;
+    // Convert our public config (appId/appPassword/appTenantId) to Teams SDK AppOptions
     this.app = new App({
-      ...appConfig,
+      ...toAppOptions(config),
       httpServerAdapter: this.bridgeAdapter,
     });
 
@@ -902,7 +902,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       cachedServiceUrl ||
       this.app.api.serviceUrl ||
       "https://smba.trafficmanager.net/teams/";
-    const tenantId = cachedTenantId || this.config.tenantId;
+    const tenantId = cachedTenantId || this.config.appTenantId;
 
     this.logger.debug("Teams: creating 1:1 conversation", {
       userId,
@@ -1130,4 +1130,9 @@ export function createTeamsAdapter(config?: TeamsAdapterConfig): TeamsAdapter {
 // Re-export card converter for advanced use
 export { cardToAdaptiveCard, cardToFallbackText } from "./cards";
 export { TeamsFormatConverter } from "./markdown";
-export type { TeamsAdapterConfig, TeamsThreadId } from "./types";
+export type {
+  TeamsAdapterConfig,
+  TeamsAuthCertificate,
+  TeamsAuthFederated,
+  TeamsThreadId,
+} from "./types";

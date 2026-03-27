@@ -381,7 +381,7 @@ export class TeamsGraphReader {
       }
     }
 
-    if (channelContext && this.deps.config.tenantId) {
+    if (channelContext) {
       try {
         this.deps.logger.debug("Teams Graph API: GET channel info", {
           teamId: channelContext.teamId,
