@@ -118,6 +118,48 @@ describe("RedisStateAdapter", () => {
 
     await connectPromise;
     expect(resolved).toBe(true);
+    expect(client.connect).not.toHaveBeenCalled();
+  });
+
+  it("should wait for an injected client to become ready again after reconnecting", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: true,
+    }) as unknown as RedisClientType & {
+      isOpen: boolean;
+      isReady: boolean;
+    };
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    await adapter.connect();
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isReady = false;
+    client.isOpen = false;
+    emitter.emit("reconnecting");
+
+    let resolved = false;
+    const reconnectPromise = adapter.connect().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isOpen = true;
+    client.isReady = true;
+    emitter.emit("ready");
+
+    await reconnectPromise;
+    expect(resolved).toBe(true);
   });
 
   it("should reject when an injected client ends before becoming ready", async () => {

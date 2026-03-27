@@ -60,6 +60,15 @@ export class RedisStateAdapter implements StateAdapter {
     this.client.on("error", (err) => {
       this.logger.error("Redis client error", { error: err });
     });
+    this.client.on("ready", () => {
+      this.connected = true;
+    });
+    this.client.on("reconnecting", () => {
+      this.connected = false;
+    });
+    this.client.on("end", () => {
+      this.connected = false;
+    });
   }
 
   private key(type: "sub" | "lock" | "cache" | "queue", id: string): string {
@@ -113,23 +122,29 @@ export class RedisStateAdapter implements StateAdapter {
   }
 
   async connect(): Promise<void> {
-    if (this.connected) {
+    if (this.connected && this.client.isReady) {
       return;
     }
 
     // Reuse existing connection attempt to avoid race conditions
     if (!this.connectPromise) {
-      this.connectPromise = (async () => {
-        if (!(this.client.isReady || this.client.isOpen)) {
+      const connectPromise = (async () => {
+        if (this.ownsClient && !(this.client.isReady || this.client.isOpen)) {
           await this.client.connect();
         }
 
         await this.waitForReady();
         this.connected = true;
-      })().catch((error) => {
-        this.connectPromise = null;
-        throw error;
-      });
+      })()
+        .catch((error) => {
+          throw error;
+        })
+        .finally(() => {
+          if (this.connectPromise === connectPromise) {
+            this.connectPromise = null;
+          }
+        });
+      this.connectPromise = connectPromise;
     }
 
     await this.connectPromise;
