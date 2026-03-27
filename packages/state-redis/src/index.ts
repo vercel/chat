@@ -70,6 +70,37 @@ export class RedisStateAdapter implements StateAdapter {
     return `${this.keyPrefix}:subscriptions`;
   }
 
+  private async waitForReady(): Promise<void> {
+    if (this.client.isReady) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const handleReady = () => {
+        cleanup();
+        resolve();
+      };
+
+      const handleError = (error: unknown) => {
+        cleanup();
+        reject(error);
+      };
+
+      const cleanup = () => {
+        this.client.off("ready", handleReady);
+        this.client.off("error", handleError);
+      };
+
+      this.client.on("ready", handleReady);
+      this.client.on("error", handleError);
+
+      if (this.client.isReady) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
   async connect(): Promise<void> {
     if (this.connected) {
       return;
@@ -78,10 +109,11 @@ export class RedisStateAdapter implements StateAdapter {
     // Reuse existing connection attempt to avoid race conditions
     if (!this.connectPromise) {
       this.connectPromise = (async () => {
-        if (!this.client.isOpen) {
+        if (!this.client.isReady && !this.client.isOpen) {
           await this.client.connect();
         }
 
+        await this.waitForReady();
         this.connected = true;
       })().catch((error) => {
         this.connectPromise = null;

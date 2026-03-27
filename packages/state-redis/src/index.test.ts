@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import type { Logger } from "chat";
 import type { RedisClientType } from "redis";
 import { describe, expect, it, vi } from "vitest";
@@ -36,6 +37,7 @@ describe("RedisStateAdapter", () => {
       close: vi.fn(),
       connect: vi.fn(),
       isOpen: true,
+      isReady: true,
       on: vi.fn(),
     } as unknown as RedisClientType;
 
@@ -46,6 +48,38 @@ describe("RedisStateAdapter", () => {
 
     expect(adapter).toBeInstanceOf(RedisStateAdapter);
     expect(adapter.getClient()).toBe(client);
+  });
+
+  it("should wait for an injected open client to become ready", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: false,
+    }) as unknown as RedisClientType & {
+      isReady: boolean;
+    };
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    let resolved = false;
+    const connectPromise = adapter.connect().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isReady = true;
+    emitter.emit("ready");
+
+    await connectPromise;
+    expect(resolved).toBe(true);
   });
 
   it("should have appendToList method", () => {
