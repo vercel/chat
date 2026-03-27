@@ -109,7 +109,7 @@ export class RedisStateAdapter implements StateAdapter {
     // Reuse existing connection attempt to avoid race conditions
     if (!this.connectPromise) {
       this.connectPromise = (async () => {
-        if (!this.client.isReady && !this.client.isOpen) {
+        if (!(this.client.isReady || this.client.isOpen)) {
           await this.client.connect();
         }
 
