@@ -1,4 +1,5 @@
 import type { App } from "@microsoft/teams.apps";
+import type { Client as GraphClient } from "@microsoft/teams.graph";
 import { chats, teams } from "@microsoft/teams.graph-endpoints";
 import type {
   Attachment,
@@ -14,11 +15,8 @@ import type {
 } from "chat";
 import { Message, NotImplementedError } from "chat";
 import type { TeamsFormatConverter } from "./markdown";
-import type {
-  TeamsAdapterConfig,
-  TeamsChannelContext,
-  TeamsThreadId,
-} from "./types";
+import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
+import type { TeamsChannelContext } from "./types";
 
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const SEMICOLON_MESSAGEID_CAPTURE_PATTERN = /;messageid=(\d+)/;
@@ -34,13 +32,10 @@ type ChatMessageListResponse = Awaited<
 type GraphMessage = NonNullable<ChatMessageListResponse["value"]>[number];
 
 export interface TeamsGraphReaderDeps {
-  app: App;
-  config: TeamsAdapterConfig;
-  decodeThreadId: (threadId: string) => TeamsThreadId;
-  encodeThreadId: (data: TeamsThreadId) => string;
+  botId: string;
+  graph: GraphClient;
   formatConverter: TeamsFormatConverter;
   getChat: () => ChatInstance | null;
-  isDM: (threadId: string) => boolean;
   logger: Logger;
 }
 
@@ -55,7 +50,7 @@ export class TeamsGraphReader {
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    const { conversationId } = this.deps.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
     const limit = options.limit || 50;
     const cursor = options.cursor;
     const direction = options.direction ?? "backward";
@@ -109,7 +104,7 @@ export class TeamsGraphReader {
       if (direction === "forward") {
         const allMessages: GraphMessage[] = [];
 
-        const firstPage = await this.deps.app.graph.call(chats.messages.list, {
+        const firstPage = await this.deps.graph.call(chats.messages.list, {
           "chat-id": baseConversationId,
           $top: 50,
           $orderby: ["createdDateTime desc"],
@@ -138,7 +133,7 @@ export class TeamsGraphReader {
         hasMoreMessages = startIndex + limit < allMessages.length;
         graphMessages = allMessages.slice(startIndex, startIndex + limit);
       } else {
-        const response = await this.deps.app.graph.call(chats.messages.list, {
+        const response = await this.deps.graph.call(chats.messages.list, {
           "chat-id": baseConversationId,
           $top: limit,
           $orderby: ["createdDateTime desc"],
@@ -203,7 +198,7 @@ export class TeamsGraphReader {
     channelId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    const { conversationId } = this.deps.decodeThreadId(channelId);
+    const { conversationId } = decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -245,7 +240,7 @@ export class TeamsGraphReader {
 
         if (direction === "forward") {
           const allMessages: GraphMessage[] = [];
-          const firstPage = await this.deps.app.graph.call(
+          const firstPage = await this.deps.graph.call(
             teams.channels.messages.list,
             {
               ...channelParams,
@@ -277,7 +272,7 @@ export class TeamsGraphReader {
           hasMoreMessages = startIndex + limit < allMessages.length;
           graphMessages = allMessages.slice(startIndex, startIndex + limit);
         } else {
-          const response = await this.deps.app.graph.call(
+          const response = await this.deps.graph.call(
             teams.channels.messages.list,
             {
               ...channelParams,
@@ -290,7 +285,7 @@ export class TeamsGraphReader {
         }
       } else if (direction === "forward") {
         const allMessages: GraphMessage[] = [];
-        const firstPage = await this.deps.app.graph.call(chats.messages.list, {
+        const firstPage = await this.deps.graph.call(chats.messages.list, {
           "chat-id": baseConversationId,
           $top: 50,
           $orderby: ["createdDateTime desc"],
@@ -320,7 +315,7 @@ export class TeamsGraphReader {
         hasMoreMessages = startIndex + limit < allMessages.length;
         graphMessages = allMessages.slice(startIndex, startIndex + limit);
       } else {
-        const response = await this.deps.app.graph.call(chats.messages.list, {
+        const response = await this.deps.graph.call(chats.messages.list, {
           "chat-id": baseConversationId,
           $top: limit,
           $orderby: ["createdDateTime desc"],
@@ -360,7 +355,7 @@ export class TeamsGraphReader {
   }
 
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
-    const { conversationId } = this.deps.decodeThreadId(channelId);
+    const { conversationId } = decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -388,7 +383,7 @@ export class TeamsGraphReader {
           channelId: channelContext.channelId,
         });
 
-        const response = await this.deps.app.graph.call(teams.channels.get, {
+        const response = await this.deps.graph.call(teams.channels.get, {
           "team-id": channelContext.teamId,
           "channel-id": channelContext.channelId,
         });
@@ -413,7 +408,7 @@ export class TeamsGraphReader {
 
     return {
       id: channelId,
-      isDM: this.deps.isDM(channelId),
+      isDM: isDM(channelId),
       metadata: {
         conversationId: baseConversationId,
       },
@@ -421,7 +416,7 @@ export class TeamsGraphReader {
   }
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
-    const { conversationId } = this.deps.decodeThreadId(threadId);
+    const { conversationId } = decodeThreadId(threadId);
 
     return {
       id: threadId,
@@ -434,7 +429,7 @@ export class TeamsGraphReader {
     channelId: string,
     options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
-    const { conversationId, serviceUrl } = this.deps.decodeThreadId(channelId);
+    const { conversationId, serviceUrl } = decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -466,7 +461,7 @@ export class TeamsGraphReader {
       const threads: ThreadSummary[] = [];
 
       if (channelContext) {
-        const response = await this.deps.app.graph.call(
+        const response = await this.deps.graph.call(
           teams.channels.messages.list,
           {
             "team-id": channelContext.teamId,
@@ -480,14 +475,14 @@ export class TeamsGraphReader {
           if (!msg.id) {
             continue;
           }
-          const threadId = this.deps.encodeThreadId({
+          const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
             serviceUrl,
           });
 
           const isFromBot =
-            msg.from?.application?.id === this.deps.app.id ||
-            msg.from?.user?.id === this.deps.app.id;
+            msg.from?.application?.id === this.deps.botId ||
+            msg.from?.user?.id === this.deps.botId;
 
           threads.push({
             id: threadId,
@@ -527,7 +522,7 @@ export class TeamsGraphReader {
           });
         }
       } else {
-        const response = await this.deps.app.graph.call(chats.messages.list, {
+        const response = await this.deps.graph.call(chats.messages.list, {
           "chat-id": baseConversationId,
           $top: limit,
           $orderby: ["createdDateTime desc"],
@@ -538,14 +533,14 @@ export class TeamsGraphReader {
           if (!msg.id) {
             continue;
           }
-          const threadId = this.deps.encodeThreadId({
+          const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
             serviceUrl,
           });
 
           const isFromBot =
-            msg.from?.application?.id === this.deps.app.id ||
-            msg.from?.user?.id === this.deps.app.id;
+            msg.from?.application?.id === this.deps.botId ||
+            msg.from?.user?.id === this.deps.botId;
 
           threads.push({
             id: threadId,
@@ -624,7 +619,7 @@ export class TeamsGraphReader {
 
     let parentMessage: GraphMessage | null = null;
     try {
-      parentMessage = await this.deps.app.graph.call(
+      parentMessage = await this.deps.graph.call(
         teams.channels.messages.get,
         channelMsgParams
       );
@@ -718,7 +713,7 @@ export class TeamsGraphReader {
   }): Promise<GraphMessage[]> {
     const allReplies: GraphMessage[] = [];
 
-    const firstPage = await this.deps.app.graph.call(
+    const firstPage = await this.deps.graph.call(
       teams.channels.messages.replies.list,
       { ...params, $top: 50 }
     );
@@ -740,7 +735,7 @@ export class TeamsGraphReader {
    */
   private async graphGetNextLink<T>(nextLinkUrl: string): Promise<T> {
     // @ts-expect-error — accessing protected `http` on GraphClient for raw nextLink pagination
-    const res = await this.deps.app.graph.http.get<T>(nextLinkUrl);
+    const res = await this.deps.graph.http.get<T>(nextLinkUrl);
     return res.data;
   }
 
@@ -856,8 +851,8 @@ export class TeamsGraphReader {
       .filter((msg) => msg.id)
       .map((msg) => {
         const isFromBot =
-          msg.from?.application?.id === this.deps.app.id ||
-          msg.from?.user?.id === this.deps.app.id;
+          msg.from?.application?.id === this.deps.botId ||
+          msg.from?.user?.id === this.deps.botId;
 
         return new Message({
           id: msg.id as string,

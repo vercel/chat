@@ -46,7 +46,7 @@ describe("fetchMessages Replay Tests - Teams", () => {
     vi.clearAllMocks();
 
     ctx = createTeamsTestContext(
-      { botName: "Chat SDK Demo", clientId: TEAMS_BOT_APP_ID },
+      { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
       {}
     );
 
@@ -332,7 +332,7 @@ describe("allMessages Replay Tests - Teams", () => {
     vi.clearAllMocks();
 
     ctx = createTeamsTestContext(
-      { botName: "Chat SDK Demo", clientId: TEAMS_BOT_APP_ID },
+      { botName: "Chat SDK Demo", appId: TEAMS_BOT_APP_ID },
       {}
     );
 

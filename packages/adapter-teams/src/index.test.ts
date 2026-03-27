@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
-import type { Logger } from "chat";
+import { ConsoleLogger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
 
@@ -27,12 +27,7 @@ class MockTeamsError extends Error {
   }
 }
 
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
+const logger = new ConsoleLogger("error");
 
 describe("ESM compatibility", () => {
   it(
@@ -86,7 +81,10 @@ describe("TeamsAdapter", () => {
         key.startsWith("TEAMS_") ||
         key === "CLIENT_ID" ||
         key === "CLIENT_SECRET" ||
-        key === "TENANT_ID"
+        key === "TENANT_ID" ||
+        key === "TEAMS_APP_ID" ||
+        key === "TEAMS_APP_PASSWORD" ||
+        key === "TEAMS_APP_TENANT_ID"
       ) {
         delete process.env[key];
       }
@@ -103,9 +101,9 @@ describe("TeamsAdapter", () => {
 
   it("should create an adapter instance", () => {
     const adapter = createTeamsAdapter({
-      clientId: "test-app-id",
-      clientSecret: "test-password",
-      logger: mockLogger,
+      appId: "test-app-id",
+      appPassword: "test-password",
+      logger,
     });
     expect(adapter).toBeInstanceOf(TeamsAdapter);
     expect(adapter.name).toBe("teams");
@@ -114,9 +112,9 @@ describe("TeamsAdapter", () => {
   describe("thread ID encoding", () => {
     it("should encode and decode thread IDs", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const original = {
@@ -134,9 +132,9 @@ describe("TeamsAdapter", () => {
 
     it("should preserve messageid in thread context for channel threads", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const original = {
@@ -154,9 +152,9 @@ describe("TeamsAdapter", () => {
 
     it("should throw ValidationError for invalid thread IDs", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
@@ -168,9 +166,9 @@ describe("TeamsAdapter", () => {
 
     it("should handle special characters in conversationId and serviceUrl", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const original = {
@@ -195,40 +193,40 @@ describe("TeamsAdapter", () => {
   describe("constructor", () => {
     it("should set default userName to 'bot'", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
       expect(adapter.userName).toBe("bot");
     });
 
     it("should use provided userName", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
         userName: "mybot",
       });
       expect(adapter.userName).toBe("mybot");
     });
 
-    it("should accept tenantId config", () => {
+    it("should accept appTenantId config", () => {
       expect(
         () =>
           new TeamsAdapter({
-            clientId: "test",
-            clientSecret: "test",
-            logger: mockLogger,
-            tenantId: "some-tenant-id",
+            appId: "test",
+            appPassword: "test",
+            logger,
+            appTenantId: "some-tenant-id",
           })
       ).not.toThrow();
     });
 
     it("should have name 'teams'", () => {
       const adapter = new TeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
       expect(adapter.name).toBe("teams");
     });
@@ -239,40 +237,40 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("constructor env var resolution", () => {
-    it("should resolve clientId from CLIENT_ID env var", () => {
-      process.env.CLIENT_ID = "env-app-id";
-      process.env.CLIENT_SECRET = "env-password";
+    it("should resolve appId from TEAMS_APP_ID env var", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
       const adapter = new TeamsAdapter();
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
 
-    it("should resolve appPassword from CLIENT_SECRET env var", () => {
-      process.env.CLIENT_SECRET = "env-password";
-      const adapter = new TeamsAdapter({ clientId: "test" });
+    it("should resolve appPassword from TEAMS_APP_PASSWORD env var", () => {
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      const adapter = new TeamsAdapter({ appId: "test" });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
 
-    it("should resolve appTenantId from TENANT_ID env var", () => {
-      process.env.TENANT_ID = "env-tenant";
+    it("should resolve appTenantId from TEAMS_APP_TENANT_ID env var", () => {
+      process.env.TEAMS_APP_TENANT_ID = "env-tenant";
       const adapter = new TeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
+        appId: "test",
+        appPassword: "test",
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
 
     it("should default logger when not provided", () => {
-      process.env.CLIENT_ID = "env-app-id";
-      process.env.CLIENT_SECRET = "env-password";
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
       const adapter = new TeamsAdapter();
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
 
     it("should prefer config values over env vars", () => {
-      process.env.CLIENT_ID = "env-app-id";
+      process.env.TEAMS_APP_ID = "env-app-id";
       const adapter = new TeamsAdapter({
-        clientId: "config-app-id",
-        clientSecret: "test",
+        appId: "config-app-id",
+        appPassword: "test",
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
       expect(adapter.name).toBe("teams");
@@ -286,36 +284,18 @@ describe("TeamsAdapter", () => {
   describe("createTeamsAdapter factory", () => {
     it("should delegate to constructor", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
 
-    it("should create adapter with managedIdentityClientId (federated)", () => {
+    it("should create adapter with federated auth", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        managedIdentityClientId: "managed-identity-client-id",
-        logger: mockLogger,
-      });
-      expect(adapter).toBeInstanceOf(TeamsAdapter);
-    });
-
-    it("should create adapter with token auth", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        token: async () => "test-token",
-        logger: mockLogger,
-      });
-      expect(adapter).toBeInstanceOf(TeamsAdapter);
-    });
-
-    it("should create adapter with managedIdentityClientId", () => {
-      const adapter = createTeamsAdapter({
-        clientId: "test",
-        managedIdentityClientId: "system",
-        logger: mockLogger,
+        appId: "test",
+        federated: { clientId: "managed-identity-client-id" },
+        logger,
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
@@ -328,9 +308,9 @@ describe("TeamsAdapter", () => {
   describe("isMessageFromSelf (via parseMessage)", () => {
     it("should detect exact match of appId", () => {
       const adapter = createTeamsAdapter({
-        clientId: "abc123-def456",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "abc123-def456",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -348,9 +328,9 @@ describe("TeamsAdapter", () => {
 
     it("should detect Teams-prefixed bot ID (28:appId)", () => {
       const adapter = createTeamsAdapter({
-        clientId: "abc123-def456",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "abc123-def456",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -368,9 +348,9 @@ describe("TeamsAdapter", () => {
 
     it("should not detect unrelated user as self", () => {
       const adapter = createTeamsAdapter({
-        clientId: "abc123-def456",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "abc123-def456",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -388,9 +368,9 @@ describe("TeamsAdapter", () => {
 
     it("should return false when from.id is undefined", () => {
       const adapter = createTeamsAdapter({
-        clientId: "abc123",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "abc123",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -414,9 +394,9 @@ describe("TeamsAdapter", () => {
   describe("parseMessage", () => {
     it("should parse basic text message", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -439,9 +419,9 @@ describe("TeamsAdapter", () => {
 
     it("should handle missing text gracefully", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -458,9 +438,9 @@ describe("TeamsAdapter", () => {
 
     it("should handle missing from fields gracefully", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -478,9 +458,9 @@ describe("TeamsAdapter", () => {
 
     it("should filter out adaptive card attachments", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -511,9 +491,9 @@ describe("TeamsAdapter", () => {
 
     it("should filter out text/html attachments without contentUrl", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -537,9 +517,9 @@ describe("TeamsAdapter", () => {
 
     it("should classify attachment types by contentType", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -583,9 +563,9 @@ describe("TeamsAdapter", () => {
 
     it("should set metadata.edited to false for new messages", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -613,9 +593,9 @@ describe("TeamsAdapter", () => {
   describe("normalizeMentions (via parseMessage)", () => {
     it("should trim whitespace from text", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app",
+        appPassword: "test",
+        logger,
       });
 
       const activity = {
@@ -640,9 +620,9 @@ describe("TeamsAdapter", () => {
   describe("isDM", () => {
     it("should return false for group chats (19: prefix)", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -655,9 +635,9 @@ describe("TeamsAdapter", () => {
 
     it("should return true for DM conversations (non-19: prefix)", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -670,9 +650,9 @@ describe("TeamsAdapter", () => {
 
     it("should return false for channel threads with messageid", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -691,9 +671,9 @@ describe("TeamsAdapter", () => {
   describe("channelIdFromThreadId", () => {
     it("should strip messageid from thread ID", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -710,9 +690,9 @@ describe("TeamsAdapter", () => {
 
     it("should return same ID when no messageid present", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -734,9 +714,9 @@ describe("TeamsAdapter", () => {
   describe("fetchThread", () => {
     it("should return basic thread info", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const threadId = adapter.encodeThreadId({
@@ -758,9 +738,9 @@ describe("TeamsAdapter", () => {
   describe("handleWebhook", () => {
     it("should return 400 for invalid JSON body", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const request = new Request("https://example.com/webhook", {
@@ -783,9 +763,9 @@ describe("TeamsAdapter", () => {
   describe("initialize", () => {
     it("should store chat instance and initialize app", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const mockChat = {
@@ -811,9 +791,9 @@ describe("TeamsAdapter", () => {
   describe("renderFormatted", () => {
     it("should delegate to format converter", () => {
       const adapter = createTeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const ast = {
@@ -839,9 +819,9 @@ describe("TeamsAdapter", () => {
   describe("postMessage", () => {
     it("should call app.send and return message ID", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app-id",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
       });
 
       // Mock app.send
@@ -858,7 +838,7 @@ describe("TeamsAdapter", () => {
         serviceUrl: "https://smba.trafficmanager.net/teams/",
       });
 
-      const result = await adapter.postMessage(threadId, { text: "Hi there" });
+      const result = await adapter.postMessage(threadId, { markdown: "Hi there" });
 
       expect(result.id).toBe("sent-msg-123");
       expect(result.threadId).toBe(threadId);
@@ -867,9 +847,9 @@ describe("TeamsAdapter", () => {
 
     it("should handle send failure by calling handleTeamsError", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app-id",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
       });
 
       const mockApp = (
@@ -885,7 +865,7 @@ describe("TeamsAdapter", () => {
       });
 
       await expect(
-        adapter.postMessage(threadId, { text: "Hi" })
+        adapter.postMessage(threadId, { markdown: "Hi" })
       ).rejects.toThrow(AuthenticationError);
     });
   });
@@ -893,9 +873,9 @@ describe("TeamsAdapter", () => {
   describe("editMessage", () => {
     it("should call api.conversations.activities.update", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app-id",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
       });
 
       const mockUpdate = vi.fn(async () => ({ id: "edit-msg-1" }));
@@ -917,7 +897,7 @@ describe("TeamsAdapter", () => {
       });
 
       const result = await adapter.editMessage(threadId, "edit-msg-1", {
-        text: "Updated text",
+        markdown: "Updated text",
       });
 
       expect(result.id).toBe("edit-msg-1");
@@ -929,9 +909,9 @@ describe("TeamsAdapter", () => {
   describe("deleteMessage", () => {
     it("should call api.conversations.activities.delete", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app-id",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
       });
 
       const mockDelete = vi.fn(async () => undefined);
@@ -966,9 +946,9 @@ describe("TeamsAdapter", () => {
   describe("startTyping", () => {
     it("should send typing activity via app.send", async () => {
       const adapter = createTeamsAdapter({
-        clientId: "test-app-id",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
       });
 
       const mockApp = (
@@ -994,9 +974,9 @@ describe("TeamsAdapter", () => {
   describe("openDM", () => {
     it("should throw ValidationError when no tenantId available", async () => {
       const adapter = new TeamsAdapter({
-        clientId: "test",
-        clientSecret: "test",
-        logger: mockLogger,
+        appId: "test",
+        appPassword: "test",
+        logger,
       });
 
       const mockState = {

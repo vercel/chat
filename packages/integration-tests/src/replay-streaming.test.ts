@@ -145,7 +145,7 @@ describe("Streaming Replay Tests", () => {
       aiModeEnabled = false;
 
       ctx = createTeamsTestContext(
-        { botName: teamsFixtures.botName, clientId: teamsFixtures.appId },
+        { botName: teamsFixtures.botName, appId: teamsFixtures.appId },
         {
           onMention: async (thread, message) => {
             await thread.subscribe();

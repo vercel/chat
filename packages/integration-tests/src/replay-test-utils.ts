@@ -326,11 +326,11 @@ export function createTeamsTestContext(
     onReaction?: (event: ReactionEvent) => void | Promise<void>;
   }
 ): TeamsTestContext {
-  const clientId = fixtures.appId || "test-app-id";
+  const appId = fixtures.appId || "test-app-id";
   const adapter = createTeamsAdapter({
-    clientId,
-    clientSecret: TEAMS_APP_PASSWORD,
-    tenantId: fixtures.appTenantId || "test-tenant-id",
+    appId,
+    appPassword: TEAMS_APP_PASSWORD,
+    appTenantId: fixtures.appTenantId || "test-tenant-id",
     userName: fixtures.botName,
     logger: mockLogger,
   });

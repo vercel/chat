@@ -1,25 +1,16 @@
-import type { App } from "@microsoft/teams.apps";
-import type { Logger } from "chat";
-import { describe, expect, it, vi } from "vitest";
+import { Client as GraphClient } from "@microsoft/teams.graph";
+import { ConsoleLogger } from "chat";
+import { describe, expect, it } from "vitest";
 import { TeamsGraphReader } from "./graph-api";
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
+import { TeamsFormatConverter } from "./markdown";
 
 function createTestReader(): TeamsGraphReader {
   return new TeamsGraphReader({
-    app: { id: "test-app" } as unknown as App,
-    config: {},
-    decodeThreadId: () => ({ conversationId: "", serviceUrl: "" }),
-    encodeThreadId: () => "",
-    formatConverter: { toAst: () => ({ type: "root", children: [] }) } as never,
+    botId: "test-app",
+    graph: new GraphClient(),
+    formatConverter: new TeamsFormatConverter(),
     getChat: () => null,
-    isDM: () => false,
-    logger: mockLogger,
+    logger: new ConsoleLogger("error"),
   });
 }
 

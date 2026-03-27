@@ -505,8 +505,8 @@ describe("DM Replay Tests", () => {
       state = createDMFlowState();
 
       const teamsAdapter = createTeamsAdapter({
-        clientId: teamsFixtures.botUserId.split(":")[1] || "test-app-id",
-        clientSecret: TEAMS_APP_PASSWORD,
+        appId: teamsFixtures.botUserId.split(":")[1] || "test-app-id",
+        appPassword: TEAMS_APP_PASSWORD,
         userName: teamsFixtures.botName,
         logger: mockLogger,
       });

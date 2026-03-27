@@ -53,6 +53,7 @@ import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
 import { TeamsFormatConverter } from "./markdown";
+import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
   TeamsAdapterConfig,
   TeamsChannelContext,
@@ -93,14 +94,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     this.graphReader = new TeamsGraphReader({
-      app: this.app,
+      botId: this.app.id ?? "",
+      graph: this.app.graph,
       logger: this.logger,
-      config: this.config,
       getChat: () => this.chat,
       formatConverter: this.formatConverter,
-      encodeThreadId: (data) => this.encodeThreadId(data),
-      decodeThreadId: (threadId) => this.decodeThreadId(threadId),
-      isDM: (threadId) => this.isDM(threadId),
     });
   }
 
@@ -1060,36 +1058,15 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   encodeThreadId(platformData: TeamsThreadId): string {
-    const encodedConversationId = Buffer.from(
-      platformData.conversationId
-    ).toString("base64url");
-    const encodedServiceUrl = Buffer.from(platformData.serviceUrl).toString(
-      "base64url"
-    );
-    return `teams:${encodedConversationId}:${encodedServiceUrl}`;
+    return encodeThreadId(platformData);
   }
 
   isDM(threadId: string): boolean {
-    const { conversationId } = this.decodeThreadId(threadId);
-    return !conversationId.startsWith("19:");
+    return isDM(threadId);
   }
 
   decodeThreadId(threadId: string): TeamsThreadId {
-    const parts = threadId.split(":");
-    if (parts.length !== 3 || parts[0] !== "teams") {
-      throw new ValidationError(
-        "teams",
-        `Invalid Teams thread ID: ${threadId}`
-      );
-    }
-    const conversationId = Buffer.from(
-      parts[1] as string,
-      "base64url"
-    ).toString("utf-8");
-    const serviceUrl = Buffer.from(parts[2] as string, "base64url").toString(
-      "utf-8"
-    );
-    return { conversationId, serviceUrl };
+    return decodeThreadId(threadId);
   }
 
   parseMessage(raw: unknown): Message<unknown> {
@@ -1130,6 +1107,7 @@ export function createTeamsAdapter(config?: TeamsAdapterConfig): TeamsAdapter {
 // Re-export card converter for advanced use
 export { cardToAdaptiveCard, cardToFallbackText } from "./cards";
 export { TeamsFormatConverter } from "./markdown";
+export { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 export type {
   TeamsAdapterConfig,
   TeamsAuthCertificate,
