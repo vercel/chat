@@ -339,9 +339,7 @@ describe("GitHubAdapter", () => {
       });
 
       await expect(
-        singleTenantAdapter.getInstallationId(
-          "github:acme/app:42"
-        )
+        singleTenantAdapter.getInstallationId("github:acme/app:42")
       ).resolves.toBe(456);
     });
 
@@ -357,9 +355,7 @@ describe("GitHubAdapter", () => {
       });
 
       await expect(
-        singleTenantAdapter.getInstallationId(
-          "github:acme/app:42"
-        )
+        singleTenantAdapter.getInstallationId("github:acme/app:42")
       ).resolves.toBe(456);
     });
 
@@ -398,9 +394,7 @@ describe("GitHubAdapter", () => {
       await multiTenantAdapter.handleWebhook(request);
 
       await expect(
-        multiTenantAdapter.getInstallationId(
-          "github:acme/app:42"
-        )
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
       ).resolves.toBe(789);
     });
 
@@ -424,9 +418,7 @@ describe("GitHubAdapter", () => {
       await multiTenantAdapter.initialize(chat);
 
       await expect(
-        multiTenantAdapter.getInstallationId(
-          "github:acme/app:42"
-        )
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
       ).resolves.toBeUndefined();
     });
 
@@ -441,9 +433,7 @@ describe("GitHubAdapter", () => {
       });
 
       await expect(
-        multiTenantAdapter.getInstallationId(
-          "slack:C123:1234.5678"
-        )
+        multiTenantAdapter.getInstallationId("slack:C123:1234.5678")
       ).rejects.toThrow("Invalid GitHub thread ID");
     });
 
@@ -458,9 +448,7 @@ describe("GitHubAdapter", () => {
       });
 
       await expect(
-        multiTenantAdapter.getInstallationId(
-          "github:acme/app:42"
-        )
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
       ).rejects.toThrow(
         "Adapter not initialized. Ensure chat.initialize() has been called first."
       );

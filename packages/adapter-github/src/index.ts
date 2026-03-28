@@ -327,7 +327,7 @@ export class GitHubAdapter
     owner: string,
     repo: string
   ): Promise<number | undefined> {
-    if (!this.chat || !this.isMultiTenant) {
+    if (!(this.chat && this.isMultiTenant)) {
       return undefined;
     }
 
@@ -356,10 +356,10 @@ export class GitHubAdapter
     const { owner, repo } = this.decodeThreadId(threadId);
 
     if (!this.chat) {
-        throw new ValidationError(
-          "github",
-          "Adapter not initialized. Ensure chat.initialize() has been called first."
-        );
+      throw new ValidationError(
+        "github",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
     }
 
     return this.getStoredInstallationId(owner, repo);
