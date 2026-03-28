@@ -168,6 +168,19 @@ function makeWebhookRequest(
   });
 }
 
+function createMockState() {
+  const cache = new Map<string, unknown>();
+
+  return {
+    get: vi.fn(async <T>(key: string) => {
+      return (cache.get(key) as T | undefined) ?? null;
+    }),
+    set: vi.fn(async (key: string, value: unknown) => {
+      cache.set(key, value);
+    }),
+  };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("GitHubAdapter", () => {
@@ -310,6 +323,147 @@ describe("GitHubAdapter", () => {
       await a.initialize(mockChat);
 
       expect(mockUsersGetAuthenticated).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getInstallationId", () => {
+    it("should return the fixed installation ID from a thread in single-tenant app mode", async () => {
+      const singleTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        installationId: 456,
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        singleTenantAdapter.getInstallationId(
+          "github:acme/app:42"
+        )
+      ).resolves.toBe(456);
+    });
+
+    it("should return the fixed installation ID from a thread ID in single-tenant app mode", async () => {
+      const singleTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        installationId: 456,
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        singleTenantAdapter.getInstallationId(
+          "github:acme/app:42"
+        )
+      ).resolves.toBe(456);
+    });
+
+    it("should return undefined in PAT mode", async () => {
+      await expect(
+        adapter.getInstallationId("github:acme/app:42")
+      ).resolves.toBeUndefined();
+    });
+
+    it("should return the cached installation ID in multi-tenant mode after a webhook", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const chat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      await multiTenantAdapter.initialize(chat);
+
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      await multiTenantAdapter.handleWebhook(request);
+
+      await expect(
+        multiTenantAdapter.getInstallationId(
+          "github:acme/app:42"
+        )
+      ).resolves.toBe(789);
+    });
+
+    it("should return undefined when the multi-tenant installation is not cached", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const chat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      await multiTenantAdapter.initialize(chat);
+
+      await expect(
+        multiTenantAdapter.getInstallationId(
+          "github:acme/app:42"
+        )
+      ).resolves.toBeUndefined();
+    });
+
+    it("should throw for non-GitHub thread or message context", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        multiTenantAdapter.getInstallationId(
+          "slack:C123:1234.5678"
+        )
+      ).rejects.toThrow("Invalid GitHub thread ID");
+    });
+
+    it("should throw before initialization in multi-tenant mode", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        multiTenantAdapter.getInstallationId(
+          "github:acme/app:42"
+        )
+      ).rejects.toThrow(
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
     });
   });
 
