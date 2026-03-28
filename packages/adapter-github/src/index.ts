@@ -18,6 +18,7 @@ import type {
   RawMessage,
   StreamChunk,
   StreamOptions,
+  Thread,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -109,6 +110,8 @@ export class GitHubAdapter
     appId: string;
     privateKey: string;
   } | null = null;
+  // Fixed installation for single-tenant GitHub App mode
+  private readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
 
@@ -142,6 +145,7 @@ export class GitHubAdapter
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
+    let fixedInstallationId: number | null = null;
 
     // Create Octokit instance based on auth method.
     // Only fall back to env vars when NO auth field was explicitly provided,
@@ -163,6 +167,7 @@ export class GitHubAdapter
     ) {
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
+        fixedInstallationId = config.installationId;
         this.octokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
@@ -200,6 +205,7 @@ export class GitHubAdapter
             ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
             : undefined;
           if (installationIdRaw) {
+            fixedInstallationId = installationIdRaw;
             this.octokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
@@ -218,6 +224,8 @@ export class GitHubAdapter
         }
       }
     }
+
+    this.fixedInstallationId = fixedInstallationId;
   }
 
   /**
@@ -315,16 +323,46 @@ export class GitHubAdapter
   /**
    * Get the installation ID for a repository (for multi-tenant mode).
    */
-  private async getInstallationId(
+  private async getStoredInstallationId(
     owner: string,
     repo: string
   ): Promise<number | undefined> {
-    if (!(this.chat && this.isMultiTenant)) {
+    if (!this.chat || !this.isMultiTenant) {
       return undefined;
     }
 
     const key = this.getInstallationKey(owner, repo);
     return (await this.chat.getState().get<number>(key)) ?? undefined;
+  }
+
+  /**
+   * Get the GitHub App installation ID associated with a thread.
+   *
+   * Returns the fixed installation ID in single-tenant app mode, the cached
+   * repository installation in multi-tenant mode, or undefined in PAT mode.
+   */
+  async getInstallationId(
+    thread: Thread | string
+  ): Promise<number | undefined> {
+    if (this.fixedInstallationId !== null) {
+      return this.fixedInstallationId;
+    }
+
+    if (!this.isMultiTenant) {
+      return undefined;
+    }
+
+    const threadId = typeof thread === "string" ? thread : thread.id;
+    const { owner, repo } = this.decodeThreadId(threadId);
+
+    if (!this.chat) {
+        throw new ValidationError(
+          "github",
+          "Adapter not initialized. Ensure chat.initialize() has been called first."
+        );
+    }
+
+    return this.getStoredInstallationId(owner, repo);
   }
 
   /**
@@ -614,7 +652,7 @@ export class GitHubAdapter
     owner: string,
     repo: string
   ): Promise<Octokit> {
-    const installationId = await this.getInstallationId(owner, repo);
+    const installationId = await this.getStoredInstallationId(owner, repo);
     return this.getOctokit(installationId);
   }
 
