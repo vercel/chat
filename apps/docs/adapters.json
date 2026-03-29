@@ -173,6 +173,17 @@
     "vendorOfficial": true
   },
   {
+    "name": "Zernio",
+    "slug": "zernio",
+    "type": "platform",
+    "community": true,
+    "description": "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
+    "packageName": "@zernio/chat-sdk-adapter",
+    "author": "Zernio",
+    "readme": "https://github.com/zernio-dev/chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
     "name": "Baileys WhatsApp",
     "slug": "baileys",
     "type": "platform",
