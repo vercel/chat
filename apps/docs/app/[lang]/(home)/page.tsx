@@ -16,13 +16,18 @@ import { Usage } from "./components/usage";
 const LogoChip = ({
   icon: Icon,
   name,
+  suffix,
 }: {
   icon: (props: ComponentProps<"svg">) => React.JSX.Element;
   name: string;
+  suffix?: string;
 }) => (
-  <span className="inline-flex items-center gap-1 whitespace-nowrap">
-    <Icon className="inline-block size-[1em] translate-y-[-0.05em] align-middle" />
-    {name}
+  <span className="whitespace-nowrap">
+    <span className="relative inline-block h-0 w-[1em] align-baseline">
+      <Icon className="absolute bottom-0 left-0 size-[1em]" />
+    </span>
+    <span className="ml-[calc(0.25em+2px)]">{name}</span>
+    {suffix}
   </span>
 );
 
@@ -32,11 +37,11 @@ const textDescription =
 const heroDescription = (
   <>
     A unified TypeScript SDK for building chat bots across{" "}
-    <LogoChip icon={logos.slack} name="Slack" />,{" "}
-    <LogoChip icon={logos.teams} name="Microsoft Teams" />,{" "}
-    <LogoChip icon={logos.gchat} name="Google Chat" />,{" "}
-    <LogoChip icon={logos.discord} name="Discord" />, and more. Write your bot
-    logic once, deploy everywhere.
+    <LogoChip icon={logos.slack} name="Slack" suffix="," />{" "}
+    <LogoChip icon={logos.teams} name="Microsoft Teams" suffix="," />{" "}
+    <LogoChip icon={logos.gchat} name="Google Chat" suffix="," />{" "}
+    <LogoChip icon={logos.discord} name="Discord" suffix="," /> and more. Write
+    your bot logic once, deploy everywhere.
   </>
 );
 
