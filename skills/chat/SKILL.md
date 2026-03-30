@@ -181,6 +181,7 @@ await thread.post(
 - `chat-adapter-imessage`
 - `@bitbasti/chat-adapter-webex`
 - `@resend/chat-sdk-adapter`
+- `@zernio/chat-sdk-adapter`
 - `chat-adapter-baileys`
 
 ### Coming-soon platform entries
