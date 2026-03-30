@@ -1,7 +1,9 @@
+import type { ComponentProps } from "react";
 import DynamicLink from "fumadocs-core/dynamic-link";
 import type { Metadata } from "next";
 import { Installer } from "@/components/geistdocs/installer";
 import { Button } from "@/components/ui/button";
+import * as logos from "@/lib/logos";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
@@ -11,13 +13,36 @@ import { Templates } from "./components/templates";
 import { TextGridSection } from "./components/text-grid-section";
 import { Usage } from "./components/usage";
 
+const LogoChip = ({
+  icon: Icon,
+  name,
+}: {
+  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
+  name: string;
+}) => (
+  <span className="inline-flex items-center gap-1 whitespace-nowrap">
+    <Icon className="inline-block size-[1em] translate-y-[-0.05em] align-middle" />
+    {name}
+  </span>
+);
+
 const title = "Chat SDK";
-const description =
+const textDescription =
   "A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more. Write your bot logic once, deploy everywhere.";
+const heroDescription = (
+  <>
+    A unified TypeScript SDK for building chat bots across{" "}
+    <LogoChip icon={logos.slack} name="Slack" />,{" "}
+    <LogoChip icon={logos.teams} name="Microsoft Teams" />,{" "}
+    <LogoChip icon={logos.gchat} name="Google Chat" />,{" "}
+    <LogoChip icon={logos.discord} name="Discord" />, and more. Write your bot
+    logic once, deploy everywhere.
+  </>
+);
 
 export const metadata: Metadata = {
   title,
-  description,
+  description: textDescription,
   twitter: {
     card: "summary_large_image",
   },
@@ -102,7 +127,7 @@ const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
     <Hero
       badge="Chat SDK is now open source and in beta"
-      description={description}
+      description={heroDescription}
       title={title}
     >
       <div className="mx-auto inline-flex w-fit items-center gap-3">

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 interface HeroProps {
   badge: string;
   children: ReactNode;
-  description: string;
+  description: ReactNode;
   title: string;
 }
 
