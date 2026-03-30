@@ -17,10 +17,10 @@ describe("handleTeamsError", () => {
     ).toThrow(AuthenticationError);
   });
 
-  it("should throw AuthenticationError for 403 status", () => {
+  it("should throw PermissionError for 403 status", () => {
     expect(() =>
       handleTeamsError({ statusCode: 403, message: "Forbidden" }, "postMessage")
-    ).toThrow(AuthenticationError);
+    ).toThrow(PermissionError);
   });
 
   it("should throw NetworkError for 404 status", () => {

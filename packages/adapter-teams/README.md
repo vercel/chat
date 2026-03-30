@@ -13,7 +13,7 @@ pnpm add @chat-adapter/teams
 
 ## Usage
 
-The adapter auto-detects `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID` from environment variables:
+The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from environment variables:
 
 ```typescript
 import { Chat } from "chat";
@@ -22,7 +22,9 @@ import { createTeamsAdapter } from "@chat-adapter/teams";
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    teams: createTeamsAdapter(),
+    teams: createTeamsAdapter({
+      appType: "SingleTenant",
+    }),
   },
 });
 
@@ -43,18 +45,19 @@ bot.onNewMention(async (thread, message) => {
    - **Subscription**: Your Azure subscription
    - **Resource group**: Create new or use existing
    - **Pricing tier**: F0 (free) for testing
+   - **Type of App**: **Single Tenant** (recommended for enterprise)
    - **Creation type**: **Create new Microsoft App ID**
 5. Click **Review + create** then **Create**
 
 ### 2. Get app credentials
 
 1. Go to your Bot resource then **Configuration**
-2. Copy **Microsoft App ID** as `CLIENT_ID`
+2. Copy **Microsoft App ID** as `TEAMS_APP_ID`
 3. Click **Manage Password** (next to Microsoft App ID)
 4. In the App Registration page, go to **Certificates & secrets**
 5. Click **New client secret**, add description, select expiry, click **Add**
-6. Copy the **Value** immediately (shown only once) as `CLIENT_SECRET`
-7. Go to **Overview** and copy **Directory (tenant) ID** as `TENANT_ID`
+6. Copy the **Value** immediately (shown only once) as `TEAMS_APP_PASSWORD`
+7. Go to **Overview** and copy **Directory (tenant) ID** as `TEAMS_APP_TENANT_ID`
 
 ### 3. Configure messaging endpoint
 
@@ -131,71 +134,44 @@ Create icon files (32x32 `outline.png` and 192x192 `color.png`), then zip all th
 
 ## Configuration
 
-The config extends `AppOptions` from `@microsoft/teams.apps`. All options are auto-detected from environment variables when not provided.
+All options are auto-detected from environment variables when not provided. Internally, the adapter maps these options to the Teams SDK (`@microsoft/teams.apps`).
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `clientId` | No* | Azure Bot App ID. Auto-detected from `CLIENT_ID` |
-| `clientSecret` | No** | Azure Bot App Secret. Auto-detected from `CLIENT_SECRET` |
-| `tenantId` | No | Azure AD Tenant ID. Auto-detected from `TENANT_ID` |
-| `token` | No** | Custom token provider function |
-| `managedIdentityClientId` | No** | Federated identity: managed identity client ID or `"system"`. Auto-detected from `MANAGED_IDENTITY_CLIENT_ID` |
-| `serviceUrl` | No | Override Bot Framework service URL. Auto-detected from `SERVICE_URL` |
+| `appId` | No* | Azure Bot App ID. Auto-detected from `TEAMS_APP_ID` |
+| `appPassword` | No** | Azure Bot App Password. Auto-detected from `TEAMS_APP_PASSWORD` |
+| `federated` | No** | Federated (workload identity) authentication config |
+| `appType` | No | `"MultiTenant"` or `"SingleTenant"` (default: `"MultiTenant"`) |
+| `appTenantId` | For SingleTenant | Azure AD Tenant ID. Auto-detected from `TEAMS_APP_TENANT_ID` |
 | `userName` | No | Bot display name (default: `"bot"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-\*`clientId` is required — either via config or `CLIENT_ID` env var.
+\*`appId` is required — either via config or `TEAMS_APP_ID` env var.
 
-\*\*At least one authentication method is required: `clientSecret`, `token`, or `managedIdentityClientId`. When none is provided, `CLIENT_SECRET` is auto-detected from environment.
+\*\*Exactly one authentication method is required: `appPassword` or `federated`. When neither is provided, `TEAMS_APP_PASSWORD` is auto-detected from environment.
 
 ### Authentication methods
 
-The adapter supports the same authentication methods as the Teams SDK. When no explicit auth config is provided, credentials are auto-detected from environment variables.
+The adapter supports two authentication methods. When no explicit auth is provided, `TEAMS_APP_PASSWORD` is auto-detected from environment variables.
 
 #### Client secret (default)
 
-The simplest option — provide `clientSecret` directly or set `CLIENT_ID` + `CLIENT_SECRET`:
+The simplest option — provide `appPassword` directly or set `TEAMS_APP_PASSWORD`:
 
 ```typescript
 createTeamsAdapter({
-  clientSecret: "your_app_secret_here",
+  appPassword: "your_app_password_here",
 });
 ```
 
-#### User managed identity
+#### Federated (workload identity)
 
-Passwordless authentication using Azure managed identities — no secrets to rotate. Activates when `CLIENT_ID` is set without `CLIENT_SECRET`:
-
-```typescript
-createTeamsAdapter({
-  // No clientSecret — uses managed identity automatically
-});
-```
-
-#### Federated identity credentials
-
-Advanced identity federation that assigns managed identities to your App Registration. Uses `managedIdentityClientId` (or `MANAGED_IDENTITY_CLIENT_ID` env var):
-
-```typescript
-// User-assigned managed identity
-createTeamsAdapter({
-  managedIdentityClientId: "your_managed_identity_client_id",
-});
-
-// System-assigned managed identity
-createTeamsAdapter({
-  managedIdentityClientId: "system",
-});
-```
-
-#### Custom token provider
-
-Provide a function that returns tokens for full control over authentication:
+For environments with managed identities (e.g. Azure Kubernetes Service, GitHub Actions). Maps to `managedIdentityClientId` in the Teams SDK:
 
 ```typescript
 createTeamsAdapter({
-  token: async (scope, tenantId) => {
-    return await getTokenFromVault(scope);
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
   },
 });
 ```
@@ -203,11 +179,9 @@ createTeamsAdapter({
 ## Environment variables
 
 ```bash
-CLIENT_ID=...
-CLIENT_SECRET=...                # Omit to use user managed identity
-MANAGED_IDENTITY_CLIENT_ID=...   # For federated identity credentials
-TENANT_ID=...                    # Required for single-tenant apps
-SERVICE_URL=...                  # Optional: override Bot Framework service URL
+TEAMS_APP_ID=...
+TEAMS_APP_PASSWORD=...
+TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 ```
 
 ## Features
@@ -241,8 +215,8 @@ SERVICE_URL=...                  # Optional: override Bot Framework service URL
 |---------|-----------|
 | Slash commands | No |
 | Mentions | Yes |
-| Add reactions | Yes |
-| Remove reactions | Yes |
+| Add reactions | No |
+| Remove reactions | No |
 | Receive reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
@@ -264,7 +238,7 @@ SERVICE_URL=...                  # Optional: override Bot Framework service URL
 
 Fetching message history requires the Microsoft Graph API with client credentials flow. To enable it:
 
-1. Set `tenantId` in the adapter config (or `TENANT_ID` env var)
+1. Set `appTenantId` in the adapter config (or `TEAMS_APP_TENANT_ID` env var)
 2. Grant one of these Azure AD app permissions:
    - `ChatMessage.Read.Chat`
    - `Chat.Read.All`
@@ -297,11 +271,10 @@ Alternatively, configure the bot in Azure to receive all messages.
 
 ### "Unauthorized" error
 
-- Verify `CLIENT_ID` and your chosen auth credential are correct
-- For client secret auth, check that `CLIENT_SECRET` is valid and not expired
-- For user managed identity, ensure `CLIENT_SECRET` is not set so the SDK uses managed identity
-- For federated identity, verify `MANAGED_IDENTITY_CLIENT_ID` and that federated credentials are configured in Azure AD
-- Ensure `TENANT_ID` is set for single-tenant apps
+- Verify `TEAMS_APP_ID` and your chosen auth credential are correct
+- For client secret auth, check that `TEAMS_APP_PASSWORD` is valid and not expired
+- For federated auth, verify the managed identity client ID is correct and that federated credentials are configured in Azure AD
+- For SingleTenant apps, ensure `TEAMS_APP_TENANT_ID` is set
 - Check that the messaging endpoint URL is correct in Azure
 
 ### Bot not appearing in Teams

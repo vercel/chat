@@ -56,9 +56,9 @@ import {
   SLACK_SIGNING_SECRET,
 } from "./slack-utils";
 import {
-  createMockBotAdapter,
-  injectMockBotAdapter,
-  type MockBotAdapter,
+  createMockTeamsApp,
+  injectMockTeamsApp,
+  type MockTeamsApp,
   TEAMS_APP_PASSWORD,
 } from "./teams-utils";
 import { createWaitUntilTracker } from "./test-scenarios";
@@ -309,7 +309,7 @@ export interface TeamsTestContext {
   adapter: TeamsAdapter;
   captured: CapturedMessages;
   chat: Chat<{ teams: TeamsAdapter }>;
-  mockBotAdapter: MockBotAdapter;
+  mockTeamsApp: MockTeamsApp;
   sendWebhook: (fixture: unknown) => Promise<void>;
   tracker: ReturnType<typeof createWaitUntilTracker>;
 }
@@ -335,8 +335,8 @@ export function createTeamsTestContext(
     logger: mockLogger,
   });
 
-  const mockBotAdapter = createMockBotAdapter();
-  injectMockBotAdapter(adapter, mockBotAdapter);
+  const mockTeamsApp = createMockTeamsApp();
+  injectMockTeamsApp(adapter, mockTeamsApp);
 
   const chat = new Chat({
     userName: fixtures.botName,
@@ -383,7 +383,7 @@ export function createTeamsTestContext(
   return {
     chat,
     adapter,
-    mockBotAdapter,
+    mockTeamsApp,
     tracker,
     captured,
     sendWebhook: async (fixture: unknown) => {
@@ -771,7 +771,7 @@ export function expectValidSlashCommand(
 export function expectSentMessage(
   mock:
     | MockSlackClient
-    | MockBotAdapter
+    | MockTeamsApp
     | MockGoogleChatApi
     | Mock<(...args: unknown[]) => unknown>,
   textContains: string
@@ -807,7 +807,7 @@ export function expectSentMessage(
  * Assert that the mock updated a message.
  */
 export function expectUpdatedMessage(
-  mock: MockSlackClient | MockBotAdapter | MockGoogleChatApi,
+  mock: MockSlackClient | MockTeamsApp | MockGoogleChatApi,
   textContains: string
 ): void {
   if ("chat" in mock && "update" in mock.chat) {

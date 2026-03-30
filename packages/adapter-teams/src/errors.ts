@@ -19,11 +19,20 @@ export function handleTeamsError(error: unknown, operation: string): never {
       (err.status as number) ||
       (err.code as number);
 
-    if (statusCode === 401 || statusCode === 403) {
+    if (statusCode === 401) {
       throw new AuthenticationError(
         "teams",
         `Authentication failed for ${operation}: ${err.message || "unauthorized"}`
       );
+    }
+
+    if (
+      statusCode === 403 ||
+      (err.message &&
+        typeof err.message === "string" &&
+        err.message.toLowerCase().includes("permission"))
+    ) {
+      throw new PermissionError("teams", operation);
     }
 
     if (statusCode === 404) {
@@ -38,15 +47,6 @@ export function handleTeamsError(error: unknown, operation: string): never {
       const retryAfter =
         typeof err.retryAfter === "number" ? err.retryAfter : undefined;
       throw new AdapterRateLimitError("teams", retryAfter);
-    }
-
-    if (
-      statusCode === 403 ||
-      (err.message &&
-        typeof err.message === "string" &&
-        err.message.toLowerCase().includes("permission"))
-    ) {
-      throw new PermissionError("teams", operation);
     }
 
     if (err.message && typeof err.message === "string") {

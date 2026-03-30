@@ -778,8 +778,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     _emoji: EmojiValue | string
   ): Promise<void> {
     throw new NotImplementedError(
-      "teams",
-      "addReaction is not yet supported by the Teams SDK"
+      "addReaction is not yet supported by the Teams SDK",
+      "addReaction"
     );
   }
 
@@ -789,8 +789,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     _emoji: EmojiValue | string
   ): Promise<void> {
     throw new NotImplementedError(
-      "teams",
-      "removeReaction is not yet supported by the Teams SDK"
+      "removeReaction is not yet supported by the Teams SDK",
+      "removeReaction"
     );
   }
 

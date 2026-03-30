@@ -395,16 +395,3 @@ export function injectMockGraphClient(
   adapterInternal.graphReader.deps.graph = mockClient;
 }
 
-/**
- * Backwards-compatible aliases for migration.
- * The old botAdapter mock pattern is replaced by the TeamsSDK App mock.
- */
-export const createMockBotAdapter = createMockTeamsApp;
-export type MockBotAdapter = MockTeamsApp;
-
-export function injectMockBotAdapter(
-  adapter: TeamsAdapter,
-  mockAdapter: MockTeamsApp
-): void {
-  injectMockTeamsApp(adapter, mockAdapter);
-}
