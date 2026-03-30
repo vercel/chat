@@ -22,9 +22,9 @@ const LogoChip = ({
   name: string;
   suffix?: string;
 }) => (
-  <span className="whitespace-nowrap">
-    <span className="relative inline-block h-0 w-[1em] align-baseline">
-      <Icon className="absolute bottom-0 left-0 size-[1em]" />
+  <span className="ml-[2px] whitespace-nowrap">
+    <span className="relative inline-block h-0 w-[1em] align-middle">
+      <Icon className="absolute left-0 top-1/2 size-[1em] -translate-y-1/2" />
     </span>
     <span className="ml-[calc(0.25em+2px)]">{name}</span>
     {suffix}
