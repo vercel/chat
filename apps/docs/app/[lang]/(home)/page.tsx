@@ -1,9 +1,9 @@
-import type { ComponentProps } from "react";
 import DynamicLink from "fumadocs-core/dynamic-link";
 import type { Metadata } from "next";
+import type { ComponentProps } from "react";
 import { Installer } from "@/components/geistdocs/installer";
 import { Button } from "@/components/ui/button";
-import * as logos from "@/lib/logos";
+import { discord, gchat, slack, teams } from "@/lib/logos";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
@@ -24,7 +24,7 @@ const LogoChip = ({
 }) => (
   <span className="ml-[2px] whitespace-nowrap">
     <span className="relative inline-block h-0 w-[1em] align-middle">
-      <Icon className="absolute left-0 top-1/2 size-[1em] -translate-y-1/2" />
+      <Icon className="absolute top-1/2 left-0 size-[1em] -translate-y-1/2" />
     </span>
     <span className="ml-[calc(0.25em+2px)]">{name}</span>
     {suffix}
@@ -37,11 +37,11 @@ const textDescription =
 const heroDescription = (
   <>
     A unified TypeScript SDK for building chat bots across{" "}
-    <LogoChip icon={logos.slack} name="Slack" suffix="," />{" "}
-    <LogoChip icon={logos.teams} name="Microsoft Teams" suffix="," />{" "}
-    <LogoChip icon={logos.gchat} name="Google Chat" suffix="," />{" "}
-    <LogoChip icon={logos.discord} name="Discord" suffix="," /> and more. Write
-    your bot logic once, deploy everywhere.
+    <LogoChip icon={slack} name="Slack" suffix="," />{" "}
+    <LogoChip icon={teams} name="Microsoft Teams" suffix="," />{" "}
+    <LogoChip icon={gchat} name="Google Chat" suffix="," />{" "}
+    <LogoChip icon={discord} name="Discord" suffix="," /> and more. Write your
+    bot logic once, deploy everywhere.
   </>
 );
 
