@@ -25,6 +25,7 @@ import {
   toAiMessages,
 } from "chat";
 import { start } from "workflow/api";
+import { buttonWorkflow } from "../workflows/button";
 import { modalWorkflow } from "../workflows/modal";
 import { buildAdapters } from "./adapters";
 
@@ -129,6 +130,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="open_modal" style="primary">
           Open Modal
         </Button>
+        <Button id="workflow_button">Workflow Button</Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
@@ -361,6 +363,13 @@ bot.onAction("open_modal", async (event) => {
     return;
   }
   await start(modalWorkflow, [event.thread, event.triggerId]);
+});
+
+bot.onAction("workflow_button", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await start(buttonWorkflow, [event.thread]);
 });
 
 bot.onAction("show-table", async (event) => {
