@@ -24,7 +24,8 @@ import {
   TextInput,
   toAiMessages,
 } from "chat";
-import { createWebhook } from "workflow";
+import { start } from "workflow/api";
+import { modalWorkflow } from "../workflows/modal";
 import { buildAdapters } from "./adapters";
 
 const AI_MENTION_REGEX = /\bAI\b/i;
@@ -64,7 +65,6 @@ const agent = new ToolLoopAgent({
 
 // Handle new @mentions of the bot
 bot.onNewMention(async (thread, message) => {
-  'use workflow'
   await thread.subscribe();
 
   // Check if user wants to enable AI mode (mention contains "AI")
@@ -89,9 +89,6 @@ bot.onNewMention(async (thread, message) => {
 
   // Default welcome card
   await thread.startTyping();
-
-  using workflowCallbackHook = createWebhook();
-
   await thread.post(
     <Card
       subtitle={`Connected via ${thread.adapter.name}`}
@@ -132,22 +129,12 @@ bot.onNewMention(async (thread, message) => {
         <Button id="open_modal" style="primary">
           Open Modal
         </Button>
-        <Button id="workflow_callback" style="primary" callbackUrl={workflowCallbackHook.url}>
-          Workflow Callback
-        </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
         </Button>
       </Actions>
     </Card>
-  );
-
-  const request = await workflowCallbackHook;
-  const payload = await request.json();
-
-  await thread.post(
-    `${emoji.check} You selected **${JSON.stringify(payload)}**`
   );
 });
 
@@ -367,28 +354,13 @@ bot.onAction("goodbye", async (event) => {
 });
 
 bot.onAction("open_modal", async (event) => {
-  'use workflow'
-  using callbackHook = createWebhook();
-  await event.openModal(
-    <Modal
-      callbackId="workflow_modal_form"
-      callbackUrl={callbackHook.url}
-      submitLabel="Submit"
-      title="Pick an Option"
-    >
-      <Select id="choice" label="Choose something" placeholder="Select...">
-        <SelectOption label="Option A" value="option_a" />
-        <SelectOption label="Option B" value="option_b" />
-        <SelectOption label="Option C" value="option_c" />
-      </Select>
-    </Modal>
-  );
-
-  const request = await callbackHook;
-  const payload = await request.json();
-  await event.thread?.post(
-    `${emoji.check} You selected **${payload.values?.choice ?? "nothing"}**`
-  );
+  if (!event.thread) {
+    return;
+  }
+  if (!event.triggerId) {
+    return;
+  }
+  await start(modalWorkflow, [event.thread, event.triggerId]);
 });
 
 bot.onAction("show-table", async (event) => {
