@@ -343,7 +343,7 @@ describe("GitHubAdapter", () => {
       ).resolves.toBe(456);
     });
 
-    it("should return the fixed installation ID from a thread ID in single-tenant app mode", async () => {
+    it("should accept a Thread object and extract its id", async () => {
       const singleTenantAdapter = new GitHubAdapter({
         appId: "12345",
         privateKey:
@@ -354,8 +354,10 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
 
+      const mockThread = { id: "github:acme/app:42" } as { id: string };
+
       await expect(
-        singleTenantAdapter.getInstallationId("github:acme/app:42")
+        singleTenantAdapter.getInstallationId(mockThread as never)
       ).resolves.toBe(456);
     });
 
