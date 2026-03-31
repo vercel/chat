@@ -982,6 +982,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       // Recover by using the existing thread (its ID equals the parent message ID).
       if (
         error instanceof NetworkError &&
+        typeof error.message === "string" &&
+        error.message.includes('"code"') &&
         error.message.includes("160004")
       ) {
         this.logger.debug(
