@@ -949,11 +949,98 @@ describe("addReaction / removeReaction", () => {
 // ---------------------------------------------------------------------------
 
 describe("startTyping", () => {
-  it("is a no-op and does not throw", async () => {
+  let fetchSpy: MockInstance;
+
+  const makeGraphApiResponse = () =>
+    new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(() => Promise.resolve(makeGraphApiResponse()));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("resolves latest inbound message ID and sends typing indicator", async () => {
     const adapter = createTestAdapter();
-    await expect(
-      adapter.startTyping("whatsapp:123456789:15551234567")
-    ).resolves.toBeUndefined();
+    const threadId = "whatsapp:123456789:15551234567";
+
+    // Mock history: 1 inbound message, 1 outbound (bot) message
+    const mockState = {
+      getList: vi.fn().mockResolvedValue([
+        {
+          _type: "chat:Message",
+          id: "wamid.inbound123",
+          threadId,
+          text: "Hi",
+          author: {
+            userId: "15551234567",
+            userName: "User",
+            fullName: "User",
+            isMe: false,
+            isBot: false,
+          },
+          formatted: { type: "root", children: [] },
+          attachments: [],
+          metadata: { dateSent: new Date().toISOString(), edited: false },
+        },
+        {
+          _type: "chat:Message",
+          id: "wamid.outbound456",
+          threadId,
+          text: "Hello",
+          author: {
+            userId: "123456789",
+            userName: "bot",
+            fullName: "bot",
+            isMe: true,
+            isBot: true,
+          },
+          formatted: { type: "root", children: [] },
+          attachments: [],
+          metadata: { dateSent: new Date().toISOString(), edited: false },
+        },
+      ]),
+    };
+
+    await adapter.initialize({
+      ...mockChat,
+      getState: () => mockState,
+    } as any);
+
+    await adapter.startTyping(threadId);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.status).toBe("read");
+    expect(sent.message_id).toBe("wamid.inbound123");
+    expect(sent.typing_indicator.type).toBe("text");
+  });
+
+  it("does nothing if no inbound message is found in history", async () => {
+    const adapter = createTestAdapter();
+    const threadId = "whatsapp:123456789:15551234567";
+
+    const mockState = {
+      getList: vi.fn().mockResolvedValue([]),
+    };
+
+    await adapter.initialize({
+      ...mockChat,
+      getState: () => mockState,
+    } as any);
+
+    await adapter.startTyping(threadId);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
