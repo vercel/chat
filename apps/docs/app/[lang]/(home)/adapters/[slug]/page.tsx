@@ -7,6 +7,8 @@ import adapters from "@/adapters.json";
 import { ReadmeContent } from "../components/readme-content";
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
+const GITHUB_SUBPATH_PATTERN =
+  /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/;
 const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
 
 const getAdapter = (slug: string) => adapters.find((a) => a.slug === slug);
@@ -20,6 +22,19 @@ const getReadme = async (repoUrl: string): Promise<string | undefined> => {
       return await readFile(filePath, "utf-8");
     } catch {
       return undefined;
+    }
+  }
+
+  const subpathMatch = repoUrl.match(GITHUB_SUBPATH_PATTERN);
+  if (subpathMatch) {
+    const [, owner, repo, ref, path] = subpathMatch;
+    const url = `https://api.github.com/repos/${owner}/${repo}/readme/${path}?ref=${ref}`;
+    const response = await fetch(url, {
+      headers: { Accept: "application/vnd.github.raw+json" },
+      next: { revalidate: 3600 },
+    });
+    if (response.ok) {
+      return response.text();
     }
   }
 

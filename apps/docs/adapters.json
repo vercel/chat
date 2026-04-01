@@ -194,6 +194,17 @@
     "readme": "https://github.com/rama-adi/chat-adapter-baileys"
   },
   {
+    "name": "Liveblocks",
+    "slug": "liveblocks",
+    "type": "platform",
+    "community": true,
+    "description": "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
+    "packageName": "@liveblocks/chat-sdk-adapter",
+    "author": "Liveblocks",
+    "readme": "https://github.com/liveblocks/liveblocks/tree/main/packages/liveblocks-chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
     "name": "Instagram",
     "slug": "instagram",
     "type": "platform",

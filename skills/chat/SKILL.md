@@ -183,6 +183,7 @@ await thread.post(
 - `@resend/chat-sdk-adapter`
 - `@zernio/chat-sdk-adapter`
 - `chat-adapter-baileys`
+- `@liveblocks/chat-sdk-adapter`
 
 ### Coming-soon platform entries
 
