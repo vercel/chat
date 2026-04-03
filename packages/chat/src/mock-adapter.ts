@@ -9,6 +9,7 @@ import type {
   FormattedContent,
   Lock,
   Logger,
+  QueueEntry,
   StateAdapter,
 } from "./types";
 
@@ -32,6 +33,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     name,
     userName: `${name}-bot`,
     initialize: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
     handleWebhook: vi.fn().mockResolvedValue(new Response("ok")),
     postMessage: vi
       .fn()
@@ -68,6 +70,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     isDM: vi
       .fn()
       .mockImplementation((threadId: string) => threadId.includes(":D")),
+    getChannelVisibility: vi.fn().mockReturnValue("unknown"),
     openModal: vi.fn().mockResolvedValue({ viewId: "V123" }),
     channelIdFromThreadId: vi
       .fn()
@@ -91,7 +94,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     postChannelMessage: vi
       .fn()
       .mockResolvedValue({ id: "msg-1", threadId: undefined, raw: {} }),
-  };
+  } satisfies Adapter;
 }
 
 /**
@@ -110,6 +113,7 @@ export function createMockState(): MockStateAdapter {
   const subscriptions = new Set<string>();
   const locks = new Map<string, Lock>();
   const cache = new Map<string, unknown>();
+  const queues = new Map<string, QueueEntry[]>();
 
   return {
     cache,
@@ -138,6 +142,9 @@ export function createMockState(): MockStateAdapter {
         locks.set(threadId, lock);
         return lock;
       }),
+    forceReleaseLock: vi.fn().mockImplementation(async (threadId: string) => {
+      locks.delete(threadId);
+    }),
     releaseLock: vi.fn().mockImplementation(async (lock: Lock) => {
       locks.delete(lock.threadId);
     }),
@@ -159,6 +166,55 @@ export function createMockState(): MockStateAdapter {
       }),
     delete: vi.fn().mockImplementation(async (key: string) => {
       cache.delete(key);
+    }),
+    appendToList: vi
+      .fn()
+      .mockImplementation(
+        async (
+          key: string,
+          value: unknown,
+          options?: { maxLength?: number; ttlMs?: number }
+        ) => {
+          let list = (cache.get(key) as unknown[]) ?? [];
+          list.push(value);
+          if (options?.maxLength && list.length > options.maxLength) {
+            list = list.slice(list.length - options.maxLength);
+          }
+          cache.set(key, list);
+        }
+      ),
+    enqueue: vi
+      .fn()
+      .mockImplementation(
+        async (threadId: string, entry: QueueEntry, maxSize: number) => {
+          let queue = queues.get(threadId);
+          if (!queue) {
+            queue = [];
+            queues.set(threadId, queue);
+          }
+          queue.push(entry);
+          if (queue.length > maxSize) {
+            queue.splice(0, queue.length - maxSize);
+          }
+          return queue.length;
+        }
+      ),
+    dequeue: vi.fn().mockImplementation(async (threadId: string) => {
+      const queue = queues.get(threadId);
+      if (!queue || queue.length === 0) {
+        return null;
+      }
+      const entry = queue.shift();
+      if (queue.length === 0) {
+        queues.delete(threadId);
+      }
+      return entry ?? null;
+    }),
+    queueDepth: vi.fn().mockImplementation(async (threadId: string) => {
+      return queues.get(threadId)?.length ?? 0;
+    }),
+    getList: vi.fn().mockImplementation(async (key: string) => {
+      return (cache.get(key) as unknown[]) ?? [];
     }),
   };
 }
@@ -192,6 +248,7 @@ export function createTestMessage(
       edited: false,
     },
     attachments: [],
+    links: [],
     ...overrides,
   });
 }

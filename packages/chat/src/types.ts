@@ -4,11 +4,31 @@
 
 import type { Root } from "mdast";
 import type { CardElement } from "./cards";
+import type { SerializedChannel } from "./channel";
 import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
 import type { PostableObject } from "./postable-object";
+import type { SerializedThread } from "./thread";
+
+// =============================================================================
+// Channel Visibility
+// =============================================================================
+
+/**
+ * Represents the visibility scope of a channel.
+ *
+ * - `private`: Channel is only visible to invited members (e.g., private Slack channels)
+ * - `workspace`: Channel is visible to all workspace members (e.g., public Slack channels)
+ * - `external`: Channel is shared with external organizations (e.g., Slack Connect)
+ * - `unknown`: Visibility cannot be determined
+ */
+export type ChannelVisibility =
+  | "private"
+  | "workspace"
+  | "external"
+  | "unknown";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -37,6 +57,20 @@ export interface ChatConfig<
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
   /**
+   * How to handle messages that arrive while a handler is already
+   * processing on the same thread.
+   *
+   * - `'drop'` (default) — discard the message (throw `LockError`)
+   * - `'queue'` — queue the message; when the current handler finishes,
+   *   process only the latest queued message with `context.skipped` containing
+   *   all intermediate messages
+   * - `'debounce'` — all messages start/reset a debounce timer; only the
+   *   final message in a burst is processed
+   * - `'concurrent'` — no locking; all messages processed in parallel
+   * - `ConcurrencyConfig` — fine-grained control over strategy and parameters
+   */
+  concurrency?: ConcurrencyStrategy | ConcurrencyConfig;
+  /**
    * TTL for message deduplication entries in milliseconds.
    * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
    * cause platform retries that arrive after the default TTL expires.
@@ -51,10 +85,53 @@ export interface ChatConfig<
    */
   fallbackStreamingPlaceholderText?: string | null;
   /**
+   * Lock scope determines which messages contend for the same lock.
+   *
+   * - `'thread'`: lock per threadId (default for most adapters)
+   * - `'channel'`: lock per channelId (default for WhatsApp, Telegram)
+   * - function: resolve scope dynamically per message (async supported)
+   *
+   * When not set, falls back to the adapter's `lockScope` property,
+   * then to `'thread'`.
+   */
+  lockScope?:
+    | LockScope
+    | ((context: LockScopeContext) => LockScope | Promise<LockScope>);
+  /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
   logger?: Logger | LogLevel;
+  /**
+   * Configuration for persistent message history.
+   * Only used by adapters that set `persistMessageHistory: true`.
+   */
+  messageHistory?: {
+    /** Maximum messages to store per thread (default: 100) */
+    maxMessages?: number;
+    /** TTL for cached history in milliseconds (default: 7 days) */
+    ttlMs?: number;
+  };
+  /**
+   * @deprecated Use `concurrency` instead.
+   *
+   * Behavior when a thread lock cannot be acquired (another handler is processing).
+   * - `'drop'` (default) — throw `LockError`, preserving current behavior
+   * - `'force'` — force-release the existing lock and re-acquire
+   * - callback — custom logic receiving `(threadId, message)`, return `'force'` or `'drop'`
+   *
+   * When `'force'` is used, the previous handler continues executing — only the lock
+   * is released, not the handler itself. This means two handlers may run concurrently
+   * on the same thread. The old handler's `releaseLock()` call becomes a no-op since
+   * the token no longer matches.
+   */
+  onLockConflict?:
+    | "force"
+    | "drop"
+    | ((
+        threadId: string,
+        message: Message
+      ) => "force" | "drop" | Promise<"force" | "drop">);
   /** State adapter for subscriptions and locking */
   state: StateAdapter;
   /**
@@ -111,13 +188,16 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * Default fallback: first two colon-separated parts (e.g., "slack:C123").
    * Adapters with different structures should override this.
    */
-  channelIdFromThreadId?(threadId: string): string;
+  channelIdFromThreadId(threadId: string): string;
 
   /** Decode thread ID string back to platform-specific data */
   decodeThreadId(threadId: string): TThreadId;
 
   /** Delete a message */
   deleteMessage(threadId: string, messageId: string): Promise<void>;
+
+  /** Cleanup hook called when Chat instance is shutdown */
+  disconnect?(): Promise<void>;
 
   /** Edit an existing message */
   editMessage(
@@ -212,6 +292,17 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
 
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * This distinguishes between private channels, workspace-visible channels,
+   * and externally shared channels (e.g., Slack Connect).
+   *
+   * @param threadId - The thread ID to check
+   * @returns The channel visibility scope
+   */
+  getChannelVisibility?(threadId: string): ChannelVisibility;
+
   /** Handle incoming webhook request */
   handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
 
@@ -233,6 +324,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     channelId: string,
     options?: ListThreadsOptions
   ): Promise<ListThreadsResult<TRawMessage>>;
+
+  /**
+   * Default lock scope for this adapter.
+   * - `'thread'` (default): lock per threadId
+   * - `'channel'`: lock per channelId (for channel-based platforms like WhatsApp, Telegram)
+   *
+   * Can be overridden by `ChatConfig.lockScope`.
+   */
+  readonly lockScope?: LockScope;
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -275,6 +375,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   parseMessage(raw: TRawMessage): Message<TRawMessage>;
 
   /**
+   * When true, the SDK persists message history in the state adapter for this platform.
+   * Use this for platforms that lack server-side message history APIs (e.g., WhatsApp, Telegram).
+   */
+  readonly persistMessageHistory?: boolean;
+
+  /**
    * Post a message to channel top-level (not in a thread).
    */
   postChannelMessage?(
@@ -297,7 +403,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     threadId: string,
     userId: string,
     message: AdapterPostableMessage
-  ): Promise<EphemeralMessage>;
+  ): Promise<EphemeralMessage<TRawMessage>>;
 
   /** Post a message to a thread */
   postMessage(
@@ -328,6 +434,23 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
 
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
+
+  /**
+   * Schedule a message for future delivery.
+   *
+   * Optional — only supported by adapters with native scheduling APIs (e.g., Slack).
+   * Thread.schedule() will throw NotImplementedError if this method is absent.
+   *
+   * @param threadId - The thread to post in
+   * @param message - The message content
+   * @param options - Scheduling options including the target delivery time
+   * @returns A ScheduledMessage with cancel() capability
+   */
+  scheduleMessage?(
+    threadId: string,
+    message: AdapterPostableMessage,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage<TRawMessage>>;
 
   /** Show typing indicator */
   startTyping(threadId: string, status?: string): Promise<void>;
@@ -533,29 +656,121 @@ export interface ChatInstance {
 }
 
 // =============================================================================
+// Concurrency
+// =============================================================================
+
+/** Lock scope determines which messages contend for the same lock. */
+export type LockScope = "thread" | "channel";
+
+/** Context provided to the lockScope resolver function. */
+export interface LockScopeContext {
+  adapter: Adapter;
+  channelId: string;
+  isDM: boolean;
+  threadId: string;
+}
+
+/** Concurrency strategy for overlapping messages on the same thread. */
+export type ConcurrencyStrategy = "drop" | "queue" | "debounce" | "concurrent";
+
+/** Fine-grained concurrency configuration. */
+export interface ConcurrencyConfig {
+  /** Debounce window in milliseconds (debounce strategy). Default: 1500. */
+  debounceMs?: number;
+  /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
+  maxConcurrent?: number;
+  /** Max queued messages per thread (queue/debounce strategy). Default: 10. */
+  maxQueueSize?: number;
+  /** What to do when queue is full. Default: 'drop-oldest'. */
+  onQueueFull?: "drop-oldest" | "drop-newest";
+  /** TTL for queued entries in milliseconds. Default: 90000 (90s). */
+  queueEntryTtlMs?: number;
+  /** The concurrency strategy to use. */
+  strategy: ConcurrencyStrategy;
+}
+
+/**
+ * An entry in the per-thread message queue.
+ * Used by the `queue` and `debounce` concurrency strategies.
+ */
+export interface QueueEntry {
+  /** When this entry was enqueued (Unix ms). */
+  enqueuedAt: number;
+  /** When this entry expires (Unix ms). Stale entries are discarded on dequeue. */
+  expiresAt: number;
+  /** The queued message. */
+  message: Message;
+}
+
+/**
+ * Context provided to message handlers when messages were queued
+ * while a previous handler was running.
+ */
+export interface MessageContext {
+  /**
+   * Messages that arrived while the previous handler was running,
+   * in chronological order, excluding the current message (which is the latest).
+   */
+  skipped: Message[];
+  /** Total messages received since last handler ran (skipped.length + 1). */
+  totalSinceLastHandler: number;
+}
+
+// =============================================================================
 // State Adapter Interface
 // =============================================================================
 
 export interface StateAdapter {
   /** Acquire a lock on a thread (returns null if already locked) */
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null>;
+
+  /** Atomically append a value to a list. Trims to maxLength (keeping newest). Refreshes TTL. */
+  appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void>;
+
   /** Connect to the state backend */
   connect(): Promise<void>;
 
   /** Delete a cached value */
   delete(key: string): Promise<void>;
 
+  /** Pop the next message from the thread's queue. Returns null if empty. */
+  dequeue(threadId: string): Promise<QueueEntry | null>;
+
   /** Disconnect from the state backend */
   disconnect(): Promise<void>;
+
+  /** Atomically append a message to the thread's pending queue. Returns new queue depth. */
+  enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number>;
 
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
 
+  /**
+   * Force-release a lock on a thread, regardless of ownership token.
+   * The previous lock holder's handler continues running — only the lock is released.
+   * The old handler's `releaseLock()` becomes a no-op (token mismatch).
+   */
+  forceReleaseLock(threadId: string): Promise<void>;
+
   /** Get a cached value by key */
   get<T = unknown>(key: string): Promise<T | null>;
 
+  /** Read all values from a list in insertion order. Returns empty array if key does not exist. */
+  getList<T = unknown>(key: string): Promise<T[]>;
+
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
+
+  /** Get the current queue depth for a thread. */
+  queueDepth(threadId: string): Promise<number>;
 
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;
@@ -596,6 +811,8 @@ export interface Postable<
 > {
   /** The adapter this entity belongs to */
   readonly adapter: Adapter;
+  /** The visibility scope of this channel */
+  readonly channelVisibility: ChannelVisibility;
   /** Unique ID */
   readonly id: string;
   /** Whether this is a direct message conversation */
@@ -627,7 +844,32 @@ export interface Postable<
     user: string | Author,
     message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
-  ): Promise<EphemeralMessage | null>;
+  ): Promise<EphemeralMessage<TRawMessage> | null>;
+
+  /**
+   * Schedule a message for future delivery.
+   *
+   * Currently only supported by the Slack adapter. Other adapters
+   * will throw NotImplementedError.
+   *
+   * @param message - The message content (streaming not supported)
+   * @param options - Scheduling options including the target delivery time
+   * @returns A ScheduledMessage with cancel() capability
+   *
+   * @example
+   * ```typescript
+   * const scheduled = await thread.schedule("Reminder: standup!", {
+   *   postAt: new Date("2026-03-09T09:00:00Z"),
+   * });
+   *
+   * // Cancel before it's sent
+   * await scheduled.cancel();
+   * ```
+   */
+  schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage<TRawMessage>>;
 
   /**
    * Set the state. Merges with existing state by default.
@@ -673,6 +915,12 @@ export interface Channel<
    * Empty iterable on threadless platforms.
    */
   threads(): AsyncIterable<ThreadSummary<TRawMessage>>;
+
+  /**
+   * Serialize the channel to a plain JSON object.
+   * Use this to pass channel data to external systems like workflow engines.
+   */
+  toJSON(): SerializedChannel;
 }
 
 /**
@@ -693,6 +941,8 @@ export interface ThreadSummary<TRawMessage = unknown> {
  * Channel metadata returned by fetchInfo().
  */
 export interface ChannelInfo {
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
   memberCount?: number;
@@ -849,7 +1099,7 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
     user: string | Author,
     message: AdapterPostableMessage | ChatElement,
     options: PostEphemeralOptions
-  ): Promise<EphemeralMessage | null>;
+  ): Promise<EphemeralMessage<TRawMessage> | null>;
 
   /** Recently fetched messages (cached) */
   recentMessages: Message<TRawMessage>[];
@@ -886,6 +1136,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   subscribe(): Promise<void>;
 
   /**
+   * Serialize the thread to a plain JSON object.
+   * Use this to pass thread data to external systems like workflow engines.
+   */
+  toJSON(): SerializedThread;
+
+  /**
    * Unsubscribe from this thread.
    *
    * Future messages will no longer trigger `onSubscribedMessage` handlers.
@@ -918,6 +1174,8 @@ export type {
 export interface ThreadInfo {
   channelId: string;
   channelName?: string;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
@@ -1067,11 +1325,11 @@ export interface SentMessage<TRawMessage = unknown>
  * Ephemeral messages are visible only to a specific user and typically
  * cannot be edited or deleted (platform-dependent).
  */
-export interface EphemeralMessage {
+export interface EphemeralMessage<TRawMessage = unknown> {
   /** Message ID (may be empty for some platforms) */
   id: string;
   /** Platform-specific raw response */
-  raw: unknown;
+  raw: TRawMessage;
   /** Thread ID where message was sent (or DM thread if fallback was used) */
   threadId: string;
   /** Whether this used native ephemeral or fell back to DM */
@@ -1089,6 +1347,29 @@ export interface PostEphemeralOptions {
    * - `false`: Returns `null` if native ephemeral is not supported
    */
   fallbackToDM: boolean;
+}
+
+// =============================================================================
+// Scheduled Message (returned from thread.schedule())
+// =============================================================================
+
+/**
+ * Result of scheduling a message for future delivery.
+ *
+ * Currently only supported by the Slack adapter via `chat.scheduleMessage`.
+ * Other adapters will throw `NotImplementedError` when `schedule()` is called.
+ */
+export interface ScheduledMessage<TRawMessage = unknown> {
+  /** Cancel the scheduled message before it's sent */
+  cancel(): Promise<void>;
+  /** Channel ID where the message will be posted */
+  channelId: string;
+  /** When the message will be sent */
+  postAt: Date;
+  /** Platform-specific raw response */
+  raw: TRawMessage;
+  /** Platform-specific scheduled message ID */
+  scheduledMessageId: string;
 }
 
 // =============================================================================
@@ -1197,6 +1478,28 @@ export interface Attachment {
 }
 
 /**
+ * A link found in a message, with optional unfurl metadata.
+ *
+ * On the initial message event, only `url` is available (unfurl metadata
+ * arrives later via `message_changed`). The `fetchMessage` callback is
+ * provided when the URL points to another chat message on the same platform.
+ */
+export interface LinkPreview {
+  /** Description from unfurl metadata (if available) */
+  description?: string;
+  /** If this links to a chat message, fetch the full Message */
+  fetchMessage?: () => Promise<Message>;
+  /** Preview image URL (if available) */
+  imageUrl?: string;
+  /** Site name (e.g., "Vercel") */
+  siteName?: string;
+  /** Title from unfurl metadata (if available) */
+  title?: string;
+  /** The URL */
+  url: string;
+}
+
+/**
  * File to upload with a message.
  */
 export interface FileUpload {
@@ -1240,7 +1543,23 @@ export interface FileUpload {
  */
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
+) => void | Promise<void>;
+
+/**
+ * Handler for direct messages (1:1 conversations with the bot).
+ *
+ * Registered via `chat.onDirectMessage(handler)`. Called when a message
+ * is received in a DM thread that is not subscribed. If no `onDirectMessage`
+ * handlers are registered, DMs fall through to `onNewMention` for backward
+ * compatibility.
+ */
+export type DirectMessageHandler<TState = Record<string, unknown>> = (
+  thread: Thread<TState>,
+  message: Message,
+  channel: Channel<TState>,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1251,7 +1570,8 @@ export type MentionHandler<TState = Record<string, unknown>> = (
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1279,7 +1599,8 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  */
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 // =============================================================================

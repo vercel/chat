@@ -16,6 +16,9 @@ import type {
   ListThreadsResult,
   Logger,
   RawMessage,
+  StreamChunk,
+  StreamOptions,
+  Thread,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -107,6 +110,8 @@ export class GitHubAdapter
     appId: string;
     privateKey: string;
   } | null = null;
+  // Fixed installation for single-tenant GitHub App mode
+  private readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
 
@@ -140,6 +145,7 @@ export class GitHubAdapter
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
+    let fixedInstallationId: number | null = null;
 
     // Create Octokit instance based on auth method.
     // Only fall back to env vars when NO auth field was explicitly provided,
@@ -161,6 +167,7 @@ export class GitHubAdapter
     ) {
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
+        fixedInstallationId = config.installationId;
         this.octokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
@@ -198,6 +205,7 @@ export class GitHubAdapter
             ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
             : undefined;
           if (installationIdRaw) {
+            fixedInstallationId = installationIdRaw;
             this.octokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
@@ -216,6 +224,8 @@ export class GitHubAdapter
         }
       }
     }
+
+    this.fixedInstallationId = fixedInstallationId;
   }
 
   /**
@@ -231,11 +241,12 @@ export class GitHubAdapter
 
     // Multi-tenant mode - need an installation ID
     if (!this.appCredentials) {
-      throw new Error("Adapter not properly configured");
+      throw new ValidationError("github", "Adapter not properly configured");
     }
 
     if (!installationId) {
-      throw new Error(
+      throw new ValidationError(
+        "github",
         "Installation ID required for multi-tenant mode. " +
           "This usually means you're trying to make an API call outside of a webhook context. " +
           "For proactive messages, use thread IDs from previous webhook interactions."
@@ -312,7 +323,7 @@ export class GitHubAdapter
   /**
    * Get the installation ID for a repository (for multi-tenant mode).
    */
-  private async getInstallationId(
+  private async getStoredInstallationId(
     owner: string,
     repo: string
   ): Promise<number | undefined> {
@@ -322,6 +333,36 @@ export class GitHubAdapter
 
     const key = this.getInstallationKey(owner, repo);
     return (await this.chat.getState().get<number>(key)) ?? undefined;
+  }
+
+  /**
+   * Get the GitHub App installation ID associated with a thread.
+   *
+   * Returns the fixed installation ID in single-tenant app mode, the cached
+   * repository installation in multi-tenant mode, or undefined in PAT mode.
+   */
+  async getInstallationId(
+    thread: Thread | string
+  ): Promise<number | undefined> {
+    if (this.fixedInstallationId !== null) {
+      return this.fixedInstallationId;
+    }
+
+    if (!this.isMultiTenant) {
+      return undefined;
+    }
+
+    const threadId = typeof thread === "string" ? thread : thread.id;
+    const { owner, repo } = this.decodeThreadId(threadId);
+
+    if (!this.chat) {
+      throw new ValidationError(
+        "github",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
+    }
+
+    return this.getStoredInstallationId(owner, repo);
   }
 
   /**
@@ -611,7 +652,7 @@ export class GitHubAdapter
     owner: string,
     repo: string
   ): Promise<Octokit> {
-    const installationId = await this.getInstallationId(owner, repo);
+    const installationId = await this.getStoredInstallationId(owner, repo);
     return this.getOctokit(installationId);
   }
 
@@ -769,6 +810,29 @@ export class GitHubAdapter
   }
 
   /**
+   * Stream a message by accumulating text and posting once.
+   *
+   * The default fallback posts a placeholder then edits it every 500ms.
+   * GitHub rejects these edits with 422 because `body` is empty before
+   * the first token arrives, and rapid edits risk secondary rate limits.
+   */
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    _options?: StreamOptions
+  ): Promise<RawMessage<GitHubRawMessage>> {
+    let text = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        text += chunk;
+      } else if (chunk.type === "markdown_text") {
+        text += chunk.text;
+      }
+    }
+    return this.postMessage(threadId, { markdown: text });
+  }
+
+  /**
    * Delete a message.
    */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
@@ -838,6 +902,16 @@ export class GitHubAdapter
     const content = this.emojiToGitHubReaction(emoji);
 
     const octokit = await this.getOctokitForThread(owner, repo);
+
+    // Multi-tenant mode has no global octokit, so initialize() can't detect _botUserId
+    if (!this._botUserId) {
+      try {
+        const { data: user } = await octokit.users.getAuthenticated();
+        this._botUserId = user.id;
+      } catch {
+        this.logger.warn("Could not detect bot user ID for reaction removal");
+      }
+    }
 
     // List reactions to find the one to delete
     const reactions = reviewCommentId
@@ -1166,6 +1240,7 @@ export class GitHubAdapter
             edited: pr.created_at !== pr.updated_at,
           },
           attachments: [],
+          links: [],
         });
 
         return {

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
+  AuthenticationError,
   extractCard,
   extractFiles,
   NetworkError,
@@ -15,6 +16,7 @@ import type {
   AdapterPostableMessage,
   Attachment,
   ChannelInfo,
+  ChannelVisibility,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
@@ -22,6 +24,7 @@ import type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  LinkPreview,
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
@@ -30,6 +33,8 @@ import type {
   PlanModel,
   RawMessage,
   ReactionEvent,
+  Root,
+  ScheduledMessage,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -38,7 +43,6 @@ import type {
 } from "chat";
 
 import {
-  ChatError,
   ConsoleLogger,
   convertEmojiPlaceholders,
   defaultEmojiResolver,
@@ -49,7 +53,7 @@ import {
   toModalElement,
   toPlainText,
 } from "chat";
-import { cardToBlockKit, cardToFallbackText } from "./cards";
+import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
   decodeKey,
@@ -64,6 +68,31 @@ import {
   modalToSlackView,
   type SlackModalResponse,
 } from "./modals";
+
+const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
+const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+
+/** Find the next `<@` or `<#` mention in text. */
+function findNextMention(text: string): number {
+  const atIdx = text.indexOf("<@");
+  const hashIdx = text.indexOf("<#");
+  if (atIdx === -1) {
+    return hashIdx;
+  }
+  if (hashIdx === -1) {
+    return atIdx;
+  }
+  return Math.min(atIdx, hashIdx);
+}
+
+/**
+ * Pattern to match Slack message URLs.
+ * Format: https://{workspace}.slack.com/archives/{channelId}/p{timestamp}
+ * The timestamp in the URL has no dot (e.g., p1234567890123456).
+ * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
+ */
+const SLACK_MESSAGE_URL_PATTERN =
+  /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
 export interface SlackAdapterConfig {
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
@@ -107,6 +136,18 @@ export interface SlackThreadId {
 
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
+  /** Rich text blocks containing structured elements (links, mentions, etc.) */
+  blocks?: Array<{
+    type: string;
+    elements?: Array<{
+      type: string;
+      elements?: Array<{
+        type: string;
+        url?: string;
+        text?: string;
+      }>;
+    }>;
+  }>;
   bot_id?: string;
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
@@ -206,6 +247,18 @@ interface SlackMemberJoinedChannelEvent {
   user: string;
 }
 
+/** Slack user_change event payload */
+interface SlackUserChangeEvent {
+  event_ts: string;
+  type: "user_change";
+  user: {
+    id: string;
+    name?: string;
+    real_name?: string;
+    profile?: { display_name?: string; real_name?: string };
+  };
+}
+
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
   challenge?: string;
@@ -215,9 +268,12 @@ interface SlackWebhookPayload {
     | SlackAssistantThreadStartedEvent
     | SlackAssistantContextChangedEvent
     | SlackAppHomeOpenedEvent
-    | SlackMemberJoinedChannelEvent;
+    | SlackMemberJoinedChannelEvent
+    | SlackUserChangeEvent;
   event_id?: string;
   event_time?: number;
+  /** Whether this event occurred in an externally shared channel (Slack Connect) */
+  is_ext_shared_channel?: boolean;
   team_id?: string;
   type: string;
 }
@@ -303,6 +359,11 @@ interface CachedUser {
   realName: string;
 }
 
+/** Cached channel info */
+interface CachedChannel {
+  name: string;
+}
+
 export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
@@ -315,7 +376,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private _botUserId: string | null = null;
   private _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
   private readonly formatConverter = new SlackFormatConverter();
-  private static USER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+  private static USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  private static CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  private static REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+
+  /**
+   * Cache of channel IDs known to be external/shared (Slack Connect).
+   * Populated from `is_ext_shared_channel` in incoming webhook payloads.
+   */
+  private readonly _externalChannels = new Set<string>();
 
   // Multi-workspace support
   private readonly clientId: string | undefined;
@@ -325,6 +394,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
+    isExtSharedChannel?: boolean;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -394,9 +464,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (this.defaultBotToken) {
       return this.defaultBotToken;
     }
-    throw new ChatError(
-      "No bot token available. In multi-workspace mode, ensure the webhook is being processed.",
-      "MISSING_BOT_TOKEN"
+    throw new AuthenticationError(
+      "slack",
+      "No bot token available. In multi-workspace mode, ensure the webhook is being processed."
     );
   }
 
@@ -454,9 +524,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     installation: SlackInstallation
   ): Promise<void> {
     if (!this.chat) {
-      throw new ChatError(
-        "Adapter not initialized. Ensure chat.initialize() has been called first.",
-        "NOT_INITIALIZED"
+      throw new ValidationError(
+        "slack",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
       );
     }
 
@@ -482,9 +552,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   async getInstallation(teamId: string): Promise<SlackInstallation | null> {
     if (!this.chat) {
-      throw new ChatError(
-        "Adapter not initialized. Ensure chat.initialize() has been called first.",
-        "NOT_INITIALIZED"
+      throw new ValidationError(
+        "slack",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
       );
     }
 
@@ -523,18 +593,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     request: Request
   ): Promise<{ teamId: string; installation: SlackInstallation }> {
     if (!(this.clientId && this.clientSecret)) {
-      throw new ChatError(
-        "clientId and clientSecret are required for OAuth. Pass them in createSlackAdapter().",
-        "MISSING_OAUTH_CONFIG"
+      throw new ValidationError(
+        "slack",
+        "clientId and clientSecret are required for OAuth. Pass them in createSlackAdapter()."
       );
     }
 
     const url = new URL(request.url);
     const code = url.searchParams.get("code");
     if (!code) {
-      throw new ChatError(
-        "Missing 'code' query parameter in OAuth callback request.",
-        "MISSING_OAUTH_CODE"
+      throw new ValidationError(
+        "slack",
+        "Missing 'code' query parameter in OAuth callback request."
       );
     }
 
@@ -548,9 +618,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     if (!(result.ok && result.access_token && result.team?.id)) {
-      throw new ChatError(
-        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`,
-        "OAUTH_FAILED"
+      throw new AuthenticationError(
+        "slack",
+        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`
       );
     }
 
@@ -571,9 +641,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   async deleteInstallation(teamId: string): Promise<void> {
     if (!this.chat) {
-      throw new ChatError(
-        "Adapter not initialized. Ensure chat.initialize() has been called first.",
-        "NOT_INITIALIZED"
+      throw new ValidationError(
+        "slack",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
       );
     }
 
@@ -682,6 +752,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             { displayName, realName },
             SlackAdapter.USER_CACHE_TTL_MS
           );
+
+        // Build reverse index: display name → user IDs (skip if already present)
+        const normalizedName = displayName.toLowerCase();
+        const reverseKey = `slack:user-by-name:${normalizedName}`;
+        const existing = await this.chat.getState().getList<string>(reverseKey);
+        if (!existing.includes(userId)) {
+          await this.chat.getState().appendToList(reverseKey, userId, {
+            maxLength: 50,
+            ttlMs: SlackAdapter.REVERSE_INDEX_TTL_MS,
+          });
+        }
       }
 
       this.logger.debug("Fetched user info", {
@@ -694,6 +775,48 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.warn("Could not fetch user info", { userId, error });
       // Fall back to user ID
       return { displayName: userId, realName: userId };
+    }
+  }
+
+  /**
+   * Look up channel name from Slack API with caching via state adapter.
+   * Returns channel name, or falls back to channel ID.
+   */
+  private async lookupChannel(channelId: string): Promise<string> {
+    const cacheKey = `slack:channel:${channelId}`;
+
+    // Check cache first (via state adapter for serverless compatibility)
+    if (this.chat) {
+      const cached = await this.chat.getState().get<CachedChannel>(cacheKey);
+      if (cached) {
+        return cached.name;
+      }
+    }
+
+    try {
+      const result = await this.client.conversations.info(
+        this.withToken({ channel: channelId })
+      );
+      const name =
+        (result.channel as { name?: string } | undefined)?.name || channelId;
+
+      // Cache the result via state adapter
+      if (this.chat) {
+        await this.chat
+          .getState()
+          .set<CachedChannel>(
+            cacheKey,
+            { name },
+            SlackAdapter.CHANNEL_CACHE_TTL_MS
+          );
+      }
+
+      this.logger.debug("Fetched channel info", { channelId, name });
+      return name;
+    } catch (error) {
+      this.logger.warn("Could not fetch channel info", { channelId, error });
+      // Fall back to channel ID
+      return channelId;
     }
   }
 
@@ -787,6 +910,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (payload.type === "event_callback" && payload.event) {
       const event = payload.event;
 
+      // Track external/shared channel status from payload-level flag
+      if (payload.is_ext_shared_channel) {
+        let channelId: string | undefined;
+        if ("channel" in event) {
+          channelId = (event as SlackEvent).channel;
+        } else if ("item" in event) {
+          channelId = (event as SlackReactionEvent).item.channel;
+        }
+        if (channelId) {
+          this._externalChannels.add(channelId);
+        }
+      }
+
       if (event.type === "message" || event.type === "app_mention") {
         const slackEvent = event as SlackEvent;
         if (!(slackEvent.team || slackEvent.team_id) && payload.team_id) {
@@ -818,6 +954,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event as SlackMemberJoinedChannelEvent,
           options
         );
+      } else if (event.type === "user_change") {
+        this.handleUserChange(event as SlackUserChangeEvent);
       }
     }
   }
@@ -1112,7 +1250,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (isJSX(modal)) {
       const converted = toModalElement(modal);
       if (!converted) {
-        throw new Error("Invalid JSX element: must be a Modal element");
+        throw new ValidationError(
+          "slack",
+          "Invalid JSX element: must be a Modal element"
+        );
       }
       return converted;
     }
@@ -1225,7 +1366,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Node.js AsyncLocalStorage propagates context to async continuations as long as
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
-    const isMention = isDM || event.type === "app_mention";
+    const isMention = event.type === "app_mention";
     const factory = async (): Promise<Message<unknown>> => {
       const msg = await this.parseSlackMessage(event, threadId);
       if (isMention) {
@@ -1240,10 +1381,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Handle reaction events from Slack (reaction_added, reaction_removed).
    */
-  private handleReactionEvent(
+  private async handleReactionEvent(
     event: SlackReactionEvent,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring reaction");
       return;
@@ -1257,10 +1398,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // Build thread ID from the reacted message
+    // Resolve the parent thread ts — when a reaction is on a reply,
+    // event.item.ts is the reply's ts, not the parent thread_ts.
+    let parentTs = event.item.ts;
+    try {
+      const result = await this.client.conversations.replies(
+        this.withToken({
+          channel: event.item.channel,
+          ts: event.item.ts,
+          limit: 1,
+        })
+      );
+      const firstMessage = (result.messages as { thread_ts?: string }[])?.[0];
+      if (firstMessage?.thread_ts) {
+        parentTs = firstMessage.thread_ts;
+      }
+    } catch (error) {
+      this.logger.warn(
+        "Failed to resolve parent thread for reaction, using message ts",
+        {
+          error: String(error),
+          channel: event.item.channel,
+          ts: event.item.ts,
+        }
+      );
+    }
+
+    // Build thread ID from the parent thread
     const threadId = this.encodeThreadId({
       channel: event.item.channel,
-      threadTs: event.item.ts,
+      threadTs: parentTs,
     });
 
     // Message ID is just the timestamp (Slack uses ts as message ID)
@@ -1446,6 +1613,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
+  private async handleUserChange(event: SlackUserChangeEvent): Promise<void> {
+    if (!this.chat) {
+      return;
+    }
+
+    try {
+      await this.chat.getState().delete(`slack:user:${event.user.id}`);
+    } catch (error) {
+      this.logger.warn("Failed to invalidate user cache", {
+        userId: event.user.id,
+        error,
+      });
+    }
+  }
+
   /**
    * Publish a Home tab view for a user.
    * Slack API: views.publish
@@ -1532,14 +1714,32 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     text: string,
     skipSelfMention: boolean
   ): Promise<string> {
-    const mentionPattern = /<@([A-Z0-9]+)(?:\|[^>]*)?>/g;
     const userIds = new Set<string>();
-    let match: RegExpExecArray | null = mentionPattern.exec(text);
-    while (match) {
-      userIds.add(match[1]);
-      match = mentionPattern.exec(text);
+    const channelIds = new Set<string>();
+    // Parse mentions by splitting on angle brackets to avoid ReDoS
+    for (const segment of text.split("<")) {
+      const end = segment.indexOf(">");
+      if (end === -1) {
+        continue;
+      }
+      const inner = segment.slice(0, end);
+      if (inner.startsWith("@")) {
+        const rest = inner.slice(1);
+        const pipeIdx = rest.indexOf("|");
+        const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
+        if (SLACK_USER_ID_PATTERN.test(uid)) {
+          userIds.add(uid);
+        }
+      } else if (inner.startsWith("#")) {
+        const rest = inner.slice(1);
+        const pipeIdx = rest.indexOf("|");
+        // Only collect bare channel IDs (no label already present)
+        if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
+          channelIds.add(rest);
+        }
+      }
     }
-    if (userIds.size === 0) {
+    if (userIds.size === 0 && channelIds.size === 0) {
       return text;
     }
 
@@ -1548,24 +1748,135 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (skipSelfMention && this._botUserId) {
       userIds.delete(this._botUserId);
     }
-    if (userIds.size === 0) {
+    if (userIds.size === 0 && channelIds.size === 0) {
       return text;
     }
 
-    // Look up all mentioned users in parallel
-    const lookups = await Promise.all(
-      [...userIds].map(async (uid) => {
-        const info = await this.lookupUser(uid);
-        return [uid, info.displayName] as const;
-      })
-    );
-    const nameMap = new Map(lookups);
+    // Look up all mentioned users and channels in parallel
+    const [userLookups, channelLookups] = await Promise.all([
+      Promise.all(
+        [...userIds].map(async (uid) => {
+          const info = await this.lookupUser(uid);
+          return [uid, info.displayName] as const;
+        })
+      ),
+      Promise.all(
+        [...channelIds].map(async (cid) => {
+          const name = await this.lookupChannel(cid);
+          return [cid, name] as const;
+        })
+      ),
+    ]);
+    const userNameMap = new Map(userLookups);
+    const channelNameMap = new Map(channelLookups);
 
-    // Replace <@U123> and <@U123|old> with <@U123|resolvedName>
-    return text.replace(/<@([A-Z0-9]+)(?:\|[^>]*)?>/g, (_m, uid: string) => {
-      const name = nameMap.get(uid);
-      return name ? `<@${uid}|${name}>` : `<@${uid}>`;
-    });
+    // Replace <@U123>, <@U123|old>, and <#C123> with resolved names
+    // Use split-based approach to avoid ReDoS on user-controlled input
+    let result = "";
+    let remaining = text;
+    let startIdx = findNextMention(remaining);
+    while (startIdx !== -1) {
+      result += remaining.slice(0, startIdx);
+      remaining = remaining.slice(startIdx);
+      const endIdx = remaining.indexOf(">");
+      if (endIdx === -1) {
+        break;
+      }
+      const prefix = remaining[1]; // '@' or '#'
+      const inner = remaining.slice(2, endIdx); // after "<@" or "<#"
+      const pipeIdx = inner.indexOf("|");
+      const id = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
+      if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
+        const name = userNameMap.get(id);
+        result += name ? `<@${id}|${name}>` : `<@${id}>`;
+      } else if (prefix === "#" && pipeIdx === -1 && channelNameMap.has(id)) {
+        const name = channelNameMap.get(id);
+        result += `<#${id}|${name}>`;
+      } else {
+        result += remaining.slice(0, endIdx + 1);
+      }
+      remaining = remaining.slice(endIdx + 1);
+      startIdx = findNextMention(remaining);
+    }
+    return result + remaining;
+  }
+
+  /**
+   * Extract link URLs from a Slack event.
+   * Uses the `blocks` field (rich_text blocks with link elements) when available,
+   * falling back to parsing `<url>` patterns from the text field.
+   */
+  private extractLinks(event: SlackEvent): LinkPreview[] {
+    const urls = new Set<string>();
+
+    // Try blocks first - they contain structured link elements
+    if (event.blocks) {
+      for (const block of event.blocks) {
+        if (block.type === "rich_text" && block.elements) {
+          for (const section of block.elements) {
+            if (section.elements) {
+              for (const element of section.elements) {
+                if (element.type === "link" && element.url) {
+                  urls.add(element.url);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: parse <url> and <url|label> from text
+    if (urls.size === 0 && event.text) {
+      const urlPattern = /<(https?:\/\/[^>]+)>/g;
+      for (const match of event.text.matchAll(urlPattern)) {
+        // Strip optional "|label" suffix (Slack format: <url|label>)
+        const raw = match[1] as string;
+        const pipeIdx = raw.indexOf("|");
+        urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
+      }
+    }
+
+    return [...urls].map((url) => this.createLinkPreview(url));
+  }
+
+  /**
+   * Create a LinkPreview for a URL. If the URL points to a Slack message,
+   * includes a `fetchMessage` callback that fetches and parses the linked message.
+   */
+  private createLinkPreview(url: string): LinkPreview {
+    const match = SLACK_MESSAGE_URL_PATTERN.exec(url);
+    if (!match) {
+      return { url };
+    }
+
+    const channel = match[1] as string;
+    const rawTs = match[2] as string;
+    // Convert URL timestamp to Slack ts format: insert dot before last 6 digits
+    const ts = `${rawTs.slice(0, rawTs.length - 6)}.${rawTs.slice(rawTs.length - 6)}`;
+    const threadId = this.encodeThreadId({ channel, threadTs: ts });
+
+    return {
+      url,
+      fetchMessage: async () => {
+        const result = await this.client.conversations.history(
+          this.withToken({
+            channel,
+            latest: ts,
+            inclusive: true,
+            limit: 1,
+          })
+        );
+
+        const messages = (result.messages || []) as SlackEvent[];
+        const target = messages.find((msg) => msg.ts === ts);
+        if (!target) {
+          throw new Error(`Message not found: ${url}`);
+        }
+
+        return this.parseSlackMessage(target, threadId);
+      },
+    };
   }
 
   private async parseSlackMessage(
@@ -1588,6 +1899,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const userInfo = await this.lookupUser(event.user);
       userName = userInfo.displayName;
       fullName = userInfo.realName;
+    }
+
+    // Track thread participants for outgoing mention resolution (skip dupes)
+    if (event.user && this.chat) {
+      try {
+        const participantKey = `slack:thread-participants:${threadId}`;
+        const participants = await this.chat
+          .getState()
+          .getList<string>(participantKey);
+        if (!participants.includes(event.user)) {
+          await this.chat.getState().appendToList(participantKey, event.user, {
+            maxLength: 100,
+            ttlMs: SlackAdapter.REVERSE_INDEX_TTL_MS,
+          });
+        }
+      } catch (error) {
+        this.logger.warn("Failed to track thread participant", {
+          threadId,
+          userId: event.user,
+          error,
+        });
+      }
     }
 
     // Resolve inline @mentions to display names
@@ -1616,6 +1949,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file)
       ),
+      links: this.extractLinks(event),
     });
   }
 
@@ -1667,6 +2001,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 `Failed to fetch file: ${response.status} ${response.statusText}`
               );
             }
+            const contentType = response.headers.get("content-type") ?? "";
+            if (contentType.includes("text/html")) {
+              throw new NetworkError(
+                "slack",
+                "Failed to download file from Slack: received HTML login page instead of file data. " +
+                  `Ensure your Slack app has the "files:read" OAuth scope. ` +
+                  `URL: ${url}`
+              );
+            }
             const arrayBuffer = await response.arrayBuffer();
             return Buffer.from(arrayBuffer);
           }
@@ -1674,10 +2017,175 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
   }
 
+  /**
+   * Resolve @name mentions in text to Slack <@USER_ID> format using the
+   * reverse user cache. When multiple users share a display name, prefers
+   * the one who is a participant in the given thread.
+   */
+  private async resolveOutgoingMentions(
+    text: string,
+    threadId: string
+  ): Promise<string> {
+    if (!this.chat) {
+      return text;
+    }
+    const state = this.chat.getState();
+
+    // Find all @word patterns that aren't already wrapped in <@...>
+    const mentionPattern = /@(\w+)/g;
+    const mentions = new Map<string, string[]>();
+
+    for (const match of text.matchAll(mentionPattern)) {
+      const name = match[1];
+      // Skip if already a Slack user ID format or inside <@...>
+      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+        continue;
+      }
+      // Check the character before @ to skip <@...> patterns
+      const idx = match.index;
+      if (idx > 0 && text[idx - 1] === "<") {
+        continue;
+      }
+      if (!mentions.has(name.toLowerCase())) {
+        mentions.set(name.toLowerCase(), []);
+      }
+    }
+
+    if (mentions.size === 0) {
+      return text;
+    }
+
+    // Look up user IDs for each mentioned name
+    for (const name of mentions.keys()) {
+      const userIds = await state.getList<string>(`slack:user-by-name:${name}`);
+      // Dedup
+      const unique = [...new Set(userIds)];
+      mentions.set(name, unique);
+    }
+
+    // Load thread participants only if needed (ambiguous mentions)
+    let participants: Set<string> | null = null;
+    const needsParticipants = [...mentions.values()].some(
+      (ids) => ids.length > 1
+    );
+    if (needsParticipants) {
+      const participantList = await state.getList<string>(
+        `slack:thread-participants:${threadId}`
+      );
+      participants = new Set(participantList);
+    }
+
+    // Replace mentions in text
+    return text.replace(
+      mentionPattern,
+      (match, name: string, offset: number) => {
+        if (offset > 0 && text[offset - 1] === "<") {
+          return match;
+        }
+        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+          return match;
+        }
+
+        const userIds = mentions.get(name.toLowerCase());
+        if (!userIds || userIds.length === 0) {
+          return match;
+        }
+        if (userIds.length === 1) {
+          return `<@${userIds[0]}>`;
+        }
+        // Disambiguate using thread participants
+        if (participants) {
+          const inThread = userIds.filter((id) => participants.has(id));
+          if (inThread.length === 1) {
+            return `<@${inThread[0]}>`;
+          }
+        }
+        // Still ambiguous — leave as plain text
+        return match;
+      }
+    );
+  }
+
+  /**
+   * Pre-process an outgoing message to resolve @name mentions before rendering.
+   */
+  private async resolveMessageMentions(
+    message: AdapterPostableMessage,
+    threadId: string
+  ): Promise<AdapterPostableMessage> {
+    if (!this.chat) {
+      return message;
+    }
+    if (typeof message === "string") {
+      return this.resolveOutgoingMentions(message, threadId);
+    }
+    if (typeof message === "object" && message !== null) {
+      if (
+        "raw" in message &&
+        typeof (message as { raw: unknown }).raw === "string"
+      ) {
+        return {
+          ...message,
+          raw: await this.resolveOutgoingMentions(
+            (message as { raw: string }).raw,
+            threadId
+          ),
+        };
+      }
+      if (
+        "markdown" in message &&
+        typeof (message as { markdown: unknown }).markdown === "string"
+      ) {
+        return {
+          ...message,
+          markdown: await this.resolveOutgoingMentions(
+            (message as { markdown: string }).markdown,
+            threadId
+          ),
+        };
+      }
+    }
+    // AST, Card, or other formats — pass through unchanged
+    return message;
+  }
+
+  /**
+   * Try to render a message using native Slack table blocks.
+   * Returns blocks + fallback text if the message contains tables, null otherwise.
+   */
+  private renderWithTableBlocks(
+    message: AdapterPostableMessage
+  ): { text: string; blocks: SlackBlock[] } | null {
+    let ast: Root | null = null;
+    if (typeof message === "object" && message !== null) {
+      if ("ast" in message) {
+        ast = (message as { ast: Root }).ast;
+      } else if ("markdown" in message) {
+        ast = parseMarkdown((message as { markdown: string }).markdown);
+      }
+    }
+    if (!ast) {
+      return null;
+    }
+
+    const blocks = this.formatConverter.toBlocksWithTable(ast);
+    if (!blocks) {
+      return null;
+    }
+
+    // Use regular rendering as fallback text for notifications
+    const fallbackText = convertEmojiPlaceholders(
+      this.formatConverter.renderPostable(message),
+      "slack"
+    );
+    return { text: fallbackText, blocks };
+  }
+
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage
+    _message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
+    const message = await this.resolveMessageMentions(_message, threadId);
     const { channel, threadTs } = this.decodeThreadId(threadId);
 
     try {
@@ -1744,6 +2252,38 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         };
       }
 
+      // Check for tables in markdown/AST messages → use native table blocks
+      const tableResult = this.renderWithTableBlocks(message);
+      if (tableResult) {
+        this.logger.debug("Slack API: chat.postMessage (table blocks)", {
+          channel,
+          threadTs,
+          blockCount: tableResult.blocks.length,
+        });
+
+        const result = await this.client.chat.postMessage(
+          this.withToken({
+            channel,
+            thread_ts: threadTs,
+            text: tableResult.text,
+            blocks: tableResult.blocks,
+            unfurl_links: false,
+            unfurl_media: false,
+          })
+        );
+
+        this.logger.debug("Slack API: chat.postMessage response", {
+          messageId: result.ts,
+          ok: result.ok,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
+      }
+
       // Regular text message
       const text = convertEmojiPlaceholders(
         this.formatConverter.renderPostable(message),
@@ -1784,8 +2324,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   async postEphemeral(
     threadId: string,
     userId: string,
-    message: AdapterPostableMessage
+    _message: AdapterPostableMessage
   ): Promise<EphemeralMessage> {
+    const message = await this.resolveMessageMentions(_message, threadId);
     const { channel, threadTs } = this.decodeThreadId(threadId);
 
     try {
@@ -1811,6 +2352,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             user: userId,
             text: fallbackText,
             blocks,
+          })
+        );
+
+        this.logger.debug("Slack API: chat.postEphemeral response", {
+          messageTs: result.message_ts,
+          ok: result.ok,
+        });
+
+        return {
+          id: result.message_ts || "",
+          threadId,
+          usedFallback: false,
+          raw: result,
+        };
+      }
+
+      // Check for tables in markdown/AST messages → use native table blocks
+      const tableResult = this.renderWithTableBlocks(message);
+      if (tableResult) {
+        this.logger.debug("Slack API: chat.postEphemeral (table blocks)", {
+          channel,
+          threadTs,
+          userId,
+          blockCount: tableResult.blocks.length,
+        });
+
+        const result = await this.client.chat.postEphemeral(
+          this.withToken({
+            channel,
+            thread_ts: threadTs || undefined,
+            user: userId,
+            text: tableResult.text,
+            blocks: tableResult.blocks,
           })
         );
 
@@ -1859,6 +2433,118 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         threadId,
         usedFallback: false,
         raw: result,
+      };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  async scheduleMessage(
+    threadId: string,
+    _message: AdapterPostableMessage,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    const message = await this.resolveMessageMentions(_message, threadId);
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const postAtUnix = Math.floor(options.postAt.getTime() / 1000);
+
+    if (postAtUnix <= Math.floor(Date.now() / 1000)) {
+      throw new ValidationError("slack", "postAt must be in the future");
+    }
+
+    // File uploads are not supported by chat.scheduleMessage
+    const files = extractFiles(message);
+    if (files.length > 0) {
+      throw new ValidationError(
+        "slack",
+        "File uploads are not supported in scheduled messages"
+      );
+    }
+
+    // Capture token now so cancel() works outside request context
+    const token = this.getToken();
+
+    try {
+      const card = extractCard(message);
+
+      if (card) {
+        const blocks = cardToBlockKit(card);
+        const fallbackText = cardToFallbackText(card);
+
+        this.logger.debug("Slack API: chat.scheduleMessage (blocks)", {
+          channel,
+          threadTs,
+          postAt: postAtUnix,
+          blockCount: blocks.length,
+        });
+
+        const result = await this.client.chat.scheduleMessage({
+          token,
+          channel,
+          thread_ts: threadTs || undefined,
+          post_at: postAtUnix,
+          text: fallbackText,
+          blocks,
+          unfurl_links: false,
+          unfurl_media: false,
+        });
+
+        const scheduledMessageId = result.scheduled_message_id as string;
+        const adapter = this;
+
+        return {
+          scheduledMessageId,
+          channelId: channel,
+          postAt: options.postAt,
+          raw: result,
+          async cancel() {
+            await adapter.client.chat.deleteScheduledMessage({
+              token,
+              channel,
+              scheduled_message_id: scheduledMessageId,
+            });
+          },
+        };
+      }
+
+      // Regular text message
+      const text = convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "slack"
+      );
+
+      this.logger.debug("Slack API: chat.scheduleMessage", {
+        channel,
+        threadTs,
+        postAt: postAtUnix,
+        textLength: text.length,
+      });
+
+      const result = await this.client.chat.scheduleMessage({
+        token,
+        channel,
+        thread_ts: threadTs || undefined,
+        post_at: postAtUnix,
+        text,
+        unfurl_links: false,
+        unfurl_media: false,
+      });
+
+      const scheduledMessageId = result.scheduled_message_id as string;
+      const adapter = this;
+
+      return {
+        scheduledMessageId,
+        channelId: channel,
+        postAt: options.postAt,
+        raw: result,
+        async cancel() {
+          await adapter.client.chat.deleteScheduledMessage({
+            token,
+            channel,
+            scheduled_message_id: scheduledMessageId,
+          });
+        },
       };
     } catch (error) {
       this.handleSlackError(error);
@@ -1993,8 +2679,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage
+    _message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
+    const message = await this.resolveMessageMentions(_message, threadId);
     const ephemeral = this.decodeEphemeralMessageId(messageId);
     if (ephemeral) {
       const { threadTs } = this.decodeThreadId(threadId);
@@ -2036,6 +2723,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             ts: messageId,
             text: fallbackText,
             blocks,
+          })
+        );
+
+        this.logger.debug("Slack API: chat.update response", {
+          messageId: result.ts,
+          ok: result.ok,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
+      }
+
+      // Check for tables in markdown/AST messages → use native table blocks
+      const tableResult = this.renderWithTableBlocks(message);
+      if (tableResult) {
+        this.logger.debug("Slack API: chat.update (table blocks)", {
+          channel,
+          messageId,
+          blockCount: tableResult.blocks.length,
+        });
+
+        const result = await this.client.chat.update(
+          this.withToken({
+            channel,
+            ts: messageId,
+            text: tableResult.text,
+            blocks: tableResult.blocks,
           })
         );
 
@@ -2414,9 +3131,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     options?: StreamOptions
   ): Promise<RawMessage<unknown>> {
     if (!(options?.recipientUserId && options?.recipientTeamId)) {
-      throw new ChatError(
-        "Slack streaming requires recipientUserId and recipientTeamId in options",
-        "MISSING_STREAM_OPTIONS"
+      throw new ValidationError(
+        "slack",
+        "Slack streaming requires recipientUserId and recipientTeamId in options"
       );
     }
     const { channel, threadTs } = this.decodeThreadId(threadId);
@@ -2746,17 +3463,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.conversations.info(
         this.withToken({ channel })
       );
-      const channelInfo = result.channel as { name?: string } | undefined;
+      const channelInfo = result.channel as
+        | {
+            name?: string;
+            is_ext_shared?: boolean;
+            is_private?: boolean;
+          }
+        | undefined;
+
+      // Update external channel cache from API response
+      if (channelInfo?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
 
       this.logger.debug("Slack API: conversations.info response", {
         channelName: channelInfo?.name,
         ok: result.ok,
       });
 
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (channelInfo?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (channelInfo?.is_private || channel.startsWith("D")) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: threadId,
         channelId: channel,
         channelName: channelInfo?.name,
+        channelVisibility,
         metadata: {
           threadTs,
           channel: result.channel,
@@ -2810,6 +3549,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   isDM(threadId: string): boolean {
     const { channel } = this.decodeThreadId(threadId);
     return channel.startsWith("D");
+  }
+
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * - `external`: Slack Connect channel shared with external organizations
+   * - `private`: Private channel (starts with G) or DM (starts with D)
+   * - `workspace`: Public channel visible to all workspace members
+   * - `unknown`: Visibility cannot be determined (not yet cached)
+   */
+  getChannelVisibility(threadId: string): ChannelVisibility {
+    const { channel } = this.decodeThreadId(threadId);
+
+    // Check for external channel first (Slack Connect)
+    if (this._externalChannels.has(channel)) {
+      return "external";
+    }
+
+    // Private channels start with G, DMs start with D
+    if (channel.startsWith("G") || channel.startsWith("D")) {
+      return "private";
+    }
+
+    // Public channels start with C
+    if (channel.startsWith("C")) {
+      return "workspace";
+    }
+
+    return "unknown";
   }
 
   decodeThreadId(threadId: string): SlackThreadId {
@@ -2875,6 +3643,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file)
       ),
+      links: this.extractLinks(event),
     });
   }
 
@@ -3123,15 +3892,38 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         name?: string;
         is_im?: boolean;
         is_mpim?: boolean;
+        is_private?: boolean;
+        is_ext_shared?: boolean;
         num_members?: number;
         purpose?: { value?: string };
         topic?: { value?: string };
       };
 
+      // Update external channel cache from API response
+      if (info?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
+
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (info?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (
+        info?.is_im ||
+        info?.is_mpim ||
+        info?.is_private ||
+        channel.startsWith("D")
+      ) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: channelId,
         name: info?.name ? `#${info.name}` : undefined,
         isDM: Boolean(info?.is_im || info?.is_mpim),
+        channelVisibility,
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,
@@ -3277,9 +4069,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     } else {
       const message = options?.message;
       if (!message) {
-        throw new ChatError(
-          "Message required for replace action",
-          "INVALID_ARGS"
+        throw new ValidationError(
+          "slack",
+          "Message required for replace action"
         );
       }
       const card = extractCard(message);
@@ -3290,13 +4082,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blocks: cardToBlockKit(card),
         };
       } else {
-        payload = {
-          replace_original: true,
-          text: convertEmojiPlaceholders(
-            this.formatConverter.renderPostable(message),
-            "slack"
-          ),
-        };
+        const tableResult = this.renderWithTableBlocks(message);
+        if (tableResult) {
+          payload = {
+            replace_original: true,
+            text: tableResult.text,
+            blocks: tableResult.blocks,
+          };
+        } else {
+          payload = {
+            replace_original: true,
+            text: convertEmojiPlaceholders(
+              this.formatConverter.renderPostable(message),
+              "slack"
+            ),
+          };
+        }
       }
       if (options?.threadTs) {
         payload.thread_ts = options.threadTs;
@@ -3319,9 +4120,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         status: response.status,
         body: errorText,
       });
-      throw new ChatError(
-        `Failed to ${action} via response_url: ${errorText}`,
-        response.status.toString()
+      throw new NetworkError(
+        "slack",
+        `Failed to ${action} via response_url: ${errorText}`
       );
     }
     const responseText = await response.text();

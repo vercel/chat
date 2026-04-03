@@ -28,20 +28,29 @@ export async function POST(
   });
 }
 
-// Health check endpoint
+// GET handler — serves as health check, but also forwards to webhook handler
+// for platforms that need GET verification (e.g. WhatsApp challenge-response)
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ platform: string }> }
 ): Promise<Response> {
   const { platform } = await params;
 
-  const hasAdapter = bot.webhooks[platform as Platform] !== undefined;
-
-  if (hasAdapter) {
-    return new Response(`${platform} webhook endpoint is active`, {
-      status: 200,
-    });
+  const webhookHandler = bot.webhooks[platform as Platform];
+  if (!webhookHandler) {
+    return new Response(`${platform} adapter not configured`, { status: 404 });
   }
 
-  return new Response(`${platform} adapter not configured`, { status: 404 });
+  // If the request has verification query params, forward to the adapter
+  const url = new URL(request.url);
+  if (
+    url.searchParams.has("hub.mode") ||
+    url.searchParams.has("hub.verify_token")
+  ) {
+    return webhookHandler(request);
+  }
+
+  return new Response(`${platform} webhook endpoint is active`, {
+    status: 200,
+  });
 }

@@ -42,7 +42,12 @@ export async function* fromFullStream(
     if (event === null || typeof event !== "object" || !("type" in event)) {
       continue;
     }
-    const typed = event as { textDelta?: unknown; type: string };
+    const typed = event as {
+      delta?: unknown;
+      text?: unknown;
+      textDelta?: unknown;
+      type: string;
+    };
 
     // Pass through StreamChunk objects (task_update, plan_update, markdown_text)
     if (STREAM_CHUNK_TYPES.has(typed.type)) {
@@ -50,14 +55,16 @@ export async function* fromFullStream(
       continue;
     }
 
-    if (typed.type === "text-delta" && typeof typed.textDelta === "string") {
+    // AI SDK v5 uses `textDelta`, v6 uses `text`
+    const textContent = typed.text ?? typed.delta ?? typed.textDelta;
+    if (typed.type === "text-delta" && typeof textContent === "string") {
       if (needsSeparator && hasEmittedText) {
         yield "\n\n";
       }
       needsSeparator = false;
       hasEmittedText = true;
-      yield typed.textDelta;
-    } else if (typed.type === "step-finish") {
+      yield textContent;
+    } else if (typed.type === "finish-step") {
       needsSeparator = true;
     }
   }

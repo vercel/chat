@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractCard, ValidationError } from "@chat-adapter/shared";
+import {
+  AdapterError,
+  AuthenticationError,
+  extractCard,
+  ValidationError,
+} from "@chat-adapter/shared";
 import type { LinearFetch, User } from "@linear/sdk";
 import { LinearClient } from "@linear/sdk";
 import type {
@@ -215,7 +220,8 @@ export class LinearAdapter
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(
+      throw new AuthenticationError(
+        "linear",
         `Failed to fetch Linear client credentials token: ${response.status} ${errorBody}`
       );
     }
@@ -485,7 +491,10 @@ export class LinearAdapter
 
     const comment = await commentPayload.comment;
     if (!comment) {
-      throw new Error("Failed to create comment on Linear issue");
+      throw new AdapterError(
+        "Failed to create comment on Linear issue",
+        "linear"
+      );
     }
 
     return {
@@ -538,7 +547,7 @@ export class LinearAdapter
 
     const comment = await commentPayload.comment;
     if (!comment) {
-      throw new Error("Failed to update comment on Linear");
+      throw new AdapterError("Failed to update comment on Linear", "linear");
     }
 
     return {

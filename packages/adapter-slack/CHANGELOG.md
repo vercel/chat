@@ -1,5 +1,90 @@
 # @chat-adapter/slack
 
+## 4.23.0
+
+### Minor Changes
+
+- 4166e09: Add `channelVisibility` enum to distinguish private, workspace, external, and unknown channel scopes. Implements `getChannelVisibility()` on the Adapter interface and Slack adapter, replacing the previous `isExternalChannel` boolean.
+
+### Patch Changes
+
+- Updated dependencies [4166e09]
+  - chat@4.23.0
+  - @chat-adapter/shared@4.23.0
+
+## 4.22.0
+
+### Patch Changes
+
+- Updated dependencies [f2d8957]
+  - chat@4.22.0
+  - @chat-adapter/shared@4.22.0
+
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
+## 4.20.2
+
+### Patch Changes
+
+- f612b44: Fix duplicate mention resolution by using the replace callback offset instead of indexOf. Invalidate user cache on Slack user_change events so display name updates are picked up immediately.
+  - chat@4.20.2
+  - @chat-adapter/shared@4.20.2
+
+## 4.20.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+- 97be8a9: Automatically resolve slack channel names
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+  - @chat-adapter/shared@4.20.1
+
+## 4.20.0
+
+### Patch Changes
+
+- chat@4.20.0
+- @chat-adapter/shared@4.20.0
+
+## 4.19.0
+
+### Minor Changes
+
+- 5b41f08: Add `thread.schedule()` and `ScheduledMessage` type for scheduling messages to be sent at a future time. Slack adapter implements scheduling via `chat.scheduleMessage` API with `cancel()` support.
+
+### Patch Changes
+
+- 736880a: Resolve parent `thread_ts` for reaction events on threaded replies so `onReaction` gets the correct thread ID
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
+## 4.18.0
+
+### Patch Changes
+
+- a3cfc1a: AI SDK6 compat fixes and support for native slack tables
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+  - @chat-adapter/shared@4.18.0
+
 ## 4.17.0
 
 ### Patch Changes

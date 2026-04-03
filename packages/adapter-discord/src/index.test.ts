@@ -5,6 +5,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
+import { Actions, Button, Card } from "chat";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
@@ -2524,6 +2525,77 @@ describe("postChannelMessage", () => {
 
     spy.mockRestore();
   });
+
+  it("posts a card message with embeds and components", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg003",
+        channel_id: "channel456",
+        content: "Test Card",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.embeds).toBeDefined();
+    expect(Array.isArray(calledPayload.embeds)).toBe(true);
+    expect((calledPayload.embeds ?? []).length).toBeGreaterThan(0);
+    expect(calledPayload.components).toBeDefined();
+    expect(Array.isArray(calledPayload.components)).toBe(true);
+    expect((calledPayload.components ?? []).length).toBeGreaterThan(0);
+
+    spy.mockRestore();
+  });
+
+  it("calls postMessageWithFiles when files are present", async () => {
+    const mockRawMessage = {
+      id: "msg004",
+      threadId: "discord:guild1:channel456",
+      raw: {},
+    };
+    const spy = vi
+      .spyOn(adapter as any, "postMessageWithFiles")
+      .mockResolvedValue(mockRawMessage);
+
+    const fileMessage = {
+      text: "Here's a file",
+      files: [
+        {
+          name: "test.txt",
+          data: Buffer.from("hello"),
+          mimeType: "text/plain",
+          filename: "test.txt",
+        },
+      ],
+    };
+
+    const result = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      fileMessage
+    );
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(result).toEqual(mockRawMessage);
+
+    spy.mockRestore();
+  });
 });
 
 // ============================================================================
@@ -3894,5 +3966,72 @@ describe("mentionRoleIds handling", () => {
     );
 
     fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// createDiscordThread 160004 Recovery Tests
+// ============================================================================
+
+describe("createDiscordThread 160004 recovery", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("should recover when Discord returns 160004 (thread already exists)", async () => {
+    const { NetworkError } = await import("@chat-adapter/shared");
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(
+        new NetworkError(
+          "discord",
+          'Discord API error: 400 {"code": 160004, "message": "A thread has already been created for this message"}'
+        )
+      );
+
+    const result = await (adapter as any).createDiscordThread(
+      "channel123",
+      "msg456"
+    );
+
+    expect(result.id).toBe("msg456");
+    expect(result.name).toContain("Thread ");
+
+    spy.mockRestore();
+  });
+
+  it("should propagate non-160004 NetworkErrors", async () => {
+    const { NetworkError } = await import("@chat-adapter/shared");
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(
+        new NetworkError(
+          "discord",
+          'Discord API error: 403 {"code": 50001, "message": "Missing Access"}'
+        )
+      );
+
+    await expect(
+      (adapter as any).createDiscordThread("channel123", "msg456")
+    ).rejects.toThrow(NetworkError);
+
+    spy.mockRestore();
+  });
+
+  it("should propagate non-NetworkError errors", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(new Error("Connection failed"));
+
+    await expect(
+      (adapter as any).createDiscordThread("channel123", "msg456")
+    ).rejects.toThrow("Connection failed");
+
+    spy.mockRestore();
   });
 });

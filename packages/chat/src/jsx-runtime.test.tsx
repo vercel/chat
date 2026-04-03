@@ -14,6 +14,7 @@ import {
   Image,
   LinkButton,
   Section,
+  Table,
   Text,
 } from "./cards";
 import { isJSX, toCardElement } from "./jsx-runtime";
@@ -289,6 +290,47 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       if (result?.children[6].type === "actions") {
         expect(result.children[6].children).toHaveLength(3);
       }
+    });
+  });
+
+  describe("Table", () => {
+    it("creates Card with Table child", () => {
+      const element = (
+        <Card title="Team">
+          <Table
+            headers={["Name", "Role"]}
+            rows={[
+              ["Alice", "Engineer"],
+              ["Bob", "Designer"],
+            ]}
+          />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children).toHaveLength(1);
+      expect(result?.children[0].type).toBe("table");
+      if (result?.children[0].type === "table") {
+        expect(result.children[0].headers).toEqual(["Name", "Role"]);
+        expect(result.children[0].rows).toEqual([
+          ["Alice", "Engineer"],
+          ["Bob", "Designer"],
+        ]);
+      }
+    });
+
+    it("creates Card with Table alongside other children", () => {
+      const element = (
+        <Card title="Report">
+          <Text>Summary:</Text>
+          <Table headers={["Metric", "Value"]} rows={[["Users", "100"]]} />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children).toHaveLength(2);
+      expect(result?.children[0].type).toBe("text");
+      expect(result?.children[1].type).toBe("table");
     });
   });
 

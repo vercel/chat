@@ -108,16 +108,25 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     // Pre: <pre>text</pre> -> ```text```
     markdown = markdown.replace(/<pre>([^<]+)<\/pre>/gi, "```\n$1\n```");
 
-    // Strip remaining HTML tags
-    markdown = markdown.replace(/<[^>]+>/g, "");
+    // Strip remaining HTML tags (loop to handle nested/reconstructed tags)
+    let prev: string;
+    do {
+      prev = markdown;
+      markdown = markdown.replace(/<[^>]+>/g, "");
+    } while (markdown !== prev);
 
-    // Decode HTML entities
-    markdown = markdown
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+    // Decode HTML entities in a single pass to prevent double-unescaping
+    const entityMap: Record<string, string> = {
+      "&lt;": "<",
+      "&gt;": ">",
+      "&amp;": "&",
+      "&quot;": '"',
+      "&#39;": "'",
+    };
+    markdown = markdown.replace(
+      /&(?:lt|gt|amp|quot|#39);/g,
+      (match) => entityMap[match] ?? match
+    );
 
     return parseMarkdown(markdown);
   }

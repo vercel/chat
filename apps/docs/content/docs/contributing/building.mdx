@@ -31,7 +31,7 @@ Chat SDK ships with Vercel-maintained adapters for Slack, Teams, Google Chat, Di
 
 #### Qualifications for vendor official tier
 
-- Committment for continued maintenance of the adapter.
+- Commitment for continued maintenance of the adapter.
 - GitHub hosting in official vendor-owned org.
 - Documentation of the adapter in primary vendor docs.
 - Announcement of the adapter in blog post or changelog and social media.
@@ -240,6 +240,19 @@ async initialize(chat: ChatInstance): Promise<void> {
   // this.botUserId = me.user_id;
 }
 ```
+
+### Disconnect
+
+The optional `disconnect()` method is called during `chat.shutdown()` to clean up resources. Use it to close persistent connections, tear down subscriptions, or release any platform-specific resources.
+
+```typescript title="src/adapter.ts"
+async disconnect(): Promise<void> {
+  // Close WebSocket connections, clean up subscriptions, etc.
+  // Example: await this.matrixClient.stop();
+}
+```
+
+Adapters that don't hold persistent connections can skip this method entirely.
 
 ### Thread ID encode/decode
 
@@ -530,6 +543,7 @@ These methods are not required but extend your adapter's capabilities:
 
 | Method | Purpose |
 |--------|---------|
+| `disconnect()` | Clean up connections and resources during shutdown |
 | `openDM(userId)` | Open a direct message conversation |
 | `isDM(threadId)` | Check if a thread is a DM |
 | `stream(threadId, textStream)` | Stream AI responses in real-time |
@@ -542,6 +556,7 @@ These methods are not required but extend your adapter's capabilities:
 | `fetchMessage(threadId, messageId)` | Fetch a single message by ID |
 | `fetchChannelMessages(channelId)` | Fetch top-level channel messages |
 | `channelIdFromThreadId(threadId)` | Extract channel ID from a thread ID |
+| `scheduleMessage(threadId, message, options)` | Schedule a message for future delivery; return a `ScheduledMessage` with `cancel()` |
 
 Implement only the methods your platform supports. The SDK gracefully handles missing optional methods.
 

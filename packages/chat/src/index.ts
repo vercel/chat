@@ -1,6 +1,16 @@
 // Main exports
 
 export {
+  type AiAssistantMessage,
+  type AiFilePart,
+  type AiImagePart,
+  type AiMessage,
+  type AiMessagePart,
+  type AiTextPart,
+  type AiUserMessage,
+  toAiMessages,
+} from "./ai";
+export {
   ChannelImpl,
   deriveChannelId,
   type SerializedChannel,
@@ -12,6 +22,10 @@ export {
   type MessageData,
   type SerializedMessage,
 } from "./message";
+export {
+  MessageHistoryCache,
+  type MessageHistoryConfig,
+} from "./message-history";
 export type {
   AddTaskOptions,
   CompletePlanOptions,
@@ -274,9 +288,13 @@ export type {
   Author,
   Channel,
   ChannelInfo,
+  ChannelVisibility,
   ChatConfig,
   ChatInstance,
+  ConcurrencyConfig,
+  ConcurrencyStrategy,
   CustomEmojiMap,
+  DirectMessageHandler,
   Emoji,
   EmojiFormats,
   EmojiMapConfig,
@@ -286,15 +304,19 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  LinkPreview,
   ListThreadsOptions,
   ListThreadsResult,
   Lock,
+  LockScope,
+  LockScopeContext,
   Logger,
   LogLevel,
   MarkdownTextChunk,
   MemberJoinedChannelEvent,
   MemberJoinedChannelHandler,
   MentionHandler,
+  MessageContext,
   MessageHandler,
   MessageMetadata,
   ModalCloseEvent,
@@ -314,9 +336,11 @@ export type {
   PostableMessage,
   PostableRaw,
   PostEphemeralOptions,
+  QueueEntry,
   RawMessage,
   ReactionEvent,
   ReactionHandler,
+  ScheduledMessage,
   SentMessage,
   SlashCommandEvent,
   SlashCommandHandler,

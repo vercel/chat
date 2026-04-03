@@ -30,7 +30,7 @@ describe("fromFullStream", () => {
     it("injects separator between steps", async () => {
       const stream = events([
         { type: "text-delta", textDelta: "hello." },
-        { type: "step-finish" },
+        { type: "finish-step" },
         { type: "text-delta", textDelta: "how are you?" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe(
@@ -38,10 +38,10 @@ describe("fromFullStream", () => {
       );
     });
 
-    it("does not add trailing separator after final step-finish", async () => {
+    it("does not add trailing separator after final finish-step", async () => {
       const stream = events([
         { type: "text-delta", textDelta: "done." },
-        { type: "step-finish" },
+        { type: "finish-step" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe("done.");
     });
@@ -49,9 +49,9 @@ describe("fromFullStream", () => {
     it("handles multiple steps", async () => {
       const stream = events([
         { type: "text-delta", textDelta: "step 1" },
-        { type: "step-finish" },
+        { type: "finish-step" },
         { type: "text-delta", textDelta: "step 2" },
-        { type: "step-finish" },
+        { type: "finish-step" },
         { type: "text-delta", textDelta: "step 3" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe(
@@ -64,26 +64,26 @@ describe("fromFullStream", () => {
         { type: "text-delta", textDelta: "before" },
         { type: "tool-call", toolName: "search", args: {} },
         { type: "tool-result", toolName: "search", result: "data" },
-        { type: "step-finish" },
+        { type: "finish-step" },
         { type: "tool-call-streaming-start", toolName: "lookup" },
         { type: "text-delta", textDelta: " after" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe("before\n\n after");
     });
 
-    it("handles consecutive step-finish events", async () => {
+    it("handles consecutive finish-step events", async () => {
       const stream = events([
         { type: "text-delta", textDelta: "a" },
-        { type: "step-finish" },
-        { type: "step-finish" },
+        { type: "finish-step" },
+        { type: "finish-step" },
         { type: "text-delta", textDelta: "b" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe("a\n\nb");
     });
 
-    it("does not inject separator when step-finish comes before any text", async () => {
+    it("does not inject separator when finish-step comes before any text", async () => {
       const stream = events([
-        { type: "step-finish" },
+        { type: "finish-step" },
         { type: "text-delta", textDelta: "first text" },
       ]);
       expect(await collect(fromFullStream(stream))).toBe("first text");
@@ -109,6 +109,32 @@ describe("fromFullStream", () => {
     it("handles single string chunk", async () => {
       const stream = events(["complete message"]);
       expect(await collect(fromFullStream(stream))).toBe("complete message");
+    });
+  });
+
+  describe("fullStream v6 (text property)", () => {
+    it("extracts text-delta with text property (AI SDK v6)", async () => {
+      const stream = events([
+        { type: "text-delta", id: "0", text: "hello" },
+        { type: "text-delta", id: "0", text: " world" },
+      ]);
+      expect(await collect(fromFullStream(stream))).toBe("hello world");
+    });
+
+    it("injects separator between steps with text property", async () => {
+      const stream = events([
+        { type: "text-delta", id: "0", text: "step 1." },
+        { type: "finish-step" },
+        { type: "text-delta", id: "0", text: "step 2." },
+      ]);
+      expect(await collect(fromFullStream(stream))).toBe("step 1.\n\nstep 2.");
+    });
+
+    it("prefers text over textDelta when both present", async () => {
+      const stream = events([
+        { type: "text-delta", text: "v6", textDelta: "v5" },
+      ]);
+      expect(await collect(fromFullStream(stream))).toBe("v6");
     });
   });
 

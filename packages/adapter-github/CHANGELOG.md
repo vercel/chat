@@ -1,5 +1,80 @@
 # @chat-adapter/github
 
+## 4.23.0
+
+### Patch Changes
+
+- Updated dependencies [4166e09]
+  - chat@4.23.0
+  - @chat-adapter/shared@4.23.0
+
+## 4.22.0
+
+### Patch Changes
+
+- Updated dependencies [f2d8957]
+  - chat@4.22.0
+  - @chat-adapter/shared@4.22.0
+
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
+## 4.20.2
+
+### Patch Changes
+
+- 01bd059: Fix `removeReaction` in multi-tenant mode by lazily detecting `botUserId` via the per-installation octokit client when it wasn't set during `initialize()`
+  - chat@4.20.2
+  - @chat-adapter/shared@4.20.2
+
+## 4.20.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+- 8d88b8c: Fix GitHub adapter streaming: accumulate text and post once instead of using the fallbackStream post+edit loop, which caused 422 errors from empty body edits during TTFT. Also log fallbackStream edit failures via the Logger instead of silently swallowing them.
+- Updated dependencies [e206371]
+- Updated dependencies [8d88b8c]
+  - chat@4.20.1
+  - @chat-adapter/shared@4.20.1
+
+## 4.20.0
+
+### Patch Changes
+
+- chat@4.20.0
+- @chat-adapter/shared@4.20.0
+
+## 4.19.0
+
+### Patch Changes
+
+- c4b0e69: Tighten Adapter & StateAdapter interfaces: make `channelIdFromThreadId` required, make `EphemeralMessage` generic over `TRawMessage`, add `satisfies Adapter` to mock adapter, migrate remaining adapters to shared error types
+- Updated dependencies [eb49b2a]
+- Updated dependencies [5b41f08]
+- Updated dependencies [c4b0e69]
+  - chat@4.19.0
+  - @chat-adapter/shared@4.19.0
+
+## 4.18.0
+
+### Patch Changes
+
+- Updated dependencies [a3cfc1a]
+  - chat@4.18.0
+  - @chat-adapter/shared@4.18.0
+
 ## 4.17.0
 
 ### Patch Changes

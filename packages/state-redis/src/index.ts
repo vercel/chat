@@ -1,4 +1,4 @@
-import type { Lock, Logger, StateAdapter } from "chat";
+import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
@@ -6,9 +6,29 @@ export interface RedisStateAdapterOptions {
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
-  logger: Logger;
+  logger?: Logger;
   /** Redis connection URL (e.g., redis://localhost:6379) */
   url: string;
+}
+
+export interface RedisStateClientOptions {
+  /** Existing redis client instance */
+  client: RedisClientType;
+  /** Key prefix for all Redis keys (default: "chat-sdk") */
+  keyPrefix?: string;
+  /** Logger instance for error reporting */
+  logger?: Logger;
+}
+
+export interface CreateRedisStateOptions {
+  /** Existing redis client instance */
+  client?: RedisClientType;
+  /** Key prefix for all Redis keys (default: "chat-sdk") */
+  keyPrefix?: string;
+  /** Logger instance for error reporting */
+  logger?: Logger;
+  /** Redis connection URL (e.g., redis://localhost:6379) */
+  url?: string;
 }
 
 /**
@@ -21,21 +41,37 @@ export class RedisStateAdapter implements StateAdapter {
   private readonly client: RedisClientType;
   private readonly keyPrefix: string;
   private readonly logger: Logger;
+  private readonly ownsClient: boolean;
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
-  constructor(options: RedisStateAdapterOptions) {
-    this.client = createClient({ url: options.url });
+  constructor(options: RedisStateAdapterOptions | RedisStateClientOptions) {
+    if ("client" in options) {
+      this.client = options.client;
+      this.ownsClient = false;
+    } else {
+      this.client = createClient({ url: options.url });
+      this.ownsClient = true;
+    }
     this.keyPrefix = options.keyPrefix || "chat-sdk";
-    this.logger = options.logger;
+    this.logger = options.logger ?? new ConsoleLogger("info").child("redis");
 
     // Handle connection errors
     this.client.on("error", (err) => {
       this.logger.error("Redis client error", { error: err });
     });
+    this.client.on("ready", () => {
+      this.connected = true;
+    });
+    this.client.on("reconnecting", () => {
+      this.connected = false;
+    });
+    this.client.on("end", () => {
+      this.connected = false;
+    });
   }
 
-  private key(type: "sub" | "lock" | "cache", id: string): string {
+  private key(type: "sub" | "lock" | "cache" | "queue", id: string): string {
     return `${this.keyPrefix}:${type}:${id}`;
   }
 
@@ -43,16 +79,72 @@ export class RedisStateAdapter implements StateAdapter {
     return `${this.keyPrefix}:subscriptions`;
   }
 
+  private async waitForReady(): Promise<void> {
+    if (this.client.isReady) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let lastError: unknown;
+
+      const handleReady = () => {
+        cleanup();
+        resolve();
+      };
+
+      const handleError = (error: unknown) => {
+        lastError = error;
+      };
+
+      const handleEnd = () => {
+        cleanup();
+        reject(
+          lastError ??
+            new Error("Redis client connection ended before becoming ready.")
+        );
+      };
+
+      const cleanup = () => {
+        this.client.off("ready", handleReady);
+        this.client.off("error", handleError);
+        this.client.off("end", handleEnd);
+      };
+
+      this.client.on("ready", handleReady);
+      this.client.on("error", handleError);
+      this.client.on("end", handleEnd);
+
+      if (this.client.isReady) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
   async connect(): Promise<void> {
-    if (this.connected) {
+    if (this.connected && this.client.isReady) {
       return;
     }
 
     // Reuse existing connection attempt to avoid race conditions
     if (!this.connectPromise) {
-      this.connectPromise = this.client.connect().then(() => {
+      const connectPromise = (async () => {
+        if (this.ownsClient && !(this.client.isReady || this.client.isOpen)) {
+          await this.client.connect();
+        }
+
+        await this.waitForReady();
         this.connected = true;
-      });
+      })()
+        .catch((error) => {
+          throw error;
+        })
+        .finally(() => {
+          if (this.connectPromise === connectPromise) {
+            this.connectPromise = null;
+          }
+        });
+      this.connectPromise = connectPromise;
     }
 
     await this.connectPromise;
@@ -60,7 +152,9 @@ export class RedisStateAdapter implements StateAdapter {
 
   async disconnect(): Promise<void> {
     if (this.connected) {
-      await this.client.close();
+      if (this.ownsClient) {
+        await this.client.close();
+      }
       this.connected = false;
       this.connectPromise = null;
     }
@@ -106,6 +200,12 @@ export class RedisStateAdapter implements StateAdapter {
     }
 
     return null;
+  }
+
+  async forceReleaseLock(threadId: string): Promise<void> {
+    this.ensureConnected();
+    const lockKey = this.key("lock", threadId);
+    await this.client.del(lockKey);
   }
 
   async releaseLock(lock: Lock): Promise<void> {
@@ -205,6 +305,95 @@ export class RedisStateAdapter implements StateAdapter {
     await this.client.del(cacheKey);
   }
 
+  async appendToList(
+    key: string,
+    value: unknown,
+    options?: { maxLength?: number; ttlMs?: number }
+  ): Promise<void> {
+    this.ensureConnected();
+
+    const listKey = `${this.keyPrefix}:list:${key}`;
+    const serialized = JSON.stringify(value);
+    const maxLength = options?.maxLength ?? 0;
+    const ttlMs = options?.ttlMs ?? 0;
+
+    // Atomic RPUSH + LTRIM + PEXPIRE via Lua
+    const script = `
+      redis.call("rpush", KEYS[1], ARGV[1])
+      if tonumber(ARGV[2]) > 0 then
+        redis.call("ltrim", KEYS[1], -tonumber(ARGV[2]), -1)
+      end
+      if tonumber(ARGV[3]) > 0 then
+        redis.call("pexpire", KEYS[1], tonumber(ARGV[3]))
+      end
+      return 1
+    `;
+
+    await this.client.eval(script, {
+      keys: [listKey],
+      arguments: [serialized, maxLength.toString(), ttlMs.toString()],
+    });
+  }
+
+  async enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    const serialized = JSON.stringify(entry);
+
+    // Atomic RPUSH + LTRIM + PEXPIRE via Lua
+    const script = `
+      redis.call("rpush", KEYS[1], ARGV[1])
+      if tonumber(ARGV[2]) > 0 then
+        redis.call("ltrim", KEYS[1], -tonumber(ARGV[2]), -1)
+      end
+      redis.call("pexpire", KEYS[1], ARGV[3])
+      return redis.call("llen", KEYS[1])
+    `;
+
+    const ttlMs = Math.max(entry.expiresAt - Date.now(), 60_000).toString();
+
+    const result = await this.client.eval(script, {
+      keys: [queueKey],
+      arguments: [serialized, maxSize.toString(), ttlMs],
+    });
+
+    return result as number;
+  }
+
+  async dequeue(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    const value = await this.client.lPop(queueKey);
+
+    if (value === null) {
+      return null;
+    }
+
+    return JSON.parse(value) as QueueEntry;
+  }
+
+  async queueDepth(threadId: string): Promise<number> {
+    this.ensureConnected();
+
+    const queueKey = this.key("queue", threadId);
+    return await this.client.lLen(queueKey);
+  }
+
+  async getList<T = unknown>(key: string): Promise<T[]> {
+    this.ensureConnected();
+
+    const listKey = `${this.keyPrefix}:list:${key}`;
+    const values = await this.client.lRange(listKey, 0, -1);
+
+    return values.map((v) => JSON.parse(v) as T);
+  }
+
   private ensureConnected(): void {
     if (!this.connected) {
       throw new Error(
@@ -226,18 +415,26 @@ function generateToken(): string {
 }
 
 export function createRedisState(
-  options?: Partial<RedisStateAdapterOptions>
+  options: CreateRedisStateOptions = {}
 ): RedisStateAdapter {
-  const url = options?.url ?? process.env.REDIS_URL;
+  if (options.client) {
+    return new RedisStateAdapter({
+      client: options.client,
+      keyPrefix: options.keyPrefix,
+      logger: options.logger,
+    });
+  }
+
+  const url = options.url ?? process.env.REDIS_URL;
   if (!url) {
     throw new Error(
-      "Redis url is required. Set REDIS_URL or provide it in options."
+      "Redis url is required. Set REDIS_URL or provide url in options."
     );
   }
   const resolved: RedisStateAdapterOptions = {
     url,
-    keyPrefix: options?.keyPrefix,
-    logger: options?.logger ?? new ConsoleLogger("info").child("redis"),
+    keyPrefix: options.keyPrefix,
+    logger: options.logger,
   };
   return new RedisStateAdapter(resolved);
 }

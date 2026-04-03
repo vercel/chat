@@ -195,7 +195,9 @@ function renderActions(actions: ActionsElement): string[] {
 function escapeMarkdown(text: string): string {
   // Only escape characters that could break the formatting
   // We're deliberately light-handed to preserve intentional markdown
+  // Backslash must be escaped first to avoid double-escaping
   return text
+    .replace(/\\/g, "\\\\")
     .replace(/\*/g, "\\*")
     .replace(/_/g, "\\_")
     .replace(/\[/g, "\\[")

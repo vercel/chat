@@ -168,6 +168,19 @@ function makeWebhookRequest(
   });
 }
 
+function createMockState() {
+  const cache = new Map<string, unknown>();
+
+  return {
+    get: vi.fn(async <T>(key: string) => {
+      return (cache.get(key) as T | undefined) ?? null;
+    }),
+    set: vi.fn(async (key: string, value: unknown) => {
+      cache.set(key, value);
+    }),
+  };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("GitHubAdapter", () => {
@@ -310,6 +323,137 @@ describe("GitHubAdapter", () => {
       await a.initialize(mockChat);
 
       expect(mockUsersGetAuthenticated).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getInstallationId", () => {
+    it("should return the fixed installation ID from a thread in single-tenant app mode", async () => {
+      const singleTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        installationId: 456,
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        singleTenantAdapter.getInstallationId("github:acme/app:42")
+      ).resolves.toBe(456);
+    });
+
+    it("should accept a Thread object and extract its id", async () => {
+      const singleTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        installationId: 456,
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      const mockThread = { id: "github:acme/app:42" } as { id: string };
+
+      await expect(
+        singleTenantAdapter.getInstallationId(mockThread as never)
+      ).resolves.toBe(456);
+    });
+
+    it("should return undefined in PAT mode", async () => {
+      await expect(
+        adapter.getInstallationId("github:acme/app:42")
+      ).resolves.toBeUndefined();
+    });
+
+    it("should return the cached installation ID in multi-tenant mode after a webhook", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const chat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      await multiTenantAdapter.initialize(chat);
+
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      await multiTenantAdapter.handleWebhook(request);
+
+      await expect(
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
+      ).resolves.toBe(789);
+    });
+
+    it("should return undefined when the multi-tenant installation is not cached", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const chat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      await multiTenantAdapter.initialize(chat);
+
+      await expect(
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
+      ).resolves.toBeUndefined();
+    });
+
+    it("should throw for non-GitHub thread or message context", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        multiTenantAdapter.getInstallationId("slack:C123:1234.5678")
+      ).rejects.toThrow("Invalid GitHub thread ID");
+    });
+
+    it("should throw before initialization in multi-tenant mode", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+
+      await expect(
+        multiTenantAdapter.getInstallationId("github:acme/app:42")
+      ).rejects.toThrow(
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
     });
   });
 
@@ -845,6 +989,127 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("stream", () => {
+    it("should accumulate text chunks and post once to an issue comment thread", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 500,
+          body: "Hello World",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-500",
+        },
+      });
+
+      async function* textStream() {
+        yield "Hello";
+        yield " ";
+        yield "World";
+      }
+
+      const result = await adapter.stream("github:acme/app:42", textStream());
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledTimes(1);
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        issue_number: 42,
+        body: "Hello World",
+      });
+      expect(mockIssuesUpdateComment).not.toHaveBeenCalled();
+      expect(result.id).toBe("500");
+    });
+
+    it("should accumulate text chunks and post once to a review comment thread", async () => {
+      mockPullsCreateReplyForReviewComment.mockResolvedValueOnce({
+        data: {
+          id: 501,
+          body: "Looks good",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#discussion_r501",
+          path: "src/index.ts",
+          diff_hunk: "@@",
+          commit_id: "abc",
+          original_commit_id: "abc",
+        },
+      });
+
+      async function* textStream() {
+        yield "Looks";
+        yield " ";
+        yield "good";
+      }
+
+      const result = await adapter.stream(
+        "github:acme/app:42:rc:200",
+        textStream()
+      );
+
+      expect(mockPullsCreateReplyForReviewComment).toHaveBeenCalledTimes(1);
+      expect(mockPullsCreateReplyForReviewComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        pull_number: 42,
+        comment_id: 200,
+        body: "Looks good",
+      });
+      expect(mockPullsUpdateReviewComment).not.toHaveBeenCalled();
+      expect(result.id).toBe("501");
+    });
+
+    it("should handle StreamChunk objects alongside strings", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 502,
+          body: "Hello World",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-502",
+        },
+      });
+
+      async function* mixedStream() {
+        yield "Hello";
+        yield { type: "markdown_text" as const, text: " World" };
+        yield { type: "task_update" as const, taskId: "1", status: "done" };
+      }
+
+      const result = await adapter.stream("github:acme/app:42", mixedStream());
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith(
+        expect.objectContaining({ body: "Hello World" })
+      );
+      expect(result.id).toBe("502");
+    });
+
+    it("should post empty markdown when stream yields no text", async () => {
+      mockIssuesCreateComment.mockResolvedValueOnce({
+        data: {
+          id: 503,
+          body: "",
+          user: { id: 777, login: "test-bot", type: "Bot" },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-503",
+        },
+      });
+
+      async function* emptyStream() {
+        // yields nothing
+      }
+
+      await adapter.stream("github:acme/app:42", emptyStream());
+
+      expect(mockIssuesCreateComment).toHaveBeenCalledWith(
+        expect.objectContaining({ body: "" })
+      );
+    });
+  });
+
   describe("deleteMessage", () => {
     it("should delete an issue comment", async () => {
       mockIssuesDeleteComment.mockResolvedValueOnce({});
@@ -983,6 +1248,31 @@ describe("GitHubAdapter", () => {
       await adapter.removeReaction("github:acme/app:42", "100", "thumbs_up");
 
       expect(mockReactionsDeleteForIssueComment).not.toHaveBeenCalled();
+    });
+
+    it("should lazily detect botUserId when not set", async () => {
+      const detectedBotId = 42;
+
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: detectedBotId, login: "test-bot[bot]" },
+      });
+      mockReactionsListForIssueComment.mockResolvedValueOnce({
+        data: [
+          { id: 70, content: "eyes", user: { id: detectedBotId } },
+          { id: 71, content: "eyes", user: { id: 999 } },
+        ],
+      });
+      mockReactionsDeleteForIssueComment.mockResolvedValueOnce({});
+
+      await adapter.removeReaction("github:acme/app:42", "100", "eyes");
+
+      expect(mockUsersGetAuthenticated).toHaveBeenCalled();
+      expect(mockReactionsDeleteForIssueComment).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        comment_id: 100,
+        reaction_id: 70,
+      });
     });
   });
 

@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Card } from "./cards";
 import {
   createMockAdapter,
   createMockState,
   createTestMessage,
+  mockLogger,
 } from "./mock-adapter";
 import { Plan } from "./plan";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message, StreamChunk } from "./types";
+import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
+import { NotImplementedError } from "./types";
 
 describe("ThreadImpl", () => {
   describe("Per-thread state", () => {
@@ -571,6 +574,36 @@ describe("ThreadImpl", () => {
           recipientUserId: "U456",
           recipientTeamId: "T123",
         })
+      );
+    });
+  });
+
+  describe("fallback streaming error logging", () => {
+    it("should log when an intermediate edit fails", async () => {
+      const adapter = createMockAdapter();
+      const editError = new Error("422 Validation Failed");
+      vi.mocked(adapter.editMessage).mockRejectedValueOnce(editError);
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        streamingUpdateIntervalMs: 10,
+        logger: mockLogger,
+      });
+
+      async function* slowStream(): AsyncIterable<string> {
+        yield "Hel";
+        await new Promise((r) => setTimeout(r, 50));
+        yield "lo";
+      }
+
+      await thread.post(slowStream());
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        "fallbackStream edit failed",
+        editError
       );
     });
   });
@@ -2018,6 +2051,7 @@ describe("ThreadImpl", () => {
         _type: "chat:Thread",
         id: "slack:C123:1234.5678",
         channelId: "C123",
+        channelVisibility: "unknown",
         currentMessage: undefined,
         isDM: true,
         adapterName: "slack",
@@ -2103,6 +2137,370 @@ describe("ThreadImpl", () => {
       expect(json.text).toBe("Hello world");
       expect(json.author.isBot).toBe(true);
       expect(json.author.isMe).toBe(true);
+    });
+  });
+
+  describe("schedule()", () => {
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+    let thread: ThreadImpl;
+
+    const futureDate = new Date("2030-01-01T00:00:00Z");
+
+    function mockScheduleResult(
+      overrides?: Partial<ScheduledMessage>
+    ): ScheduledMessage {
+      return {
+        scheduledMessageId: "Q123",
+        channelId: "C123",
+        postAt: futureDate,
+        raw: { ok: true },
+        cancel: vi.fn().mockResolvedValue(undefined),
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+    });
+
+    // ---- Error handling: adapter without scheduling support ----
+
+    it("should throw NotImplementedError when adapter has no scheduleMessage", async () => {
+      await expect(
+        thread.schedule("Hello", { postAt: futureDate })
+      ).rejects.toThrow(NotImplementedError);
+    });
+
+    it("should include 'scheduling' as the feature in NotImplementedError", async () => {
+      try {
+        await thread.schedule("Hello", { postAt: futureDate });
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(NotImplementedError);
+        expect((err as NotImplementedError).feature).toBe("scheduling");
+      }
+    });
+
+    it("should include descriptive message in NotImplementedError", async () => {
+      await expect(
+        thread.schedule("Hello", { postAt: futureDate })
+      ).rejects.toThrow("Scheduled messages are not supported by this adapter");
+    });
+
+    // ---- Basic delegation ----
+
+    it("should delegate to adapter.scheduleMessage with correct threadId", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      await thread.schedule("Hello", { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "Hello",
+        { postAt: futureDate }
+      );
+    });
+
+    it("should return the ScheduledMessage from adapter", async () => {
+      const expected = mockScheduleResult();
+      mockAdapter.scheduleMessage = vi.fn().mockResolvedValue(expected);
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+
+      expect(result).toBe(expected);
+    });
+
+    // ---- Return value shape ----
+
+    it("should return scheduledMessageId from adapter", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ scheduledMessageId: "Q999" }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      expect(result.scheduledMessageId).toBe("Q999");
+    });
+
+    it("should return channelId from adapter", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ channelId: "C456" }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      expect(result.channelId).toBe("C456");
+    });
+
+    it("should return postAt from adapter", async () => {
+      const customDate = new Date("2035-06-15T12:00:00Z");
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ postAt: customDate }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      expect(result.postAt).toBe(customDate);
+    });
+
+    it("should return raw platform response from adapter", async () => {
+      const rawResponse = {
+        ok: true,
+        scheduled_message_id: "Q123",
+        post_at: 123,
+      };
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ raw: rawResponse }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      expect(result.raw).toBe(rawResponse);
+    });
+
+    it("should return a cancel function", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      expect(typeof result.cancel).toBe("function");
+    });
+
+    // ---- cancel() ----
+
+    it("should invoke cancel without errors", async () => {
+      const cancelFn = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ cancel: cancelFn }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+      await result.cancel();
+
+      expect(cancelFn).toHaveBeenCalledOnce();
+    });
+
+    it("should propagate errors from cancel", async () => {
+      const cancelFn = vi.fn().mockRejectedValue(new Error("already sent"));
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult({ cancel: cancelFn }));
+
+      const result = await thread.schedule("Hello", { postAt: futureDate });
+
+      await expect(result.cancel()).rejects.toThrow("already sent");
+    });
+
+    // ---- Different message formats ----
+
+    it("should pass string messages through directly", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      await thread.schedule("Plain text", { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        "Plain text",
+        expect.any(Object)
+      );
+    });
+
+    it("should pass raw message objects through", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const rawMsg = { raw: "raw text" };
+      await thread.schedule(rawMsg, { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        rawMsg,
+        expect.any(Object)
+      );
+    });
+
+    it("should pass markdown message objects through", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const mdMsg = { markdown: "**bold** text" };
+      await thread.schedule(mdMsg, { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        mdMsg,
+        expect.any(Object)
+      );
+    });
+
+    it("should pass AST message objects through", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const astMsg = {
+        ast: { type: "root" as const, children: [] },
+      };
+      await thread.schedule(astMsg, { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        astMsg,
+        expect.any(Object)
+      );
+    });
+
+    // ---- JSX / CardElement conversion ----
+
+    it("should convert JSX Card elements to CardElement before passing to adapter", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const jsxCard = Card({ title: "Reminder" });
+      await thread.schedule(jsxCard, { postAt: futureDate });
+
+      const passedMessage = (
+        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1];
+
+      // Should be converted to a CardElement (plain object), not the JSX element
+      expect(passedMessage).toHaveProperty("type", "card");
+      expect(passedMessage).toHaveProperty("title", "Reminder");
+    });
+
+    it("should convert Card JSX with children to CardElement", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const jsxCard = Card({ title: "With Subtitle", subtitle: "Sub" });
+      await thread.schedule(jsxCard, { postAt: futureDate });
+
+      const passedMessage = (
+        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1];
+      expect(passedMessage).toHaveProperty("type", "card");
+      expect(passedMessage).toHaveProperty("title", "With Subtitle");
+      expect(passedMessage).toHaveProperty("subtitle", "Sub");
+    });
+
+    // ---- postAt variations ----
+
+    it("should pass the exact Date object to adapter", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const specificDate = new Date("2028-12-25T08:00:00Z");
+      await thread.schedule("Merry Christmas!", { postAt: specificDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        "Merry Christmas!",
+        { postAt: specificDate }
+      );
+    });
+
+    // ---- Adapter error propagation ----
+
+    it("should propagate errors thrown by adapter.scheduleMessage", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockRejectedValue(new Error("Slack API error"));
+
+      await expect(
+        thread.schedule("Hello", { postAt: futureDate })
+      ).rejects.toThrow("Slack API error");
+    });
+
+    it("should not call adapter.postMessage when scheduling", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      await thread.schedule("Hello", { postAt: futureDate });
+
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+    });
+
+    // ---- Different thread IDs ----
+
+    it("should use the thread's own ID for scheduling", async () => {
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValue(mockScheduleResult());
+
+      const otherThread = new ThreadImpl({
+        id: "slack:C999:9999.0000",
+        adapter: mockAdapter,
+        channelId: "C999",
+        stateAdapter: mockState,
+      });
+
+      await otherThread.schedule("Hello", { postAt: futureDate });
+
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        "slack:C999:9999.0000",
+        "Hello",
+        { postAt: futureDate }
+      );
+    });
+
+    // ---- Multiple schedules ----
+
+    it("should allow scheduling multiple messages on the same thread", async () => {
+      const result1 = mockScheduleResult({ scheduledMessageId: "Q1" });
+      const result2 = mockScheduleResult({ scheduledMessageId: "Q2" });
+      const result3 = mockScheduleResult({ scheduledMessageId: "Q3" });
+
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValueOnce(result1)
+        .mockResolvedValueOnce(result2)
+        .mockResolvedValueOnce(result3);
+
+      const s1 = await thread.schedule("First", { postAt: futureDate });
+      const s2 = await thread.schedule("Second", { postAt: futureDate });
+      const s3 = await thread.schedule("Third", { postAt: futureDate });
+
+      expect(s1.scheduledMessageId).toBe("Q1");
+      expect(s2.scheduledMessageId).toBe("Q2");
+      expect(s3.scheduledMessageId).toBe("Q3");
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledTimes(3);
+    });
+
+    it("should cancel individual messages independently", async () => {
+      const cancel1 = vi.fn().mockResolvedValue(undefined);
+      const cancel2 = vi.fn().mockResolvedValue(undefined);
+
+      mockAdapter.scheduleMessage = vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockScheduleResult({ scheduledMessageId: "Q1", cancel: cancel1 })
+        )
+        .mockResolvedValueOnce(
+          mockScheduleResult({ scheduledMessageId: "Q2", cancel: cancel2 })
+        );
+
+      const s1 = await thread.schedule("First", { postAt: futureDate });
+      await thread.schedule("Second", { postAt: futureDate });
+
+      await s1.cancel();
+
+      expect(cancel1).toHaveBeenCalledOnce();
+      expect(cancel2).not.toHaveBeenCalled();
     });
   });
 });

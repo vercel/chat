@@ -8,6 +8,7 @@ import type {
   Attachment,
   Author,
   FormattedContent,
+  LinkPreview,
   MessageMetadata,
 } from "./types";
 
@@ -26,6 +27,8 @@ export interface MessageData<TRawMessage = unknown> {
   id: string;
   /** Whether the bot is @-mentioned in this message */
   isMention?: boolean;
+  /** Links found in the message */
+  links?: LinkPreview[];
   /** Message metadata */
   metadata: MessageMetadata;
   /** Platform-specific raw payload (escape hatch) */
@@ -61,6 +64,13 @@ export interface SerializedMessage {
   formatted: Root;
   id: string;
   isMention?: boolean;
+  links?: Array<{
+    url: string;
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    siteName?: string;
+  }>;
   metadata: {
     dateSent: string; // ISO string
     edited: boolean;
@@ -134,6 +144,9 @@ export class Message<TRawMessage = unknown> {
    */
   isMention?: boolean;
 
+  /** Links found in the message */
+  links: LinkPreview[];
+
   constructor(data: MessageData<TRawMessage>) {
     this.id = data.id;
     this.threadId = data.threadId;
@@ -144,6 +157,7 @@ export class Message<TRawMessage = unknown> {
     this.metadata = data.metadata;
     this.attachments = data.attachments;
     this.isMention = data.isMention;
+    this.links = data.links ?? [];
   }
 
   /**
@@ -183,6 +197,16 @@ export class Message<TRawMessage = unknown> {
         height: att.height,
       })),
       isMention: this.isMention,
+      links:
+        this.links.length > 0
+          ? this.links.map((link) => ({
+              url: link.url,
+              title: link.title,
+              description: link.description,
+              imageUrl: link.imageUrl,
+              siteName: link.siteName,
+            }))
+          : undefined,
     };
   }
 
@@ -209,6 +233,7 @@ export class Message<TRawMessage = unknown> {
       },
       attachments: json.attachments,
       isMention: json.isMention,
+      links: json.links,
     });
   }
 

@@ -1,6 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
+import { fromFullStream } from "./from-full-stream";
 import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
   paragraph,
@@ -10,6 +11,7 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
+import type { MessageHistoryCache } from "./message-history";
 import { isPostableObject } from "./postable-object";
 import type {
   Adapter,
@@ -17,15 +19,17 @@ import type {
   Author,
   Channel,
   ChannelInfo,
+  ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
+  ScheduledMessage,
   SentMessage,
   StateAdapter,
   ThreadSummary,
 } from "./types";
-import { THREAD_STATE_TTL_MS } from "./types";
+import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /** State key prefix for channel state */
 const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
@@ -36,6 +40,7 @@ const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
 export interface SerializedChannel {
   _type: "chat:Channel";
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM: boolean;
 }
@@ -45,8 +50,10 @@ export interface SerializedChannel {
  */
 interface ChannelImplConfigWithAdapter {
   adapter: Adapter;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
+  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
 }
 
@@ -55,6 +62,7 @@ interface ChannelImplConfigWithAdapter {
  */
 interface ChannelImplConfigLazy {
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
 }
@@ -81,21 +89,25 @@ export class ChannelImpl<TState = Record<string, unknown>>
 {
   readonly id: string;
   readonly isDM: boolean;
+  readonly channelVisibility: ChannelVisibility;
 
   private _adapter?: Adapter;
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
+  private readonly _messageHistory?: MessageHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
     this.isDM = config.isDM ?? false;
+    this.channelVisibility = config.channelVisibility ?? "unknown";
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
+      this._messageHistory = config.messageHistory;
     }
   }
 
@@ -163,10 +175,12 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
+    const messageHistory = this._messageHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
         let cursor: string | undefined;
+        let yieldedAny = false;
 
         while (true) {
           const fetchOptions = { cursor, direction: "backward" as const };
@@ -178,6 +192,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           // but we want newest first, so reverse the page
           const reversed = [...result.messages].reverse();
           for (const message of reversed) {
+            yieldedAny = true;
             yield message;
           }
 
@@ -186,6 +201,15 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
 
           cursor = result.nextCursor;
+        }
+
+        // Fall back to cached history if adapter returned nothing
+        if (!yieldedAny && messageHistory) {
+          const cached = await messageHistory.getMessages(channelId);
+          // Yield newest first
+          for (let i = cached.length - 1; i >= 0; i--) {
+            yield cached[i];
+          }
         }
       },
     };
@@ -262,10 +286,12 @@ export class ChannelImpl<TState = Record<string, unknown>>
     if (isAsyncIterable(message)) {
       // For channel-level streaming, accumulate and post as single message
       let accumulated = "";
-      for await (const chunk of message) {
-        accumulated += chunk;
+      for await (const chunk of fromFullStream(message)) {
+        if (typeof chunk === "string") {
+          accumulated += chunk;
+        }
       }
-      return this.postSingleMessage(accumulated);
+      return this.postSingleMessage({ markdown: accumulated });
     }
 
     // Auto-convert JSX elements to CardElement
@@ -317,7 +343,17 @@ export class ChannelImpl<TState = Record<string, unknown>>
       ? await this.adapter.postChannelMessage(this.id, postable)
       : await this.adapter.postMessage(this.id, postable);
 
-    return this.createSentMessage(rawMessage.id, postable, rawMessage.threadId);
+    const sent = this.createSentMessage(
+      rawMessage.id,
+      postable,
+      rawMessage.threadId
+    );
+
+    if (this._messageHistory) {
+      await this._messageHistory.append(this.id, new Message(sent));
+    }
+
+    return sent;
   }
 
   async postEphemeral(
@@ -361,6 +397,31 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return null;
   }
 
+  async schedule(
+    message: AdapterPostableMessage | ChatElement,
+    options: { postAt: Date }
+  ): Promise<ScheduledMessage> {
+    let postable: AdapterPostableMessage;
+    if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    if (!this.adapter.scheduleMessage) {
+      throw new NotImplementedError(
+        "Scheduled messages are not supported by this adapter",
+        "scheduling"
+      );
+    }
+
+    return this.adapter.scheduleMessage(this.id, postable, options);
+  }
+
   async startTyping(status?: string): Promise<void> {
     await this.adapter.startTyping(this.id, status);
   }
@@ -374,6 +435,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
       _type: "chat:Channel",
       id: this.id,
       adapterName: this.adapter.name,
+      channelVisibility: this.channelVisibility,
       isDM: this.isDM,
     };
   }
@@ -385,6 +447,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     const channel = new ChannelImpl<TState>({
       id: json.id,
       adapterName: json.adapterName,
+      channelVisibility: json.channelVisibility,
       isDM: json.isDM,
     });
     if (adapter) {
@@ -431,6 +494,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
         edited: false,
       },
       attachments,
+      links: [],
 
       toJSON() {
         return new Message(this).toJSON();
@@ -472,16 +536,9 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
 /**
  * Derive the channel ID from a thread ID.
- * Uses adapter.channelIdFromThreadId if available, otherwise defaults to
- * first two colon-separated parts.
  */
 export function deriveChannelId(adapter: Adapter, threadId: string): string {
-  if (adapter.channelIdFromThreadId) {
-    return adapter.channelIdFromThreadId(threadId);
-  }
-  // Default: first two colon-separated parts
-  const parts = threadId.split(":");
-  return parts.slice(0, 2).join(":");
+  return adapter.channelIdFromThreadId(threadId);
 }
 
 /**

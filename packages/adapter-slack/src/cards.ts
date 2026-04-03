@@ -123,9 +123,11 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
     });
   }
 
-  // Convert children
+  // Convert children — track whether native table block has been used
+  // (Slack allows at most one table block per message)
+  const state = { usedNativeTable: false };
   for (const child of card.children) {
-    const childBlocks = convertChildToBlocks(child);
+    const childBlocks = convertChildToBlocks(child, state);
     blocks.push(...childBlocks);
   }
 
@@ -135,7 +137,10 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
 /**
  * Convert a card child element to Slack blocks.
  */
-function convertChildToBlocks(child: CardChild): SlackBlock[] {
+function convertChildToBlocks(
+  child: CardChild,
+  state: { usedNativeTable: boolean }
+): SlackBlock[] {
   switch (child.type) {
     case "text":
       return [convertTextToBlock(child)];
@@ -146,13 +151,13 @@ function convertChildToBlocks(child: CardChild): SlackBlock[] {
     case "actions":
       return [convertActionsToBlock(child)];
     case "section":
-      return convertSectionToBlocks(child);
+      return convertSectionToBlocks(child, state);
     case "fields":
       return [convertFieldsToBlock(child)];
     case "link":
       return [convertLinkToBlock(child)];
     case "table":
-      return convertTableToBlocks(child);
+      return convertTableToBlocks(child, state);
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
@@ -359,11 +364,25 @@ function convertRadioSelectToElement(
  * Uses Block Kit Table block for tables within limits (100 rows, 20 columns),
  * falls back to code block for larger tables.
  */
-function convertTableToBlocks(element: TableElement): SlackBlock[] {
+/**
+ * Convert a table element to Slack Block Kit blocks.
+ * Uses the native table block with first-row-as-headers schema.
+ * Falls back to code block for tables exceeding Slack limits (100 rows, 20 columns)
+ * or when a native table block has already been used in this message.
+ * @see https://docs.slack.dev/reference/block-kit/blocks/table-block/
+ */
+function convertTableToBlocks(
+  element: TableElement,
+  state: { usedNativeTable: boolean }
+): SlackBlock[] {
   const MAX_ROWS = 100;
   const MAX_COLS = 20;
 
-  if (element.rows.length > MAX_ROWS || element.headers.length > MAX_COLS) {
+  if (
+    state.usedNativeTable ||
+    element.rows.length > MAX_ROWS ||
+    element.headers.length > MAX_COLS
+  ) {
     // Fall back to ASCII table in a code block
     return [
       {
@@ -376,35 +395,37 @@ function convertTableToBlocks(element: TableElement): SlackBlock[] {
     ];
   }
 
-  const columns = element.headers.map((header, i) => ({
-    id: `col_${i}`,
-    header: {
-      type: "plain_text",
-      text: convertEmoji(header),
-    },
+  state.usedNativeTable = true;
+
+  // First row is headers, subsequent rows are data
+  const headerRow = element.headers.map((header) => ({
+    type: "raw_text" as const,
+    text: convertEmoji(header),
   }));
 
-  const rows = element.rows.map((row) => ({
-    cells: row.map((cell) => ({
-      type: "plain_text" as const,
+  const dataRows = element.rows.map((row) =>
+    row.map((cell) => ({
+      type: "raw_text" as const,
       text: convertEmoji(cell),
-    })),
-  }));
+    }))
+  );
 
   return [
     {
       type: "table",
-      columns,
-      rows,
+      rows: [headerRow, ...dataRows],
     },
   ];
 }
 
-function convertSectionToBlocks(element: SectionElement): SlackBlock[] {
+function convertSectionToBlocks(
+  element: SectionElement,
+  state: { usedNativeTable: boolean }
+): SlackBlock[] {
   // Flatten section children into blocks
   const blocks: SlackBlock[] = [];
   for (const child of element.children) {
-    blocks.push(...convertChildToBlocks(child));
+    blocks.push(...convertChildToBlocks(child, state));
   }
   return blocks;
 }

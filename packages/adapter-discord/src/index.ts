@@ -959,23 +959,41 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadName,
     });
 
-    const response = await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/threads`,
-      "POST",
-      {
-        name: threadName,
-        auto_archive_duration: 1440, // 24 hours
+    try {
+      const response = await this.discordFetch(
+        `/channels/${channelId}/messages/${messageId}/threads`,
+        "POST",
+        {
+          name: threadName,
+          auto_archive_duration: 1440, // 24 hours
+        }
+      );
+
+      const result = (await response.json()) as { id: string; name: string };
+
+      this.logger.debug("Discord API: POST thread response", {
+        threadId: result.id,
+        threadName: result.name,
+      });
+
+      return result;
+    } catch (error) {
+      // Discord error 160004: "A thread has already been created for this message"
+      // Recover by using the existing thread (its ID equals the parent message ID).
+      if (
+        error instanceof NetworkError &&
+        typeof error.message === "string" &&
+        error.message.includes('"code"') &&
+        error.message.includes("160004")
+      ) {
+        this.logger.debug(
+          "Thread already exists for message, reusing existing thread",
+          { channelId, messageId }
+        );
+        return { id: messageId, name: threadName };
       }
-    );
-
-    const result = (await response.json()) as { id: string; name: string };
-
-    this.logger.debug("Discord API: POST thread response", {
-      threadId: result.id,
-      threadName: result.name,
-    });
-
-    return result;
+      throw error;
+    }
   }
 
   /**

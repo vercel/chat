@@ -1,5 +1,17 @@
 # docs
 
+## 0.5.0
+
+### Minor Changes
+
+- f2d8957: Implement new concurrency strategies for overlapping messages
+
+## 0.4.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+
 ## 0.4.0
 
 ### Minor Changes

@@ -1,7 +1,9 @@
 import DynamicLink from "fumadocs-core/dynamic-link";
 import type { Metadata } from "next";
+import type { ComponentProps } from "react";
 import { Installer } from "@/components/geistdocs/installer";
 import { Button } from "@/components/ui/button";
+import { discord, gchat, slack, teams } from "@/lib/logos";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
@@ -11,13 +13,44 @@ import { Templates } from "./components/templates";
 import { TextGridSection } from "./components/text-grid-section";
 import { Usage } from "./components/usage";
 
+const LogoChip = ({
+  icon: Icon,
+  name,
+  suffix,
+}: {
+  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
+  name: string;
+  suffix?: string;
+}) => (
+  <span className="ml-[2px] whitespace-nowrap">
+    <span className="relative inline-block h-0 w-[1em] align-middle">
+      <Icon className="absolute top-1/2 left-0 size-[1em] -translate-y-1/2" />
+    </span>
+    <span className="ml-[calc(0.25em+2px)]">{name}</span>
+    {suffix}
+  </span>
+);
+
 const title = "Chat SDK";
-const description =
+const textDescription =
   "A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more. Write your bot logic once, deploy everywhere.";
+const heroDescription = (
+  <>
+    A unified TypeScript SDK for building chat bots across{" "}
+    <LogoChip icon={slack} name="Slack" suffix="," />{" "}
+    <LogoChip icon={teams} name="Microsoft Teams" suffix="," />{" "}
+    <LogoChip icon={gchat} name="Google Chat" suffix="," />{" "}
+    <LogoChip icon={discord} name="Discord" suffix="," /> and more. Write your
+    bot logic once, deploy everywhere.
+  </>
+);
 
 export const metadata: Metadata = {
   title,
-  description,
+  description: textDescription,
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 const templates = [
@@ -99,7 +132,7 @@ const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
     <Hero
       badge="Chat SDK is now open source and in beta"
-      description={description}
+      description={heroDescription}
       title={title}
     >
       <div className="mx-auto inline-flex w-fit items-center gap-3">
