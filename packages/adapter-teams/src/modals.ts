@@ -5,6 +5,17 @@
  */
 
 import { createEmojiConverter, mapButtonStyle } from "@chat-adapter/shared";
+import type { ActionStyle, CardElementArray } from "@microsoft/teams.cards";
+import {
+  AdaptiveCard,
+  Choice,
+  ChoiceSetInput,
+  Fact,
+  FactSet,
+  SubmitAction,
+  TextBlock,
+  TextInput,
+} from "@microsoft/teams.cards";
 import type {
   FieldsElement,
   ModalChild,
@@ -16,17 +27,11 @@ import type {
   TextInputElement,
 } from "chat";
 
-import type {
-  AdaptiveCard,
-  AdaptiveCardAction,
-  AdaptiveCardElement,
-} from "./cards";
-
 const convertEmoji = createEmojiConverter("teams");
 
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
-const ADAPTIVE_CARD_VERSION = "1.4";
+const ADAPTIVE_CARD_VERSION = "1.4" as const;
 
 // ============================================================================
 // ModalElement -> Adaptive Card
@@ -44,7 +49,7 @@ export function modalToAdaptiveCard(
   contextId: string,
   callbackId: string
 ): AdaptiveCard {
-  const body: AdaptiveCardElement[] = [];
+  const body: CardElementArray = [];
 
   for (const child of modal.children) {
     body.push(...modalChildToAdaptiveElements(child));
@@ -55,29 +60,31 @@ export function modalToAdaptiveCard(
     __callbackId: callbackId,
   };
 
-  const submitAction: AdaptiveCardAction = {
-    type: "Action.Submit",
+  const submitOptions: {
+    title: string;
+    data: Record<string, unknown>;
+    style?: ActionStyle;
+  } = {
     title: modal.submitLabel || "Submit",
     data: submitData,
   };
 
-  const style = mapButtonStyle("primary", "teams");
+  const style = mapButtonStyle("primary", "teams") as ActionStyle | undefined;
   if (style) {
-    submitAction.style = style;
+    submitOptions.style = style;
   }
 
-  return {
-    type: "AdaptiveCard",
-    $schema: ADAPTIVE_CARD_SCHEMA,
-    version: ADAPTIVE_CARD_VERSION,
-    body,
-    actions: [submitAction],
-  };
+  const submitAction = new SubmitAction(submitOptions);
+
+  return new AdaptiveCard(...body)
+    .withOptions({
+      $schema: ADAPTIVE_CARD_SCHEMA,
+      version: ADAPTIVE_CARD_VERSION,
+    })
+    .withActions(submitAction);
 }
 
-function modalChildToAdaptiveElements(
-  child: ModalChild
-): AdaptiveCardElement[] {
+function modalChildToAdaptiveElements(child: ModalChild): CardElementArray {
   switch (child.type) {
     case "text_input":
       return [textInputToAdaptive(child)];
@@ -94,9 +101,8 @@ function modalChildToAdaptiveElements(
   }
 }
 
-function textInputToAdaptive(input: TextInputElement): AdaptiveCardElement {
-  const element: AdaptiveCardElement = {
-    type: "Input.Text",
+function textInputToAdaptive(input: TextInputElement): TextInput {
+  const options: Record<string, unknown> = {
     id: input.id,
     label: convertEmoji(input.label),
     isMultiline: input.multiline ?? false,
@@ -104,93 +110,81 @@ function textInputToAdaptive(input: TextInputElement): AdaptiveCardElement {
   };
 
   if (input.placeholder) {
-    element.placeholder = convertEmoji(input.placeholder);
+    options.placeholder = convertEmoji(input.placeholder);
   }
   if (input.initialValue) {
-    element.value = input.initialValue;
+    options.value = input.initialValue;
   }
   if (input.maxLength) {
-    element.maxLength = input.maxLength;
+    options.maxLength = input.maxLength;
   }
 
-  return element;
+  return new TextInput(options);
 }
 
-function selectToAdaptive(select: SelectElement): AdaptiveCardElement {
-  const choices = select.options.map((opt) => ({
-    title: convertEmoji(opt.label),
-    value: opt.value,
-  }));
+function selectToAdaptive(select: SelectElement): ChoiceSetInput {
+  const choices = select.options.map(
+    (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
+  );
 
-  const element: AdaptiveCardElement = {
-    type: "Input.ChoiceSet",
+  const options: Record<string, unknown> = {
     id: select.id,
     label: convertEmoji(select.label),
-    style: "compact",
+    style: "Compact",
     isRequired: !(select.optional ?? false),
-    choices,
   };
 
   if (select.placeholder) {
-    element.placeholder = convertEmoji(select.placeholder);
+    options.placeholder = convertEmoji(select.placeholder);
   }
   if (select.initialOption) {
-    element.value = select.initialOption;
+    options.value = select.initialOption;
   }
 
-  return element;
+  return new ChoiceSetInput(...choices).withOptions(options);
 }
 
 function radioSelectToAdaptive(
   radioSelect: RadioSelectElement
-): AdaptiveCardElement {
-  const choices = radioSelect.options.map((opt) => ({
-    title: convertEmoji(opt.label),
-    value: opt.value,
-  }));
+): ChoiceSetInput {
+  const choices = radioSelect.options.map(
+    (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
+  );
 
-  const element: AdaptiveCardElement = {
-    type: "Input.ChoiceSet",
+  const options: Record<string, unknown> = {
     id: radioSelect.id,
     label: convertEmoji(radioSelect.label),
-    style: "expanded",
+    style: "Expanded",
     isRequired: !(radioSelect.optional ?? false),
-    choices,
   };
 
   if (radioSelect.initialOption) {
-    element.value = radioSelect.initialOption;
+    options.value = radioSelect.initialOption;
   }
 
-  return element;
+  return new ChoiceSetInput(...choices).withOptions(options);
 }
 
-function textToAdaptive(text: TextElement): AdaptiveCardElement {
-  const block: AdaptiveCardElement = {
-    type: "TextBlock",
-    text: convertEmoji(text.content),
+function textToAdaptive(text: TextElement): TextBlock {
+  const options: { wrap: boolean; weight?: "Bolder"; isSubtle?: boolean } = {
     wrap: true,
   };
 
   if (text.style === "bold") {
-    block.weight = "bolder";
+    options.weight = "Bolder";
   } else if (text.style === "muted") {
-    block.isSubtle = true;
+    options.isSubtle = true;
   }
 
-  return block;
+  return new TextBlock(convertEmoji(text.content), options);
 }
 
-function fieldsToAdaptive(fields: FieldsElement): AdaptiveCardElement {
-  const facts = fields.children.map((field) => ({
-    title: convertEmoji(field.label),
-    value: convertEmoji(field.value),
-  }));
+function fieldsToAdaptive(fields: FieldsElement): FactSet {
+  const facts = fields.children.map(
+    (field) => new Fact(convertEmoji(field.label), convertEmoji(field.value))
+  );
 
-  return {
-    type: "FactSet",
-    facts,
-  };
+  return new FactSet(...facts);
 }
 
 // ============================================================================
@@ -239,7 +233,6 @@ export function parseDialogSubmitValues(
  * Returns undefined to signal "close dialog" (empty HTTP body).
  *
  * @param response - The modal response from the submit handler
- * @param stashedModal - The original modal element (for error re-rendering)
  * @param logger - Optional logger for warnings
  */
 export function modalResponseToTaskModuleResponse(
@@ -301,29 +294,24 @@ export function modalResponseToTaskModuleResponse(
 
     case "errors": {
       // Render a simple error card listing validation issues
-      const errorLines = Object.entries(response.errors).map(
-        ([field, msg]) => ({
-          type: "TextBlock",
-          text: `**${field}**: ${msg}`,
-          wrap: true,
-          color: "attention",
-        })
+      const errorBlocks = Object.entries(response.errors).map(
+        ([field, msg]) =>
+          new TextBlock(`**${field}**: ${msg}`, {
+            wrap: true,
+            color: "Attention",
+          })
       );
 
-      const errorCard: AdaptiveCard = {
-        type: "AdaptiveCard",
+      const errorCard = new AdaptiveCard(
+        new TextBlock("Please fix the following errors:", {
+          weight: "Bolder",
+          wrap: true,
+        }),
+        ...errorBlocks
+      ).withOptions({
         $schema: ADAPTIVE_CARD_SCHEMA,
         version: ADAPTIVE_CARD_VERSION,
-        body: [
-          {
-            type: "TextBlock",
-            text: "Please fix the following errors:",
-            weight: "bolder",
-            wrap: true,
-          },
-          ...errorLines,
-        ],
-      };
+      });
 
       return {
         task: {

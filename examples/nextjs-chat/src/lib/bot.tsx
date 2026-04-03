@@ -213,7 +213,7 @@ bot.onAction("ephemeral", async (event) => {
       </Text>
       <Text>Try opening a modal from this ephemeral:</Text>
       <Actions>
-        <Button id="ephemeral_modal" style="primary">
+        <Button actionType="modal" id="ephemeral_modal" style="primary">
           Open Modal
         </Button>
       </Actions>

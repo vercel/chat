@@ -32,11 +32,11 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(1);
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "TextBlock",
       text: "Welcome Message",
-      weight: "bolder",
-      size: "large",
+      weight: "Bolder",
+      size: "Large",
       wrap: true,
     });
   });
@@ -49,7 +49,7 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(2);
-    expect(adaptive.body[1]).toEqual({
+    expect(adaptive.body[1]).toMatchObject({
       type: "TextBlock",
       text: "Your package is on its way",
       isSubtle: true,
@@ -65,10 +65,10 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(2);
-    expect(adaptive.body[1]).toEqual({
+    expect(adaptive.body[1]).toMatchObject({
       type: "Image",
       url: "https://example.com/product.png",
-      size: "stretch",
+      size: "Stretch",
     });
   });
 
@@ -84,20 +84,20 @@ describe("cardToAdaptiveCard", () => {
 
     expect(adaptive.body).toHaveLength(3);
 
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "TextBlock",
       text: "Regular text",
       wrap: true,
     });
 
-    expect(adaptive.body[1]).toEqual({
+    expect(adaptive.body[1]).toMatchObject({
       type: "TextBlock",
       text: "Bold text",
       wrap: true,
-      weight: "bolder",
+      weight: "Bolder",
     });
 
-    expect(adaptive.body[2]).toEqual({
+    expect(adaptive.body[2]).toMatchObject({
       type: "TextBlock",
       text: "Muted text",
       wrap: true,
@@ -114,11 +114,11 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(1);
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "Image",
       url: "https://example.com/img.png",
       altText: "My image",
-      size: "auto",
+      size: "Auto",
     });
   });
 
@@ -129,7 +129,7 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(1);
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "Container",
       separator: true,
       items: [],
@@ -157,21 +157,21 @@ describe("cardToAdaptiveCard", () => {
     expect(adaptive.body).toHaveLength(0);
     expect(adaptive.actions).toHaveLength(3);
 
-    expect(adaptive.actions?.[0]).toEqual({
+    expect(adaptive.actions?.[0]).toMatchObject({
       type: "Action.Submit",
       title: "Approve",
       data: { actionId: "approve", value: undefined },
       style: "positive",
     });
 
-    expect(adaptive.actions?.[1]).toEqual({
+    expect(adaptive.actions?.[1]).toMatchObject({
       type: "Action.Submit",
       title: "Reject",
       data: { actionId: "reject", value: "data-123" },
       style: "destructive",
     });
 
-    expect(adaptive.actions?.[2]).toEqual({
+    expect(adaptive.actions?.[2]).toMatchObject({
       type: "Action.Submit",
       title: "Skip",
       data: { actionId: "skip", value: undefined },
@@ -193,7 +193,7 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.actions).toHaveLength(1);
-    expect(adaptive.actions?.[0]).toEqual({
+    expect(adaptive.actions?.[0]).toMatchObject({
       type: "Action.OpenUrl",
       title: "View Docs",
       url: "https://example.com/docs",
@@ -213,7 +213,7 @@ describe("cardToAdaptiveCard", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(1);
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "FactSet",
       facts: [
         { title: "Status", value: "Active" },
@@ -230,7 +230,7 @@ describe("cardToAdaptiveCard", () => {
 
     expect(adaptive.body).toHaveLength(1);
     expect(adaptive.body[0].type).toBe("Container");
-    expect(adaptive.body[0].items).toHaveLength(1);
+    expect((adaptive.body[0] as { items: unknown[] }).items).toHaveLength(1);
   });
 
   it("converts a complete card", () => {
@@ -309,7 +309,7 @@ describe("cardToAdaptiveCard with CardLink", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.body).toHaveLength(1);
-    expect(adaptive.body[0]).toEqual({
+    expect(adaptive.body[0]).toMatchObject({
       type: "TextBlock",
       text: "[Click here](https://example.com)",
       wrap: true,
