@@ -630,7 +630,7 @@ export interface ChatInstance {
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions
+    options: WebhookOptions | undefined
   ): void;
 }
 

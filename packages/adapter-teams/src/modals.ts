@@ -5,7 +5,13 @@
  */
 
 import { createEmojiConverter, mapButtonStyle } from "@chat-adapter/shared";
-import type { ActionStyle, CardElementArray } from "@microsoft/teams.cards";
+import type { TaskModuleResponse } from "@microsoft/teams.api";
+import type {
+  ActionStyle,
+  CardElementArray,
+  ChoiceSetInputOptions,
+  TextInputOptions,
+} from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
   Choice,
@@ -102,22 +108,15 @@ function modalChildToAdaptiveElements(child: ModalChild): CardElementArray {
 }
 
 function textInputToAdaptive(input: TextInputElement): TextInput {
-  const options: Record<string, unknown> = {
+  const options: TextInputOptions = {
     id: input.id,
     label: convertEmoji(input.label),
     isMultiline: input.multiline ?? false,
     isRequired: !(input.optional ?? false),
+    placeholder: input.placeholder,
+    value: input.initialValue,
+    maxLength: input.maxLength,
   };
-
-  if (input.placeholder) {
-    options.placeholder = convertEmoji(input.placeholder);
-  }
-  if (input.initialValue) {
-    options.value = input.initialValue;
-  }
-  if (input.maxLength) {
-    options.maxLength = input.maxLength;
-  }
 
   return new TextInput(options);
 }
@@ -127,19 +126,14 @@ function selectToAdaptive(select: SelectElement): ChoiceSetInput {
     (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
   );
 
-  const options: Record<string, unknown> = {
+  const options: ChoiceSetInputOptions = {
     id: select.id,
     label: convertEmoji(select.label),
-    style: "Compact",
+    style: "compact",
     isRequired: !(select.optional ?? false),
+    placeholder: select.placeholder,
+    value: select.initialOption,
   };
-
-  if (select.placeholder) {
-    options.placeholder = convertEmoji(select.placeholder);
-  }
-  if (select.initialOption) {
-    options.value = select.initialOption;
-  }
 
   return new ChoiceSetInput(...choices).withOptions(options);
 }
@@ -151,16 +145,13 @@ function radioSelectToAdaptive(
     (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
   );
 
-  const options: Record<string, unknown> = {
+  const options: ChoiceSetInputOptions = {
     id: radioSelect.id,
     label: convertEmoji(radioSelect.label),
-    style: "Expanded",
+    style: "expanded",
     isRequired: !(radioSelect.optional ?? false),
+    value: radioSelect.initialOption,
   };
-
-  if (radioSelect.initialOption) {
-    options.value = radioSelect.initialOption;
-  }
 
   return new ChoiceSetInput(...choices).withOptions(options);
 }
@@ -228,6 +219,25 @@ export function parseDialogSubmitValues(
 // ModalResponse -> Teams task module response
 // ============================================================================
 
+function buildContinueResponse(
+  modal: ModalElement,
+  contextId?: string
+): TaskModuleResponse {
+  const card = modalToAdaptiveCard(modal, contextId || "", modal.callbackId);
+  return {
+    task: {
+      type: "continue" as const,
+      value: {
+        title: modal.title,
+        card: {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          content: card,
+        },
+      },
+    },
+  };
+}
+
 /**
  * Convert a ModalResponse from the handler into a Teams task module response.
  * Returns undefined to signal "close dialog" (empty HTTP body).
@@ -239,7 +249,7 @@ export function modalResponseToTaskModuleResponse(
   response: ModalResponse | undefined,
   logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
   contextId?: string
-): Record<string, unknown> | undefined {
+): TaskModuleResponse | undefined {
   if (!response) {
     return undefined;
   }
@@ -248,50 +258,16 @@ export function modalResponseToTaskModuleResponse(
       // undefined signals "close dialog" (empty HTTP body)
       return undefined;
 
-    case "update": {
-      const card = modalToAdaptiveCard(
-        response.modal,
-        contextId || "",
-        response.modal.callbackId
-      );
-      return {
-        task: {
-          type: "continue",
-          value: {
-            title: response.modal.title,
-            card: {
-              contentType: "application/vnd.microsoft.card.adaptive",
-              content: card,
-            },
-          },
-        },
-      };
-    }
+    case "update":
+      return buildContinueResponse(response.modal, contextId);
 
-    case "push": {
+    case "push":
       // Teams has no dialog stacking — fall back to update with a warning
       logger?.warn(
         "Teams does not support dialog stacking (push). Falling back to update.",
         { callbackId: response.modal.callbackId }
       );
-      const card = modalToAdaptiveCard(
-        response.modal,
-        contextId || "",
-        response.modal.callbackId
-      );
-      return {
-        task: {
-          type: "continue",
-          value: {
-            title: response.modal.title,
-            card: {
-              contentType: "application/vnd.microsoft.card.adaptive",
-              content: card,
-            },
-          },
-        },
-      };
-    }
+      return buildContinueResponse(response.modal, contextId);
 
     case "errors": {
       // Render a simple error card listing validation issues
@@ -316,7 +292,7 @@ export function modalResponseToTaskModuleResponse(
 
       return {
         task: {
-          type: "continue",
+          type: "continue" as const,
           value: {
             title: "Validation Error",
             card: {

@@ -927,7 +927,7 @@ export class Chat<
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions
+    options: WebhookOptions | undefined
   ): void {
     const task = this.handleSlashCommandEvent(event, options).catch((err) => {
       this.logger.error("Slash command processing error", {

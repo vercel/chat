@@ -476,7 +476,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
-    this.chat.processAction(actionEvent, {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const actionPromise = this.chat.processAction(actionEvent, {
       waitUntil: webhookOptions?.waitUntil ?? (() => {}),
       onOpenModal: async (modal, contextId) => {
         resolveModal({ modal, contextId });
@@ -486,10 +488,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const result = await Promise.race([
       modalPromise,
-      new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), DIALOG_OPEN_TIMEOUT_MS)
-      ),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), DIALOG_OPEN_TIMEOUT_MS);
+      }),
+      // If the action handler finishes without calling openModal, resolve
+      // immediately instead of waiting for the timeout.
+      actionPromise.then(() => null),
     ]);
+
+    if (timer) {
+      clearTimeout(timer);
+    }
 
     if (result) {
       const card = modalToAdaptiveCard(
