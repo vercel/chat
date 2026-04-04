@@ -254,7 +254,7 @@ function mdastTableToSlackBlock(
   for (const row of node.children) {
     const cells = getNodeChildren(row).map((cell) => ({
       type: "raw_text" as const,
-      text: getNodeChildren(cell).map(cellConverter).join(""),
+      text: getNodeChildren(cell).map(cellConverter).join("") || " ",
     }));
     rows.push(cells);
   }

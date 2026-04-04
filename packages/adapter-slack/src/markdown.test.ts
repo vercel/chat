@@ -214,6 +214,23 @@ describe("SlackMarkdownConverter", () => {
       expect(blocks?.[1].type).toBe("section");
       expect(blocks?.[1].text.text).toContain("```");
     });
+
+    it("should replace empty table cells with a space to satisfy Slack API", () => {
+      const ast = converter.toAst(
+        "| Kind | Label |\n|------|-------|\n| FORM | Form Submission |\n| and more... | |"
+      );
+      const blocks = converter.toBlocksWithTable(ast);
+      const tableBlock = blocks?.[0];
+      expect(tableBlock?.type).toBe("table");
+      // Every cell must have non-empty text (Slack rejects empty strings)
+      for (const row of tableBlock?.rows ?? []) {
+        for (const cell of row) {
+          expect(cell.text.length).toBeGreaterThan(0);
+        }
+      }
+      // The empty cell should be a space
+      expect(tableBlock?.rows[2][1].text).toBe(" ");
+    });
   });
 
   describe("nested lists", () => {
