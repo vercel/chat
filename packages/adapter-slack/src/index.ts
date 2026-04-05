@@ -1705,8 +1705,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    *
    * @param skipSelfMention - When true, skips the bot's own user ID so that
    *   mention detection (which looks for @botUserId in the text) continues to
-   *   work. Set to false when parsing historical/channel messages where mention
-   *   detection doesn't apply.
+   *   work. Uses the effective request-scoped bot user ID in multi-workspace
+   *   mode, not only the adapter's default bot user ID. Set to false when
+   *   parsing historical/channel messages where mention detection doesn't
+   *   apply.
    */
   private async resolveInlineMentions(
     text: string,
@@ -1743,8 +1745,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Don't resolve the bot's own mention when processing incoming webhooks —
     // detectMention needs @botUserId in the text
-    if (skipSelfMention && this._botUserId) {
-      userIds.delete(this._botUserId);
+    const currentBotUserId = this.botUserId;
+    if (skipSelfMention && currentBotUserId) {
+      userIds.delete(currentBotUserId);
     }
     if (userIds.size === 0 && channelIds.size === 0) {
       return text;

@@ -3628,6 +3628,18 @@ describe("error handling", () => {
 
 describe("resolveInlineMentions", () => {
   const secret = "test-signing-secret";
+  interface AdapterWithMentionContext {
+    requestContext: {
+      run<T>(
+        store: { token: string; botUserId?: string },
+        callback: () => Promise<T>
+      ): Promise<T>;
+    };
+    resolveInlineMentions(
+      text: string,
+      skipSelfMention: boolean
+    ): Promise<string>;
+  }
 
   it("resolves user mentions in incoming messages via webhook", async () => {
     const state = createMockState();
@@ -3729,6 +3741,41 @@ describe("resolveInlineMentions", () => {
 
     // Bot mention should NOT be resolved (kept as-is for mention detection)
     expect(message.text).toContain("@U_BOT");
+  });
+
+  it("skips request-scoped self mention resolution in multi-workspace mode", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        name: "workspacebot",
+        real_name: "Workspace Bot",
+        profile: {
+          display_name: "Workspace Bot",
+          real_name: "Workspace Bot",
+        },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const mentionAdapter = adapter as unknown as AdapterWithMentionContext;
+    const result = await mentionAdapter.requestContext.run(
+      {
+        token: "xoxb-multi-token",
+        botUserId: "U_BOT_MULTI",
+      },
+      () => mentionAdapter.resolveInlineMentions("<@U_BOT_MULTI> help me", true)
+    );
+
+    expect(result).toBe("<@U_BOT_MULTI> help me");
+    expect(usersInfoMock).not.toHaveBeenCalled();
   });
 
   it("resolves bare channel mentions in incoming messages", async () => {
