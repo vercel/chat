@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Zalo",
+    "slug": "zalo",
+    "type": "platform",
+    "icon": "zalo",
+    "description": "Build bots for Zalo — Vietnam's leading messaging platform — with support for official account messaging and webhooks.",
+    "packageName": "@chat-adapter/zalo",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-zalo"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",

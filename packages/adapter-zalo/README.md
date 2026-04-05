@@ -99,14 +99,6 @@ Zalo delivers all events via POST requests with an `X-Bot-Api-Secret-Token` head
 | Streaming      | Buffered (accumulates then sends) |
 | Auto-chunking  | Yes (splits at 2000 chars)        |
 
-### Rich content
-
-| Feature             | Supported          |
-| ------------------- | ------------------ |
-| Interactive buttons | No (text fallback) |
-| Cards               | Text fallback      |
-| Tables              | ASCII              |
-
 ### Conversations
 
 | Feature          | Supported              |
@@ -114,7 +106,7 @@ Zalo delivers all events via POST requests with an `X-Bot-Api-Secret-Token` head
 | Reactions        | No (Zalo limitation)   |
 | Typing indicator | Yes (`sendChatAction`) |
 | DMs              | Yes                    |
-| Group chats      | Yes                    |
+| Group chats      | Pending                |
 | Open DM          | Yes                    |
 
 ### Incoming message types
@@ -132,21 +124,6 @@ Zalo delivers all events via POST requests with an `X-Bot-Api-Secret-Token` head
 | ----------------- | ------------------------ |
 | Fetch messages    | No (Zalo API limitation) |
 | Fetch thread info | Yes                      |
-
-## Cards
-
-Zalo has no interactive message API. All card elements are rendered as plain text:
-
-```
-CARD TITLE
-
-Body text here...
-
-• Button 1 label
-• Button 2 label: https://example.com
-
----
-```
 
 ## Thread ID format
 

@@ -27,6 +27,7 @@ import {
   teams,
   telegram,
   whatsapp,
+  zalo,
 } from "@/lib/logos";
 
 const iconMap: Record<
@@ -45,6 +46,7 @@ const iconMap: Record<
   postgres,
   memory,
   whatsapp,
+  zalo,
   instagram: SiInstagram,
   signal: SiSignal,
   x: SiX,
