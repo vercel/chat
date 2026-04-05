@@ -107,6 +107,7 @@ export interface TextProps {
 export interface ButtonProps {
   actionType?: "action" | "modal";
   children?: string | number | (string | number | undefined)[];
+  disabled?: boolean;
   id: string;
   label?: string;
   style?: ButtonStyle;
@@ -591,6 +592,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       style: props.style,
       value: props.value,
       actionType: props.actionType,
+      disabled: props.disabled,
     });
   }
 

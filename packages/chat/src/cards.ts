@@ -663,6 +663,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         style: props.style as ButtonStyle | undefined,
         value: props.value as string | undefined,
         actionType: props.actionType as "action" | "modal" | undefined,
+        disabled: props.disabled as boolean | undefined,
       });
     }
 

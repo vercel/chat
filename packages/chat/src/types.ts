@@ -151,11 +151,14 @@ export interface WebhookOptions {
    * within the current webhook response cycle.
    * When provided, called instead of adapter.openModal().
    * Used by Teams to return modal content in the HTTP invoke response.
+   *
+   * The returned `viewId` is platform-specific (e.g. Slack's view ID).
+   * Adapters that don't produce a view ID may return void.
    */
   onOpenModal?: (
     modal: ModalElement,
     contextId: string
-  ) => Promise<{ viewId: string }>;
+  ) => Promise<{ viewId: string } | undefined>;
   /**
    * Function to run message handling in the background.
    * Use this to ensure fast webhook responses while processing continues.
