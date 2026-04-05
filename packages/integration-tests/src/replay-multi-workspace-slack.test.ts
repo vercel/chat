@@ -112,6 +112,84 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     );
   });
 
+  it("should skip bot self lookup for plain message mentions in multi-workspace installs", async () => {
+    mockClient.users.info.mockImplementation(async ({ user }) => {
+      if (user === team1.mention.event.user) {
+        return {
+          ok: true,
+          user: {
+            id: user,
+            name: "sender-one",
+            real_name: "Sender One",
+            profile: {
+              display_name: "Sender One",
+              real_name: "Sender One",
+            },
+          },
+        };
+      }
+
+      if (user === team1.botUserId) {
+        return {
+          ok: true,
+          user: {
+            id: user,
+            name: "workspacebot",
+            real_name: "Workspace Bot",
+            profile: {
+              display_name: "Workspace Bot",
+              real_name: "Workspace Bot",
+            },
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        user: {
+          id: user,
+          name: "unknown",
+          real_name: "Unknown User",
+        },
+      };
+    });
+
+    const plainMessageMention = {
+      type: "event_callback",
+      team_id: team1.teamId,
+      event_id: "Ev-multi-message-mention",
+      event_time: 1770677999,
+      event: {
+        type: "message",
+        user: team1.mention.event.user,
+        text: `<@${team1.botUserId}> hello from a plain message`,
+        ts: "1770677999.000001",
+        thread_ts: "1770677999.000001",
+        team: team1.teamId,
+        channel: team1.mention.event.channel,
+      },
+    };
+
+    await chat.webhooks.slack(
+      createSignedSlackRequest(JSON.stringify(plainMessageMention)),
+      { waitUntil: tracker.waitUntil }
+    );
+    await tracker.waitForAll();
+
+    expect(capturedMention).not.toBeNull();
+    expect(capturedMention?.message.text).toBe(
+      `@${team1.botUserId} hello from a plain message`
+    );
+    expect(mockClient.users.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({ user: team1.botUserId })
+    );
+    expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: "xoxb-multi-workspace-token",
+      })
+    );
+  });
+
   it("should reject webhook when no installation exists for team", async () => {
     // Delete the installation
     await adapter.deleteInstallation(team1.teamId);
