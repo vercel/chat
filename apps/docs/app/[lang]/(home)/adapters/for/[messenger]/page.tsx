@@ -1,4 +1,6 @@
+import { ArrowLeftIcon } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import adapters from "@/adapters.json";
 import { AdapterCard } from "../../components/adapter-card";
@@ -203,6 +205,13 @@ const MessengerPage = async ({
   return (
     <div className="container mx-auto max-w-5xl">
       <section className="mt-(--fd-nav-height) space-y-4 px-4 pt-16 pb-8 sm:pt-24">
+        <Link
+          className="inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
+          href="/adapters"
+        >
+          <ArrowLeftIcon className="size-4" />
+          All Adapters
+        </Link>
         <h1 className="text-balance font-semibold text-[40px] leading-[1.1] tracking-tight sm:text-5xl">
           {config.name} Adapters
         </h1>
