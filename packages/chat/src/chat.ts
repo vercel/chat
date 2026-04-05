@@ -1074,7 +1074,7 @@ export class Chat<
           modalElement = converted;
         }
         const contextId = crypto.randomUUID();
-        this.storeModalContext(
+        await this.storeModalContext(
           event.adapter.name,
           contextId,
           undefined,
@@ -1119,25 +1119,27 @@ export class Chat<
    * Store modal context server-side with a context ID.
    * Called when opening a modal to preserve thread/message/channel for the submit handler.
    */
-  private storeModalContext(
+  private async storeModalContext(
     adapterName: string,
     contextId: string,
     thread?: ThreadImpl<TState>,
     message?: Message,
     channel?: ChannelImpl<TState>
-  ): void {
+  ): Promise<void> {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
       thread: thread?.toJSON(),
       message: message?.toJSON(),
       channel: channel?.toJSON(),
     };
-    this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS).catch((err) => {
+    try {
+      await this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS);
+    } catch (err) {
       this.logger.error("Failed to store modal context", {
         contextId,
         error: err,
       });
-    });
+    }
   }
 
   /**
@@ -1299,7 +1301,7 @@ export class Chat<
         const channel = thread
           ? ((thread as ThreadImpl<TState>).channel as ChannelImpl<TState>)
           : undefined;
-        this.storeModalContext(
+        await this.storeModalContext(
           event.adapter.name,
           contextId,
           thread ? (thread as ThreadImpl<TState>) : undefined,
