@@ -1,66 +1,23 @@
 import Link from "next/link";
-import type { ComponentProps, ReactNode } from "react";
-import {
-  discord,
-  gchat,
-  github,
-  linear,
-  memory,
-  postgres,
-  redis,
-  slack,
-  teams,
-  telegram,
-  whatsapp,
-} from "@/lib/logos";
+import type { ReactNode } from "react";
 
-interface Adapter {
-  name: string;
-  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
-  href: string;
-  badge?: string;
-}
-
-const platformAdapters: Adapter[] = [
-  { name: "Slack", icon: slack, href: "/adapters/slack" },
-  { name: "Teams", icon: teams, href: "/adapters/teams" },
-  { name: "Google Chat", icon: gchat, href: "/adapters/google-chat" },
-  { name: "Discord", icon: discord, href: "/adapters/discord" },
-  { name: "GitHub", icon: github, href: "/adapters/github" },
-  { name: "Linear", icon: linear, href: "/adapters/linear" },
-  { name: "Telegram", icon: telegram, href: "/adapters/telegram" },
-  { name: "WhatsApp", icon: whatsapp, href: "/adapters/whatsapp" },
+const messengerLinks = [
+  { name: "iMessage", slug: "imessage" },
+  { name: "WhatsApp", slug: "whatsapp" },
+  { name: "Telegram", slug: "telegram" },
+  { name: "Slack", slug: "slack" },
+  { name: "Discord", slug: "discord" },
+  { name: "Teams", slug: "teams" },
+  { name: "Matrix", slug: "matrix" },
+  { name: "Instagram", slug: "instagram" },
+  { name: "Facebook", slug: "facebook" },
+  { name: "X/Twitter", slug: "twitter" },
+  { name: "GitHub", slug: "github" },
+  { name: "Linear", slug: "linear" },
+  { name: "Email", slug: "email" },
+  { name: "Webex", slug: "webex" },
+  { name: "Google Chat", slug: "google-chat" },
 ];
-
-const stateAdapters: Adapter[] = [
-  { name: "Redis", icon: redis, href: "/adapters/redis" },
-  { name: "PostgreSQL", icon: postgres, href: "/adapters/postgres" },
-  { name: "Memory", icon: memory, href: "/adapters/memory" },
-];
-
-const communityAdapters = [
-  "Beeper Matrix",
-  "Photon iMessage",
-  "Webex",
-  "Resend Email",
-  "Zernio",
-  "Liveblocks",
-];
-
-const AdapterChip = ({ adapter }: { adapter: Adapter }) => (
-  <Link
-    className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent"
-    href={adapter.href}
-  >
-    <adapter.icon className="size-4" />
-    <span>{adapter.name}</span>
-    {adapter.badge ? (
-      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-        {adapter.badge}
-      </span>
-    ) : null}
-  </Link>
-);
 
 interface AdaptersSectionProps {
   description: ReactNode;
@@ -79,46 +36,16 @@ export const AdaptersSection = ({
       <p className="max-w-2xl text-muted-foreground">{description}</p>
     </div>
 
-    <div className="grid gap-6">
-      <div className="grid gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">Platforms</h3>
-        <div className="flex flex-wrap gap-2">
-          {platformAdapters.map((adapter) => (
-            <AdapterChip adapter={adapter} key={adapter.name} />
-          ))}
-        </div>
-      </div>
-
-      <div className="grid gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">State</h3>
-        <div className="flex flex-wrap gap-2">
-          {stateAdapters.map((adapter) => (
-            <AdapterChip adapter={adapter} key={adapter.name} />
-          ))}
-        </div>
-      </div>
-
-      <div className="grid gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Community
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          {communityAdapters.map((name) => (
-            <span
-              className="rounded-full border bg-card px-3 py-1.5 text-sm"
-              key={name}
-            >
-              {name}
-            </span>
-          ))}
-          <Link
-            className="rounded-full border border-dashed px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground"
-            href="/adapters"
-          >
-            View all →
-          </Link>
-        </div>
-      </div>
+    <div className="flex flex-wrap gap-2">
+      {messengerLinks.map((messenger) => (
+        <Link
+          className="rounded-full border bg-card px-4 py-1.5 text-sm transition-colors hover:bg-accent"
+          href={`/adapters/for/${messenger.slug}`}
+          key={messenger.slug}
+        >
+          {messenger.name}
+        </Link>
+      ))}
     </div>
   </div>
 );
