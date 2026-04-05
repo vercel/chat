@@ -205,6 +205,16 @@
     "vendorOfficial": true
   },
   {
+    "name": "Sendblue iMessage",
+    "slug": "sendblue",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK using Sendblue for building your own iMessage bots.",
+    "packageName": "chat-adapter-sendblue",
+    "author": "midday-ai",
+    "readme": "https://github.com/midday-ai/chat-adapter-sendblue"
+  },
+  {
     "name": "Instagram",
     "slug": "instagram",
     "type": "platform",
