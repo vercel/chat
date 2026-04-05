@@ -19,7 +19,35 @@ const AdaptersPage = () => (
       </h1>
       <p className="max-w-2xl text-lg text-muted-foreground leading-relaxed">
         Browse official and community-built adapters to connect your bot to any
-        platform.
+        platform. Looking for a specific messenger? Check out{" "}
+        <a
+          className="text-foreground underline"
+          href="/adapters/messenger/imessage"
+        >
+          iMessage
+        </a>
+        ,{" "}
+        <a
+          className="text-foreground underline"
+          href="/adapters/messenger/whatsapp"
+        >
+          WhatsApp
+        </a>
+        ,{" "}
+        <a
+          className="text-foreground underline"
+          href="/adapters/messenger/telegram"
+        >
+          Telegram
+        </a>
+        , and{" "}
+        <a
+          className="text-foreground underline"
+          href="/adapters/messenger/slack"
+        >
+          more
+        </a>
+        .
       </p>
     </section>
     <div className="grid gap-10 px-4 pb-16">

@@ -11,7 +11,7 @@ Chat SDK is a TypeScript library for building chat bots that work across multipl
 Building a chat bot that works across multiple platforms typically means maintaining separate codebases, learning different APIs, and handling platform-specific quirks individually. Chat SDK abstracts these differences behind a unified interface.
 
 - **Single codebase** for all platforms
-- **Type-safe** adapters and event handlers with full TypeScript support
+- **Type-safe** [adapters](/adapters) and event handlers with full TypeScript support
 - **Event-driven** architecture with handlers for mentions, messages, reactions, button clicks, slash commands, and modals
 - **Thread subscriptions** for multi-turn conversations
 - **Rich UI** with JSX cards, buttons, and modals that render natively on each platform
@@ -22,8 +22,8 @@ Building a chat bot that works across multiple platforms typically means maintai
 
 Chat SDK has three core concepts:
 
-1. **Chat** — the main entry point that coordinates adapters and routes events to your handlers
-2. **Adapters** — platform-specific implementations that handle webhook parsing, message formatting, and API calls
+1. **Chat** — the main entry point that coordinates [adapters](/adapters) and routes events to your handlers
+2. **[Adapters](/adapters)** — platform-specific implementations that handle webhook parsing, message formatting, and API calls
 3. **State** — a pluggable persistence layer for thread subscriptions and distributed locking
 
 ```typescript title="lib/bot.ts" lineNumbers
