@@ -181,7 +181,7 @@ const getMessengerAdapters = (messengerSlug: string) => {
 
 const MessengerPage = async ({
   params,
-}: PageProps<"/[lang]/adapters/messenger/[messenger]">) => {
+}: PageProps<"/[lang]/adapters/for/[messenger]">) => {
   const { messenger } = await params;
   const data = getMessengerAdapters(messenger);
 
@@ -286,7 +286,7 @@ export const generateStaticParams = () =>
 
 export const generateMetadata = async ({
   params,
-}: PageProps<"/[lang]/adapters/messenger/[messenger]">): Promise<Metadata> => {
+}: PageProps<"/[lang]/adapters/for/[messenger]">): Promise<Metadata> => {
   const { messenger } = await params;
   const data = getMessengerAdapters(messenger);
 
