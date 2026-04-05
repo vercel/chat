@@ -153,7 +153,15 @@ const HomePage = () => (
       </CenteredSection>
       <TextGridSection data={textGridSection} />
       <OneTwoSection
-        description="Install the SDK and pair it with your favorite chat providers and state management solutions."
+        description={
+          <>
+            Install the SDK and pair it with your favorite{" "}
+            <a className="underline" href="/adapters">
+              adapters
+            </a>{" "}
+            and state management solutions.
+          </>
+        }
         title="Usage"
       >
         <Usage />
