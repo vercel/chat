@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Card } from "./cards";
+import type { Message } from "./message";
 import {
   createMockAdapter,
   createMockState,
@@ -9,7 +10,7 @@ import {
 import { Plan } from "./plan";
 import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
-import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
+import type { Adapter, ScheduledMessage, StreamChunk } from "./types";
 import { NotImplementedError } from "./types";
 
 describe("ThreadImpl", () => {
@@ -595,7 +596,34 @@ describe("ThreadImpl", () => {
       }
     });
 
-    it("should pass stream options from current message context", async () => {
+    it.each([
+      {
+        expectedTeamId: "T123",
+        label: "team_id",
+        raw: { team_id: "T123", type: "app_mention" },
+      },
+      {
+        expectedTeamId: "T234",
+        label: "team string",
+        raw: { team: "T234", type: "message" },
+      },
+      {
+        expectedTeamId: "T345",
+        label: "team.id",
+        raw: { team: { id: "T345" }, type: "block_actions" },
+      },
+      {
+        expectedTeamId: "T456",
+        label: "user.team_id fallback",
+        raw: {
+          type: "block_actions",
+          user: { team_id: "T456" },
+        },
+      },
+    ])("should pass stream options from Slack current message context via $label", async ({
+      raw,
+      expectedTeamId,
+    }) => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -603,18 +631,13 @@ describe("ThreadImpl", () => {
       });
       mockAdapter.stream = mockStream;
 
-      // Create thread with current message context
       const threadWithContext = new ThreadImpl({
         id: "slack:C123:1234.5678",
         adapter: mockAdapter,
         channelId: "C123",
         stateAdapter: mockState,
-        currentMessage: {
-          id: "original-msg",
-          threadId: "slack:C123:1234.5678",
-          text: "test",
-          formatted: { type: "root", children: [] },
-          raw: { team_id: "T123" },
+        currentMessage: createTestMessage("original-msg", "test", {
+          raw,
           author: {
             userId: "U456",
             userName: "user",
@@ -622,9 +645,7 @@ describe("ThreadImpl", () => {
             isBot: false,
             isMe: false,
           },
-          metadata: { dateSent: new Date(), edited: false },
-          attachments: [],
-        },
+        }),
       });
 
       const textStream = createTextStream(["Hello"]);
@@ -635,9 +656,64 @@ describe("ThreadImpl", () => {
         expect.any(Object),
         expect.objectContaining({
           recipientUserId: "U456",
-          recipientTeamId: "T123",
+          recipientTeamId: expectedTeamId,
         })
       );
+    });
+
+    it("should forward structured stream chunks to adapter.stream from an action-created thread", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const threadWithActionContext = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage: createTestMessage("action-msg", "", {
+          raw: {
+            team: { domain: "workspace", id: "T123" },
+            type: "block_actions",
+          },
+          author: {
+            userId: "U456",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+        }),
+      });
+
+      const taskChunk: StreamChunk = {
+        id: "task-1",
+        status: "pending",
+        title: "Thinking",
+        type: "task_update",
+      };
+      async function* structuredStream(): AsyncIterable<string | StreamChunk> {
+        yield "Picking option...";
+        yield taskChunk;
+      }
+
+      await threadWithActionContext.post(
+        structuredStream() as unknown as AsyncIterable<string>
+      );
+
+      expect(mockStream).toHaveBeenCalledTimes(1);
+      const [, passedStream] = mockStream.mock.calls[0];
+      const collected: Array<string | StreamChunk> = [];
+      for await (const chunk of passedStream as AsyncIterable<
+        string | StreamChunk
+      >) {
+        collected.push(chunk);
+      }
+      expect(collected).toContain("Picking option...");
+      expect(collected).toContainEqual(taskChunk);
     });
 
     it("should pass StreamingPlan PostableObject options to adapter.stream", async () => {

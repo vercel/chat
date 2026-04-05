@@ -574,12 +574,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const options: StreamOptions = { ...callerOptions };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
-      // Extract teamId from raw Slack payload
-      const raw = this._currentMessage.raw as {
-        team_id?: string;
-        team?: string;
-      };
-      options.recipientTeamId = raw?.team_id ?? raw?.team;
+      // recipientTeamId is only consumed by the Slack adapter; other adapters
+      // ignore it. Derivation is Slack-specific because `currentMessage.raw`
+      // shape varies across Slack webhook types (message events vs block_actions).
+      options.recipientTeamId = this.extractSlackRecipientTeamId(
+        this._currentMessage.raw
+      );
     }
 
     // Use native streaming if adapter supports it
@@ -648,6 +648,47 @@ export class ThreadImpl<TState = Record<string, unknown>>
       },
     };
     return this.fallbackStream(textOnlyStream, options);
+  }
+
+  /**
+   * Slack payloads carry the workspace ID in a few different shapes depending on
+   * the webhook type:
+   * - Message events: `team_id` or `team` as a string
+   * - `block_actions` payloads: `team.id` (object), with `user.team_id` as a fallback
+   */
+  private extractSlackRecipientTeamId(raw: unknown): string | undefined {
+    if (!raw || typeof raw !== "object") {
+      return undefined;
+    }
+
+    const payload = raw as {
+      team?: { id?: unknown } | string;
+      team_id?: unknown;
+      user?: { team_id?: unknown };
+    };
+
+    if (typeof payload.team_id === "string" && payload.team_id) {
+      return payload.team_id;
+    }
+
+    if (typeof payload.team === "string" && payload.team) {
+      return payload.team;
+    }
+
+    if (
+      payload.team &&
+      typeof payload.team === "object" &&
+      typeof payload.team.id === "string" &&
+      payload.team.id
+    ) {
+      return payload.team.id;
+    }
+
+    if (typeof payload.user?.team_id === "string" && payload.user.team_id) {
+      return payload.user.team_id;
+    }
+
+    return undefined;
   }
 
   async startTyping(status?: string): Promise<void> {

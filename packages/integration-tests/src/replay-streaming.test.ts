@@ -8,6 +8,7 @@
  * See fixtures/replay/README.md for instructions on updating fixtures.
  */
 
+import type { ActionEvent, StreamChunk } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import gchatFixtures from "../fixtures/replay/streaming/gchat.json";
 import slackFixtures from "../fixtures/replay/streaming/slack.json";
@@ -35,6 +36,17 @@ async function* createTextStream(chunks: string[]): AsyncIterable<string> {
   for (const chunk of chunks) {
     yield chunk;
   }
+}
+
+async function* createStructuredStream(): AsyncIterable<string | StreamChunk> {
+  yield "Starting structured reply...";
+  yield {
+    id: "task-1",
+    status: "pending",
+    title: "Looking up selected option",
+    type: "task_update",
+  };
+  yield "Done.";
 }
 
 describe("Streaming Replay Tests", () => {
@@ -133,6 +145,95 @@ describe("Streaming Replay Tests", () => {
 
       expect(aiModeEnabled).toBe(true);
       expect(ctx.mockClient.chatStream).toHaveBeenCalled();
+    });
+
+    it("should ignore a prompt message posted by the bot", async () => {
+      await ctx.sendWebhook(slackFixtures.promptMessage);
+
+      expect(ctx.captured.mentionMessage).toBeNull();
+      expect(ctx.captured.followUpMessage).toBeNull();
+      expect(ctx.mockClient.chat.postMessage).not.toHaveBeenCalled();
+      expect(ctx.mockClient.chatStream).not.toHaveBeenCalled();
+    });
+
+    it("should stream structured chunks for a block_actions continuation", async () => {
+      const actionHandler = vi.fn(async (event: ActionEvent) => {
+        if (event.actionId !== "option-select:option-a") {
+          return;
+        }
+        await event.thread?.post(createStructuredStream());
+      });
+      ctx.chat.onAction(actionHandler);
+
+      await ctx.sendWebhook(slackFixtures.promptMessage);
+      ctx.mockClient.clearMocks();
+
+      await ctx.sendSlackAction(slackFixtures.buttonAction);
+
+      const capturedAction = actionHandler.mock.calls[0]?.[0];
+      expect(capturedAction).not.toBeNull();
+      if (!capturedAction) {
+        throw new Error("Expected block action to be captured");
+      }
+      expect(capturedAction.actionId).toBe("option-select:option-a");
+      expect(capturedAction.user.userId).toBe("U08REALUSER1");
+      expect(capturedAction.user.userName).toBe("testuser");
+      expect(capturedAction.thread?.id).toBe(
+        "slack:C08REALCHAN1:1775407823.782829"
+      );
+      expect(capturedAction.thread?.channelId).toBe("slack:C08REALCHAN1");
+
+      expect(ctx.mockClient.chatStream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C08REALCHAN1",
+          recipient_team_id: "T08REALTEAM1",
+          recipient_user_id: "U08REALUSER1",
+          thread_ts: "1775407823.782829",
+        })
+      );
+
+      const streamer = ctx.mockClient.chatStream.mock.results.at(-1)?.value as {
+        append: ReturnType<typeof vi.fn>;
+      };
+      const hasStructuredAppend = streamer.append.mock.calls.some((call) => {
+        const [payload] = call as [{ chunks?: Array<{ type?: string }> }];
+        return (
+          Array.isArray(payload.chunks) &&
+          payload.chunks.some((chunk) => chunk.type === "task_update")
+        );
+      });
+
+      expect(hasStructuredAppend).toBe(true);
+    });
+
+    it("should stream follow-up replies for a subscribed message payload", async () => {
+      await ctx.state.connect();
+      await ctx.state.subscribe("slack:C08REALCHAN1:1775407823.782829");
+
+      ctx.chat.onSubscribedMessage(async (thread, message) => {
+        if (message.text !== "ping?") {
+          return;
+        }
+
+        await thread.post(createTextStream(["pong"]));
+      });
+
+      await ctx.sendWebhook(slackFixtures.threadFollowUp);
+
+      expectValidFollowUp(ctx.captured, {
+        text: "ping?",
+        adapterName: "slack",
+      });
+      expect(ctx.captured.followUpMessage?.author.userId).toBe("U08REALUSER1");
+
+      expect(ctx.mockClient.chatStream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "C08REALCHAN1",
+          recipient_team_id: "T08REALTEAM1",
+          recipient_user_id: "U08REALUSER1",
+          thread_ts: "1775407823.782829",
+        })
+      );
     });
   });
 
