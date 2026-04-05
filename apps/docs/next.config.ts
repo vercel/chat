@@ -8,6 +8,15 @@ const config: NextConfig = {
     turbopackFileSystemCacheForDev: true,
   },
 
+  async rewrites() {
+    return [
+      {
+        source: "/sitemap.xml",
+        destination: "https://crawled-sitemap.vercel.sh/chat-sdk.dev-.xml",
+      },
+    ];
+  },
+
   async redirects() {
     return [
       {
