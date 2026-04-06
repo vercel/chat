@@ -149,6 +149,10 @@ All adapters return `false` if the bot ID isn't known yet. This is a safe defaul
       description: 'Fetch the attachment data. Handles platform auth automatically.',
       type: '() => Promise<Buffer> | undefined',
     },
+    fetchMetadata: {
+      description: 'Platform-specific IDs for reconstructing fetchData after serialization (e.g. WhatsApp mediaId, Telegram fileId).',
+      type: 'Record<string, string> | undefined',
+    },
   }}
 />
 
@@ -208,4 +212,4 @@ const json = message.toJSON();
 const restored = Message.fromJSON(json);
 ```
 
-The serialized format converts `Date` fields to ISO strings and omits non-serializable fields like `data` buffers and `fetchData` functions.
+The serialized format converts `Date` fields to ISO strings and omits non-serializable fields like `data` buffers and `fetchData` functions. The `fetchMetadata` field is preserved so that adapters can reconstruct `fetchData` when the message is rehydrated from a queue.
