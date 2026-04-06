@@ -1909,7 +1909,7 @@ export class Chat<
       }
 
       // Reconstruct Message instance after JSON roundtrip through state adapter
-      const msg = this.rehydrateMessage(entry.message);
+      const msg = this.rehydrateMessage(entry.message, adapter);
 
       if (Date.now() > entry.expiresAt) {
         this.logger.info("message-expired", {
@@ -1961,7 +1961,7 @@ export class Chat<
         if (!entry) {
           break;
         }
-        const msg = this.rehydrateMessage(entry.message);
+        const msg = this.rehydrateMessage(entry.message, adapter);
         if (Date.now() <= entry.expiresAt) {
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
@@ -2210,44 +2210,57 @@ export class Chat<
    * object (not a Message instance). This restores class invariants like
    * `links` defaulting to `[]` and `metadata.dateSent` being a Date.
    */
-  private rehydrateMessage(raw: Message | Record<string, unknown>): Message {
+  private rehydrateMessage(
+    raw: Message | Record<string, unknown>,
+    adapter?: Adapter
+  ): Message {
     if (raw instanceof Message) {
       return raw;
     }
     // After JSON roundtrip, Message.toJSON() was called during stringify,
     // so the shape matches SerializedMessage
     const obj = raw as Record<string, unknown>;
+    let msg: Message;
     if (obj._type === "chat:Message") {
-      return Message.fromJSON(obj as unknown as SerializedMessage);
+      msg = Message.fromJSON(obj as unknown as SerializedMessage);
+    } else {
+      // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
+      // Reconstruct with defensive defaults
+      const metadata = obj.metadata as Record<string, unknown>;
+      const dateSent = metadata.dateSent;
+      const editedAt = metadata.editedAt;
+      msg = new Message({
+        id: obj.id as string,
+        threadId: obj.threadId as string,
+        text: obj.text as string,
+        formatted: obj.formatted as FormattedContent,
+        raw: obj.raw,
+        author: obj.author as Author,
+        metadata: {
+          dateSent:
+            dateSent instanceof Date ? dateSent : new Date(dateSent as string),
+          edited: metadata.edited as boolean,
+          editedAt: editedAt
+            ? new Date(
+                editedAt instanceof Date
+                  ? editedAt.toISOString()
+                  : (editedAt as string)
+              )
+            : undefined,
+        },
+        attachments: (obj.attachments as Attachment[]) ?? [],
+        isMention: obj.isMention as boolean | undefined,
+        links: (obj.links as LinkPreview[] | undefined) ?? [],
+      });
     }
-    // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
-    // Reconstruct with defensive defaults
-    const metadata = obj.metadata as Record<string, unknown>;
-    const dateSent = metadata.dateSent;
-    const editedAt = metadata.editedAt;
-    return new Message({
-      id: obj.id as string,
-      threadId: obj.threadId as string,
-      text: obj.text as string,
-      formatted: obj.formatted as FormattedContent,
-      raw: obj.raw,
-      author: obj.author as Author,
-      metadata: {
-        dateSent:
-          dateSent instanceof Date ? dateSent : new Date(dateSent as string),
-        edited: metadata.edited as boolean,
-        editedAt: editedAt
-          ? new Date(
-              editedAt instanceof Date
-                ? editedAt.toISOString()
-                : (editedAt as string)
-            )
-          : undefined,
-      },
-      attachments: (obj.attachments as Attachment[]) ?? [],
-      isMention: obj.isMention as boolean | undefined,
-      links: (obj.links as LinkPreview[] | undefined) ?? [],
-    });
+
+    if (adapter?.rehydrateAttachment && msg.attachments.length > 0) {
+      msg.attachments = msg.attachments.map((att) =>
+        att.fetchData ? att : (adapter.rehydrateAttachment?.(att) ?? att)
+      );
+    }
+
+    return msg;
   }
 
   private async runHandlers(
