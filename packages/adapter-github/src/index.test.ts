@@ -693,6 +693,37 @@ describe("GitHubAdapter", () => {
       expect(await response.text()).toBe("ok");
     });
 
+    it("should handle events without repository in multi-tenant mode", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      await multiTenantAdapter.initialize(mockChat);
+
+      const body = JSON.stringify({
+        action: "created",
+        installation: { id: 999 },
+      });
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "installation", signature);
+
+      const response = await multiTenantAdapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("ok");
+    });
+
     it("should warn and ignore issue_comment when chat not initialized", async () => {
       // adapter is NOT initialized (no chat instance)
       const payload = makeIssueCommentPayload();
