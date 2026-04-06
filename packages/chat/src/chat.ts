@@ -1173,6 +1173,9 @@ export class Chat<
       };
     }
 
+    // Clean up stored context after retrieval (one-time use)
+    await this._stateAdapter.delete(key);
+
     const adapter = this.adapters.get(adapterName);
 
     // Reconstruct thread with adapter directly (if present)

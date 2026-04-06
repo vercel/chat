@@ -75,7 +75,7 @@ interface ActionSubmitData {
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
+const DEFAULT_DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly name = "teams";
@@ -489,7 +489,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const result = await Promise.race([
       modalPromise,
       new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), DIALOG_OPEN_TIMEOUT_MS);
+        timer = setTimeout(
+          () => resolve(null),
+          this.config.dialogOpenTimeoutMs ?? DEFAULT_DIALOG_OPEN_TIMEOUT_MS
+        );
       }),
       // If the action handler finishes without calling openModal, resolve
       // immediately instead of waiting for the timeout.

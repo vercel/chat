@@ -1970,7 +1970,7 @@ export type ModalResponse =
 export type ModalSubmitHandler = (
   event: ModalSubmitEvent
   // biome-ignore lint/suspicious/noConfusingVoidType: void is needed for sync handlers that return nothing
-) => void | Promise<ModalResponse | undefined>;
+) => void | Promise<ModalResponse | void | undefined>;
 
 export type ModalCloseHandler = (
   event: ModalCloseEvent

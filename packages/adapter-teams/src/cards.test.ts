@@ -300,6 +300,29 @@ describe("cardToFallbackText", () => {
   });
 });
 
+describe("cardToAdaptiveCard with modal buttons", () => {
+  it("adds msteams task/fetch hint for actionType modal", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({ id: "open-dialog", label: "Open", actionType: "modal" }),
+        ]),
+      ],
+    });
+    const adaptive = cardToAdaptiveCard(card);
+
+    expect(adaptive.actions).toHaveLength(1);
+    expect(adaptive.actions?.[0]).toMatchObject({
+      type: "Action.Submit",
+      title: "Open",
+      data: {
+        actionId: "open-dialog",
+        msteams: { type: "task/fetch" },
+      },
+    });
+  });
+});
+
 describe("cardToAdaptiveCard with CardLink", () => {
   it("converts CardLink to a TextBlock with markdown link", () => {
     const card = Card({

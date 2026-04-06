@@ -30,6 +30,8 @@ export interface TeamsAdapterConfig {
   certificate?: TeamsAuthCertificate;
   /** Federated (workload identity) authentication. Maps to managedIdentityClientId in the Teams SDK. */
   federated?: TeamsAuthFederated;
+  /** Timeout in ms for the handler to call openModal() after a task/fetch trigger. Defaults to 5000. */
+  dialogOpenTimeoutMs?: number;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Override bot username (optional) */

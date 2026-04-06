@@ -239,7 +239,6 @@ bot.onAction("ephemeral_modal", async (event) => {
   );
 });
 
-// @ts-expect-error async void handler vs ModalSubmitHandler return type
 bot.onModalSubmit("ephemeral_modal_form", async (event) => {
   await event.relatedMessage?.edit(
     <Card title={`${emoji.check} Submitted!`}>
