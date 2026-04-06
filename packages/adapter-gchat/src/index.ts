@@ -1484,6 +1484,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     resourceName?: string,
     url?: string
   ): Promise<Buffer> {
+    // Prefer media.download API (correct method for chat apps)
     if (resourceName) {
       const res = await this.chatApi.media.download(
         { resourceName },
@@ -1492,6 +1493,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return Buffer.from(res.data as ArrayBuffer);
     }
 
+    // Fallback to direct URL fetch (downloadUri)
     if (!url) {
       throw new NetworkError("gchat", "No URL or resourceName available");
     }
