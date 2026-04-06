@@ -28,6 +28,7 @@ const messengerLinks = [
   { name: "Email", slug: "email" },
   { name: "Webex", slug: "webex" },
   { name: "Google Chat", slug: "google-chat" },
+  { name: "Zalo", slug: "zalo" },
 ];
 
 const AdaptersPage = () => (

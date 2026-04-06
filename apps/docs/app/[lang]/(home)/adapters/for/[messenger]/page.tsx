@@ -150,6 +150,13 @@ const messengerConfig: Record<
     adapterSlugs: ["zernio"],
     keywords: ["reddit"],
   },
+  zalo: {
+    name: "Zalo",
+    description:
+      "Build bots for Zalo with Chat SDK. Browse official and community adapters that support Zalo integration.",
+    adapterSlugs: ["zalo"],
+    keywords: ["zalo"],
+  },
 };
 
 const getMessengerAdapters = (messengerSlug: string) => {

@@ -185,6 +185,7 @@ await thread.post(
 - `chat-adapter-baileys`
 - `@liveblocks/chat-sdk-adapter`
 - `chat-adapter-sendblue`
+- `chat-adapter-zalo`
 
 ### Coming-soon platform entries
 

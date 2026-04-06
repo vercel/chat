@@ -215,6 +215,16 @@
     "readme": "https://github.com/midday-ai/chat-adapter-sendblue"
   },
   {
+    "name": "Zalo",
+    "slug": "zalo",
+    "type": "platform",
+    "community": true,
+    "description": "Zalo adapter for Chat SDK using Zalo for building your own Zalo bots.",
+    "packageName": "chat-adapter-zalo",
+    "author": "buiducnhat",
+    "readme": "https://github.com/buiducnhat/chat-adapter-zalo"
+  },
+  {
     "name": "Instagram",
     "slug": "instagram",
     "type": "platform",
