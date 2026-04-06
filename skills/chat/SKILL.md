@@ -184,6 +184,7 @@ await thread.post(
 - `@zernio/chat-sdk-adapter`
 - `chat-adapter-baileys`
 - `@liveblocks/chat-sdk-adapter`
+- `chat-adapter-sendblue`
 
 ### Coming-soon platform entries
 

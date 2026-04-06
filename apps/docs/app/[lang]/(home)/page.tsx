@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { Installer } from "@/components/geistdocs/installer";
 import { Button } from "@/components/ui/button";
 import { discord, gchat, slack, teams } from "@/lib/logos";
+import { AdaptersSection } from "./components/adapters-section";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
@@ -40,8 +41,11 @@ const heroDescription = (
     <LogoChip icon={slack} name="Slack" suffix="," />{" "}
     <LogoChip icon={teams} name="Microsoft Teams" suffix="," />{" "}
     <LogoChip icon={gchat} name="Google Chat" suffix="," />{" "}
-    <LogoChip icon={discord} name="Discord" suffix="," /> and more. Write your
-    bot logic once, deploy everywhere.
+    <LogoChip icon={discord} name="Discord" suffix="," />{" "}
+    <a className="underline" href="/adapters">
+      and more
+    </a>
+    . Write your bot logic once, deploy everywhere.
   </>
 );
 
@@ -153,7 +157,15 @@ const HomePage = () => (
       </CenteredSection>
       <TextGridSection data={textGridSection} />
       <OneTwoSection
-        description="Install the SDK and pair it with your favorite chat providers and state management solutions."
+        description={
+          <>
+            Install the SDK and pair it with your favorite{" "}
+            <a className="underline" href="/adapters">
+              adapters
+            </a>{" "}
+            and state management solutions.
+          </>
+        }
         title="Usage"
       >
         <Usage />
@@ -162,6 +174,17 @@ const HomePage = () => (
         data={templates}
         description="Step-by-step guides to help you build common patterns with the Chat SDK."
         title="Guides"
+      />
+      <AdaptersSection
+        description={
+          <>
+            Connect to any platform with official and community-built adapters.{" "}
+            <a className="underline" href="/adapters">
+              Browse all adapters →
+            </a>
+          </>
+        }
+        title="Adapters"
       />
       <CTA
         cta="Get started"

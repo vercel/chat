@@ -12,7 +12,11 @@ interface ReadmeContentProps {
 
 const stripImages = (markdown: string): string =>
   markdown
+    // Remove markdown images: ![alt](url)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    // Remove HTML img tags: <img ... /> or <img ...>
+    .replace(/<img[^>]*\/?>/gi, "")
+    // Clean up empty lines left behind
     .replace(/^\s*\[?\s*\]?\s*$/gm, "");
 
 export const ReadmeContent = ({ children }: ReadmeContentProps) => (
