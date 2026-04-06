@@ -1159,6 +1159,18 @@ export class TelegramAdapter
       height: metadata?.height,
       name: metadata?.name,
       mimeType: metadata?.mimeType,
+      fetchMetadata: { fileId },
+      fetchData: async () => this.downloadFile(fileId),
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const fileId = attachment.fetchMetadata?.fileId;
+    if (!fileId) {
+      return attachment;
+    }
+    return {
+      ...attachment,
       fetchData: async () => this.downloadFile(fileId),
     };
   }
