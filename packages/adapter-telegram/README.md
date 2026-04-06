@@ -143,7 +143,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | Single file (`sendDocument`) |
-| Streaming | Post+Edit fallback |
+| Streaming | DM Draft + Post+Edit fallback |
 
 ### Rich content
 

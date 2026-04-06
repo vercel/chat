@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Card } from "./cards";
+import { MessageHistoryCache } from "./message-history";
 import {
   createMockAdapter,
   createMockState,
@@ -211,6 +212,73 @@ describe("ThreadImpl", () => {
       );
       // Should NOT call postMessage for fallback
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("should append segmented native stream messages individually to history", async () => {
+      const messageHistory = new MessageHistoryCache(mockState);
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        messageHistory,
+      });
+
+      mockAdapter.stream = vi.fn().mockResolvedValue({
+        messages: [
+          {
+            message: {
+              id: "msg-1",
+              threadId: "slack:C123:1234.5678",
+              raw: {},
+            },
+            postable: { markdown: "Hello " },
+          },
+          {
+            message: {
+              id: "msg-2",
+              threadId: "slack:C123:1234.5678",
+              raw: {},
+            },
+            postable: { markdown: "World" },
+          },
+        ],
+      });
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      const result = await thread.post(textStream);
+      const stored = await messageHistory.getMessages("slack:C123:1234.5678");
+
+      expect(result.id).toBe("msg-2");
+      expect(result.text).toBe("World");
+      expect(result.segments?.map((segment) => segment.id)).toEqual([
+        "msg-1",
+        "msg-2",
+      ]);
+      expect(stored.map((message) => message.id)).toEqual(["msg-1", "msg-2"]);
+      expect(stored.map((message) => message.text)).toEqual(["Hello", "World"]);
+    });
+
+    it("should fall back when adapter.stream returns null", async () => {
+      mockAdapter.stream = vi.fn().mockResolvedValue(null);
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.post(textStream);
+
+      expect(mockAdapter.stream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({ updateIntervalMs: 500 })
+      );
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
     });
 
     it("should fall back to post+edit when adapter has no native streaming", async () => {

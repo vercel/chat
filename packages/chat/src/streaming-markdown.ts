@@ -128,6 +128,27 @@ export class StreamingMarkdownRenderer {
     return findCleanPrefix(wrapped);
   }
 
+  /**
+   * Get the longest source prefix that can be finalized as a standalone,
+   * markdown-safe message.
+   *
+   * Unlike `render()`, this never synthesizes missing closing markers. The
+   * returned string is always a prefix of the original accumulated source,
+   * which makes it safe to split a long stream into multiple persisted
+   * messages without duplicating or dropping source text.
+   */
+  getCommittedMarkdownPrefix(): string {
+    let committable = this.accumulated;
+
+    if (!this.finished) {
+      committable = this.isAccumulatedInsideFence()
+        ? getPrefixBeforeTrailingOpenFence(this.accumulated)
+        : getCommittablePrefix(this.accumulated);
+    }
+
+    return trimTrailingUnmatchedMarkerOpeners(findCleanPrefix(committable));
+  }
+
   /** Raw accumulated text (no remend, no buffering). For the final edit. */
   getText(): string {
     return this.accumulated;
@@ -153,7 +174,8 @@ const INLINE_MARKER_CHARS = new Set(["*", "~", "`", "["]);
  * from otherwise clean text (which is harmless for streaming).
  */
 function isClean(text: string): boolean {
-  return remend(text).length <= text.length;
+  const sanitized = sanitizeEscapedLinkOpeners(text);
+  return remend(sanitized).length <= sanitized.length;
 }
 
 /**
@@ -172,8 +194,12 @@ function findCleanPrefix(text: string): string {
 
   for (let i = text.length - 1; i >= 0; i--) {
     if (INLINE_MARKER_CHARS.has(text[i])) {
+      if (isEscaped(text, i)) {
+        continue;
+      }
+
       // Group consecutive same characters (e.g., ** or ~~)
-      while (i > 0 && text[i - 1] === text[i]) {
+      while (i > 0 && text[i - 1] === text[i] && !isEscaped(text, i - 1)) {
         i--;
       }
       const candidate = text.slice(0, i);
@@ -268,6 +294,119 @@ function getCommittablePrefix(text: string): string {
   // Preserve a trailing newline if there were committed lines
   if (committedLines.length > 0) {
     result += "\n";
+  }
+
+  return result;
+}
+
+function getPrefixBeforeTrailingOpenFence(text: string): string {
+  let offset = 0;
+  let insideFence = false;
+  let lastOpenOffset = -1;
+
+  for (const line of text.split("\n")) {
+    const lineLengthWithNewline = offset + line.length < text.length ? 1 : 0;
+    const trimmed = line.trimStart();
+
+    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+      if (insideFence) {
+        insideFence = false;
+        lastOpenOffset = -1;
+      } else {
+        insideFence = true;
+        lastOpenOffset = offset;
+      }
+    }
+
+    offset += line.length + lineLengthWithNewline;
+  }
+
+  return insideFence && lastOpenOffset >= 0
+    ? text.slice(0, lastOpenOffset)
+    : text;
+}
+
+function trimTrailingUnmatchedMarkerOpeners(text: string): string {
+  let result = text;
+
+  while (true) {
+    if (result.endsWith("**") && hasOddUnescapedTokenCount(result, "**")) {
+      result = result.slice(0, -2);
+      continue;
+    }
+
+    if (result.endsWith("~~") && hasOddUnescapedTokenCount(result, "~~")) {
+      result = result.slice(0, -2);
+      continue;
+    }
+
+    if (
+      result.endsWith("*") &&
+      !result.endsWith("**") &&
+      hasOddUnescapedCharCount(result, "*")
+    ) {
+      result = result.slice(0, -1);
+      continue;
+    }
+
+    if (result.endsWith("`") && hasOddUnescapedCharCount(result, "`")) {
+      result = result.slice(0, -1);
+      continue;
+    }
+
+    if (result.endsWith("[") && !isEscaped(result, result.length - 1)) {
+      result = result.slice(0, -1);
+      continue;
+    }
+
+    return result;
+  }
+}
+
+function hasOddUnescapedTokenCount(text: string, token: string): boolean {
+  let count = 0;
+
+  for (let i = 0; i <= text.length - token.length; ) {
+    if (text.slice(i, i + token.length) === token && !isEscaped(text, i)) {
+      count++;
+      i += token.length;
+      continue;
+    }
+
+    i++;
+  }
+
+  return count % 2 === 1;
+}
+
+function hasOddUnescapedCharCount(text: string, char: string): boolean {
+  let count = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === char && !isEscaped(text, i)) {
+      count++;
+    }
+  }
+
+  return count % 2 === 1;
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let backslashCount = 0;
+
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i--) {
+    backslashCount++;
+  }
+
+  return backslashCount % 2 === 1;
+}
+
+function sanitizeEscapedLinkOpeners(text: string): string {
+  let result = "";
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    result += char === "[" && isEscaped(text, i) ? "(" : char;
   }
 
   return result;
