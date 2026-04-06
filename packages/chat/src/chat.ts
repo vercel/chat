@@ -593,6 +593,26 @@ export class Chat<
     }
   }
 
+  /**
+   * Register a handler for modal form submissions.
+   *
+   * @example
+   * ```typescript
+   * // Handle specific modal
+   * chat.onModalSubmit("settings-modal", async (event) => {
+   *   const name = event.values["name"];
+   *   await event.relatedThread?.post(`Updated name to ${name}`);
+   * });
+   *
+   * // Handle all modal submissions
+   * chat.onModalSubmit(async (event) => {
+   *   console.log(`Modal ${event.callbackId} submitted`);
+   * });
+   * ```
+   *
+   * @param callbackIdOrHandler - Either a callback ID, array of callback IDs, or the handler
+   * @param handler - The handler (if callback ID filter is provided)
+   */
   onModalSubmit(handler: ModalSubmitHandler): void;
   onModalSubmit(
     callbackIds: string[] | string,
@@ -617,6 +637,26 @@ export class Chat<
     }
   }
 
+  /**
+   * Register a handler for modal close/cancel events.
+   * Only fires when the modal was created with `notifyOnClose: true`.
+   *
+   * @example
+   * ```typescript
+   * // Handle specific modal close
+   * chat.onModalClose("settings-modal", async (event) => {
+   *   console.log("User cancelled settings");
+   * });
+   *
+   * // Handle all modal close events
+   * chat.onModalClose(async (event) => {
+   *   console.log(`Modal ${event.callbackId} closed`);
+   * });
+   * ```
+   *
+   * @param callbackIdOrHandler - Either a callback ID, array of callback IDs, or the handler
+   * @param handler - The handler (if callback ID filter is provided)
+   */
   onModalClose(handler: ModalCloseHandler): void;
   onModalClose(
     callbackIds: string[] | string,
