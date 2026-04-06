@@ -118,7 +118,7 @@ All options are auto-detected from environment variables when not provided.
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
-| `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
+| `apiBaseUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken` is required — either via config or env vars.
@@ -143,14 +143,13 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | Single file (`sendDocument`) |
-| Attachment uploads | Single image/audio/video/file (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`) |
-| Streaming | Post+Edit fallback |
+| Streaming | DM Draft + Post+Edit fallback |
 
 ### Rich content
 
 | Feature | Supported |
 |---------|-----------|
-| Card format | MarkdownV2 + inline keyboard buttons |
+| Card format | Markdown + inline keyboard buttons |
 | Buttons | Inline keyboard callbacks |
 | Link buttons | Inline keyboard URLs |
 | Select menus | No |
@@ -183,12 +182,6 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Fetch channel info | Yes |
 | Post channel message | Yes |
 
-## Markdown formatting
-
-Outbound messages are sent with Telegram's `MarkdownV2` parse mode. The adapter walks the markdown AST and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), so you author standard markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`) and the adapter handles every reserved character.
-
-Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping — the renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
-
 ## Notes
 
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process.
@@ -199,7 +192,6 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
-- `files` upload as Telegram documents. `attachments` preserve the normalized media type for single image, audio, video, or file uploads. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 - Other rich card elements (images/select menus/radios) render as fallback text only.
 
 ## License

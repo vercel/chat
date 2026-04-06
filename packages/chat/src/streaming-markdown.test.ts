@@ -139,6 +139,67 @@ describe("StreamingMarkdownRenderer", () => {
     expect(r.render()).toBe("Hello world");
   });
 
+  it("returns the clean committed prefix before an unclosed inline marker", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **wor");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe("Hello ");
+  });
+
+  it("trims dangling trailing markers with no content", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe("Hello ");
+  });
+
+  it("preserves valid closing bold markers in the committed prefix", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Hello **world**");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe("Hello **world**");
+  });
+
+  it("preserves valid closing code markers in the committed prefix", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Use `code` and then:\n```ts\nconst x = 1;\n```\n");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe(
+      "Use `code` and then:\n```ts\nconst x = 1;\n```\n"
+    );
+  });
+
+  it("preserves the full committed prefix for an exact-limit clean markdown segment", () => {
+    const r = new StreamingMarkdownRenderer();
+    const text = `${"a".repeat(3494)}**ok**`;
+    r.push(text);
+
+    expect(r.getCommittedMarkdownPrefix()).toBe(text);
+  });
+
+  it("preserves an escaped trailing bracket in the committed prefix", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Telegram literal \\[");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe("Telegram literal \\[");
+  });
+
+  it("returns the committed prefix before an open code fence", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Intro\n```ts\nconst x = 1;");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe("Intro\n");
+  });
+
+  it("returns the prefix before the last unmatched code fence", () => {
+    const r = new StreamingMarkdownRenderer();
+    r.push("Intro\n```ts\nconst a = 1;\n```\nBetween\n```js\nconst b = 2;");
+
+    expect(r.getCommittedMarkdownPrefix()).toBe(
+      "Intro\n```ts\nconst a = 1;\n```\nBetween\n"
+    );
+  });
+
   it("should handle table header without trailing newline (incomplete line)", () => {
     const r = new StreamingMarkdownRenderer();
     r.push("Text\n\n| A | B |");

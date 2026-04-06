@@ -398,6 +398,8 @@ export type {
   StreamChunk,
   StreamEvent,
   StreamOptions,
+  StreamResult,
+  StreamSegment,
   SubscribedMessageHandler,
   TaskUpdateChunk,
   Thread,

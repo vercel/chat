@@ -1,6 +1,5 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
-import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
@@ -15,9 +14,8 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
-import { isPostableObject, postPostableObject } from "./postable-object";
+import type { MessageHistoryCache } from "./message-history";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
-import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -27,14 +25,15 @@ import type {
   ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
-  PostableObject,
   PostEphemeralOptions,
+  RawMessage,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
   StreamChunk,
   StreamEvent,
   StreamOptions,
+  StreamResult,
   Thread,
 } from "./types";
 import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
@@ -66,9 +65,9 @@ interface ThreadImplConfigWithAdapter {
   isDM?: boolean;
   isSubscribedContext?: boolean;
   logger?: Logger;
+  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
-  threadHistory?: ThreadHistoryCache;
 }
 
 /**
@@ -111,6 +110,12 @@ function isAsyncIterable(
   );
 }
 
+function isStreamResult<TRawMessage>(
+  value: RawMessage<TRawMessage> | StreamResult<TRawMessage> | null
+): value is StreamResult<TRawMessage> {
+  return value !== null && typeof value === "object" && "messages" in value;
+}
+
 export class ThreadImpl<TState = Record<string, unknown>>
   implements Thread<TState>
 {
@@ -135,8 +140,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private readonly _fallbackStreamingPlaceholderText: string | null;
   /** Cached channel instance */
   private _channel?: Channel<TState>;
-  /** Thread history cache (set only for adapters with persistThreadHistory) */
-  private readonly _threadHistory?: ThreadHistoryCache;
+  /** Message history cache (set only for adapters with persistMessageHistory) */
+  private readonly _messageHistory?: MessageHistoryCache;
   private readonly _logger?: Logger;
 
   constructor(config: ThreadImplConfig) {
@@ -160,7 +165,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       // Direct mode - store adapter and state instances
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
-      this._threadHistory = config.threadHistory;
+      this._messageHistory = config.messageHistory;
     }
 
     if (config.initialMessage) {
@@ -262,7 +267,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         stateAdapter: this._stateAdapter,
         isDM: this.isDM,
         channelVisibility: this.channelVisibility,
-        threadHistory: this._threadHistory,
+        messageHistory: this._messageHistory,
       });
     }
     return this._channel;
@@ -275,7 +280,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const threadId = this.id;
-    const threadHistory = this._threadHistory;
+    const messageHistory = this._messageHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -304,8 +309,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && threadHistory) {
-          const cached = await threadHistory.getMessages(threadId);
+        if (!yieldedAny && messageHistory) {
+          const cached = await messageHistory.getMessages(threadId);
           // Yield newest first
           for (let i = cached.length - 1; i >= 0; i--) {
             yield cached[i];
@@ -318,7 +323,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   get allMessages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const threadId = this.id;
-    const threadHistory = this._threadHistory;
+    const messageHistory = this._messageHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -347,41 +352,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && threadHistory) {
-          const cached = await threadHistory.getMessages(threadId);
+        if (!yieldedAny && messageHistory) {
+          const cached = await messageHistory.getMessages(threadId);
           for (const message of cached) {
             yield message;
           }
         }
       },
     };
-  }
-
-  async getParticipants(): Promise<Author[]> {
-    const seen = new Map<string, Author>();
-
-    // Include the current message author if available
-    if (
-      this._currentMessage &&
-      !this._currentMessage.author.isMe &&
-      !this._currentMessage.author.isBot
-    ) {
-      seen.set(this._currentMessage.author.userId, this._currentMessage.author);
-    }
-
-    // Scan all messages for unique human authors
-    for await (const message of this.allMessages) {
-      if (
-        message.author.isMe ||
-        message.author.isBot ||
-        seen.has(message.author.userId)
-      ) {
-        continue;
-      }
-      seen.set(message.author.userId, message.author);
-    }
-
-    return [...seen.values()];
   }
 
   async isSubscribed(): Promise<boolean> {
@@ -404,44 +382,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
     await this._stateAdapter.unsubscribe(this.id);
   }
 
-  async post<T extends PostableObject>(message: T): Promise<T>;
-  async post(
-    message:
-      | string
-      | AdapterPostableMessage
-      | AsyncIterable<string>
-      | ChatElement
-  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage | PostableObject> {
-    if (isPostableObject(message)) {
-      // StreamingPlan PostableObject - route to streaming with options
-      if (message.kind === "stream") {
-        const data = message.getPostData() as {
-          stream: AsyncIterable<string | StreamChunk | StreamEvent>;
-          options: {
-            groupTasks?: "plan" | "timeline";
-            endWith?: unknown[];
-            updateIntervalMs?: number;
-          };
-        };
-        const streamOptions: StreamOptions = {
-          ...(data.options.updateIntervalMs
-            ? { updateIntervalMs: data.options.updateIntervalMs }
-            : {}),
-          ...(data.options.groupTasks
-            ? { taskDisplayMode: data.options.groupTasks }
-            : {}),
-          ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
-        };
-        await this.handleStream(data.stream, streamOptions);
-        return message;
-      }
-      await this.handlePostableObject(message);
-      return message;
-    }
-
+  ): Promise<SentMessage> {
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
       return this.handleStream(message);
@@ -460,8 +403,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = card;
     }
 
-    postable = await this.processCallbackUrls(postable);
-
     const rawMessage = await this.adapter.postMessage(this.id, postable);
 
     // Create a SentMessage with edit/delete capabilities
@@ -472,21 +413,11 @@ export class ThreadImpl<TState = Record<string, unknown>>
     );
 
     // Cache sent message for adapters with persistent history
-    if (this._threadHistory) {
-      await this._threadHistory.append(this.id, new Message(result));
+    if (this._messageHistory) {
+      await this._messageHistory.append(this.id, new Message(result));
     }
 
     return result;
-  }
-
-  private async handlePostableObject(obj: PostableObject): Promise<void> {
-    await postPostableObject(
-      obj,
-      this.adapter,
-      this.id,
-      (threadId, message) => this.adapter.postMessage(threadId, message),
-      this._logger
-    );
   }
 
   async postEphemeral(
@@ -509,8 +440,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       // Safe cast: if not JSX, it must be AdapterPostableMessage
       postable = message as AdapterPostableMessage;
     }
-
-    postable = await this.processCallbackUrls(postable);
 
     // Try native ephemeral if adapter supports it
     if (this.adapter.postEphemeral) {
@@ -538,30 +467,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return null;
   }
 
-  private async processCallbackUrls(
-    postable: string | AdapterPostableMessage
-  ): Promise<string | AdapterPostableMessage> {
-    if (typeof postable === "string") {
-      return postable;
-    }
-
-    if ("type" in postable && postable.type === "card") {
-      return processCardCallbackUrls(postable, this._stateAdapter);
-    }
-
-    if ("card" in postable && postable.card?.type === "card") {
-      const processed = await processCardCallbackUrls(
-        postable.card,
-        this._stateAdapter
-      );
-      if (processed !== postable.card) {
-        return { ...postable, card: processed };
-      }
-    }
-
-    return postable;
-  }
-
   async schedule(
     message: AdapterPostableMessage | ChatElement,
     options: { postAt: Date }
@@ -578,10 +483,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
-    postable = (await this.processCallbackUrls(
-      postable
-    )) as AdapterPostableMessage;
-
     if (!this.adapter.scheduleMessage) {
       throw new NotImplementedError(
         "Scheduled messages are not supported by this adapter",
@@ -595,27 +496,28 @@ export class ThreadImpl<TState = Record<string, unknown>>
   /**
    * Handle streaming from an AsyncIterable.
    * Normalizes the stream (supports both textStream and fullStream from AI SDK),
-   * then uses the adapter's stream implementation if available, otherwise falls back to post+edit.
+   * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
-    callerOptions?: StreamOptions
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
-    // Build streaming options from current message context + caller options
-    const options: StreamOptions = { ...callerOptions };
+    // Build streaming options from current message context
+    const options: StreamOptions = {
+      updateIntervalMs: this._streamingUpdateIntervalMs,
+    };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
-      // recipientTeamId is only consumed by the Slack adapter; other adapters
-      // ignore it. Derivation is Slack-specific because `currentMessage.raw`
-      // shape varies across Slack webhook types (message events vs block_actions).
-      options.recipientTeamId = this.extractSlackRecipientTeamId(
-        this._currentMessage.raw
-      );
+      // Extract teamId from raw Slack payload
+      const raw = this._currentMessage.raw as {
+        team_id?: string;
+        team?: string;
+      };
+      options.recipientTeamId = raw?.team_id ?? raw?.team;
     }
 
-    // Use adapter-provided streaming if available.
+    // Use native streaming if adapter supports it
     if (this.adapter.stream) {
       // Wrap stream to collect accumulated text while passing through to adapter.
       // StreamChunk objects are passed through; only plain strings are accumulated.
@@ -642,17 +544,43 @@ export class ThreadImpl<TState = Record<string, unknown>>
       };
 
       const raw = await this.adapter.stream(this.id, wrappedStream, options);
-      const sent = this.createSentMessage(
-        raw.id,
-        { markdown: accumulated },
-        raw.threadId
-      );
+      if (raw) {
+        if (isStreamResult(raw)) {
+          const sentSegments = raw.messages.map((segment) =>
+            this.createSentMessage(
+              segment.message.id,
+              segment.postable,
+              segment.message.threadId
+            )
+          );
 
-      if (this._threadHistory) {
-        await this._threadHistory.append(this.id, new Message(sent));
+          if (this._messageHistory) {
+            for (const segment of sentSegments) {
+              await this._messageHistory.append(this.id, new Message(segment));
+            }
+          }
+
+          const lastSent = sentSegments.at(-1);
+          if (!lastSent) {
+            throw new Error("Segmented stream completed without messages");
+          }
+
+          lastSent.segments = sentSegments;
+          return lastSent;
+        }
+
+        const sent = this.createSentMessage(
+          raw.id,
+          { markdown: accumulated },
+          raw.threadId
+        );
+
+        if (this._messageHistory) {
+          await this._messageHistory.append(this.id, new Message(sent));
+        }
+
+        return sent;
       }
-
-      return sent;
     }
 
     // Fallback: post + edit with throttling.
@@ -681,47 +609,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       },
     };
     return this.fallbackStream(textOnlyStream, options);
-  }
-
-  /**
-   * Slack payloads carry the workspace ID in a few different shapes depending on
-   * the webhook type:
-   * - Message events: `team_id` or `team` as a string
-   * - `block_actions` payloads: `team.id` (object), with `user.team_id` as a fallback
-   */
-  private extractSlackRecipientTeamId(raw: unknown): string | undefined {
-    if (!raw || typeof raw !== "object") {
-      return undefined;
-    }
-
-    const payload = raw as {
-      team?: { id?: unknown } | string;
-      team_id?: unknown;
-      user?: { team_id?: unknown };
-    };
-
-    if (typeof payload.team_id === "string" && payload.team_id) {
-      return payload.team_id;
-    }
-
-    if (typeof payload.team === "string" && payload.team) {
-      return payload.team;
-    }
-
-    if (
-      payload.team &&
-      typeof payload.team === "object" &&
-      typeof payload.team.id === "string" &&
-      payload.team.id
-    ) {
-      return payload.team.id;
-    }
-
-    if (typeof payload.user?.team_id === "string" && payload.user.team_id) {
-      return payload.user.team_id;
-    }
-
-    return undefined;
   }
 
   async startTyping(status?: string): Promise<void> {
@@ -769,7 +656,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       }
 
       const content = renderer.render();
-      if (content.trim() && content !== lastEditContent) {
+      if (content !== lastEditContent) {
         try {
           await this.adapter.editMessage(threadIdForEdits, msg.id, {
             markdown: content,
@@ -795,14 +682,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
         renderer.push(chunk);
         if (!msg) {
           const content = renderer.render();
-          if (content.trim()) {
-            msg = await this.adapter.postMessage(this.id, {
-              markdown: content,
-            });
-            threadIdForEdits = msg.threadId || this.id;
-            lastEditContent = content;
-            scheduleNextEdit();
-          }
+          msg = await this.adapter.postMessage(this.id, {
+            markdown: content,
+          });
+          threadIdForEdits = msg.threadId || this.id;
+          lastEditContent = content;
+          scheduleNextEdit();
         }
       }
     } finally {
@@ -823,13 +708,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     if (!msg) {
       msg = await this.adapter.postMessage(this.id, {
-        markdown: accumulated.trim() ? accumulated : " ",
+        markdown: accumulated,
       });
       threadIdForEdits = msg.threadId || this.id;
       lastEditContent = accumulated;
     }
 
-    if (finalContent.trim() && finalContent !== lastEditContent) {
+    if (finalContent !== lastEditContent) {
       await this.adapter.editMessage(threadIdForEdits, msg.id, {
         markdown: accumulated,
       });
@@ -841,8 +726,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       threadIdForEdits
     );
 
-    if (this._threadHistory) {
-      await this._threadHistory.append(this.id, new Message(sent));
+    if (this._messageHistory) {
+      await this._messageHistory.append(this.id, new Message(sent));
     }
 
     return sent;
@@ -852,9 +737,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const result = await this.adapter.fetchMessages(this.id, { limit: 50 });
     if (result.messages.length > 0) {
       this._recentMessages = result.messages;
-    } else if (this._threadHistory) {
+    } else if (this._messageHistory) {
       // Fall back to cached history for adapters without native message APIs
-      this._recentMessages = await this._threadHistory.getMessages(this.id, 50);
+      this._recentMessages = await this._messageHistory.getMessages(
+        this.id,
+        50
+      );
     } else {
       this._recentMessages = [];
     }
@@ -885,7 +773,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       channelVisibility: this.channelVisibility,
       currentMessage: this._currentMessage?.toJSON(),
       isDM: this.isDM,
-      adapterName: this._adapterName ?? this.adapter.name,
+      adapterName: this.adapter.name,
     };
   }
 
@@ -981,6 +869,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       async edit(
         newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
+        // Auto-convert JSX elements to CardElement
+        // edit doesn't support streaming, so use AdapterPostableMessage
         let postable: string | AdapterPostableMessage = newContent as
           | string
           | AdapterPostableMessage;
@@ -991,7 +881,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
           }
           postable = card;
         }
-        postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
         return self.createSentMessage(messageId, postable);
       },
@@ -1047,7 +936,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
           }
           postable = card;
         }
-        postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
         return self.createSentMessage(messageId, postable, threadId);
       },

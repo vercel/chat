@@ -45,14 +45,23 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a full walkthrough.
 
-## Adapters
+## Supported platforms
 
-Browse official, vendor-official, and community adapters on [chat-sdk.dev/adapters](https://chat-sdk.dev/adapters). A cross-platform feature matrix is available at [chat-sdk.dev/docs/adapters](https://chat-sdk.dev/docs/adapters).
+| Platform | Package | Mentions | Reactions | Cards | Modals | Streaming | DMs |
+|----------|---------|----------|-----------|-------|--------|-----------|-----|
+| Slack | `@chat-adapter/slack` | Yes | Yes | Yes | Yes | Native | Yes |
+| Microsoft Teams | `@chat-adapter/teams` | Yes | Read-only | Yes | No | Post+Edit | Yes |
+| Google Chat | `@chat-adapter/gchat` | Yes | Yes | Yes | No | Post+Edit | Yes |
+| Discord | `@chat-adapter/discord` | Yes | Yes | Yes | No | Post+Edit | Yes |
+| Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | DM Draft + Fallback | Yes |
+| GitHub | `@chat-adapter/github` | Yes | Yes | No | No | No | No |
+| Linear | `@chat-adapter/linear` | Yes | Yes | No | No | No | No |
+| WhatsApp | `@chat-adapter/whatsapp` | N/A | Yes | Partial | No | No | Yes |
 
 ## Features
 
 - [**Event handlers**](https://chat-sdk.dev/docs/usage) — mentions, messages, reactions, button clicks, slash commands, modals
-- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack streaming and post+edit fallback
+- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack streaming, Telegram DM drafts, and post+edit fallback
 - [**Cards**](https://chat-sdk.dev/docs/cards) — JSX-based interactive cards (Block Kit, Adaptive Cards, Google Chat Cards)
 - [**Actions**](https://chat-sdk.dev/docs/actions) — handle button clicks and dropdown selections
 - [**Modals**](https://chat-sdk.dev/docs/modals) — form dialogs with text inputs, dropdowns, and validation
@@ -61,7 +70,24 @@ Browse official, vendor-official, and community adapters on [chat-sdk.dev/adapte
 - [**File uploads**](https://chat-sdk.dev/docs/files) — send and receive file attachments
 - [**Direct messages**](https://chat-sdk.dev/docs/direct-messages) — initiate DMs programmatically
 - [**Ephemeral messages**](https://chat-sdk.dev/docs/ephemeral-messages) — user-only visible messages with DM fallback
-- [**Overlapping messages**](https://chat-sdk.dev/docs/concurrency) - burst, queue, debounce, drop, or process concurrent messages on the same thread
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `chat` | Core SDK with `Chat` class, types, JSX runtime, and utilities |
+| `@chat-adapter/slack` | [Slack adapter](https://chat-sdk.dev/adapters/slack) |
+| `@chat-adapter/teams` | [Teams adapter](https://chat-sdk.dev/adapters/teams) |
+| `@chat-adapter/gchat` | [Google Chat adapter](https://chat-sdk.dev/adapters/gchat) |
+| `@chat-adapter/discord` | [Discord adapter](https://chat-sdk.dev/adapters/discord) |
+| `@chat-adapter/telegram` | [Telegram adapter](https://chat-sdk.dev/adapters/telegram) |
+| `@chat-adapter/github` | [GitHub adapter](https://chat-sdk.dev/adapters/github) |
+| `@chat-adapter/linear` | [Linear adapter](https://chat-sdk.dev/adapters/linear) |
+| `@chat-adapter/whatsapp` | [WhatsApp adapter](https://chat-sdk.dev/adapters/whatsapp) |
+| `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
+| `@chat-adapter/state-ioredis` | [ioredis state adapter](https://chat-sdk.dev/docs/state/ioredis) (alternative) |
+| `@chat-adapter/state-pg` | [PostgreSQL state adapter](https://chat-sdk.dev/docs/state/postgres) (production) |
+| `@chat-adapter/state-memory` | [In-memory state adapter](https://chat-sdk.dev/docs/state/memory) (development) |
 
 ## AI coding agent support
 
@@ -77,11 +103,7 @@ Full documentation is available at [chat-sdk.dev/docs](https://chat-sdk.dev/docs
 
 ## Contributing
 
-See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for development setup and the release process.
-
-## Support
-
-For help or questions, see [SUPPORT.md](./.github/SUPPORT.md). To report a security vulnerability, see [SECURITY.md](./.github/SECURITY.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and the release process.
 
 ## License
 
