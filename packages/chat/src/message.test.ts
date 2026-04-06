@@ -85,9 +85,36 @@ describe("Message", () => {
         size: undefined,
         width: undefined,
         height: undefined,
+        fetchMetadata: undefined,
       });
       expect("data" in json.attachments[0]).toBe(false);
       expect("fetchData" in json.attachments[0]).toBe(false);
+    });
+
+    it("should preserve fetchMetadata in attachments", () => {
+      const msg = makeMessage({
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/img.png",
+            fetchMetadata: {
+              mediaId: "123",
+              url: "https://example.com/img.png",
+            },
+            fetchData: () => Promise.resolve(Buffer.from("binary")),
+          },
+        ],
+      });
+      const json = msg.toJSON();
+      expect(json.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
+      const restored = Message.fromJSON(json);
+      expect(restored.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
     });
 
     it("should include isMention flag", () => {
