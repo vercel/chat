@@ -1,3 +1,10 @@
+import type {
+  ModalCloseResponse,
+  ModalElement,
+  ModalErrorsResponse,
+  ModalPushResponse,
+  ModalUpdateResponse,
+} from "chat";
 import {
   CardText,
   Field,
@@ -7,13 +14,6 @@ import {
   Select,
   SelectOption,
   TextInput,
-} from "chat";
-import type {
-  ModalElement,
-  ModalCloseResponse,
-  ModalErrorsResponse,
-  ModalPushResponse,
-  ModalUpdateResponse,
 } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -127,7 +127,9 @@ describe("modal child element conversion", () => {
       style: "compact",
       isRequired: true,
     });
-    const choiceSet = card.body[0] as { choices: { title: string; value: string }[] };
+    const choiceSet = card.body[0] as {
+      choices: { title: string; value: string }[];
+    };
     expect(choiceSet.choices).toHaveLength(2);
     expect(choiceSet.choices[0]).toMatchObject({ title: "Red", value: "red" });
   });
@@ -196,7 +198,9 @@ describe("modal child element conversion", () => {
 
     expect(card.body).toHaveLength(1);
     expect(card.body[0]).toMatchObject({ type: "FactSet" });
-    const factSet = card.body[0] as { facts: { title: string; value: string }[] };
+    const factSet = card.body[0] as {
+      facts: { title: string; value: string }[];
+    };
     expect(factSet.facts).toHaveLength(2);
     expect(factSet.facts[0]).toMatchObject({ title: "Name", value: "Alice" });
   });
@@ -247,10 +251,14 @@ describe("modalResponseToTaskModuleResponse", () => {
   it("returns continue response for update action", () => {
     const modal = makeModal({ title: "Updated" });
     const response: ModalUpdateResponse = { action: "update", modal };
-    const result = modalResponseToTaskModuleResponse(response, undefined, "ctx-1");
+    const result = modalResponseToTaskModuleResponse(
+      response,
+      undefined,
+      "ctx-1"
+    );
 
     expect(result).toBeDefined();
-    expect(result!.task).toMatchObject({
+    expect(result?.task).toMatchObject({
       type: "continue",
       value: {
         title: "Updated",
@@ -268,7 +276,7 @@ describe("modalResponseToTaskModuleResponse", () => {
     const result = modalResponseToTaskModuleResponse(response, logger, "ctx-1");
 
     expect(result).toBeDefined();
-    expect(result!.task).toMatchObject({ type: "continue" });
+    expect(result?.task).toMatchObject({ type: "continue" });
     expect(logger.warn).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("does not support dialog stacking"),
@@ -284,7 +292,7 @@ describe("modalResponseToTaskModuleResponse", () => {
     const result = modalResponseToTaskModuleResponse(response);
 
     expect(result).toBeDefined();
-    expect(result!.task).toMatchObject({
+    expect(result?.task).toMatchObject({
       type: "continue",
       value: {
         title: "Validation Error",
@@ -294,7 +302,9 @@ describe("modalResponseToTaskModuleResponse", () => {
       },
     });
 
-    const card = result!.task.value.card.content as { body: { text: string }[] };
+    const card = result?.task.value.card.content as {
+      body: { text: string }[];
+    };
     expect(card.body.length).toBeGreaterThanOrEqual(3);
     expect(card.body[0].text).toContain("Please fix");
   });

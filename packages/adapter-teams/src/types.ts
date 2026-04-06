@@ -28,10 +28,10 @@ export interface TeamsAdapterConfig {
   appType?: "MultiTenant" | "SingleTenant";
   /** @deprecated Certificate auth is not yet supported by the Teams SDK. Throws at startup. */
   certificate?: TeamsAuthCertificate;
-  /** Federated (workload identity) authentication. Maps to managedIdentityClientId in the Teams SDK. */
-  federated?: TeamsAuthFederated;
   /** Timeout in ms for the handler to call openModal() after a task/fetch trigger. Defaults to 5000. */
   dialogOpenTimeoutMs?: number;
+  /** Federated (workload identity) authentication. Maps to managedIdentityClientId in the Teams SDK. */
+  federated?: TeamsAuthFederated;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Override bot username (optional) */

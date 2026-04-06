@@ -101,6 +101,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // Convert our public config (appId/appPassword/appTenantId) to Teams SDK AppOptions
     this.app = new App({
       ...toAppOptions(config),
+      client: {
+        headers: { "X-User-Agent": "Vercel.ChatSDK" },
+      },
       httpServerAdapter: this.bridgeAdapter,
     });
 
