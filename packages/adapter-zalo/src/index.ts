@@ -294,34 +294,42 @@ export class ZaloAdapter implements Adapter<ZaloThreadId, ZaloRawMessage> {
 
     // Check for photo message
     if (typeof message === "object" && "raw" in message) {
-      const rawMessage = JSON.parse(message.raw) as {
-        photo: string;
-        caption?: string;
-      };
+      try {
+        const rawMessage = JSON.parse(message.raw) as {
+          photo: string;
+          caption?: string;
+        };
 
-      const response = await this.sendPhoto(
-        chatId,
-        rawMessage.photo,
-        rawMessage.caption
-      );
-      return {
-        id: response.message_id,
-        threadId,
-        raw: {
-          message: {
-            message_id: response.message_id,
-            date: response.date,
-            chat: { id: chatId, chat_type: "PRIVATE" },
-            from: {
-              id: this._botUserId ?? "",
-              display_name: this.userName,
-              is_bot: true,
+        const response = await this.sendPhoto(
+          chatId,
+          rawMessage.photo,
+          rawMessage.caption
+        );
+        return {
+          id: response.message_id,
+          threadId,
+          raw: {
+            message: {
+              message_id: response.message_id,
+              date: response.date,
+              chat: { id: chatId, chat_type: "PRIVATE" },
+              from: {
+                id: this._botUserId ?? "",
+                display_name: this.userName,
+                is_bot: true,
+              },
+              photo: rawMessage.photo,
+              caption: rawMessage.caption,
             },
-            photo: rawMessage.photo,
-            caption: rawMessage.caption,
           },
-        },
-      };
+        };
+      } catch (_error) {
+        // If parsing fails, throw an error about unsupported message format
+        throw new AdapterError(
+          "Zalo adapter does not support this message type. Please convert your card to text or image before sending.",
+          "zalo"
+        );
+      }
     }
 
     const card = extractCard(message);
