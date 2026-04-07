@@ -33,6 +33,7 @@ import type {
   StreamEvent,
   StreamOptions,
   Thread,
+  ThreadStreamOptions,
 } from "./types";
 import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
@@ -485,18 +486,26 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return this.adapter.scheduleMessage(this.id, postable, options);
   }
 
+  async stream(
+    stream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    options?: ThreadStreamOptions
+  ): Promise<SentMessage> {
+    return this.handleStream(stream, options);
+  }
+
   /**
    * Handle streaming from an AsyncIterable.
    * Normalizes the stream (supports both textStream and fullStream from AI SDK),
    * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    callerOptions?: ThreadStreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context
-    const options: StreamOptions = {};
+    const options: StreamOptions = { ...callerOptions };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload

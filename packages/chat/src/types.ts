@@ -513,6 +513,15 @@ export interface StreamOptions {
   updateIntervalMs?: number;
 }
 
+/**
+ * User-facing streaming options for `thread.stream()`.
+ * Internal fields like `recipientUserId` are auto-populated from message context.
+ */
+export type ThreadStreamOptions = Pick<
+  StreamOptions,
+  "stopBlocks" | "taskDisplayMode" | "updateIntervalMs"
+>;
+
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
   /** Get the configured logger, optionally with a child prefix */
@@ -1092,6 +1101,28 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Optional status (e.g. "Typing...", "Searching documents...") is shown where supported.
    */
   startTyping(status?: string): Promise<void>;
+
+  /**
+   * Stream an async iterable to the thread with platform-specific options.
+   *
+   * Use this instead of `post()` when you need to pass streaming options
+   * like `taskDisplayMode` or `stopBlocks`.
+   *
+   * @example
+   * ```typescript
+   * const result = await agent.stream({ prompt: message.text });
+   * await thread.stream(result.fullStream, {
+   *   taskDisplayMode: "plan",
+   * });
+   * ```
+   *
+   * @param stream - Async iterable of text chunks, StreamChunks, or AI SDK stream events
+   * @param options - Platform-specific streaming options
+   */
+  stream(
+    stream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    options?: ThreadStreamOptions
+  ): Promise<SentMessage<TRawMessage>>;
 
   /**
    * Subscribe to future messages in this thread.

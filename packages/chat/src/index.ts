@@ -335,6 +335,7 @@ export type {
   TaskUpdateChunk,
   Thread,
   ThreadInfo,
+  ThreadStreamOptions,
   ThreadSummary,
   WebhookOptions,
   WellKnownEmoji,
