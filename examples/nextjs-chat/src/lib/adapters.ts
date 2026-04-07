@@ -203,7 +203,7 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)
+  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)
   if (process.env.LINEAR_WEBHOOK_SECRET) {
     try {
       adapters.linear = withRecording(
@@ -215,7 +215,7 @@ export function buildAdapters(): Adapters {
       );
     } catch {
       console.warn(
-        "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
+        "[chat] Failed to create linear adapter (check LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)"
       );
     }
   }

@@ -1,8 +1,15 @@
 import { createHmac } from "node:crypto";
+import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LinearInstallation } from "./index";
 import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 /** Mock logger that captures calls */
 function createMockLogger() {
@@ -14,34 +21,208 @@ function createMockLogger() {
   };
 }
 
+function attachLegacyClientAlias(adapter: LinearAdapter): LinearAdapter {
+  Object.defineProperty(adapter, "linearClient", {
+    configurable: true,
+    get() {
+      return (adapter as unknown as { defaultClient: unknown }).defaultClient;
+    },
+    set(value: unknown) {
+      (adapter as unknown as { defaultClient: unknown }).defaultClient = value;
+    },
+  });
+
+  return adapter;
+}
+
+function setDefaultClient(adapter: LinearAdapter, client: unknown): void {
+  (adapter as unknown as { defaultClient: unknown }).defaultClient = client;
+}
+
+function setBotUserId(adapter: LinearAdapter, botUserId: string): void {
+  (adapter as unknown as { _botUserId: string })._botUserId = botUserId;
+}
+
+function setDefaultOrganizationId(
+  adapter: LinearAdapter,
+  organizationId: string
+): void {
+  (
+    adapter as unknown as {
+      defaultOrganizationId: string;
+    }
+  ).defaultOrganizationId = organizationId;
+}
+
+function setClientCredentialsState(
+  adapter: LinearAdapter,
+  clientCredentials: { clientId: string; clientSecret: string; scopes?: string[] },
+  accessTokenExpiry?: number | null
+): void {
+  (
+    adapter as unknown as {
+      clientCredentials: {
+        clientId: string;
+        clientSecret: string;
+        scopes: string[];
+      };
+      accessTokenExpiry: number | null;
+    }
+  ).clientCredentials = {
+    clientId: clientCredentials.clientId,
+    clientSecret: clientCredentials.clientSecret,
+    scopes: clientCredentials.scopes ?? [
+      "read",
+      "write",
+      "comments:create",
+      "issues:create",
+    ],
+  };
+
+  if (accessTokenExpiry !== undefined) {
+    (
+      adapter as unknown as {
+        accessTokenExpiry: number | null;
+      }
+    ).accessTokenExpiry = accessTokenExpiry;
+  }
+}
+
+function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
+  const cache = new Map<string, unknown>();
+  return {
+    cache,
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+    isSubscribed: vi.fn().mockResolvedValue(false),
+    acquireLock: vi.fn().mockResolvedValue(null),
+    releaseLock: vi.fn().mockResolvedValue(undefined),
+    extendLock: vi.fn().mockResolvedValue(true),
+    get: vi.fn().mockImplementation((key: string) => {
+      return Promise.resolve(cache.get(key) ?? null);
+    }),
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
+      cache.set(key, value);
+      return Promise.resolve();
+    }),
+    delete: vi.fn().mockImplementation((key: string) => {
+      cache.delete(key);
+      return Promise.resolve();
+    }),
+    appendToList: vi.fn().mockResolvedValue(undefined),
+    getList: vi.fn().mockResolvedValue([]),
+  };
+}
+
+function createMockChatInstance(
+  state: StateAdapter,
+  logger = createMockLogger()
+): ChatInstance {
+  return {
+    processMessage: vi.fn(),
+    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
+    processReaction: vi.fn(),
+    processAction: vi.fn(),
+    processModalSubmit: vi.fn().mockResolvedValue(undefined),
+    processModalClose: vi.fn(),
+    processSlashCommand: vi.fn(),
+    processMemberJoinedChannel: vi.fn(),
+    getState: () => state,
+    getUserName: () => "test-bot",
+    getLogger: () => logger,
+  };
+}
+
 /**
  * Create a minimal LinearAdapter for testing thread ID methods.
  * We pass a dummy apiKey - it won't be used for encoding/decoding.
  */
 function createTestAdapter(): LinearAdapter {
-  return new LinearAdapter({
-    apiKey: "test-api-key",
-    webhookSecret: "test-secret",
-    userName: "test-bot",
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  });
+  return attachLegacyClientAlias(
+    new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    })
+  );
+}
+
+function createMultiTenantAdapter(logger = createMockLogger()): LinearAdapter {
+  return attachLegacyClientAlias(
+    new LinearAdapter({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      logger,
+    })
+  );
+}
+
+function createClientCredentialsAdapter(
+  logger = createMockLogger(),
+  scopes?: string[]
+): LinearAdapter {
+  return attachLegacyClientAlias(
+    new LinearAdapter({
+      clientCredentials: {
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+        scopes,
+      },
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      logger,
+    })
+  );
+}
+
+function createInstallation(
+  overrides?: Partial<LinearInstallation>
+): LinearInstallation {
+  return {
+    organizationId: "org-123",
+    accessToken: "org-token",
+    refreshToken: "refresh-token",
+    expiresAt: Date.now() + 600_000,
+    botUserId: "bot-user-id",
+    ...overrides,
+  };
+}
+
+function buildOAuthCallbackRequest(
+  params: Record<string, string | undefined>
+): Request {
+  const url = new URL("https://example.com/api/linear/install/callback");
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  return new Request(url, { method: "GET" });
 }
 
 /**
  * Create an adapter with the known webhook secret and a mock logger.
  */
 function createWebhookAdapter(logger = createMockLogger()): LinearAdapter {
-  return new LinearAdapter({
-    apiKey: "test-api-key",
-    webhookSecret: WEBHOOK_SECRET,
-    userName: "test-bot",
-    logger,
-  });
+  return attachLegacyClientAlias(
+    new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      logger,
+    })
+  );
 }
 
 /**
@@ -956,6 +1137,7 @@ describe("buildMessage via webhook", () => {
     const message = mockChat.processMessage.mock.calls[0][2];
     expect(message.raw.comment.body).toBe("Some text");
     expect(message.raw.comment.issueId).toBe("issue-123");
+    expect(message.raw.organizationId).toBe("org-123");
   });
 });
 
@@ -966,6 +1148,7 @@ describe("buildMessage via webhook", () => {
 describe("postMessage", () => {
   it("should create comment via linearClient.createComment", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "new-comment-1",
       body: "Bot reply",
@@ -1001,6 +1184,7 @@ describe("postMessage", () => {
 
   it("should create top-level comment for issue-level threads", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "top-comment-1",
       body: "Top-level comment",
@@ -1030,6 +1214,7 @@ describe("postMessage", () => {
 
   it("should throw when comment creation returns null", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockCreateComment = vi.fn().mockResolvedValue({
       comment: Promise.resolve(null),
     });
@@ -1048,6 +1233,7 @@ describe("postMessage", () => {
 
   it("should handle AST message format", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "ast-comment-1",
       body: "AST text",
@@ -1082,6 +1268,7 @@ describe("postMessage", () => {
 
   it("should call ensureValidToken before posting", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "token-check-1",
       body: "test",
@@ -1119,6 +1306,7 @@ describe("postMessage", () => {
 describe("editMessage", () => {
   it("should update comment via linearClient.updateComment", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "edited-comment-1",
       body: "Updated body",
@@ -1153,6 +1341,7 @@ describe("editMessage", () => {
 
   it("should throw when comment update returns null", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockUpdateComment = vi.fn().mockResolvedValue({
       comment: Promise.resolve(null),
     });
@@ -1336,6 +1525,7 @@ describe("startTyping", () => {
 describe("fetchMessages", () => {
   it("should fetch issue-level comments when no commentId in thread", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Alice",
@@ -1360,6 +1550,7 @@ describe("fetchMessages", () => {
       },
     ];
     const mockIssue = {
+      organizationId: "org-xyz",
       comments: vi.fn().mockResolvedValue({
         nodes: mockComments,
         pageInfo: { hasNextPage: false, endCursor: null },
@@ -1379,11 +1570,13 @@ describe("fetchMessages", () => {
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].text).toBe("First comment");
     expect(result.messages[1].text).toBe("Second comment");
+    expect(result.messages[0].raw.organizationId).toBe("org-xyz");
     expect(result.nextCursor).toBeUndefined();
   });
 
   it("should fetch comment thread (root + children) when commentId present", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Bob",
@@ -1448,6 +1641,7 @@ describe("fetchMessages", () => {
 
   it("should pass limit option to API", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockIssue = {
       comments: vi.fn().mockResolvedValue({
         nodes: [],
@@ -1468,6 +1662,7 @@ describe("fetchMessages", () => {
 
   it("should return nextCursor when hasNextPage is true", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockIssue = {
       comments: vi.fn().mockResolvedValue({
         nodes: [],
@@ -1488,6 +1683,7 @@ describe("fetchMessages", () => {
 
   it("should detect edited messages in fetched comments", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Alice",
@@ -1526,7 +1722,8 @@ describe("fetchMessages", () => {
 
   it("should set isMe true when user matches botUserId", async () => {
     const adapter = createWebhookAdapter();
-    (adapter as unknown as { _botUserId: string })._botUserId = "bot-id";
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
 
     const mockUser = {
       id: "bot-id",
@@ -1564,6 +1761,7 @@ describe("fetchMessages", () => {
 
   it("should handle comments with no user", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockComments = [
       {
         id: "comment-no-user",
@@ -1656,34 +1854,21 @@ describe("fetchThread", () => {
 describe("initialize", () => {
   it("should fetch bot user ID on initialize", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      apiKey: "test-api-key",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
-    });
+    const adapter = createWebhookAdapter(logger);
 
     const mockViewer = {
       id: "viewer-id-123",
       displayName: "My Bot",
+      organization: Promise.resolve({ id: "org-123" }),
     };
-    (
-      adapter as unknown as {
-        linearClient: { viewer: Promise<typeof mockViewer> };
-      }
-    ).linearClient = {
+    setDefaultClient(adapter, {
       viewer: Promise.resolve(mockViewer),
-    } as never;
+      client: { rawRequest: vi.fn() },
+    });
 
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
 
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     expect(adapter.botUserId).toBe("viewer-id-123");
     expect(logger.info).toHaveBeenCalledWith(
@@ -1697,32 +1882,19 @@ describe("initialize", () => {
 
   it("should warn when viewer fetch fails", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      apiKey: "test-api-key",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
-    });
+    const adapter = createWebhookAdapter(logger);
 
-    // Make viewer reject
-    Object.defineProperty(
-      (adapter as unknown as { linearClient: Record<string, unknown> })
-        .linearClient,
-      "viewer",
-      {
-        get: () => Promise.reject(new Error("Auth failed")),
-      }
-    );
-
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
+    const failingClient: Record<string, unknown> = {
+      client: { rawRequest: vi.fn() },
     };
+    Object.defineProperty(failingClient, "viewer", {
+      get: () => Promise.reject(new Error("Auth failed")),
+    });
+    setDefaultClient(adapter, failingClient);
 
-    await adapter.initialize(mockChat as never);
+    const mockChat = createMockChatInstance(createMockState(), logger);
+
+    await adapter.initialize(mockChat);
 
     expect(adapter.botUserId).toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
@@ -1733,13 +1905,7 @@ describe("initialize", () => {
 
   it("should refresh token for client credentials mode", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client-id",
-      clientSecret: "test-client-secret",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter(logger);
 
     // Mock the fetch call for token refresh
     const mockFetch = vi.fn().mockResolvedValue({
@@ -1752,34 +1918,19 @@ describe("initialize", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+      botUserId: "viewer-id-123",
+      displayName: "My Bot",
+      organizationId: "org-123",
+    } as never);
 
-    // We need to catch the viewer call that happens after token refresh
-    // since a new LinearClient is created
-    try {
-      await adapter.initialize(mockChat as never);
-    } catch {
-      // Viewer fetch may fail with mocked client, that's ok
-    }
+    const mockChat = createMockChatInstance(createMockState(), logger);
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.linear.app/oauth/token",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.any(URLSearchParams),
-      })
-    );
+    await adapter.initialize(mockChat);
+
     const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = requestInit.body as URLSearchParams;
     expect(body.get("scope")).toBe("read,write,comments:create,issues:create");
-
-    vi.unstubAllGlobals();
   });
 });
 
@@ -1790,117 +1941,66 @@ describe("initialize", () => {
 describe("ensureValidToken", () => {
   it("should not refresh when no client credentials", async () => {
     const adapter = createWebhookAdapter();
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    (
-      adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
-      }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
+    const refreshSpy = vi.spyOn(
+      adapter as never,
+      "refreshClientCredentialsToken" as never
+    );
 
-    // Should not throw - just calls through
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
-    expect(mockDeleteComment).toHaveBeenCalled();
+    await (
+      adapter as unknown as {
+        ensureValidToken: () => Promise<void>;
+      }
+    ).ensureValidToken();
+
+    expect(refreshSpy).not.toHaveBeenCalled();
   });
 
   it("should refresh when token is expired", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client",
+        clientSecret: "test-secret",
+      },
+      Date.now() - 1000
+    );
 
-    // Set expiry in the past
-    (adapter as unknown as { accessTokenExpiry: number }).accessTokenExpiry =
-      Date.now() - 1000;
-    (
-      adapter as unknown as {
-        clientCredentials: { clientId: string; clientSecret: string };
-      }
-    ).clientCredentials = {
-      clientId: "test-client",
-      clientSecret: "test-secret",
-    };
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          access_token: "refreshed-token",
-          expires_in: 2592000,
-        }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    // Now try to delete a message which calls ensureValidToken
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    // After refresh, a new client is created, so we need to set it up right
-    // The ensureValidToken call will create a new LinearClient
-    // We'll spy on refreshClientCredentialsToken instead
     const refreshSpy = vi
       .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
       .mockResolvedValue(undefined as never);
 
-    (
+    await (
       adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
+        ensureValidToken: () => Promise<void>;
       }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
-
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    ).ensureValidToken();
 
     expect(refreshSpy).toHaveBeenCalled();
-
-    refreshSpy.mockRestore();
-    vi.unstubAllGlobals();
   });
 
   it("should not refresh when token is still valid", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
-
-    // Set expiry far in the future
-    (adapter as unknown as { accessTokenExpiry: number }).accessTokenExpiry =
-      Date.now() + 86400000;
-    (
-      adapter as unknown as {
-        clientCredentials: { clientId: string; clientSecret: string };
-      }
-    ).clientCredentials = {
-      clientId: "test-client",
-      clientSecret: "test-secret",
-    };
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client",
+        clientSecret: "test-secret",
+      },
+      Date.now() + 86400000
+    );
 
     const refreshSpy = vi
       .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
       .mockResolvedValue(undefined as never);
 
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    (
+    await (
       adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
+        ensureValidToken: () => Promise<void>;
       }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
-
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    ).ensureValidToken();
 
     expect(refreshSpy).not.toHaveBeenCalled();
-
-    refreshSpy.mockRestore();
   });
 });
 
@@ -1910,14 +2010,7 @@ describe("ensureValidToken", () => {
 
 describe("refreshClientCredentialsToken", () => {
   it("should throw on failed token fetch", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter();
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -1935,8 +2028,6 @@ describe("refreshClientCredentialsToken", () => {
     ).rejects.toThrow(
       "Failed to fetch Linear client credentials token: 401 Unauthorized"
     );
-
-    vi.unstubAllGlobals();
   });
 
   it("should be a no-op when clientCredentials is null", async () => {
@@ -1952,13 +2043,7 @@ describe("refreshClientCredentialsToken", () => {
 
   it("should set accessTokenExpiry with 1 hour buffer", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter(logger);
 
     const expiresIn = 2592000; // 30 days in seconds
     const mockFetch = vi.fn().mockResolvedValue({
@@ -1991,20 +2076,16 @@ describe("refreshClientCredentialsToken", () => {
       "Linear client credentials token obtained",
       expect.objectContaining({ expiresIn: "30 days" })
     );
-
-    vi.unstubAllGlobals();
   });
 
   it("should use custom scopes for client credentials token fetch", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-      scopes: ["read", "write", "comments:create", "app:mentionable"],
-    });
+    const adapter = createClientCredentialsAdapter(logger, [
+      "read",
+      "write",
+      "comments:create",
+      "app:mentionable",
+    ]);
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -2027,8 +2108,463 @@ describe("refreshClientCredentialsToken", () => {
     expect(body.get("scope")).toBe(
       "read,write,comments:create,app:mentionable"
     );
+  });
+});
 
-    vi.unstubAllGlobals();
+// =============================================================================
+// Updated runtime/auth coverage
+// =============================================================================
+
+describe("runtime operations", () => {
+  it("postMessage uses the default client and preserves organizationId", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockComment = {
+      id: "new-comment-1",
+      body: "Bot reply",
+      createdAt: new Date("2025-06-01T12:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+      url: "https://linear.app/test/comment/new-comment-1",
+    };
+    const mockClient = {
+      createComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(mockComment),
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.postMessage(
+      "linear:issue-123:c:parent-comment",
+      "Hello from bot"
+    );
+
+    expect(mockClient.createComment).toHaveBeenCalledWith({
+      issueId: "issue-123",
+      body: "Hello from bot",
+      parentId: "parent-comment",
+    });
+    expect(result.raw.organizationId).toBe("org-123");
+    expect(result.raw.comment.userId).toBe("bot-user-id");
+  });
+
+  it("editMessage uses the default client and preserves organizationId", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockComment = {
+      id: "edited-comment-1",
+      body: "Updated body",
+      createdAt: new Date("2025-06-01T12:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T13:00:00.000Z"),
+      url: "https://linear.app/test/comment/edited-comment-1",
+    };
+    const mockClient = {
+      updateComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(mockComment),
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.editMessage(
+      "linear:issue-123:c:parent-comment",
+      "edited-comment-1",
+      "Updated body"
+    );
+
+    expect(mockClient.updateComment).toHaveBeenCalledWith("edited-comment-1", {
+      body: "Updated body",
+    });
+    expect(result.raw.organizationId).toBe("org-123");
+  });
+
+  it("deleteMessage and addReaction use the current client", async () => {
+    const adapter = createWebhookAdapter();
+    const mockClient = {
+      deleteComment: vi.fn().mockResolvedValue(undefined),
+      createReaction: vi.fn().mockResolvedValue(undefined),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    await adapter.addReaction("linear:issue-123", "comment-1", "rocket");
+
+    expect(mockClient.deleteComment).toHaveBeenCalledWith("comment-1");
+    expect(mockClient.createReaction).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      emoji: "\u{1F680}",
+    });
+  });
+
+  it("fetchMessages uses the current client for issue threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
+    const mockUser = {
+      id: "user-1",
+      displayName: "Alice",
+      name: "Alice Smith",
+    };
+    const mockIssue = {
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-1",
+            body: "First comment",
+            createdAt: new Date("2025-06-01T10:00:00.000Z"),
+            updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+            url: "https://linear.app/comment/1",
+            user: Promise.resolve(mockUser),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
+    };
+    const mockClient = {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.fetchMessages("linear:issue-abc");
+
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-abc");
+    expect(result.messages[0].raw.organizationId).toBe("org-xyz");
+    expect(result.messages[0].author.userName).toBe("Alice");
+  });
+
+  it("fetchThread uses the current client", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockClient = {
+      issue: vi.fn().mockResolvedValue({
+        identifier: "TEST-42",
+        title: "Fix the thing",
+        url: "https://linear.app/test/issue/TEST-42",
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.fetchThread("linear:issue-uuid-123");
+
+    expect(result.channelName).toBe("TEST-42: Fix the thing");
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-uuid-123");
+  });
+
+  it("throws when organizationId is unavailable", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultClient(adapter, {
+      createComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve({
+          id: "new-comment-1",
+          body: "Bot reply",
+          createdAt: new Date("2025-06-01T12:00:00.000Z"),
+          updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+          url: "https://linear.app/test/comment/new-comment-1",
+        }),
+      }),
+    });
+
+    await expect(
+      adapter.postMessage("linear:issue-123", "Hello from bot")
+    ).rejects.toThrow("No Linear organization ID available");
+  });
+});
+
+describe("initialize", () => {
+  it("fetches bot identity in default-client mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger);
+    const mockState = createMockState();
+    const chat = createMockChatInstance(mockState, logger);
+    const mockViewer = {
+      id: "viewer-id-123",
+      displayName: "My Bot",
+      organization: Promise.resolve({ id: "org-123" }),
+    };
+    setDefaultClient(adapter, {
+      viewer: Promise.resolve(mockViewer),
+      client: {
+        rawRequest: vi.fn(),
+      },
+    });
+
+    await adapter.initialize(chat);
+
+    expect(adapter.botUserId).toBe("viewer-id-123");
+    expect(logger.info).toHaveBeenCalledWith(
+      "Linear auth completed",
+      expect.objectContaining({
+        botUserId: "viewer-id-123",
+        organizationId: "org-123",
+      })
+    );
+  });
+
+  it("initializes client credentials mode and requests default scopes", async () => {
+    const logger = createMockLogger();
+    const adapter = createClientCredentialsAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2_592_000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+      botUserId: "viewer-id-123",
+      displayName: "My Bot",
+      organizationId: "org-123",
+    } as never);
+
+    await adapter.initialize(chat);
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("grant_type")).toBe("client_credentials");
+    expect(body.get("scope")).toBe("read,write,comments:create,issues:create");
+    expect(adapter.botUserId).toBe("viewer-id-123");
+  });
+});
+
+describe("client credentials auth", () => {
+  it("refreshClientCredentialsToken throws on token fetch failure", async () => {
+    const adapter = createClientCredentialsAdapter();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve("Unauthorized"),
+      })
+    );
+
+    await expect(
+      (
+        adapter as unknown as {
+          refreshClientCredentialsToken: () => Promise<void>;
+        }
+      ).refreshClientCredentialsToken()
+    ).rejects.toThrow(
+      "Failed to fetch Linear client credentials token: 401 Unauthorized"
+    );
+  });
+
+  it("ensureValidToken refreshes expired client credentials tokens", async () => {
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+      },
+      Date.now() - 1_000
+    );
+
+    const refreshSpy = vi
+      .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
+      .mockResolvedValue(undefined as never);
+
+    await (
+      adapter as unknown as {
+        ensureValidToken: () => Promise<void>;
+      }
+    ).ensureValidToken();
+
+    expect(refreshSpy).toHaveBeenCalled();
+  });
+
+  it("refreshClientCredentialsToken honors custom scopes", async () => {
+    const adapter = createClientCredentialsAdapter(createMockLogger(), [
+      "read",
+      "write",
+      "comments:create",
+      "app:mentionable",
+    ]);
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2_592_000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await (
+      adapter as unknown as {
+        refreshClientCredentialsToken: () => Promise<void>;
+      }
+    ).refreshClientCredentialsToken();
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe(
+      "read,write,comments:create,app:mentionable"
+    );
+  });
+});
+
+describe("multi-tenant installations", () => {
+  it("handleOAuthCallback exchanges code and stores the installation", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "oauth-token",
+          refresh_token: "refresh-token",
+          expires_in: 3600,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+      botUserId: "bot-user-id",
+      displayName: "Linear App",
+      organizationId: "org-123",
+    } as never);
+
+    const result = await adapter.handleOAuthCallback(
+      buildOAuthCallbackRequest({ code: "test-code" }),
+      { redirectUri: "https://example.com/api/linear/install/callback" }
+    );
+
+    expect(result.organizationId).toBe("org-123");
+    expect(result.installation.accessToken).toBe("oauth-token");
+    expect(await adapter.getInstallation("org-123")).toEqual(
+      expect.objectContaining({
+        organizationId: "org-123",
+        accessToken: "oauth-token",
+        refreshToken: "refresh-token",
+        botUserId: "bot-user-id",
+      })
+    );
+  });
+
+  it("handleOAuthCallback rejects callback errors and missing codes", async () => {
+    const adapter = createMultiTenantAdapter();
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+
+    await expect(
+      adapter.handleOAuthCallback(
+        buildOAuthCallbackRequest({
+          error: "access_denied",
+          error_description: "user denied access",
+        }),
+        { redirectUri: "https://example.com/api/linear/install/callback" }
+      )
+    ).rejects.toThrow("Linear OAuth failed: access_denied - user denied access");
+
+    await expect(
+      adapter.handleOAuthCallback(buildOAuthCallbackRequest({}), {
+        redirectUri: "https://example.com/api/linear/install/callback",
+      })
+    ).rejects.toThrow("Missing 'code' query parameter");
+  });
+
+  it("withInstallation refreshes expired installations and seeds request context", async () => {
+    const adapter = createMultiTenantAdapter();
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+    await adapter.setInstallation(
+      "org-123",
+      createInstallation({
+        accessToken: "expired-token",
+        expiresAt: Date.now() - 1_000,
+      })
+    );
+
+    vi.spyOn(adapter as never, "fetchOAuthToken" as never).mockResolvedValue({
+      access_token: "refreshed-token",
+      refresh_token: "rotated-refresh-token",
+      expires_in: 3600,
+    } as never);
+
+    await adapter.withInstallation("org-123", async () => {
+      expect(adapter.botUserId).toBe("bot-user-id");
+      expect(
+        (
+          adapter as unknown as {
+            getOrganizationId: () => string | undefined;
+          }
+        ).getOrganizationId()
+      ).toBe("org-123");
+    });
+
+    expect(await adapter.getInstallation("org-123")).toEqual(
+      expect.objectContaining({
+        accessToken: "refreshed-token",
+        refreshToken: "rotated-refresh-token",
+      })
+    );
+  });
+
+  it("handleWebhook resolves installations by organizationId", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const body = JSON.stringify(createCommentPayload());
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-abc",
+      expect.objectContaining({
+        raw: expect.objectContaining({ organizationId: "org-123" }),
+      }),
+      undefined
+    );
+  });
+
+  it("handleWebhook skips missing installations and deletes revoked ones", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+
+    const missingBody = JSON.stringify(createCommentPayload());
+    const missingResponse = await adapter.handleWebhook(
+      buildWebhookRequest(missingBody, signPayload(missingBody))
+    );
+    expect(missingResponse.status).toBe(200);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "No Linear installation found for organization",
+      { organizationId: "org-123" }
+    );
+
+    await adapter.setInstallation("org-123", createInstallation());
+    const revokedBody = JSON.stringify({
+      type: "OAuthApp",
+      action: "revoked",
+      createdAt: "2025-06-01T12:00:00.000Z",
+      organizationId: "org-123",
+      webhookId: "webhook-3",
+      webhookTimestamp: Date.now(),
+    });
+    const revokedResponse = await adapter.handleWebhook(
+      buildWebhookRequest(revokedBody, signPayload(revokedBody))
+    );
+
+    expect(revokedResponse.status).toBe(200);
+    expect(await adapter.getInstallation("org-123")).toBeNull();
   });
 });
 
@@ -2081,10 +2617,12 @@ describe("createLinearAdapter", () => {
   it("should throw when scopes is not an array of strings", () => {
     expect(() =>
       createLinearAdapter({
-        clientId: "client-id",
-        clientSecret: "client-secret",
+        clientCredentials: {
+          clientId: "client-id",
+          clientSecret: "client-secret",
+          scopes: "read,write" as never,
+        },
         webhookSecret: "secret",
-        scopes: "read,write" as never,
       })
     ).toThrow("scopes must be an array of strings");
   });
@@ -2120,6 +2658,19 @@ describe("createLinearAdapter", () => {
     process.env.LINEAR_CLIENT_ID = "env-client-id";
     process.env.LINEAR_CLIENT_SECRET = "env-client-secret";
     const adapter = createLinearAdapter();
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should use LINEAR_CLIENT_CREDENTIALS env vars before LINEAR_CLIENT_ID/SECRET", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID = "env-cc-client-id";
+    process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET =
+      "env-cc-client-secret";
+    process.env.LINEAR_CLIENT_ID = "env-oauth-client-id";
+    process.env.LINEAR_CLIENT_SECRET = "env-oauth-client-secret";
+
+    const adapter = createLinearAdapter();
+
     expect(adapter).toBeInstanceOf(LinearAdapter);
   });
 

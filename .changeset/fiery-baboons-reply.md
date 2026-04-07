@@ -2,4 +2,4 @@
 "@chat-adapter/linear": minor
 ---
 
-Add `scopes` option to the Linear adapter to define the OAuth scopes used when fetching the auth token.
+Add `clientCredentials.scopes` to the Linear adapter so single-tenant client-credentials auth can request custom OAuth scopes.

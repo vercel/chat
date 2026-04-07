@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
@@ -27,16 +28,24 @@ import { LinearFormatConverter } from "./markdown";
 import type {
   CommentWebhookPayload,
   LinearAdapterAutoConfig,
+  LinearAdapterClientCredentialsConfig,
   LinearAdapterConfig,
+  LinearAdapterMultiTenantConfig,
+  LinearClientCredentialsConfig,
   LinearCommentData,
+  LinearInstallation,
+  LinearOAuthCallbackOptions,
   LinearRawMessage,
   LinearThreadId,
   LinearWebhookActor,
   LinearWebhookPayload,
+  OAuthAppRevokedWebhookPayload,
   ReactionWebhookPayload,
 } from "./types";
 
 const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
+const INSTALLATION_KEY_PREFIX = "linear:installation";
+const INSTALLATION_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const DEFAULT_CLIENT_CREDENTIAL_SCOPES = [
   "read",
   "write",
@@ -59,11 +68,39 @@ function resolveClientCredentialScopes(scopes?: string[]): string[] {
   return [...scopes];
 }
 
+function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+interface LinearOAuthTokenResponse {
+  access_token: string;
+  expires_in?: number;
+  refresh_token?: string;
+}
+
+interface LinearRequestContext {
+  accessToken: string;
+  botUserId: string;
+  client: LinearClient;
+  organizationId: string;
+}
+
 // Re-export types
 export type {
   LinearAdapterAPIKeyConfig,
-  LinearAdapterAppConfig,
+  LinearAdapterClientCredentialsConfig,
   LinearAdapterConfig,
+  LinearAdapterMultiTenantConfig,
+  LinearClientCredentialsConfig,
+  LinearInstallation,
+  LinearOAuthCallbackOptions,
   LinearAdapterOAuthConfig,
   LinearRawMessage,
   LinearThreadId,
@@ -119,14 +156,17 @@ export class LinearAdapter
   readonly name = "linear";
   readonly userName: string;
 
-  private linearClient!: LinearClient;
   private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private _botUserId: string | null = null;
+  private defaultOrganizationId: string | null = null;
   private readonly formatConverter = new LinearFormatConverter();
+  private readonly requestContext = new AsyncLocalStorage<LinearRequestContext>();
 
-  // Client credentials auth state
+  private defaultClient: LinearClient | null = null;
+  private readonly oauthClientId: string | null = null;
+  private readonly oauthClientSecret: string | null = null;
   private readonly clientCredentials: {
     clientId: string;
     clientSecret: string;
@@ -136,7 +176,7 @@ export class LinearAdapter
 
   /** Bot user ID used for self-message detection */
   get botUserId(): string | undefined {
-    return this._botUserId ?? undefined;
+    return this.requestContext.getStore()?.botUserId ?? this._botUserId ?? undefined;
   }
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
@@ -152,50 +192,114 @@ export class LinearAdapter
     this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
-    const clientCredentialScopes = resolveClientCredentialScopes(config.scopes);
+    const hasExplicitAuth =
+      ("apiKey" in config && Boolean(config.apiKey)) ||
+      ("accessToken" in config && Boolean(config.accessToken)) ||
+      ("clientCredentials" in config && Boolean(config.clientCredentials)) ||
+      ("clientId" in config && Boolean(config.clientId)) ||
+      ("clientSecret" in config && Boolean(config.clientSecret));
 
-    // Create LinearClient based on auth method
-    // @see https://linear.app/developers/sdk
     if ("apiKey" in config && config.apiKey) {
-      this.linearClient = new LinearClient({ apiKey: config.apiKey });
-    } else if ("accessToken" in config && config.accessToken) {
-      this.linearClient = new LinearClient({
+      this.defaultClient = new LinearClient({ apiKey: config.apiKey });
+      return;
+    }
+
+    if ("accessToken" in config && config.accessToken) {
+      this.defaultClient = new LinearClient({
         accessToken: config.accessToken,
       });
-    } else if ("clientId" in config && config.clientId) {
-      // Client credentials mode - token will be fetched during initialize()
-      this.clientCredentials = {
-        clientId: config.clientId,
-        clientSecret: config.clientSecret,
-        scopes: clientCredentialScopes,
-      };
-    } else {
-      // Auto-detect from env vars
-      const apiKey = process.env.LINEAR_API_KEY;
-      if (apiKey) {
-        this.linearClient = new LinearClient({ apiKey });
-      } else {
-        const accessToken = process.env.LINEAR_ACCESS_TOKEN;
-        if (accessToken) {
-          this.linearClient = new LinearClient({ accessToken });
-        } else {
-          const clientId = process.env.LINEAR_CLIENT_ID;
-          const clientSecret = process.env.LINEAR_CLIENT_SECRET;
-          if (clientId && clientSecret) {
-            this.clientCredentials = {
-              clientId,
-              clientSecret,
-              scopes: clientCredentialScopes,
-            };
-          } else {
-            throw new ValidationError(
-              "linear",
-              "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
-            );
-          }
-        }
-      }
+      return;
     }
+
+    if ("clientCredentials" in config && config.clientCredentials) {
+      const normalized = this.normalizeClientCredentials(
+        config.clientCredentials,
+        "config"
+      );
+      (
+        this as unknown as {
+          clientCredentials: {
+            clientId: string;
+            clientSecret: string;
+            scopes: string[];
+          };
+        }
+      ).clientCredentials = normalized;
+      return;
+    }
+
+    if ("clientId" in config || "clientSecret" in config) {
+      const oauthConfig = config as LinearAdapterMultiTenantConfig;
+      if (!(oauthConfig.clientId && oauthConfig.clientSecret)) {
+        throw new ValidationError(
+          "linear",
+          "clientId and clientSecret are required together for multi-tenant OAuth."
+        );
+      }
+
+      (this as unknown as { oauthClientId: string }).oauthClientId =
+        oauthConfig.clientId;
+      (this as unknown as { oauthClientSecret: string }).oauthClientSecret =
+        oauthConfig.clientSecret;
+      return;
+    }
+
+    if (hasExplicitAuth) {
+      throw new ValidationError("linear", "Invalid Linear auth config.");
+    }
+
+    const apiKey = process.env.LINEAR_API_KEY;
+    if (apiKey) {
+      this.defaultClient = new LinearClient({ apiKey });
+      return;
+    }
+
+    const accessToken = process.env.LINEAR_ACCESS_TOKEN;
+    if (accessToken) {
+      this.defaultClient = new LinearClient({ accessToken });
+      return;
+    }
+
+    const clientCredentialsClientId =
+      process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID;
+    const clientCredentialsClientSecret =
+      process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET;
+    if (clientCredentialsClientId && clientCredentialsClientSecret) {
+      (
+        this as unknown as {
+          clientCredentials: {
+            clientId: string;
+            clientSecret: string;
+            scopes: string[];
+          };
+        }
+      ).clientCredentials = this.normalizeClientCredentials(
+        {
+          clientId: clientCredentialsClientId,
+          clientSecret: clientCredentialsClientSecret,
+          scopes: parseEnvClientCredentialScopes(
+            process.env.LINEAR_CLIENT_CREDENTIALS_SCOPES
+          ),
+        },
+        "env"
+      );
+      return;
+    }
+
+    const oauthClientId = process.env.LINEAR_CLIENT_ID;
+    const oauthClientSecret = process.env.LINEAR_CLIENT_SECRET;
+    if (oauthClientId && oauthClientSecret) {
+      (this as unknown as { oauthClientId: string }).oauthClientId =
+        oauthClientId;
+      (this as unknown as { oauthClientSecret: string }).oauthClientSecret =
+        oauthClientSecret;
+      return;
+    }
+
+    throw new ValidationError(
+      "linear",
+      "Authentication is required. Set LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_CLIENT_ID/LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET, or LINEAR_CLIENT_ID/LINEAR_CLIENT_SECRET, or provide auth in config."
+    );
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -206,18 +310,325 @@ export class LinearAdapter
       await this.refreshClientCredentialsToken();
     }
 
-    // Fetch the bot's user ID for self-message detection
-    // @see https://linear.app/developers/sdk-fetching-and-modifying-data
-    try {
-      const viewer = await this.linearClient.viewer;
-      this._botUserId = viewer.id;
-      this.logger.info("Linear auth completed", {
-        botUserId: this._botUserId,
-        displayName: viewer.displayName,
-      });
-    } catch (error) {
-      this.logger.warn("Could not fetch Linear bot user ID", { error });
+    if (this.defaultClient) {
+      try {
+        const identity = await this.fetchClientIdentity(this.defaultClient);
+        this._botUserId = identity.botUserId;
+        this.defaultOrganizationId = identity.organizationId;
+        this.logger.info("Linear auth completed", {
+          botUserId: this._botUserId,
+          displayName: identity.displayName,
+          organizationId: this.defaultOrganizationId,
+        });
+      } catch (error) {
+        this.logger.warn("Could not fetch Linear bot user ID", { error });
+      }
+    } else if (this.isMultiTenantMode()) {
+      this.logger.info("Linear adapter initialized in multi-tenant mode");
     }
+  }
+
+  private normalizeClientCredentials(
+    clientCredentials: LinearClientCredentialsConfig,
+    source: "config" | "env"
+  ) {
+    if (!(clientCredentials.clientId && clientCredentials.clientSecret)) {
+      throw new ValidationError(
+        "linear",
+        `clientCredentials.clientId and clientCredentials.clientSecret are required in ${source}.`
+      );
+    }
+
+    return {
+      clientId: clientCredentials.clientId,
+      clientSecret: clientCredentials.clientSecret,
+      scopes: resolveClientCredentialScopes(clientCredentials.scopes),
+    };
+  }
+
+  private createClient(accessToken: string): LinearClient {
+    return new LinearClient({ accessToken });
+  }
+
+  private getClient(): LinearClient {
+    const context = this.requestContext.getStore();
+    if (context?.client) {
+      return context.client;
+    }
+
+    if (this.defaultClient) {
+      return this.defaultClient;
+    }
+
+    throw new AuthenticationError(
+      "linear",
+      "No Linear access token available. In multi-tenant mode, ensure the webhook is being processed or use withInstallation()."
+    );
+  }
+
+  private getOrganizationId(): string {
+    const organizationId =
+      this.requestContext.getStore()?.organizationId ??
+      this.defaultOrganizationId;
+
+    if (!organizationId) {
+      throw new AuthenticationError(
+        "linear",
+        "No Linear organization ID available. Ensure the adapter has been initialized or use withInstallation()."
+      );
+    }
+
+    return organizationId;
+  }
+
+  private isMultiTenantMode(): boolean {
+    return Boolean(this.oauthClientId && this.oauthClientSecret);
+  }
+
+  private installationKey(organizationId: string): string {
+    return `${INSTALLATION_KEY_PREFIX}:${organizationId}`;
+  }
+
+  async setInstallation(
+    organizationId: string,
+    installation: LinearInstallation
+  ): Promise<void> {
+    if (!this.chat) {
+      throw new ValidationError(
+        "linear",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
+    }
+
+    await this.chat
+      .getState()
+      .set(this.installationKey(organizationId), installation);
+    this.logger.info("Linear installation saved", { organizationId });
+  }
+
+  async getInstallation(
+    organizationId: string
+  ): Promise<LinearInstallation | null> {
+    if (!this.chat) {
+      throw new ValidationError(
+        "linear",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
+    }
+
+    const installation = await this.chat
+      .getState()
+      .get<LinearInstallation>(this.installationKey(organizationId));
+
+    return installation ?? null;
+  }
+
+  async deleteInstallation(organizationId: string): Promise<void> {
+    if (!this.chat) {
+      throw new ValidationError(
+        "linear",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
+    }
+
+    await this.chat.getState().delete(this.installationKey(organizationId));
+    this.logger.info("Linear installation deleted", { organizationId });
+  }
+
+  async handleOAuthCallback(
+    request: Request,
+    options: LinearOAuthCallbackOptions
+  ): Promise<{ installation: LinearInstallation; organizationId: string }> {
+    if (!(this.oauthClientId && this.oauthClientSecret)) {
+      throw new ValidationError(
+        "linear",
+        "clientId and clientSecret are required for OAuth. Pass them in createLinearAdapter()."
+      );
+    }
+
+    if (!options.redirectUri) {
+      throw new ValidationError(
+        "linear",
+        "redirectUri is required for handleOAuthCallback()."
+      );
+    }
+
+    const url = new URL(request.url);
+    const error = url.searchParams.get("error");
+    if (error) {
+      const description = url.searchParams.get("error_description");
+      throw new AuthenticationError(
+        "linear",
+        `Linear OAuth failed: ${description ? `${error} - ${description}` : error}`
+      );
+    }
+
+    const code = url.searchParams.get("code");
+    if (!code) {
+      throw new ValidationError(
+        "linear",
+        "Missing 'code' query parameter in OAuth callback request."
+      );
+    }
+
+    const token = await this.fetchOAuthToken(
+      new URLSearchParams({
+        code,
+        redirect_uri: options.redirectUri,
+        client_id: this.oauthClientId,
+        client_secret: this.oauthClientSecret,
+        grant_type: "authorization_code",
+      }),
+      "Failed to exchange Linear OAuth code"
+    );
+
+    const client = this.createClient(token.access_token);
+    const identity = await this.fetchClientIdentity(client);
+    const installation: LinearInstallation = {
+      accessToken: token.access_token,
+      botUserId: identity.botUserId,
+      expiresAt: this.calculateExpiry(token.expires_in),
+      organizationId: identity.organizationId,
+      refreshToken: token.refresh_token,
+    };
+
+    await this.setInstallation(identity.organizationId, installation);
+
+    return { organizationId: identity.organizationId, installation };
+  }
+
+  async withInstallation<T>(
+    organizationId: string,
+    fn: () => Promise<T> | T
+  ): Promise<T> {
+    const installation = await this.requireInstallation(organizationId);
+    const context: LinearRequestContext = {
+      accessToken: installation.accessToken,
+      botUserId: installation.botUserId,
+      client: this.createClient(installation.accessToken),
+      organizationId: installation.organizationId,
+    };
+
+    return await this.requestContext.run(context, async () => await fn());
+  }
+
+  private async fetchClientIdentity(client: LinearClient): Promise<{
+    botUserId: string;
+    displayName: string;
+    organizationId: string;
+  }> {
+    const viewer = await client.viewer;
+    const organization = await viewer.organization;
+    let organizationId: string | undefined = organization?.id;
+
+    if (!organizationId) {
+      const fallback = await client.client.rawRequest<{
+        viewer?: {
+          organization?: {
+            id?: string;
+          };
+        };
+      }, Record<string, never>>(/* GraphQL */ `
+        query LinearAdapterViewerOrganization {
+          viewer {
+            organization {
+              id
+            }
+          }
+        }
+      `);
+
+      organizationId = fallback.data?.viewer?.organization?.id;
+    }
+
+    if (!organizationId) {
+      throw new AuthenticationError(
+        "linear",
+        "Failed to resolve organization ID for Linear installation."
+      );
+    }
+
+    return {
+      botUserId: viewer.id,
+      displayName: viewer.displayName,
+      organizationId,
+    };
+  }
+
+  private calculateExpiry(expiresIn?: number): number | null {
+    return typeof expiresIn === "number" ? Date.now() + expiresIn * 1000 : null;
+  }
+
+  private async fetchOAuthToken(
+    body: URLSearchParams,
+    errorMessage: string
+  ): Promise<LinearOAuthTokenResponse> {
+    const response = await fetch("https://api.linear.app/oauth/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new AuthenticationError(
+        "linear",
+        `${errorMessage}: ${response.status} ${errorBody}`
+      );
+    }
+
+    return (await response.json()) as LinearOAuthTokenResponse;
+  }
+
+  private async refreshInstallation(
+    installation: LinearInstallation
+  ): Promise<LinearInstallation> {
+    if (!(installation.refreshToken && this.oauthClientId && this.oauthClientSecret)) {
+      return installation;
+    }
+
+    if (
+      installation.expiresAt !== null &&
+      installation.expiresAt > Date.now() + INSTALLATION_REFRESH_BUFFER_MS
+    ) {
+      return installation;
+    }
+
+    const token = await this.fetchOAuthToken(
+      new URLSearchParams({
+        refresh_token: installation.refreshToken,
+        grant_type: "refresh_token",
+        client_id: this.oauthClientId,
+        client_secret: this.oauthClientSecret,
+      }),
+      "Failed to refresh Linear OAuth token"
+    );
+
+    const refreshedInstallation: LinearInstallation = {
+      ...installation,
+      accessToken: token.access_token,
+      expiresAt: this.calculateExpiry(token.expires_in),
+      refreshToken: token.refresh_token ?? installation.refreshToken,
+    };
+
+    await this.setInstallation(installation.organizationId, refreshedInstallation);
+    return refreshedInstallation;
+  }
+
+  private async requireInstallation(
+    organizationId: string
+  ): Promise<LinearInstallation> {
+    const installation = await this.getInstallation(organizationId);
+    if (!installation) {
+      throw new AuthenticationError(
+        "linear",
+        `No installation found for organization ${organizationId}`
+      );
+    }
+
+    return await this.refreshInstallation(installation);
   }
 
   /**
@@ -232,42 +643,29 @@ export class LinearAdapter
     }
 
     const { clientId, clientSecret, scopes } = this.clientCredentials;
-
-    const response = await fetch("https://api.linear.app/oauth/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
+    const data = await this.fetchOAuthToken(
+      new URLSearchParams({
         grant_type: "client_credentials",
         client_id: clientId,
         client_secret: clientSecret,
         scope: scopes.join(","),
       }),
-    });
+      "Failed to fetch Linear client credentials token"
+    );
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new AuthenticationError(
-        "linear",
-        `Failed to fetch Linear client credentials token: ${response.status} ${errorBody}`
-      );
-    }
-
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
-
-    this.linearClient = new LinearClient({
-      accessToken: data.access_token,
-    });
+    this.defaultClient = this.createClient(data.access_token);
 
     // Track expiry so we can proactively refresh (with 1 hour buffer)
-    this.accessTokenExpiry = Date.now() + data.expires_in * 1000 - 3600000;
+    this.accessTokenExpiry =
+      typeof data.expires_in === "number"
+        ? Date.now() + data.expires_in * 1000 - 3600000
+        : null;
 
     this.logger.info("Linear client credentials token obtained", {
-      expiresIn: `${Math.round(data.expires_in / 86400)} days`,
+      expiresIn:
+        typeof data.expires_in === "number"
+          ? `${Math.round(data.expires_in / 86400)} days`
+          : "unknown",
     });
   }
 
@@ -275,6 +673,10 @@ export class LinearAdapter
    * Ensure the client credentials token is still valid. Refresh if expired.
    */
   private async ensureValidToken(): Promise<void> {
+    if (this.requestContext.getStore()) {
+      return;
+    }
+
     if (
       this.clientCredentials &&
       this.accessTokenExpiry &&
@@ -330,18 +732,74 @@ export class LinearAdapter
       }
     }
 
-    // Handle events based on type
-    if (payload.type === "Comment") {
-      const commentPayload = payload as CommentWebhookPayload;
-      if (commentPayload.action === "create") {
-        this.handleCommentCreated(commentPayload, options);
+    if (payload.type === "OAuthApp" && payload.action === "revoked") {
+      try {
+        await this.deleteInstallation(payload.organizationId);
+      } catch (error) {
+        this.logger.error("Failed to delete Linear installation on revoke", {
+          organizationId: payload.organizationId,
+          error,
+        });
       }
-    } else if (payload.type === "Reaction") {
-      const reactionPayload = payload as ReactionWebhookPayload;
-      this.handleReaction(reactionPayload);
+
+      return new Response("ok", { status: 200 });
     }
 
-    return new Response("ok", { status: 200 });
+    const processPayload = async (): Promise<Response> => {
+      if (payload.type === "Comment") {
+        const commentPayload = payload as CommentWebhookPayload;
+        if (commentPayload.action === "create") {
+          this.handleCommentCreated(commentPayload, options);
+        }
+      } else if (payload.type === "Reaction") {
+        const reactionPayload = payload as ReactionWebhookPayload;
+        this.handleReaction(reactionPayload);
+      }
+
+      return new Response("ok", { status: 200 });
+    };
+
+    if (!this.isMultiTenantMode()) {
+      return await processPayload();
+    }
+
+    let installation: LinearInstallation | null;
+    try {
+      installation = await this.getInstallation(payload.organizationId);
+    } catch (error) {
+      this.logger.error("Failed to resolve Linear installation for webhook", {
+        organizationId: payload.organizationId,
+        error,
+      });
+      return new Response("Installation lookup failed", { status: 500 });
+    }
+
+    if (!installation) {
+      this.logger.warn("No Linear installation found for organization", {
+        organizationId: payload.organizationId,
+      });
+      return new Response("ok", { status: 200 });
+    }
+
+    let resolvedInstallation: LinearInstallation;
+    try {
+      resolvedInstallation = await this.refreshInstallation(installation);
+    } catch (error) {
+      this.logger.error("Failed to refresh Linear installation for webhook", {
+        organizationId: payload.organizationId,
+        error,
+      });
+      return new Response("Installation refresh failed", { status: 500 });
+    }
+
+    const context: LinearRequestContext = {
+      accessToken: resolvedInstallation.accessToken,
+      botUserId: resolvedInstallation.botUserId,
+      client: this.createClient(resolvedInstallation.accessToken),
+      organizationId: resolvedInstallation.organizationId,
+    };
+
+    return await this.requestContext.run(context, processPayload);
   }
 
   /**
@@ -402,10 +860,15 @@ export class LinearAdapter
     });
 
     // Build message
-    const message = this.buildMessage(data, actor, threadId);
+    const message = this.buildMessage(
+      data,
+      actor,
+      threadId,
+      payload.organizationId
+    );
 
     // Skip bot's own messages
-    if (data.userId === this._botUserId) {
+    if (data.userId === this.botUserId) {
       this.logger.debug("Ignoring message from self", {
         messageId: data.id,
       });
@@ -443,7 +906,8 @@ export class LinearAdapter
   private buildMessage(
     comment: LinearCommentData,
     actor: LinearWebhookActor,
-    threadId: string
+    threadId: string,
+    organizationId: string
   ): Message<LinearRawMessage> {
     const text = comment.body || "";
 
@@ -452,14 +916,14 @@ export class LinearAdapter
       userName: actor.name || "unknown",
       fullName: actor.name || "unknown",
       isBot: actor.type !== "user",
-      isMe: comment.userId === this._botUserId,
+      isMe: comment.userId === this.botUserId,
     };
 
     const formatted: FormattedContent = this.formatConverter.toAst(text);
 
     const raw: LinearRawMessage = {
       comment,
-      organizationId: undefined,
+      organizationId,
     };
 
     return new Message<LinearRawMessage>({
@@ -495,6 +959,7 @@ export class LinearAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
+    const client = this.getClient();
     const { issueId, commentId } = this.decodeThreadId(threadId);
 
     // Render message to markdown
@@ -511,7 +976,7 @@ export class LinearAdapter
 
     // Create the comment via Linear SDK
     // If commentId is present, reply under that comment (comment-level thread)
-    const commentPayload = await this.linearClient.createComment({
+    const commentPayload = await client.createComment({
       issueId,
       body,
       parentId: commentId,
@@ -524,6 +989,7 @@ export class LinearAdapter
         "linear"
       );
     }
+    const organizationId = this.getOrganizationId();
 
     return {
       id: comment.id,
@@ -533,11 +999,12 @@ export class LinearAdapter
           id: comment.id,
           body: comment.body,
           issueId,
-          userId: this._botUserId || "",
+          userId: this.botUserId || "",
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
+        organizationId,
       },
     };
   }
@@ -554,6 +1021,7 @@ export class LinearAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
+    const client = this.getClient();
     const { issueId } = this.decodeThreadId(threadId);
 
     // Render message to markdown
@@ -569,7 +1037,7 @@ export class LinearAdapter
     body = convertEmojiPlaceholders(body, "linear");
 
     // Update the comment via Linear SDK
-    const commentPayload = await this.linearClient.updateComment(messageId, {
+    const commentPayload = await client.updateComment(messageId, {
       body,
     });
 
@@ -577,6 +1045,7 @@ export class LinearAdapter
     if (!comment) {
       throw new AdapterError("Failed to update comment on Linear", "linear");
     }
+    const organizationId = this.getOrganizationId();
 
     return {
       id: comment.id,
@@ -586,11 +1055,12 @@ export class LinearAdapter
           id: comment.id,
           body: comment.body,
           issueId,
-          userId: this._botUserId || "",
+          userId: this.botUserId || "",
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
+        organizationId,
       },
     };
   }
@@ -602,7 +1072,7 @@ export class LinearAdapter
    */
   async deleteMessage(_threadId: string, messageId: string): Promise<void> {
     await this.ensureValidToken();
-    await this.linearClient.deleteComment(messageId);
+    await this.getClient().deleteComment(messageId);
   }
 
   /**
@@ -618,7 +1088,7 @@ export class LinearAdapter
   ): Promise<void> {
     await this.ensureValidToken();
     const emojiStr = this.resolveEmoji(emoji);
-    await this.linearClient.createReaction({
+    await this.getClient().createReaction({
       commentId: messageId,
       emoji: emojiStr,
     });
@@ -678,7 +1148,8 @@ export class LinearAdapter
     issueId: string,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
-    const issue = await this.linearClient.issue(issueId);
+    const issue = await this.getClient().issue(issueId);
+    const organizationId = this.getOrganizationId();
     const commentsConnection = await issue.comments({
       first: options?.limit ?? 50,
     });
@@ -686,7 +1157,8 @@ export class LinearAdapter
     const messages = await this.commentsToMessages(
       commentsConnection.nodes,
       threadId,
-      issueId
+      issueId,
+      organizationId
     );
 
     return {
@@ -706,10 +1178,11 @@ export class LinearAdapter
     commentId: string,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
-    const rootComment = await this.linearClient.comment({ id: commentId });
+    const rootComment = await this.getClient().comment({ id: commentId });
     if (!rootComment) {
       return { messages: [] };
     }
+    const organizationId = this.getOrganizationId();
 
     // Get the children (replies) of the root comment
     const childrenConnection = await rootComment.children({
@@ -720,12 +1193,14 @@ export class LinearAdapter
     const rootMessages = await this.commentsToMessages(
       [rootComment],
       threadId,
-      issueId
+      issueId,
+      organizationId
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
       threadId,
-      issueId
+      issueId,
+      organizationId
     );
 
     return {
@@ -749,7 +1224,8 @@ export class LinearAdapter
       user: LinearFetch<User> | undefined;
     }>,
     threadId: string,
-    issueId: string
+    issueId: string,
+    organizationId?: string
   ): Promise<Message<LinearRawMessage>[]> {
     const messages: Message<LinearRawMessage>[] = [];
 
@@ -760,7 +1236,7 @@ export class LinearAdapter
         userName: user?.displayName || "unknown",
         fullName: user?.name || user?.displayName || "unknown",
         isBot: false,
-        isMe: user?.id === this._botUserId,
+        isMe: user?.id === this.botUserId,
       };
 
       const formatted: FormattedContent = this.formatConverter.toAst(
@@ -793,6 +1269,7 @@ export class LinearAdapter
               updatedAt: comment.updatedAt.toISOString(),
               url: comment.url,
             },
+            organizationId,
           },
         })
       );
@@ -808,7 +1285,7 @@ export class LinearAdapter
     await this.ensureValidToken();
     const { issueId } = this.decodeThreadId(threadId);
 
-    const issue = await this.linearClient.issue(issueId);
+    const issue = await this.getClient().issue(issueId);
 
     return {
       id: threadId,
@@ -901,7 +1378,7 @@ export class LinearAdapter
         userName: "unknown",
         fullName: "unknown",
         isBot: false,
-        isMe: raw.comment.userId === this._botUserId,
+        isMe: raw.comment.userId === this.botUserId,
       },
       metadata: {
         dateSent: raw.comment.createdAt

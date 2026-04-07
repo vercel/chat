@@ -15,7 +15,7 @@ pnpm add @chat-adapter/linear
 
 ## Usage
 
-The adapter auto-detects credentials from `LINEAR_API_KEY` (or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`), `LINEAR_WEBHOOK_SECRET`, and `LINEAR_BOT_USERNAME` environment variables:
+The adapter auto-detects credentials from `LINEAR_API_KEY`, `LINEAR_ACCESS_TOKEN`, `LINEAR_CLIENT_CREDENTIALS_CLIENT_ID`/`LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET`, or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`, plus `LINEAR_WEBHOOK_SECRET` and `LINEAR_BOT_USERNAME`:
 
 ```typescript
 import { Chat } from "chat";
@@ -51,23 +51,61 @@ createLinearAdapter({
 });
 ```
 
-### Option B: OAuth application (recommended)
+### Option B: Pre-obtained OAuth access token
 
-The bot gets its own identity in Linear. The adapter handles token management internally.
-
-1. Go to [Settings > API > Applications](https://linear.app/settings/api/applications/new)
-2. Create an OAuth2 application with your bot's name and icon
-3. **Enable client credentials tokens** in the app settings
-4. Note the **Client ID** and **Client Secret**
+Use this when your app already manages the OAuth flow and you just want the adapter to operate with a single workspace token.
 
 ```typescript
 createLinearAdapter({
+  accessToken: process.env.LINEAR_ACCESS_TOKEN!,
+});
+```
+
+### Option C: Multi-tenant OAuth installs
+
+Use top-level `clientId` / `clientSecret` for Slack-style multi-tenant installs. Each Linear workspace installation is stored separately, webhook requests resolve the correct workspace token by `organizationId`, and `withInstallation()` lets you target a specific organization outside webhook handling.
+
+1. Go to [Settings > API > Applications](https://linear.app/settings/api/applications/new)
+2. Create an OAuth2 application with your bot's name and icon
+4. Note the **Client ID** and **Client Secret**
+
+```typescript
+const adapter = createLinearAdapter({
   clientId: process.env.LINEAR_CLIENT_ID!,
   clientSecret: process.env.LINEAR_CLIENT_SECRET!,
 });
 ```
 
-The adapter uses the client credentials grant to obtain tokens automatically. Tokens are valid for 30 days and auto-refresh when expired. By default it requests `read`, `write`, `comments:create`, and `issues:create`. Override this with `scopes` when your app needs additional permissions such as `app:mentionable`.
+Example callback route:
+
+```typescript
+await bot.initialize();
+const { organizationId } = await adapter.handleOAuthCallback(request, {
+  redirectUri: process.env.LINEAR_REDIRECT_URI!,
+});
+```
+
+Example background job:
+
+```typescript
+await adapter.withInstallation("org-id", async () => {
+  await adapter.postMessage("linear:issue-id", "Hello from a background job");
+});
+```
+
+### Option D: Single-tenant client credentials
+
+If you want app identity without multi-tenant installs, use the explicit `clientCredentials` config. The adapter fetches and refreshes the token automatically.
+
+```typescript
+createLinearAdapter({
+  clientCredentials: {
+    clientId: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID!,
+    clientSecret: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET!,
+    scopes: ["read", "write", "comments:create", "issues:create"],
+  },
+});
+```
 
 ### Making the bot @-mentionable (optional)
 
@@ -85,19 +123,21 @@ https://linear.app/oauth/authorize?
   actor=app
 ```
 
-Then configure the adapter to request the same scopes when it refreshes client credentials tokens:
+If you use single-tenant client credentials, request the same scopes there:
 
 ```typescript
 createLinearAdapter({
-  clientId: process.env.LINEAR_CLIENT_ID!,
-  clientSecret: process.env.LINEAR_CLIENT_SECRET!,
-  scopes: [
-    "read",
-    "write",
-    "comments:create",
-    "issues:create",
-    "app:mentionable",
-  ],
+  clientCredentials: {
+    clientId: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID!,
+    clientSecret: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET!,
+    scopes: [
+      "read",
+      "write",
+      "comments:create",
+      "issues:create",
+      "app:mentionable",
+    ],
+  },
 });
 ```
 
@@ -150,15 +190,16 @@ All options are auto-detected from environment variables when not provided.
 | Option | Required | Description |
 |--------|----------|-------------|
 | `apiKey` | No* | Personal API key. Auto-detected from `LINEAR_API_KEY` |
-| `clientId` | No* | OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
-| `clientSecret` | No* | OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
 | `accessToken` | No* | Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN` |
-| `scopes` | No | OAuth scopes requested for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
+| `clientId` | No* | Multi-tenant OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
+| `clientSecret` | No* | Multi-tenant OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
+| `clientCredentials` | No* | Single-tenant client credentials config |
+| `clientCredentials.scopes` | No | Scopes for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*One of `apiKey`, `clientId`/`clientSecret`, or `accessToken` is required (via config or env vars).
+*One of `apiKey`, `accessToken`, top-level `clientId`/`clientSecret`, or `clientCredentials` is required (via config or env vars).
 
 **`webhookSecret` is required — either via config or `LINEAR_WEBHOOK_SECRET` env var.
 
@@ -168,9 +209,19 @@ All options are auto-detected from environment variables when not provided.
 # API Key auth
 LINEAR_API_KEY=lin_api_xxxxxxxxxxxx
 
-# OR OAuth app auth
+# OR pre-obtained access token
+LINEAR_ACCESS_TOKEN=lin_oauth_xxxxxxxxxxxx
+
+# OR single-tenant client credentials auth
+LINEAR_CLIENT_CREDENTIALS_CLIENT_ID=your-client-id
+LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET=your-client-secret
+# Optional, comma-separated
+LINEAR_CLIENT_CREDENTIALS_SCOPES=read,write,comments:create,issues:create
+
+# OR multi-tenant OAuth installs
 LINEAR_CLIENT_ID=your-client-id
 LINEAR_CLIENT_SECRET=your-client-secret
+LINEAR_REDIRECT_URI=https://your-domain.com/api/linear/install/callback
 
 # Required
 LINEAR_WEBHOOK_SECRET=your-webhook-secret
