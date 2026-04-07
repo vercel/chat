@@ -213,6 +213,30 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
     });
 
+    it("should pass stream options via thread.stream()", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello World",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.stream(textStream, {
+        taskDisplayMode: "plan",
+        stopBlocks: [{ type: "actions" }],
+      });
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "plan",
+          stopBlocks: [{ type: "actions" }],
+        })
+      );
+    });
+
     it("should fall back to post+edit when adapter has no native streaming", async () => {
       // Ensure no stream method
       mockAdapter.stream = undefined;
