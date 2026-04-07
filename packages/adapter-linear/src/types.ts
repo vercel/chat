@@ -96,7 +96,8 @@ export interface LinearAdapterOAuthConfig extends LinearAdapterBaseConfig {
  *
  * @see https://linear.app/developers/oauth-2-0-authentication
  */
-export interface LinearAdapterMultiTenantConfig extends LinearAdapterBaseConfig {
+export interface LinearAdapterMultiTenantConfig
+  extends LinearAdapterBaseConfig {
   accessToken?: never;
   apiKey?: never;
   clientCredentials?: never;

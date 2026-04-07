@@ -28,7 +28,6 @@ import { LinearFormatConverter } from "./markdown";
 import type {
   CommentWebhookPayload,
   LinearAdapterAutoConfig,
-  LinearAdapterClientCredentialsConfig,
   LinearAdapterConfig,
   LinearAdapterMultiTenantConfig,
   LinearClientCredentialsConfig,
@@ -39,7 +38,6 @@ import type {
   LinearThreadId,
   LinearWebhookActor,
   LinearWebhookPayload,
-  OAuthAppRevokedWebhookPayload,
   ReactionWebhookPayload,
 } from "./types";
 
@@ -98,10 +96,10 @@ export type {
   LinearAdapterClientCredentialsConfig,
   LinearAdapterConfig,
   LinearAdapterMultiTenantConfig,
+  LinearAdapterOAuthConfig,
   LinearClientCredentialsConfig,
   LinearInstallation,
   LinearOAuthCallbackOptions,
-  LinearAdapterOAuthConfig,
   LinearRawMessage,
   LinearThreadId,
 } from "./types";
@@ -162,7 +160,8 @@ export class LinearAdapter
   private _botUserId: string | null = null;
   private defaultOrganizationId: string | null = null;
   private readonly formatConverter = new LinearFormatConverter();
-  private readonly requestContext = new AsyncLocalStorage<LinearRequestContext>();
+  private readonly requestContext =
+    new AsyncLocalStorage<LinearRequestContext>();
 
   private defaultClient: LinearClient | null = null;
   private readonly oauthClientId: string | null = null;
@@ -176,7 +175,9 @@ export class LinearAdapter
 
   /** Bot user ID used for self-message detection */
   get botUserId(): string | undefined {
-    return this.requestContext.getStore()?.botUserId ?? this._botUserId ?? undefined;
+    return (
+      this.requestContext.getStore()?.botUserId ?? this._botUserId ?? undefined
+    );
   }
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
@@ -522,13 +523,16 @@ export class LinearAdapter
     let organizationId: string | undefined = organization?.id;
 
     if (!organizationId) {
-      const fallback = await client.client.rawRequest<{
-        viewer?: {
-          organization?: {
-            id?: string;
+      const fallback = await client.client.rawRequest<
+        {
+          viewer?: {
+            organization?: {
+              id?: string;
+            };
           };
-        };
-      }, Record<string, never>>(/* GraphQL */ `
+        },
+        Record<string, never>
+      >(/* GraphQL */ `
         query LinearAdapterViewerOrganization {
           viewer {
             organization {
@@ -585,7 +589,13 @@ export class LinearAdapter
   private async refreshInstallation(
     installation: LinearInstallation
   ): Promise<LinearInstallation> {
-    if (!(installation.refreshToken && this.oauthClientId && this.oauthClientSecret)) {
+    if (
+      !(
+        installation.refreshToken &&
+        this.oauthClientId &&
+        this.oauthClientSecret
+      )
+    ) {
       return installation;
     }
 
@@ -613,7 +623,10 @@ export class LinearAdapter
       refreshToken: token.refresh_token ?? installation.refreshToken,
     };
 
-    await this.setInstallation(installation.organizationId, refreshedInstallation);
+    await this.setInstallation(
+      installation.organizationId,
+      refreshedInstallation
+    );
     return refreshedInstallation;
   }
 

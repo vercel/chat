@@ -56,7 +56,11 @@ function setDefaultOrganizationId(
 
 function setClientCredentialsState(
   adapter: LinearAdapter,
-  clientCredentials: { clientId: string; clientSecret: string; scopes?: string[] },
+  clientCredentials: {
+    clientId: string;
+    clientSecret: string;
+    scopes?: string[];
+  },
   accessTokenExpiry?: number | null
 ): void {
   (
@@ -1918,7 +1922,10 @@ describe("initialize", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
       botUserId: "viewer-id-123",
       displayName: "My Bot",
       organizationId: "org-123",
@@ -2316,7 +2323,10 @@ describe("initialize", () => {
         }),
     });
     vi.stubGlobal("fetch", mockFetch);
-    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
       botUserId: "viewer-id-123",
       displayName: "My Bot",
       organizationId: "org-123",
@@ -2428,7 +2438,10 @@ describe("multi-tenant installations", () => {
         }),
     });
     vi.stubGlobal("fetch", mockFetch);
-    vi.spyOn(adapter as never, "fetchClientIdentity" as never).mockResolvedValue({
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
       botUserId: "bot-user-id",
       displayName: "Linear App",
       organizationId: "org-123",
@@ -2464,7 +2477,9 @@ describe("multi-tenant installations", () => {
         }),
         { redirectUri: "https://example.com/api/linear/install/callback" }
       )
-    ).rejects.toThrow("Linear OAuth failed: access_denied - user denied access");
+    ).rejects.toThrow(
+      "Linear OAuth failed: access_denied - user denied access"
+    );
 
     await expect(
       adapter.handleOAuthCallback(buildOAuthCallbackRequest({}), {

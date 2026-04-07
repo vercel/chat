@@ -19,7 +19,9 @@ export async function GET(request: Request) {
     const { organizationId } = await adapter.handleOAuthCallback(request, {
       redirectUri,
     });
-    return new Response(`Linear app installed for organization ${organizationId}!`);
+    return new Response(
+      `Linear app installed for organization ${organizationId}!`
+    );
   } catch (error) {
     console.error("[linear/install/callback] OAuth error:", error);
     return new Response("OAuth installation failed", { status: 500 });
