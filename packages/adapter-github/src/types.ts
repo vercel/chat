@@ -287,6 +287,11 @@ export type GitHubRawMessage =
       comment: GitHubIssueComment;
       repository: GitHubRepository;
       prNumber: number;
+      /**
+       * Whether this comment is on a PR or a plain issue.
+       * Defaults to "pr" when omitted for backward compatibility.
+       */
+      threadType?: "pr" | "issue";
     }
   | {
       type: "review_comment";

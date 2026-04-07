@@ -488,7 +488,8 @@ export class GitHubAdapter
       comment,
       repository,
       issue.number,
-      threadId
+      threadId,
+      isPR ? "pr" : "issue"
     );
 
     // Check if this is from the bot itself
@@ -556,7 +557,8 @@ export class GitHubAdapter
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
-    threadId: string
+    threadId: string,
+    threadType: "pr" | "issue" = "pr"
   ): Message<GitHubRawMessage> {
     const author = this.parseAuthor(comment.user);
 
@@ -575,6 +577,7 @@ export class GitHubAdapter
           owner: repository.owner,
         },
         prNumber,
+        threadType,
       },
       author,
       metadata: {
@@ -661,7 +664,7 @@ export class GitHubAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
 
     const octokit = await this.getOctokitForThread(owner, repo);
@@ -706,7 +709,7 @@ export class GitHubAdapter
         },
       };
     }
-    // PR-level thread - issue comment
+    // PR-level or issue-level thread - issue comment
     const { data: comment } = await octokit.issues.createComment({
       owner,
       repo,
@@ -727,6 +730,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -739,7 +743,7 @@ export class GitHubAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const commentId = Number.parseInt(messageId, 10);
 
@@ -803,6 +807,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -996,7 +1001,7 @@ export class GitHubAdapter
     threadId: string,
     options?: FetchOptions
   ): Promise<FetchResult<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const limit = options?.limit ?? 100;
     const direction = options?.direction ?? "backward";
@@ -1047,7 +1052,8 @@ export class GitHubAdapter
             name: repo,
           },
           prNumber,
-          threadId
+          threadId,
+          type ?? "pr"
         )
       );
     }
@@ -1279,6 +1285,7 @@ export class GitHubAdapter
               owner: { id: 0, login: owner, type: "User" },
             },
             prNumber: pr.number,
+            threadType: "pr",
           },
           author: this.parseAuthor(pr.user as GitHubUser),
           metadata: {
@@ -1349,16 +1356,19 @@ export class GitHubAdapter
    */
   parseMessage(raw: GitHubRawMessage): Message<GitHubRawMessage> {
     if (raw.type === "issue_comment") {
+      const threadType = raw.threadType ?? "pr";
       const threadId = this.encodeThreadId({
         owner: raw.repository.owner.login,
         repo: raw.repository.name,
         prNumber: raw.prNumber,
+        type: threadType,
       });
       return this.parseIssueComment(
         raw.comment,
         { owner: raw.repository.owner, name: raw.repository.name },
         raw.prNumber,
-        threadId
+        threadId,
+        threadType
       );
     }
     const rootCommentId = raw.comment.in_reply_to_id ?? raw.comment.id;

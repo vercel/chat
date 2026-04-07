@@ -1388,6 +1388,62 @@ describe("GitHubAdapter", () => {
       expect(message.author.isBot).toBe(false);
     });
 
+    it("should parse an issue_comment raw message from an issue thread", () => {
+      const raw = {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body: "Issue comment",
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/issues/10#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 10,
+        threadType: "issue" as const,
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.id).toBe("100");
+      expect(message.threadId).toBe("github:acme/app:issue:10");
+      expect(message.text).toBe("Issue comment");
+      expect(message.raw.type).toBe("issue_comment");
+      if (message.raw.type === "issue_comment") {
+        expect(message.raw.threadType).toBe("issue");
+      }
+    });
+
+    it("should default to PR thread format when threadType is omitted", () => {
+      const raw = {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body: "Test comment",
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+        // threadType omitted — should default to PR format
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.threadId).toBe("github:acme/app:42");
+    });
+
     it("should parse a review_comment raw message (root comment)", () => {
       const raw = {
         type: "review_comment" as const,
