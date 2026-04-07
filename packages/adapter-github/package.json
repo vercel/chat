@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/github",
   "version": "4.24.0",
-  "description": "GitHub adapter for chat - PR comment threads",
+  "description": "GitHub adapter for chat - PR and issue comment threads",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -53,6 +53,7 @@
     "bot",
     "adapter",
     "pull-request",
+    "issue",
     "code-review"
   ],
   "license": "MIT"
