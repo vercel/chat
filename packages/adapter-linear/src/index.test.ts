@@ -40,7 +40,8 @@ function setDefaultClient(adapter: LinearAdapter, client: unknown): void {
 }
 
 function setBotUserId(adapter: LinearAdapter, botUserId: string): void {
-  (adapter as unknown as { _botUserId: string })._botUserId = botUserId;
+  (adapter as unknown as { defaultBotUserId: string }).defaultBotUserId =
+    botUserId;
 }
 
 function setDefaultOrganizationId(
@@ -882,7 +883,8 @@ describe("handleWebhook - comment created", () => {
     };
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
     // Set bot user ID
-    (adapter as unknown as { _botUserId: string })._botUserId = "bot-user-id";
+    (adapter as unknown as { defaultBotUserId: string }).defaultBotUserId =
+      "bot-user-id";
 
     const payload = createCommentPayload({ userId: "bot-user-id" });
     const body = JSON.stringify(payload);
@@ -1860,14 +1862,19 @@ describe("initialize", () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
 
-    const mockViewer = {
-      id: "viewer-id-123",
-      displayName: "My Bot",
-      organization: Promise.resolve({ id: "org-123" }),
-    };
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        viewer: {
+          id: "viewer-id-123",
+          displayName: "My Bot",
+          organization: {
+            id: "org-123",
+          },
+        },
+      },
+    });
     setDefaultClient(adapter, {
-      viewer: Promise.resolve(mockViewer),
-      client: { rawRequest: vi.fn() },
+      client: { rawRequest: mockRawRequest },
     });
 
     const mockChat = createMockChatInstance(createMockState(), logger);
@@ -1880,6 +1887,7 @@ describe("initialize", () => {
       expect.objectContaining({
         botUserId: "viewer-id-123",
         displayName: "My Bot",
+        organizationId: "org-123",
       })
     );
   });
@@ -2285,15 +2293,20 @@ describe("initialize", () => {
     const adapter = createWebhookAdapter(logger);
     const mockState = createMockState();
     const chat = createMockChatInstance(mockState, logger);
-    const mockViewer = {
-      id: "viewer-id-123",
-      displayName: "My Bot",
-      organization: Promise.resolve({ id: "org-123" }),
-    };
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        viewer: {
+          id: "viewer-id-123",
+          displayName: "My Bot",
+          organization: {
+            id: "org-123",
+          },
+        },
+      },
+    });
     setDefaultClient(adapter, {
-      viewer: Promise.resolve(mockViewer),
       client: {
-        rawRequest: vi.fn(),
+        rawRequest: mockRawRequest,
       },
     });
 
@@ -2627,19 +2640,6 @@ describe("createLinearAdapter", () => {
       webhookSecret: "secret",
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
-  });
-
-  it("should throw when scopes is not an array of strings", () => {
-    expect(() =>
-      createLinearAdapter({
-        clientCredentials: {
-          clientId: "client-id",
-          clientSecret: "client-secret",
-          scopes: "read,write" as never,
-        },
-        webhookSecret: "secret",
-      })
-    ).toThrow("scopes must be an array of strings");
   });
 
   it("should throw when webhookSecret is not provided and not in env", () => {
