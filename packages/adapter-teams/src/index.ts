@@ -11,6 +11,9 @@ import type {
   IAdaptiveCardActionInvokeActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  ITaskFetchInvokeActivity,
+  ITaskSubmitInvokeActivity,
+  TaskModuleResponse,
 } from "@microsoft/teams.api";
 import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
 import type { IActivityContext } from "@microsoft/teams.apps";
@@ -30,6 +33,7 @@ import type {
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
+  ModalElement,
   RawMessage,
   ReactionEvent,
   StreamChunk,
@@ -50,6 +54,11 @@ import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
 import { TeamsFormatConverter } from "./markdown";
+import {
+  modalResponseToTaskModuleResponse,
+  modalToAdaptiveCard,
+  parseDialogSubmitValues,
+} from "./modals";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
   TeamsAdapterConfig,
@@ -57,9 +66,16 @@ import type {
   TeamsThreadId,
 } from "./types";
 
+/** Data payload from an Action.Submit button click. */
+interface ActionSubmitData {
+  actionId?: string;
+  value?: string;
+}
+
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly name = "teams";
@@ -85,6 +101,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     // Convert our public config (appId/appPassword/appTenantId) to Teams SDK AppOptions
     this.app = new App({
       ...toAppOptions(config),
+      client: {
+        headers: { "X-User-Agent": "Vercel.ChatSDK" },
+      },
       httpServerAdapter: this.bridgeAdapter,
     });
 
@@ -122,6 +141,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         value: "",
       };
     });
+
+    this.app.on(
+      "dialog.open",
+      async (ctx: IActivityContext<ITaskFetchInvokeActivity>) => {
+        this.cacheUserContext(ctx.activity);
+        return this.handleDialogOpen(ctx);
+      }
+    );
+
+    this.app.on(
+      "dialog.submit",
+      async (ctx: IActivityContext<ITaskSubmitInvokeActivity>) => {
+        this.cacheUserContext(ctx.activity);
+        return this.handleDialogSubmit(ctx);
+      }
+    );
 
     this.app.on("conversationUpdate", async (ctx) => {
       this.cacheUserContext(ctx.activity);
@@ -251,9 +286,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const activity = ctx.activity;
 
     // Check if this message activity is actually a button click (Action.Submit)
-    const actionValue = activity.value as
-      | { actionId?: string; value?: string }
-      | undefined;
+    const actionValue = activity.value as ActionSubmitData | undefined;
     if (actionValue?.actionId) {
       this.handleMessageAction(activity, actionValue);
       return;
@@ -293,7 +326,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    */
   private handleMessageAction(
     activity: Activity,
-    actionValue: { actionId?: string; value?: string }
+    actionValue: ActionSubmitData
   ): void {
     if (!(this.chat && actionValue.actionId)) {
       return;
@@ -346,10 +379,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const activity = ctx.activity;
-    const actionData = activity.value.action.data as {
-      actionId?: string;
-      value?: string;
-    };
+    const actionData = activity.value.action.data as ActionSubmitData;
 
     if (!actionData.actionId) {
       this.logger.debug("Adaptive card action missing actionId", {
@@ -392,6 +422,151 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       actionEvent,
       this.bridgeAdapter.getWebhookOptions(activity.id)
     );
+  }
+
+  /**
+   * Handle dialog.open (task/fetch) invoke.
+   * Uses Promise.race to resolve as soon as onOpenModal fires.
+   */
+  private async handleDialogOpen(
+    ctx: IActivityContext<ITaskFetchInvokeActivity>
+  ): Promise<TaskModuleResponse | undefined> {
+    if (!this.chat) {
+      return undefined;
+    }
+
+    const activity = ctx.activity;
+    const actionData = (activity.value?.data || {}) as ActionSubmitData;
+
+    const threadId = this.encodeThreadId({
+      conversationId: activity.conversation?.id || "",
+      serviceUrl: activity.serviceUrl || "",
+    });
+
+    let resolveModal: (result: {
+      modal: ModalElement;
+      contextId: string;
+    }) => void;
+    const modalPromise = new Promise<{
+      modal: ModalElement;
+      contextId: string;
+    }>((resolve) => {
+      resolveModal = resolve;
+    });
+
+    const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
+      adapter: TeamsAdapter;
+    } = {
+      actionId: actionData.actionId || "dialog.open",
+      value: actionData.value,
+      user: {
+        userId: activity.from?.id || "unknown",
+        userName: activity.from?.name || "unknown",
+        fullName: activity.from?.name || "unknown",
+        isBot: false,
+        isMe: false,
+      },
+      messageId: activity.replyToId || activity.id || "",
+      threadId,
+      adapter: this,
+      raw: activity,
+      // No triggerId — onOpenModal bypasses the guard
+    };
+
+    this.logger.debug("Processing Teams dialog.open", {
+      actionId: actionEvent.actionId,
+      threadId,
+    });
+
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const actionPromise = this.chat.processAction(actionEvent, {
+      waitUntil: webhookOptions?.waitUntil ?? (() => {}),
+      onOpenModal: async (modal, contextId) => {
+        resolveModal({ modal, contextId });
+        return { viewId: contextId };
+      },
+    });
+
+    const result = await Promise.race([
+      modalPromise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(
+          () => resolve(null),
+          this.config.dialogOpenTimeoutMs ?? DEFAULT_DIALOG_OPEN_TIMEOUT_MS
+        );
+      }),
+      // If the action handler finishes without calling openModal, resolve
+      // immediately instead of waiting for the timeout.
+      actionPromise.then(() => null),
+    ]);
+
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    if (result) {
+      const card = modalToAdaptiveCard(
+        result.modal,
+        result.contextId,
+        result.modal.callbackId
+      );
+      return {
+        task: {
+          type: "continue" as const,
+          value: {
+            title: result.modal.title || "Dialog",
+            card: {
+              contentType: "application/vnd.microsoft.card.adaptive",
+              content: card,
+            },
+          },
+        },
+      };
+    }
+
+    this.logger.warn("dialog.open timed out waiting for onOpenModal");
+    return undefined;
+  }
+
+  /**
+   * Handle dialog.submit (task/submit) invoke.
+   */
+  private async handleDialogSubmit(
+    ctx: IActivityContext<ITaskSubmitInvokeActivity>
+  ): Promise<TaskModuleResponse | undefined> {
+    if (!this.chat) {
+      return undefined;
+    }
+
+    const activity = ctx.activity;
+    const data = (activity.value?.data || {}) as Record<string, unknown>;
+    const { contextId, callbackId, values } = parseDialogSubmitValues(data);
+
+    const event = {
+      callbackId: callbackId || "",
+      viewId: activity.id || "",
+      values,
+      privateMetadata: undefined,
+      user: {
+        userId: activity.from?.id || "unknown",
+        userName: activity.from?.name || "unknown",
+        fullName: activity.from?.name || "unknown",
+        isBot: false,
+        isMe: false,
+      },
+      adapter: this,
+      raw: activity,
+    };
+
+    this.logger.debug("Processing Teams dialog.submit", {
+      callbackId,
+      contextId,
+    });
+
+    const response = await this.chat.processModalSubmit(event, contextId);
+    return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
 
   /**

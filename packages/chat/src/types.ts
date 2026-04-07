@@ -147,6 +147,19 @@ export interface ChatConfig<
  */
 export interface WebhookOptions {
   /**
+   * Override the default modal-opening behavior to handle it inline
+   * within the current webhook response cycle.
+   * When provided, called instead of adapter.openModal().
+   * Used by Teams to return modal content in the HTTP invoke response.
+   *
+   * The returned `viewId` is platform-specific (e.g. Slack's view ID).
+   * Adapters that don't produce a view ID may return void.
+   */
+  onOpenModal?: (
+    modal: ModalElement,
+    contextId: string
+  ) => Promise<{ viewId: string } | undefined>;
+  /**
    * Function to run message handling in the background.
    * Use this to ensure fast webhook responses while processing continues.
    *
@@ -526,8 +539,8 @@ export interface ChatInstance {
    */
   processAction(
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
-    options?: WebhookOptions
-  ): void;
+    options: WebhookOptions | undefined
+  ): Promise<void>;
 
   processAppHomeOpened(
     event: AppHomeOpenedEvent,
@@ -620,7 +633,7 @@ export interface ChatInstance {
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions
+    options: WebhookOptions | undefined
   ): void;
 }
 
@@ -1957,7 +1970,7 @@ export type ModalResponse =
 export type ModalSubmitHandler = (
   event: ModalSubmitEvent
   // biome-ignore lint/suspicious/noConfusingVoidType: void is needed for sync handlers that return nothing
-) => void | Promise<ModalResponse | undefined>;
+) => void | Promise<ModalResponse | void | undefined>;
 
 export type ModalCloseHandler = (
   event: ModalCloseEvent

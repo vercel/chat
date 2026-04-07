@@ -961,7 +961,7 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1005,8 +1005,8 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(approveEvent);
-      chat.processAction(skipEvent);
+      chat.processAction(approveEvent, undefined);
+      chat.processAction(skipEvent, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalledTimes(1);
@@ -1033,7 +1033,7 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1058,7 +1058,7 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).not.toHaveBeenCalled();
@@ -1083,7 +1083,7 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1114,7 +1114,7 @@ describe("Chat", () => {
         raw: {},
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 20));
 
       expect(handler).toHaveBeenCalled();
@@ -1147,7 +1147,7 @@ describe("Chat", () => {
         triggerId: "trigger-123",
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1207,7 +1207,7 @@ describe("Chat", () => {
         triggerId: "trigger-123",
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       // Call openModal with a JSX Modal element
@@ -1255,7 +1255,7 @@ describe("Chat", () => {
         // No triggerId
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1304,7 +1304,7 @@ describe("Chat", () => {
         triggerId: "trigger-123",
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -1347,7 +1347,7 @@ describe("Chat", () => {
         triggerId: "trigger-456",
       };
 
-      chat.processAction(event);
+      chat.processAction(event, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(handler).toHaveBeenCalled();
@@ -2075,7 +2075,7 @@ describe("Chat", () => {
         triggerId: "trigger-action-123",
       };
 
-      chat.processAction(actionEvent);
+      chat.processAction(actionEvent, undefined);
       await new Promise((r) => setTimeout(r, 10));
 
       expect(actionHandler).toHaveBeenCalled();

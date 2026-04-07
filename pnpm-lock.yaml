@@ -412,6 +412,9 @@ importers:
       '@microsoft/teams.apps':
         specifier: ^2.0.6
         version: 2.0.6
+      '@microsoft/teams.cards':
+        specifier: ^2.0.6
+        version: 2.0.6
       '@microsoft/teams.graph-endpoints':
         specifier: ^2.0.6
         version: 2.0.6

@@ -11,6 +11,23 @@ import {
   cardToFallbackText as sharedCardToFallbackText,
 } from "@chat-adapter/shared";
 import type {
+  ActionArray,
+  ActionStyle,
+  CardElementArray,
+} from "@microsoft/teams.cards";
+import {
+  AdaptiveCard,
+  Image as AdaptiveImage,
+  Column,
+  ColumnSet,
+  Container,
+  Fact,
+  FactSet,
+  OpenUrlAction,
+  SubmitAction,
+  TextBlock,
+} from "@microsoft/teams.cards";
+import type {
   ActionsElement,
   ButtonElement,
   CardChild,
@@ -30,67 +47,41 @@ import { cardChildToFallbackText } from "chat";
  */
 const convertEmoji = createEmojiConverter("teams");
 
-// Adaptive Card types (simplified)
-export interface AdaptiveCard {
-  $schema: string;
-  actions?: AdaptiveCardAction[];
-  body: AdaptiveCardElement[];
-  type: "AdaptiveCard";
-  version: string;
-}
-
-export interface AdaptiveCardElement {
-  type: string;
-  [key: string]: unknown;
-}
-
-export interface AdaptiveCardAction {
-  data?: Record<string, unknown>;
-  style?: string;
-  title: string;
-  type: string;
-  url?: string;
-}
-
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
-const ADAPTIVE_CARD_VERSION = "1.4";
+const ADAPTIVE_CARD_VERSION = "1.4" as const;
 
 /**
  * Convert a CardElement to a Teams Adaptive Card.
  */
 export function cardToAdaptiveCard(card: CardElement): AdaptiveCard {
-  const body: AdaptiveCardElement[] = [];
-  const actions: AdaptiveCardAction[] = [];
+  const body: CardElementArray = [];
+  const actions: ActionArray = [];
 
   // Add title as TextBlock
   if (card.title) {
-    body.push({
-      type: "TextBlock",
-      text: convertEmoji(card.title),
-      weight: "bolder",
-      size: "large",
-      wrap: true,
-    });
+    body.push(
+      new TextBlock(convertEmoji(card.title), {
+        weight: "Bolder",
+        size: "Large",
+        wrap: true,
+      })
+    );
   }
 
   // Add subtitle as TextBlock
   if (card.subtitle) {
-    body.push({
-      type: "TextBlock",
-      text: convertEmoji(card.subtitle),
-      isSubtle: true,
-      wrap: true,
-    });
+    body.push(
+      new TextBlock(convertEmoji(card.subtitle), {
+        isSubtle: true,
+        wrap: true,
+      })
+    );
   }
 
   // Add header image if present
   if (card.imageUrl) {
-    body.push({
-      type: "Image",
-      url: card.imageUrl,
-      size: "stretch",
-    });
+    body.push(new AdaptiveImage(card.imageUrl, { size: "Stretch" }));
   }
 
   // Convert children
@@ -100,23 +91,21 @@ export function cardToAdaptiveCard(card: CardElement): AdaptiveCard {
     actions.push(...result.actions);
   }
 
-  const adaptiveCard: AdaptiveCard = {
-    type: "AdaptiveCard",
+  const adaptiveCard = new AdaptiveCard(...body).withOptions({
     $schema: ADAPTIVE_CARD_SCHEMA,
     version: ADAPTIVE_CARD_VERSION,
-    body,
-  };
+  });
 
   if (actions.length > 0) {
-    adaptiveCard.actions = actions;
+    adaptiveCard.withActions(...actions);
   }
 
   return adaptiveCard;
 }
 
 interface ConvertResult {
-  actions: AdaptiveCardAction[];
-  elements: AdaptiveCardElement[];
+  actions: ActionArray;
+  elements: CardElementArray;
 }
 
 /**
@@ -139,11 +128,9 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
     case "link":
       return {
         elements: [
-          {
-            type: "TextBlock",
-            text: `[${convertEmoji(child.label)}](${child.url})`,
+          new TextBlock(`[${convertEmoji(child.label)}](${child.url})`, {
             wrap: true,
-          },
+          }),
         ],
         actions: [],
       };
@@ -153,7 +140,7 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
       const text = cardChildToFallbackText(child);
       if (text) {
         return {
-          elements: [{ type: "TextBlock", text, wrap: true }],
+          elements: [new TextBlock(text, { wrap: true })],
           actions: [],
         };
       }
@@ -162,45 +149,35 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
   }
 }
 
-function convertTextToElement(element: TextElement): AdaptiveCardElement {
-  const textBlock: AdaptiveCardElement = {
-    type: "TextBlock",
-    text: convertEmoji(element.content),
+function convertTextToElement(element: TextElement): TextBlock {
+  const options: { wrap: boolean; weight?: "Bolder"; isSubtle?: boolean } = {
     wrap: true,
   };
 
   if (element.style === "bold") {
-    textBlock.weight = "bolder";
+    options.weight = "Bolder";
   } else if (element.style === "muted") {
-    textBlock.isSubtle = true;
+    options.isSubtle = true;
   }
 
-  return textBlock;
+  return new TextBlock(convertEmoji(element.content), options);
 }
 
-function convertImageToElement(element: ImageElement): AdaptiveCardElement {
-  return {
-    type: "Image",
-    url: element.url,
+function convertImageToElement(element: ImageElement): AdaptiveImage {
+  return new AdaptiveImage(element.url, {
     altText: element.alt || "Image",
-    size: "auto",
-  };
+    size: "Auto",
+  });
 }
 
-function convertDividerToElement(
-  _element: DividerElement
-): AdaptiveCardElement {
+function convertDividerToElement(_element: DividerElement): Container {
   // Adaptive Cards don't have a native divider, use a separator container
-  return {
-    type: "Container",
-    separator: true,
-    items: [],
-  };
+  return new Container().withSeparator(true);
 }
 
 function convertActionsToElements(element: ActionsElement): ConvertResult {
   // In Adaptive Cards, actions go at the card level, not inline
-  const actions: AdaptiveCardAction[] = element.children
+  const actions: ActionArray = element.children
     .filter((child) => child.type === "button" || child.type === "link-button")
     .map((button) => {
       if (button.type === "link-button") {
@@ -212,47 +189,57 @@ function convertActionsToElements(element: ActionsElement): ConvertResult {
   return { elements: [], actions };
 }
 
-function convertButtonToAction(button: ButtonElement): AdaptiveCardAction {
-  const action: AdaptiveCardAction = {
-    type: "Action.Submit",
-    title: convertEmoji(button.label),
-    data: {
-      actionId: button.id,
-      value: button.value,
-    },
+function convertButtonToAction(button: ButtonElement): SubmitAction {
+  const data: Record<string, unknown> = {
+    actionId: button.id,
+    value: button.value,
   };
 
-  const style = mapButtonStyle(button.style, "teams");
-  if (style) {
-    action.style = style;
+  // Add task/fetch hint for dialog-opening buttons
+  if (button.actionType === "modal") {
+    data.msteams = { type: "task/fetch" };
   }
 
-  return action;
+  const options: {
+    title: string;
+    data: Record<string, unknown>;
+    style?: ActionStyle;
+  } = {
+    title: convertEmoji(button.label),
+    data,
+  };
+
+  const style = mapButtonStyle(button.style, "teams") as
+    | ActionStyle
+    | undefined;
+  if (style) {
+    options.style = style;
+  }
+
+  return new SubmitAction(options);
 }
 
-function convertLinkButtonToAction(
-  button: LinkButtonElement
-): AdaptiveCardAction {
-  const action: AdaptiveCardAction = {
-    type: "Action.OpenUrl",
+function convertLinkButtonToAction(button: LinkButtonElement): OpenUrlAction {
+  const options: { title: string; style?: ActionStyle } = {
     title: convertEmoji(button.label),
-    url: button.url,
   };
 
-  const style = mapButtonStyle(button.style, "teams");
+  const style = mapButtonStyle(button.style, "teams") as
+    | ActionStyle
+    | undefined;
   if (style) {
-    action.style = style;
+    options.style = style;
   }
 
-  return action;
+  return new OpenUrlAction(button.url, options);
 }
 
 function convertSectionToElements(element: SectionElement): ConvertResult {
-  const elements: AdaptiveCardElement[] = [];
-  const actions: AdaptiveCardAction[] = [];
+  const elements: CardElementArray = [];
+  const actions: ActionArray = [];
 
   // Wrap section in a container
-  const containerItems: AdaptiveCardElement[] = [];
+  const containerItems: CardElementArray = [];
 
   for (const child of element.children) {
     const result = convertChildToAdaptive(child);
@@ -261,67 +248,41 @@ function convertSectionToElements(element: SectionElement): ConvertResult {
   }
 
   if (containerItems.length > 0) {
-    elements.push({
-      type: "Container",
-      items: containerItems,
-    });
+    elements.push(new Container(...containerItems));
   }
 
   return { elements, actions };
 }
 
-function convertTableToElement(element: TableElement): AdaptiveCardElement {
+function convertTableToElement(element: TableElement): Container {
   // Adaptive Cards Table element
-  const columns = element.headers.map((header) => ({
-    type: "Column",
-    width: "stretch",
-    items: [
-      {
-        type: "TextBlock",
-        text: convertEmoji(header),
-        weight: "bolder",
-        wrap: true,
-      },
-    ],
-  }));
+  const headerColumns = element.headers.map((header) =>
+    new Column(
+      new TextBlock(convertEmoji(header), { weight: "Bolder", wrap: true })
+    ).withOptions({ width: "stretch" })
+  );
 
-  const headerRow = {
-    type: "ColumnSet",
-    columns,
-  };
+  const headerRow = new ColumnSet().withColumns(...headerColumns);
 
-  const dataRows = element.rows.map((row) => ({
-    type: "ColumnSet",
-    columns: row.map((cell) => ({
-      type: "Column",
-      width: "stretch",
-      items: [
-        {
-          type: "TextBlock",
-          text: convertEmoji(cell),
-          wrap: true,
-        },
-      ],
-    })),
-  }));
+  const dataRows = element.rows.map((row) => {
+    const cols = row.map((cell) =>
+      new Column(new TextBlock(convertEmoji(cell), { wrap: true })).withOptions(
+        { width: "stretch" }
+      )
+    );
+    return new ColumnSet().withColumns(...cols);
+  });
 
-  return {
-    type: "Container",
-    items: [headerRow, ...dataRows],
-  };
+  return new Container(headerRow, ...dataRows);
 }
 
-function convertFieldsToElement(element: FieldsElement): AdaptiveCardElement {
+function convertFieldsToElement(element: FieldsElement): FactSet {
   // Use FactSet for key-value pairs
-  const facts = element.children.map((field) => ({
-    title: convertEmoji(field.label),
-    value: convertEmoji(field.value),
-  }));
+  const facts = element.children.map(
+    (field) => new Fact(convertEmoji(field.label), convertEmoji(field.value))
+  );
 
-  return {
-    type: "FactSet",
-    facts,
-  };
+  return new FactSet(...facts);
 }
 
 /**

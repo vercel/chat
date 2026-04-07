@@ -27,6 +27,7 @@
     "@chat-adapter/shared": "workspace:*",
     "@microsoft/teams.api": "^2.0.6",
     "@microsoft/teams.apps": "^2.0.6",
+    "@microsoft/teams.cards": "^2.0.6",
     "@microsoft/teams.graph-endpoints": "^2.0.6",
     "chat": "workspace:*"
   },

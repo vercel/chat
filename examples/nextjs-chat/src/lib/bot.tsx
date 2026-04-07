@@ -117,11 +117,13 @@ bot.onNewMention(async (thread, message) => {
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
         <Button id="choose_plan">Choose Plan</Button>
-        <Button id="feedback">Send Feedback</Button>
+        <Button actionType="modal" id="feedback">
+          Send Feedback
+        </Button>
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="show-table">Show Table</Button>
-        <Button id="report" value="bug">
+        <Button actionType="modal" id="report" value="bug">
           Report Bug
         </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
@@ -211,7 +213,7 @@ bot.onAction("ephemeral", async (event) => {
       </Text>
       <Text>Try opening a modal from this ephemeral:</Text>
       <Actions>
-        <Button id="ephemeral_modal" style="primary">
+        <Button actionType="modal" id="ephemeral_modal" style="primary">
           Open Modal
         </Button>
       </Actions>
@@ -237,7 +239,6 @@ bot.onAction("ephemeral_modal", async (event) => {
   );
 });
 
-// @ts-expect-error async void handler vs ModalSubmitHandler return type
 bot.onModalSubmit("ephemeral_modal_form", async (event) => {
   await event.relatedMessage?.edit(
     <Card title={`${emoji.check} Submitted!`}>
