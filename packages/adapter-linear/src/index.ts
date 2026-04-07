@@ -51,21 +51,6 @@ const DEFAULT_CLIENT_CREDENTIAL_SCOPES = [
   "issues:create",
 ];
 
-function resolveClientCredentialScopes(scopes?: string[]): string[] {
-  if (scopes === undefined) {
-    return [...DEFAULT_CLIENT_CREDENTIAL_SCOPES];
-  }
-
-  if (
-    !Array.isArray(scopes) ||
-    scopes.some((scope) => typeof scope !== "string")
-  ) {
-    throw new ValidationError("linear", "scopes must be an array of strings");
-  }
-
-  return [...scopes];
-}
-
 function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
   if (!value) {
     return undefined;
@@ -157,7 +142,7 @@ export class LinearAdapter
   private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
-  private _botUserId: string | null = null;
+  private defaultBotUserId: string | null = null;
   private defaultOrganizationId: string | null = null;
   private readonly formatConverter = new LinearFormatConverter();
   private readonly requestContext =
@@ -176,7 +161,9 @@ export class LinearAdapter
   /** Bot user ID used for self-message detection */
   get botUserId(): string | undefined {
     return (
-      this.requestContext.getStore()?.botUserId ?? this._botUserId ?? undefined
+      this.requestContext.getStore()?.botUserId ??
+      this.defaultBotUserId ??
+      undefined
     );
   }
 
@@ -193,12 +180,6 @@ export class LinearAdapter
     this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
-    const hasExplicitAuth =
-      ("apiKey" in config && Boolean(config.apiKey)) ||
-      ("accessToken" in config && Boolean(config.accessToken)) ||
-      ("clientCredentials" in config && Boolean(config.clientCredentials)) ||
-      ("clientId" in config && Boolean(config.clientId)) ||
-      ("clientSecret" in config && Boolean(config.clientSecret));
 
     if ("apiKey" in config && config.apiKey) {
       this.defaultClient = new LinearClient({ apiKey: config.apiKey });
@@ -217,15 +198,7 @@ export class LinearAdapter
         config.clientCredentials,
         "config"
       );
-      (
-        this as unknown as {
-          clientCredentials: {
-            clientId: string;
-            clientSecret: string;
-            scopes: string[];
-          };
-        }
-      ).clientCredentials = normalized;
+      this.clientCredentials = normalized;
       return;
     }
 
@@ -238,15 +211,9 @@ export class LinearAdapter
         );
       }
 
-      (this as unknown as { oauthClientId: string }).oauthClientId =
-        oauthConfig.clientId;
-      (this as unknown as { oauthClientSecret: string }).oauthClientSecret =
-        oauthConfig.clientSecret;
+      this.oauthClientId = oauthConfig.clientId;
+      this.oauthClientSecret = oauthConfig.clientSecret;
       return;
-    }
-
-    if (hasExplicitAuth) {
-      throw new ValidationError("linear", "Invalid Linear auth config.");
     }
 
     const apiKey = process.env.LINEAR_API_KEY;
@@ -266,15 +233,7 @@ export class LinearAdapter
     const clientCredentialsClientSecret =
       process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET;
     if (clientCredentialsClientId && clientCredentialsClientSecret) {
-      (
-        this as unknown as {
-          clientCredentials: {
-            clientId: string;
-            clientSecret: string;
-            scopes: string[];
-          };
-        }
-      ).clientCredentials = this.normalizeClientCredentials(
+      this.clientCredentials = this.normalizeClientCredentials(
         {
           clientId: clientCredentialsClientId,
           clientSecret: clientCredentialsClientSecret,
@@ -290,10 +249,8 @@ export class LinearAdapter
     const oauthClientId = process.env.LINEAR_CLIENT_ID;
     const oauthClientSecret = process.env.LINEAR_CLIENT_SECRET;
     if (oauthClientId && oauthClientSecret) {
-      (this as unknown as { oauthClientId: string }).oauthClientId =
-        oauthClientId;
-      (this as unknown as { oauthClientSecret: string }).oauthClientSecret =
-        oauthClientSecret;
+      this.oauthClientId = oauthClientId;
+      this.oauthClientSecret = oauthClientSecret;
       return;
     }
 
@@ -314,10 +271,10 @@ export class LinearAdapter
     if (this.defaultClient) {
       try {
         const identity = await this.fetchClientIdentity(this.defaultClient);
-        this._botUserId = identity.botUserId;
+        this.defaultBotUserId = identity.botUserId;
         this.defaultOrganizationId = identity.organizationId;
         this.logger.info("Linear auth completed", {
-          botUserId: this._botUserId,
+          botUserId: this.defaultBotUserId,
           displayName: identity.displayName,
           organizationId: this.defaultOrganizationId,
         });
@@ -343,12 +300,8 @@ export class LinearAdapter
     return {
       clientId: clientCredentials.clientId,
       clientSecret: clientCredentials.clientSecret,
-      scopes: resolveClientCredentialScopes(clientCredentials.scopes),
+      scopes: clientCredentials.scopes ?? DEFAULT_CLIENT_CREDENTIAL_SCOPES,
     };
-  }
-
-  private createClient(accessToken: string): LinearClient {
-    return new LinearClient({ accessToken });
   }
 
   private getClient(): LinearClient {
@@ -436,6 +389,11 @@ export class LinearAdapter
     this.logger.info("Linear installation deleted", { organizationId });
   }
 
+  /**
+   * Handle the Linear OAuth callback.
+   * Accepts the incoming request, extracts the authorization code,
+   * exchanges it for tokens, and saves the installation.
+   */
   async handleOAuthCallback(
     request: Request,
     options: LinearOAuthCallbackOptions
@@ -483,7 +441,7 @@ export class LinearAdapter
       "Failed to exchange Linear OAuth code"
     );
 
-    const client = this.createClient(token.access_token);
+    const client = new LinearClient({ accessToken: token.access_token });
     const identity = await this.fetchClientIdentity(client);
     const installation: LinearInstallation = {
       accessToken: token.access_token,
@@ -498,6 +456,10 @@ export class LinearAdapter
     return { organizationId: identity.organizationId, installation };
   }
 
+  /**
+   * Run a function with a specific installation in context.
+   * Use this for operations outside webhook handling (cron jobs, workflows).
+   */
   async withInstallation<T>(
     organizationId: string,
     fn: () => Promise<T> | T
@@ -506,7 +468,7 @@ export class LinearAdapter
     const context: LinearRequestContext = {
       accessToken: installation.accessToken,
       botUserId: installation.botUserId,
-      client: this.createClient(installation.accessToken),
+      client: new LinearClient({ accessToken: installation.accessToken }),
       organizationId: installation.organizationId,
     };
 
@@ -518,23 +480,22 @@ export class LinearAdapter
     displayName: string;
     organizationId: string;
   }> {
-    const viewer = await client.viewer;
-    const organization = await viewer.organization;
-    let organizationId: string | undefined = organization?.id;
-
-    if (!organizationId) {
-      const fallback = await client.client.rawRequest<
-        {
-          viewer?: {
-            organization?: {
-              id?: string;
-            };
+    const result = await client.client.rawRequest<
+      {
+        viewer: {
+          id: string;
+          displayName: string;
+          organization: {
+            id: string;
           };
-        },
-        Record<string, never>
-      >(/* GraphQL */ `
+        };
+      },
+      Record<string, never>
+    >(/* GraphQL */ `
         query LinearAdapterViewerOrganization {
           viewer {
+            id
+            displayName
             organization {
               id
             }
@@ -542,20 +503,17 @@ export class LinearAdapter
         }
       `);
 
-      organizationId = fallback.data?.viewer?.organization?.id;
-    }
-
-    if (!organizationId) {
+    if (!result.data) {
       throw new AuthenticationError(
         "linear",
-        "Failed to resolve organization ID for Linear installation."
+        "Failed to resolve client identity for Linear installation."
       );
     }
 
     return {
-      botUserId: viewer.id,
-      displayName: viewer.displayName,
-      organizationId,
+      botUserId: result.data.viewer.id,
+      displayName: result.data.viewer.displayName,
+      organizationId: result.data.viewer.organization.id,
     };
   }
 
@@ -666,7 +624,7 @@ export class LinearAdapter
       "Failed to fetch Linear client credentials token"
     );
 
-    this.defaultClient = this.createClient(data.access_token);
+    this.defaultClient = new LinearClient({ accessToken: data.access_token });
 
     // Track expiry so we can proactively refresh (with 1 hour buffer)
     this.accessTokenExpiry =
@@ -808,7 +766,9 @@ export class LinearAdapter
     const context: LinearRequestContext = {
       accessToken: resolvedInstallation.accessToken,
       botUserId: resolvedInstallation.botUserId,
-      client: this.createClient(resolvedInstallation.accessToken),
+      client: new LinearClient({
+        accessToken: resolvedInstallation.accessToken,
+      }),
       organizationId: resolvedInstallation.organizationId,
     };
 
