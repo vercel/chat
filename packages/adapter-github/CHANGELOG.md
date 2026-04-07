@@ -1,5 +1,21 @@
 # @chat-adapter/github
 
+## 4.24.0
+
+### Minor Changes
+
+- 90cfb6a: Expose `getInstallationId(threadOrMessage)` on the GitHub adapter so callers can resolve the GitHub App installation associated with GitHub thread and message context.
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- cb1deeb: fix webhook crash for events without repository in multi-tenant mode
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - @chat-adapter/shared@4.24.0
+  - chat@4.24.0
+
 ## 4.23.0
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # chat
 
+## 4.24.0
+
+### Minor Changes
+
+- 4f5d200: Add Teams dialog (task module) support with `actionType: "modal"` on buttons and `onOpenModal` webhook hook
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 27b34e1: Use adapter to parse channel id for `thread.channelId`
+
 ## 4.23.0
 
 ### Minor Changes

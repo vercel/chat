@@ -1,5 +1,21 @@
 # @chat-adapter/teams
 
+## 4.24.0
+
+### Minor Changes
+
+- 4f5d200: Add Teams dialog (task module) support with `actionType: "modal"` on buttons and `onOpenModal` webhook hook
+- a0f508e: Migrate from deprecated BotFramework (`botbuilder`) to the official Teams SDK (`@microsoft/teams.apps`). Adds typing indicator support and the ability to receive reaction events. No breaking changes to the public API or environment variables.
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - @chat-adapter/shared@4.24.0
+  - chat@4.24.0
+
 ## 4.23.0
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @chat-adapter/state-redis
 
+## 4.24.0
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 67e0e1b: Fix `createRedisState` typings so `url` appears in IntelliSense and the factory accepts an existing Redis client.
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - chat@4.24.0
+
 ## 4.23.0
 
 ### Patch Changes
