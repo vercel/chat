@@ -299,5 +299,5 @@ export interface LinearRawMessage {
   /** The raw comment data from webhook or API */
   comment: LinearCommentData;
   /** Organization ID from the webhook */
-  organizationId?: string;
+  organizationId: string;
 }
