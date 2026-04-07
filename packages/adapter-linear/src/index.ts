@@ -1198,7 +1198,7 @@ export class LinearAdapter
     }>,
     threadId: string,
     issueId: string,
-    organizationId?: string
+    organizationId: string
   ): Promise<Message<LinearRawMessage>[]> {
     const messages: Message<LinearRawMessage>[] = [];
 
