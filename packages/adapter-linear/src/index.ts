@@ -37,6 +37,27 @@ import type {
 } from "./types";
 
 const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
+const DEFAULT_CLIENT_CREDENTIAL_SCOPES = [
+  "read",
+  "write",
+  "comments:create",
+  "issues:create",
+];
+
+function resolveClientCredentialScopes(scopes?: string[]): string[] {
+  if (scopes === undefined) {
+    return [...DEFAULT_CLIENT_CREDENTIAL_SCOPES];
+  }
+
+  if (
+    !Array.isArray(scopes) ||
+    scopes.some((scope) => typeof scope !== "string")
+  ) {
+    throw new ValidationError("linear", "scopes must be an array of strings");
+  }
+
+  return [...scopes];
+}
 
 // Re-export types
 export type {
@@ -109,6 +130,7 @@ export class LinearAdapter
   private readonly clientCredentials: {
     clientId: string;
     clientSecret: string;
+    scopes: string[];
   } | null = null;
   private accessTokenExpiry: number | null = null;
 
@@ -130,6 +152,7 @@ export class LinearAdapter
     this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+    const clientCredentialScopes = resolveClientCredentialScopes(config.scopes);
 
     // Create LinearClient based on auth method
     // @see https://linear.app/developers/sdk
@@ -144,6 +167,7 @@ export class LinearAdapter
       this.clientCredentials = {
         clientId: config.clientId,
         clientSecret: config.clientSecret,
+        scopes: clientCredentialScopes,
       };
     } else {
       // Auto-detect from env vars
@@ -158,7 +182,11 @@ export class LinearAdapter
           const clientId = process.env.LINEAR_CLIENT_ID;
           const clientSecret = process.env.LINEAR_CLIENT_SECRET;
           if (clientId && clientSecret) {
-            this.clientCredentials = { clientId, clientSecret };
+            this.clientCredentials = {
+              clientId,
+              clientSecret,
+              scopes: clientCredentialScopes,
+            };
           } else {
             throw new ValidationError(
               "linear",
@@ -203,7 +231,7 @@ export class LinearAdapter
       return;
     }
 
-    const { clientId, clientSecret } = this.clientCredentials;
+    const { clientId, clientSecret, scopes } = this.clientCredentials;
 
     const response = await fetch("https://api.linear.app/oauth/token", {
       method: "POST",
@@ -214,7 +242,7 @@ export class LinearAdapter
         grant_type: "client_credentials",
         client_id: clientId,
         client_secret: clientSecret,
-        scope: "read,write,comments:create,issues:create",
+        scope: scopes.join(","),
       }),
     });
 

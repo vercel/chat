@@ -18,6 +18,12 @@ interface LinearAdapterBaseConfig {
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /**
+   * OAuth scopes to request when using client credentials auth.
+   * Defaults to ["read", "write", "comments:create", "issues:create"].
+   * Ignored for API key and pre-obtained access token auth.
+   */
+  scopes?: string[];
+  /**
    * Bot display name used for @-mention detection.
    * For API key auth, this is typically the user's display name.
    * For OAuth app auth with actor=app, this is the app name.

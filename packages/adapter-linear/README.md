@@ -67,7 +67,7 @@ createLinearAdapter({
 });
 ```
 
-The adapter uses the client credentials grant to obtain tokens automatically. Tokens are valid for 30 days and auto-refresh when expired.
+The adapter uses the client credentials grant to obtain tokens automatically. Tokens are valid for 30 days and auto-refresh when expired. By default it requests `read`, `write`, `comments:create`, and `issues:create`. Override this with `scopes` when your app needs additional permissions such as `app:mentionable`.
 
 ### Making the bot @-mentionable (optional)
 
@@ -81,8 +81,24 @@ https://linear.app/oauth/authorize?
   client_id=your_client_id&
   redirect_uri=https://your-domain.com/callback&
   response_type=code&
-  scope=read,write,comments:create,app:mentionable&
+  scope=read,write,comments:create,issues:create,app:mentionable&
   actor=app
+```
+
+Then configure the adapter to request the same scopes when it refreshes client credentials tokens:
+
+```typescript
+createLinearAdapter({
+  clientId: process.env.LINEAR_CLIENT_ID!,
+  clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+  scopes: [
+    "read",
+    "write",
+    "comments:create",
+    "issues:create",
+    "app:mentionable",
+  ],
+});
 ```
 
 See the [Linear Agents docs](https://linear.app/developers/agents) for full details.
@@ -137,6 +153,7 @@ All options are auto-detected from environment variables when not provided.
 | `clientId` | No* | OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
 | `clientSecret` | No* | OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
 | `accessToken` | No* | Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN` |
+| `scopes` | No | OAuth scopes requested for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |

@@ -1775,6 +1775,9 @@ describe("initialize", () => {
         body: expect.any(URLSearchParams),
       })
     );
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe("read,write,comments:create,issues:create");
 
     vi.unstubAllGlobals();
   });
@@ -1991,6 +1994,42 @@ describe("refreshClientCredentialsToken", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("should use custom scopes for client credentials token fetch", async () => {
+    const logger = createMockLogger();
+    const adapter = new LinearAdapter({
+      clientId: "test-client",
+      clientSecret: "test-secret",
+      webhookSecret: "secret",
+      userName: "bot",
+      logger,
+      scopes: ["read", "write", "comments:create", "app:mentionable"],
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2592000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await (
+      adapter as unknown as {
+        refreshClientCredentialsToken: () => Promise<void>;
+      }
+    ).refreshClientCredentialsToken();
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe(
+      "read,write,comments:create,app:mentionable"
+    );
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // =============================================================================
@@ -2037,6 +2076,17 @@ describe("createLinearAdapter", () => {
       webhookSecret: "secret",
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should throw when scopes is not an array of strings", () => {
+    expect(() =>
+      createLinearAdapter({
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        webhookSecret: "secret",
+        scopes: "read,write" as never,
+      })
+    ).toThrow("scopes must be an array of strings");
   });
 
   it("should throw when webhookSecret is not provided and not in env", () => {
