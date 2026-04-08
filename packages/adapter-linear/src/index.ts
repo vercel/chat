@@ -4,12 +4,7 @@ import {
   AuthenticationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type {
-  AgentSession,
-  CommentChildWebhookPayload,
-  LinearFetch,
-  User,
-} from "@linear/sdk";
+import type { LinearFetch, User } from "@linear/sdk";
 import { AgentActivityType, LinearClient } from "@linear/sdk";
 import {
   type AgentSessionEventWebhookPayload,
@@ -69,12 +64,6 @@ const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
 const ISSUE_SESSION_THREAD_PATTERN = /^([^:]+):s:([^:]+)$/;
 const INSTALLATION_KEY_PREFIX = "linear:installation";
 const INSTALLATION_REFRESH_BUFFER_MS = 5 * 60 * 1000;
-const DEFAULT_CLIENT_CREDENTIAL_SCOPES = [
-  "read",
-  "write",
-  "comments:create",
-  "issues:create",
-];
 
 function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
   if (!value) {
@@ -85,15 +74,6 @@ function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
     .split(",")
     .map((scope) => scope.trim())
     .filter(Boolean);
-}
-
-interface LinearAgentSessionMetadataData {
-  agentSession:
-    | (Pick<AgentSession, "id" | "status" | "summary"> & {
-        comment?: Pick<CommentChildWebhookPayload, "id"> | null;
-        sourceComment?: Pick<CommentChildWebhookPayload, "id"> | null;
-      })
-    | null;
 }
 
 interface LinearRequestContext {
@@ -341,7 +321,13 @@ export class LinearAdapter
     return {
       clientId: clientCredentials.clientId,
       clientSecret: clientCredentials.clientSecret,
-      scopes: clientCredentials.scopes ?? DEFAULT_CLIENT_CREDENTIAL_SCOPES,
+      scopes: clientCredentials.scopes ?? [
+        "read",
+        "write",
+        "comments:create",
+        "issues:create",
+        ...(this.mode === "agent-sessions" ? ["app:mentionable"] : []),
+      ],
     };
   }
 
@@ -1760,54 +1746,6 @@ export class LinearAdapter
 
     const issue = await this.getClient().issue(issueId);
 
-    let agentSessionMetadata: Record<string, unknown> = {};
-    if (agentSessionId) {
-      const result = await this.getClient().client.rawRequest<
-        LinearAgentSessionMetadataData,
-        { agentSessionId: string }
-      >(
-        /* GraphQL */ `
-          query LinearAdapterAgentSessionMetadata($agentSessionId: String!) {
-            agentSession(id: $agentSessionId) {
-              id
-              comment {
-                id
-              }
-              sourceComment {
-                id
-              }
-              status
-              summary
-            }
-          }
-        `,
-        { agentSessionId }
-      );
-
-      if (!result.data) {
-        this.logger.error(
-          "Linear agent session metadata query returned no data",
-          {
-            agentSessionId,
-          }
-        );
-        throw new AdapterError(
-          `Linear agent session metadata request returned no data for session ${agentSessionId}`,
-          "linear"
-        );
-      }
-
-      agentSessionMetadata = result.data.agentSession
-        ? {
-            agentSessionId: result.data.agentSession.id,
-            agentSessionStatus: result.data.agentSession.status,
-            agentSessionSummary: result.data.agentSession.summary,
-            sourceCommentId: result.data.agentSession.sourceComment?.id,
-            rootCommentId: result.data.agentSession.comment?.id,
-          }
-        : { agentSessionId };
-    }
-
     return {
       id: threadId,
       channelId: issueId,
@@ -1815,10 +1753,10 @@ export class LinearAdapter
       isDM: false,
       metadata: {
         issueId,
+        agentSessionId,
         identifier: issue.identifier,
         title: issue.title,
         url: issue.url,
-        ...agentSessionMetadata,
       },
     };
   }
