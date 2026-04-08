@@ -5,10 +5,8 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import type {
-  AgentActivity,
   AgentSession,
   CommentChildWebhookPayload,
-  IssueWithDescriptionChildWebhookPayload,
   LinearFetch,
   User,
 } from "@linear/sdk";
@@ -48,6 +46,7 @@ import type {
   LinearCommentData,
   LinearInstallation,
   LinearOAuthCallbackOptions,
+  LinearOAuthTokenResponse,
   LinearRawMessage,
   LinearThreadId,
 } from "./types";
@@ -58,10 +57,11 @@ import {
   buildCommentRawMessage,
   getAgentActivityText,
   getSessionThreadId,
+  type LinearAgentPlanStatus,
+  type LinearAgentSessionThreadId,
   normalizeAgentActivityType,
   renderMessageToLinearMarkdown,
   toAgentPlanStatus,
-  type LinearAgentSessionThreadId,
 } from "./utils";
 
 const COMMENT_SESSION_THREAD_PATTERN = /^([^:]+):c:([^:]+):s:([^:]+)$/;
@@ -76,11 +76,6 @@ const DEFAULT_CLIENT_CREDENTIAL_SCOPES = [
   "issues:create",
 ];
 
-interface LinearAgentPlanStep {
-  content: string;
-  status: ReturnType<typeof toAgentPlanStatus>;
-}
-
 function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
   if (!value) {
     return undefined;
@@ -90,12 +85,6 @@ function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
     .split(",")
     .map((scope) => scope.trim())
     .filter(Boolean);
-}
-
-interface LinearOAuthTokenResponse {
-  access_token: string;
-  expires_in?: number;
-  refresh_token?: string;
 }
 
 interface LinearAgentSessionMetadataData {
@@ -204,12 +193,18 @@ export class LinearAdapter
   private accessTokenExpiry: number | null = null;
 
   /** Bot user ID used for self-message detection */
-  get botUserId(): string | undefined {
-    return (
-      this.requestContext.getStore()?.botUserId ??
-      this.defaultBotUserId ??
-      undefined
-    );
+  get botUserId(): string {
+    const id =
+      this.requestContext.getStore()?.botUserId ?? this.defaultBotUserId;
+
+    if (!id) {
+      throw new AdapterError(
+        "No bot user ID available in context. Ensure the adapter has been initialized and authenticated properly.",
+        "linear"
+      );
+    }
+
+    return id;
   }
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
@@ -784,12 +779,19 @@ export class LinearAdapter
     const authorUserId =
       sourceComment?.userId ??
       payload.agentActivity?.userId ??
-      payload.agentSession.creator?.id ??
-      "unknown";
+      payload.agentSession.creator?.id;
     const authorName =
       payload.agentActivity?.user?.name ??
       payload.agentSession.creator?.name ??
       "unknown";
+
+    if (!authorUserId) {
+      throw new AdapterError(
+        `Unable to determine author user ID for agent session event ${payload.webhookId}`,
+        "linear"
+      );
+    }
+
     const isMe = authorUserId === this.botUserId;
 
     const author: Author = {
@@ -898,9 +900,10 @@ export class LinearAdapter
 
   private async createAgentActivity(
     threadId: LinearAgentSessionThreadId,
-    input: Omit<Parameters<
-      LinearClient["createAgentActivity"]
-    >[0], 'agentSessionId'>
+    input: Omit<
+      Parameters<LinearClient["createAgentActivity"]>[0],
+      "agentSessionId"
+    >
   ): Promise<RawMessage<LinearRawMessage>> {
     const linear = this.getClient();
     const result = await linear.createAgentActivity({
@@ -910,7 +913,7 @@ export class LinearAdapter
 
     const [activity, agentSession] = await Promise.all([
       result.agentActivity,
-      linear.agentSession(threadId.agentSessionId)
+      linear.agentSession(threadId.agentSessionId),
     ]);
     if (!(result.success && activity)) {
       throw new AdapterError(
@@ -930,9 +933,7 @@ export class LinearAdapter
 
   private async updateAgentSession(
     agentSessionId: string,
-    input: Parameters<
-  LinearClient["updateAgentSession"]
->[1]
+    input: Parameters<LinearClient["updateAgentSession"]>[1]
   ): Promise<void> {
     const result = await this.getClient().updateAgentSession(
       agentSessionId,
@@ -1141,7 +1142,7 @@ export class LinearAdapter
     threadId: string,
     organizationId: string
   ): Message<LinearRawMessage> {
-    const text = comment.body || "";
+    const text = comment.body;
     const authorName = this.getWebhookActorName(actor);
 
     const author: Author = {
@@ -1190,21 +1191,17 @@ export class LinearAdapter
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
     const client = this.getClient();
-    const decoded =
-      this.decodeThreadId(threadId);
+    const decoded = this.decodeThreadId(threadId);
     const body = renderMessageToLinearMarkdown(message, this.formatConverter);
 
     if (decoded.agentSessionId) {
-      assertAgentSessionThread(decoded)
-      return await this.createAgentActivity(
-        decoded,
-        {
-          content: {
-            type: AgentActivityType.Response,
-            body,
-          },
-        }
-      );
+      assertAgentSessionThread(decoded);
+      return await this.createAgentActivity(decoded, {
+        content: {
+          type: AgentActivityType.Response,
+          body,
+        },
+      });
     }
 
     // Create the comment via Linear SDK
@@ -1372,18 +1369,18 @@ export class LinearAdapter
 
     assertAgentSessionThread(decoded);
 
-    await this.createAgentActivity(
-      decoded,
-      {
-        content: {
-          type: AgentActivityType.Thought,
-          body: status ?? "Thinking...",
-        },
-        ephemeral: true,
-      }
-    );
+    await this.createAgentActivity(decoded, {
+      content: {
+        type: AgentActivityType.Thought,
+        body: status ?? "Thinking...",
+      },
+      ephemeral: true,
+    });
   }
 
+  /**
+   * Stream text/chunk to a thread.
+   */
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
@@ -1393,82 +1390,28 @@ export class LinearAdapter
     const decoded = this.decodeThreadId(threadId);
 
     if (!decoded.agentSessionId) {
-      const intervalMs = options?.updateIntervalMs ?? 500;
-      let rawMessage: RawMessage<LinearRawMessage> | null =
-        await this.postMessage(threadId, "...");
-      let threadIdForEdits = rawMessage.threadId || threadId;
-      const renderer = new StreamingMarkdownRenderer();
-      let lastEditContent = "...";
-      let stopped = false;
-      let pendingEdit: Promise<void> | null = null;
-      let timerId: ReturnType<typeof setTimeout> | null = null;
-
-      const scheduleNextEdit = (): void => {
-        timerId = setTimeout(() => {
-          pendingEdit = doEditAndReschedule();
-        }, intervalMs);
-      };
-
-      const doEditAndReschedule = async (): Promise<void> => {
-        if (stopped || !rawMessage) {
-          return;
-        }
-
-        const content = renderer.render();
-        if (content !== lastEditContent) {
-          try {
-            rawMessage = await this.editMessage(
-              threadIdForEdits,
-              rawMessage.id,
-              {
-                markdown: content,
-              }
-            );
-            lastEditContent = content;
-            threadIdForEdits = rawMessage.threadId || threadIdForEdits;
-          } catch (error) {
-            this.logger.warn("Linear fallback stream edit failed", { error });
-          }
-        }
-
-        if (!stopped) {
-          scheduleNextEdit();
-        }
-      };
-
-      scheduleNextEdit();
-
-      try {
-        for await (const chunk of textStream) {
-          if (typeof chunk === "string") {
-            renderer.push(chunk);
-          } else if (chunk.type === "markdown_text") {
-            renderer.push(chunk.text);
-          }
-        }
-      } finally {
-        stopped = true;
-        if (timerId) {
-          clearTimeout(timerId);
-        }
-      }
-
-      if (pendingEdit) {
-        await pendingEdit;
-      }
-
-      const finalContent = renderer.finish();
-      if (finalContent !== lastEditContent && rawMessage) {
-        rawMessage = await this.editMessage(threadIdForEdits, rawMessage.id, {
-          markdown: finalContent,
-        });
-      }
-
-      return rawMessage;
+      assertAgentSessionThread(decoded);
+      return await this.streamInAgentSession(decoded, textStream, options);
     }
+    return await this.streamAsComment(threadId, textStream, options);
+  }
 
+  /**
+   * Stream text/chunk in an agent session.
+   */
+  private async streamInAgentSession(
+    decoded: LinearAgentSessionThreadId,
+    textStream: AsyncIterable<string | StreamChunk>,
+    _options?: StreamOptions
+  ): Promise<RawMessage<LinearRawMessage>> {
     const renderer = new StreamingMarkdownRenderer();
-    const taskPlan = new Map<string, LinearAgentPlanStep>();
+    const taskPlan = new Map<
+      string,
+      {
+        content: string;
+        status: LinearAgentPlanStatus;
+      }
+    >();
     assertAgentSessionThread(decoded);
 
     for await (const chunk of textStream) {
@@ -1495,15 +1438,91 @@ export class LinearAdapter
     }
 
     const finalBody = renderer.finish();
-    return await this.createAgentActivity(
-      decoded,
-      {
-        content: {
-          type: AgentActivityType.Response,
-          body: finalBody,
-        },
+    return await this.createAgentActivity(decoded, {
+      content: {
+        type: AgentActivityType.Response,
+        body: finalBody,
+      },
+    });
+  }
+
+  /**
+   * Stream text/chunk as a comment.
+   * It posts an initial comment immediately, then edits that comment as new chunks arrive.
+   */
+  private async streamAsComment(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions
+  ): Promise<RawMessage<LinearRawMessage>> {
+    const intervalMs = options?.updateIntervalMs ?? 500;
+    let rawMessage: RawMessage<LinearRawMessage> | null =
+      await this.postMessage(threadId, "...");
+    let threadIdForEdits = rawMessage.threadId || threadId;
+    const renderer = new StreamingMarkdownRenderer();
+    let lastEditContent = "...";
+    let stopped = false;
+    let pendingEdit: Promise<void> | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNextEdit = (): void => {
+      timerId = setTimeout(() => {
+        pendingEdit = doEditAndReschedule();
+      }, intervalMs);
+    };
+
+    const doEditAndReschedule = async (): Promise<void> => {
+      if (stopped || !rawMessage) {
+        return;
       }
-    );
+
+      const content = renderer.render();
+      if (content !== lastEditContent) {
+        try {
+          rawMessage = await this.editMessage(threadIdForEdits, rawMessage.id, {
+            markdown: content,
+          });
+          lastEditContent = content;
+          threadIdForEdits = rawMessage.threadId || threadIdForEdits;
+        } catch (error) {
+          this.logger.warn("Linear fallback stream edit failed", { error });
+        }
+      }
+
+      if (!stopped) {
+        scheduleNextEdit();
+      }
+    };
+
+    scheduleNextEdit();
+
+    try {
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") {
+          renderer.push(chunk);
+        } else if (chunk.type === "markdown_text") {
+          renderer.push(chunk.text);
+        }
+      }
+    } finally {
+      stopped = true;
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    }
+
+    if (pendingEdit) {
+      await pendingEdit;
+    }
+
+    const finalContent = renderer.finish();
+    if (finalContent !== lastEditContent && rawMessage) {
+      rawMessage = await this.editMessage(threadIdForEdits, rawMessage.id, {
+        markdown: finalContent,
+      });
+    }
+
+    return rawMessage;
   }
 
   /**
@@ -1521,10 +1540,7 @@ export class LinearAdapter
       this.decodeThreadId(threadId);
 
     if (agentSessionId) {
-      return await this.fetchAgentSessionMessages(
-        threadId,
-        agentSessionId
-      );
+      return await this.fetchAgentSessionMessages(threadId, agentSessionId);
     }
 
     if (commentId) {
@@ -1616,6 +1632,9 @@ export class LinearAdapter
     };
   }
 
+  /**
+   * Fetch messages from an agent session thread (agent activities).
+   */
   private async fetchAgentSessionMessages(
     threadId: string,
     agentSessionId: string
@@ -1937,11 +1956,12 @@ export class LinearAdapter
           sourceComment?.userId ??
           payload.agentActivity?.userId ??
           payload.agentSession.creator?.id ??
-          "unknown";
+          "";
         const authorName =
           payload.agentActivity?.user?.name ??
           payload.agentSession.creator?.name ??
           "unknown";
+
         const isMe = authorUserId === this.botUserId;
 
         return new Message<LinearRawMessage>({
