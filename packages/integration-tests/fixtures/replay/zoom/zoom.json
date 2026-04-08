@@ -1,0 +1,38 @@
+{
+  "botName": "Chat SDK ZoomBot",
+  "botRobotJid": "bot@xmpp.zoom.us",
+  "botNotification": {
+    "event": "bot_notification",
+    "event_ts": 1712600000000,
+    "payload": {
+      "accountId": "test-account-id",
+      "cmd": "hello world",
+      "robotJid": "bot@xmpp.zoom.us",
+      "timestamp": 1712600000000,
+      "toJid": "channel-id-123@conference.xmpp.zoom.us",
+      "userId": "U00FAKEUSER1",
+      "userJid": "user@xmpp.zoom.us",
+      "userName": "Alice"
+    }
+  },
+  "appMention": {
+    "event": "team_chat.app_mention",
+    "event_ts": 1712600002000,
+    "payload": {
+      "account_id": "test-account-id",
+      "operator": "carol@example.com",
+      "operator_id": "user-id-3",
+      "operator_member_id": "member-id-3",
+      "by_external_user": false,
+      "object": {
+        "message_id": "5DD614F4-DD19-ABCD-EF12-000000000001",
+        "type": "to_channel",
+        "channel_id": "channel-id-123",
+        "channel_name": "general",
+        "message": "@bot please help",
+        "date_time": "2024-04-08T12:00:00Z",
+        "timestamp": 1712577600000
+      }
+    }
+  }
+}
