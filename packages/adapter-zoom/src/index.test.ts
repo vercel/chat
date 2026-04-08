@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
+import type { ChatInstance } from "chat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createZoomAdapter } from "./index.js";
 
@@ -215,5 +216,223 @@ describe("ZoomAdapter — Factory Validation (AUTH-03)", () => {
     expect(() =>
       createZoomAdapter({ ...BASE, webhookSecretToken: undefined })
     ).toThrow(ValidationError);
+  });
+});
+
+describe("ZoomAdapter — Thread ID (THRD-01)", () => {
+  const adapter = createZoomAdapter(TEST_CREDENTIALS);
+
+  it("THRD-01: encodeThreadId produces zoom:{channelId}:{messageId}", () => {
+    expect(
+      adapter.encodeThreadId({ channelId: "chan123", messageId: "999" })
+    ).toBe("zoom:chan123:999");
+    expect(
+      adapter.encodeThreadId({
+        channelId: "chan@conference.xmpp.zoom.us",
+        messageId: "abc-uuid",
+      })
+    ).toBe("zoom:chan@conference.xmpp.zoom.us:abc-uuid");
+  });
+
+  it("THRD-01: decodeThreadId round-trips without loss", () => {
+    expect(adapter.decodeThreadId("zoom:chan123:999")).toEqual({
+      channelId: "chan123",
+      messageId: "999",
+    });
+    expect(
+      adapter.decodeThreadId("zoom:chan@conference.xmpp.zoom.us:abc-uuid")
+    ).toEqual({
+      channelId: "chan@conference.xmpp.zoom.us",
+      messageId: "abc-uuid",
+    });
+  });
+
+  it("THRD-01: decodeThreadId throws ValidationError on wrong prefix", () => {
+    expect(() => adapter.decodeThreadId("slack:C123:ts")).toThrow(
+      ValidationError
+    );
+  });
+
+  it("THRD-01: decodeThreadId throws ValidationError on missing messageId", () => {
+    expect(() => adapter.decodeThreadId("zoom:only-one-part")).toThrow(
+      ValidationError
+    );
+  });
+
+  it("THRD-01: decodeThreadId throws ValidationError on empty channel component", () => {
+    expect(() => adapter.decodeThreadId("zoom::msgid")).toThrow(
+      ValidationError
+    );
+  });
+});
+
+function makeMockChat(): ChatInstance {
+  return {
+    processMessage: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ChatInstance;
+}
+
+describe("ZoomAdapter — bot_notification (WBHK-04)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("WBHK-04: channel message produces correct threadId, text, author", async () => {
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    const chat = makeMockChat();
+    await adapter.initialize(chat);
+
+    const eventTs = 1712600000000;
+    const toJid = "abc123@conference.xmpp.zoom.us";
+    const body = JSON.stringify({
+      event: "bot_notification",
+      event_ts: eventTs,
+      payload: {
+        accountId: "acct",
+        cmd: "hello world",
+        robotJid: "bot@xmpp.zoom.us",
+        timestamp: eventTs,
+        toJid,
+        userId: "user-id-1",
+        userJid: "user@xmpp.zoom.us",
+        userName: "Alice",
+      },
+    });
+    const request = makeZoomRequest(body);
+    await adapter.handleWebhook(request);
+
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, threadId, message] = (
+      chat.processMessage as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    expect(threadId).toBe(`zoom:${toJid}:${eventTs}`);
+    expect(message.text).toBe("hello world");
+    expect(message.author.userId).toBe("user-id-1");
+    expect(message.author.userName).toBe("Alice");
+  });
+
+  it("WBHK-04: DM (toJid ends in @xmpp.zoom.us) uses userJid as channelId", async () => {
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    const chat = makeMockChat();
+    await adapter.initialize(chat);
+
+    const eventTs = 1712600001000;
+    const userJid = "user@xmpp.zoom.us";
+    const body = JSON.stringify({
+      event: "bot_notification",
+      event_ts: eventTs,
+      payload: {
+        accountId: "acct",
+        cmd: "dm message",
+        robotJid: "bot@xmpp.zoom.us",
+        timestamp: eventTs,
+        toJid: userJid, // user JID, not conference JID -> DM
+        userId: "user-id-2",
+        userJid,
+        userName: "Bob",
+      },
+    });
+    const request = makeZoomRequest(body);
+    await adapter.handleWebhook(request);
+
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, threadId] = (chat.processMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(threadId).toBe(`zoom:${userJid}:${eventTs}`);
+  });
+});
+
+describe("ZoomAdapter — team_chat.app_mention (WBHK-05)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("WBHK-05: produces correct threadId (channel_id:message_id), text, author", async () => {
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    const chat = makeMockChat();
+    await adapter.initialize(chat);
+
+    const messageId = "5DD614F4-DD19-ABCD-EF12-000000000001";
+    const channelId = "channel-id-123";
+    const body = JSON.stringify({
+      event: "team_chat.app_mention",
+      event_ts: 1712600002000,
+      payload: {
+        account_id: "acct",
+        operator: "carol@example.com",
+        operator_id: "user-id-3",
+        operator_member_id: "member-id-3",
+        by_external_user: false,
+        object: {
+          message_id: messageId,
+          type: "to_channel",
+          channel_id: channelId,
+          channel_name: "general",
+          message: "@bot please help",
+          date_time: "2024-04-08T12:00:00Z",
+          timestamp: 1712577600000,
+        },
+      },
+    });
+    const request = makeZoomRequest(body);
+    await adapter.handleWebhook(request);
+
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, threadId, message] = (
+      chat.processMessage as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    expect(threadId).toBe(`zoom:${channelId}:${messageId}`);
+    expect(message.text).toBe("@bot please help");
+    expect(message.author.userId).toBe("user-id-3");
+  });
+});
+
+describe("ZoomAdapter — Unhandled events and uninitialized adapter safety (THRD-02, THRD-03)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("THRD-03: unknown event is logged at debug and does not throw", async () => {
+    const adapter = createZoomAdapter({ ...TEST_CREDENTIALS });
+    const debugSpy = vi.spyOn(
+      (
+        adapter as unknown as {
+          config: { logger: { debug: (msg: string, ctx: unknown) => void } };
+        }
+      ).config.logger,
+      "debug"
+    );
+    const chat = makeMockChat();
+    await adapter.initialize(chat);
+
+    const body = JSON.stringify({
+      event: "team_chat.some_unknown_event",
+      event_ts: 1712600003000,
+      payload: {},
+    });
+    const request = makeZoomRequest(body);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(debugSpy).toHaveBeenCalledWith("Unhandled Zoom event", {
+      event: "team_chat.some_unknown_event",
+    });
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("THRD-02: uninitialized adapter safety — handleWebhook returns 200 without calling processMessage", async () => {
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    // Do NOT call initialize — chat is null
+    const body = JSON.stringify({
+      event: "bot_notification",
+      event_ts: 1712600004000,
+      payload: {
+        accountId: "acct",
+        cmd: "hello",
+        robotJid: "bot@xmpp.zoom.us",
+        timestamp: 1712600004000,
+        toJid: "chan@conference.xmpp.zoom.us",
+        userId: "uid",
+        userJid: "u@xmpp.zoom.us",
+        userName: "Dave",
+      },
+    });
+    const request = makeZoomRequest(body);
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200); // no crash
   });
 });

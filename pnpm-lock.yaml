@@ -494,6 +494,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2

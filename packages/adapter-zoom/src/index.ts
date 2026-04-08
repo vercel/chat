@@ -9,7 +9,9 @@ import {
   type FetchOptions,
   type FetchResult,
   type FormattedContent,
+  Message,
   NotImplementedError,
+  parseMarkdown,
   type RawMessage,
   type ThreadInfo,
   type WebhookOptions,
@@ -17,13 +19,19 @@ import {
 import type {
   ZoomAdapterConfig,
   ZoomAdapterInternalConfig,
+  ZoomAppMentionPayload,
+  ZoomBotNotificationPayload,
   ZoomCrcPayload,
+  ZoomThreadId,
   ZoomWebhookPayload,
 } from "./types.js";
 
 export type {
   ZoomAdapterConfig,
+  ZoomAppMentionPayload,
+  ZoomBotNotificationPayload,
   ZoomCrcPayload,
+  ZoomThreadId,
   ZoomWebhookPayload,
 } from "./types.js";
 
@@ -34,6 +42,7 @@ export class ZoomAdapter implements Adapter {
 
   private readonly config: ZoomAdapterInternalConfig;
   private cachedToken: { value: string; expiresAt: number } | null = null;
+  private chat: ChatInstance | null = null;
 
   constructor(config: ZoomAdapterInternalConfig) {
     this.config = config;
@@ -167,16 +176,128 @@ export class ZoomAdapter implements Adapter {
   }
 
   private async processEvent(
-    _payload: ZoomWebhookPayload,
-    _options?: WebhookOptions
+    payload: ZoomWebhookPayload,
+    options?: WebhookOptions
   ): Promise<void> {
-    // Phase 2 will implement event routing (bot_notification, team_chat.app_mention)
-    // Phase 1 scope ends at signature verification
+    const chat = this.chat;
+    if (!chat) {
+      this.config.logger.warn(
+        "ZoomAdapter: chat not initialized, ignoring event"
+      );
+      return;
+    }
+    if (payload.event === "bot_notification") {
+      await this.handleBotNotification(
+        payload as ZoomBotNotificationPayload,
+        chat,
+        options
+      );
+    } else if (payload.event === "team_chat.app_mention") {
+      await this.handleAppMention(
+        payload as ZoomAppMentionPayload,
+        chat,
+        options
+      );
+    } else {
+      this.config.logger.debug("Unhandled Zoom event", {
+        event: payload.event,
+      });
+    }
   }
 
-  async initialize(_chat: ChatInstance): Promise<void> {
-    // Log initialization. Config is used in Plans 02+ for webhook verification
-    // and token fetch. Referencing it here keeps the field accessible.
+  private async handleBotNotification(
+    payload: ZoomBotNotificationPayload,
+    chat: ChatInstance,
+    options?: WebhookOptions
+  ): Promise<void> {
+    const { cmd, toJid, userId, userJid, userName } = payload.payload;
+    const eventTs = payload.event_ts;
+
+    // DM detection: channel JIDs end in @conference.xmpp.zoom.us; user JIDs end in @xmpp.zoom.us
+    const isDM = !toJid.endsWith("@conference.xmpp.zoom.us");
+
+    // ZOOM PLATFORM LIMITATION: The chat_message.replied webhook event is NOT fired
+    // for 1:1 DM thread replies. Subscribing to a DM thread (THRD-02) will capture
+    // the initial message, but thread replies in DMs will not trigger any webhook.
+    // This is a confirmed Zoom platform limitation, not a configuration issue.
+    // See: https://devforum.zoom.us/t/clarification-on-zoom-chatbot-webhook-events-for-thread-replies-in-1-1-chats/134812
+    const channelId = isDM ? userJid : toJid;
+    const threadId = this.encodeThreadId({
+      channelId,
+      messageId: String(eventTs),
+    });
+
+    const text = cmd;
+    // TODO Phase 2 Plan 02: replace with ZoomFormatConverter.toAst(text)
+    const formatted = parseMarkdown(text);
+
+    const message = new Message({
+      id: String(eventTs),
+      threadId,
+      text,
+      formatted,
+      author: {
+        userId,
+        userName,
+        fullName: userName,
+        isBot: false,
+        isMe: false,
+      },
+      metadata: {
+        dateSent: new Date(eventTs),
+        edited: false,
+      },
+      attachments: [],
+      raw: payload,
+    });
+
+    await chat.processMessage(this, threadId, message, options);
+  }
+
+  private async handleAppMention(
+    payload: ZoomAppMentionPayload,
+    chat: ChatInstance,
+    options?: WebhookOptions
+  ): Promise<void> {
+    const { operator_id: operatorId, operator } = payload.payload;
+    const {
+      message_id: messageId,
+      channel_id: channelId,
+      message,
+      timestamp,
+    } = payload.payload.object;
+
+    const threadId = this.encodeThreadId({ channelId, messageId });
+
+    const text = message;
+    // TODO Phase 2 Plan 02: replace with ZoomFormatConverter.toAst(text)
+    const formatted = parseMarkdown(text);
+
+    const msg = new Message({
+      id: messageId,
+      threadId,
+      text,
+      formatted,
+      author: {
+        userId: operatorId,
+        userName: operator,
+        fullName: operator,
+        isBot: false,
+        isMe: false,
+      },
+      metadata: {
+        dateSent: new Date(timestamp),
+        edited: false,
+      },
+      attachments: [],
+      raw: payload,
+    });
+
+    await chat.processMessage(this, threadId, msg, options);
+  }
+
+  async initialize(chat: ChatInstance): Promise<void> {
+    this.chat = chat;
     this.config.logger.debug("ZoomAdapter initialized");
   }
 
@@ -259,18 +380,31 @@ export class ZoomAdapter implements Adapter {
     return `${parts[0]}:${parts[1]}`;
   }
 
-  encodeThreadId(_platformData: unknown): string {
-    throw new NotImplementedError(
-      "ZoomAdapter: encodeThreadId not yet implemented",
-      "encodeThreadId"
-    );
+  encodeThreadId(platformData: ZoomThreadId): string {
+    return `zoom:${platformData.channelId}:${platformData.messageId}`;
   }
 
-  decodeThreadId(_threadId: string): unknown {
-    throw new NotImplementedError(
-      "ZoomAdapter: decodeThreadId not yet implemented",
-      "decodeThreadId"
-    );
+  decodeThreadId(threadId: string): ZoomThreadId {
+    if (!threadId.startsWith("zoom:")) {
+      throw new ValidationError("zoom", `Invalid Zoom thread ID: ${threadId}`);
+    }
+    const withoutPrefix = threadId.slice(5); // remove "zoom:"
+    const colonIndex = withoutPrefix.indexOf(":");
+    if (colonIndex === -1) {
+      throw new ValidationError(
+        "zoom",
+        `Invalid Zoom thread ID format (missing messageId): ${threadId}`
+      );
+    }
+    const channelId = withoutPrefix.slice(0, colonIndex);
+    const messageId = withoutPrefix.slice(colonIndex + 1);
+    if (!(channelId && messageId)) {
+      throw new ValidationError(
+        "zoom",
+        `Invalid Zoom thread ID format (empty component): ${threadId}`
+      );
+    }
+    return { channelId, messageId };
   }
 
   parseMessage(_raw: unknown): import("chat").Message<unknown> {
