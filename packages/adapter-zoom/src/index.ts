@@ -11,11 +11,12 @@ import {
   type FormattedContent,
   Message,
   NotImplementedError,
-  parseMarkdown,
   type RawMessage,
+  type Root,
   type ThreadInfo,
   type WebhookOptions,
 } from "chat";
+import { ZoomFormatConverter } from "./markdown.js";
 import type {
   ZoomAdapterConfig,
   ZoomAdapterInternalConfig,
@@ -41,6 +42,7 @@ export class ZoomAdapter implements Adapter {
   readonly userName: string;
 
   private readonly config: ZoomAdapterInternalConfig;
+  private readonly formatConverter = new ZoomFormatConverter();
   private cachedToken: { value: string; expiresAt: number } | null = null;
   private chat: ChatInstance | null = null;
 
@@ -228,8 +230,7 @@ export class ZoomAdapter implements Adapter {
     });
 
     const text = cmd;
-    // TODO Phase 2 Plan 02: replace with ZoomFormatConverter.toAst(text)
-    const formatted = parseMarkdown(text);
+    const formatted = this.formatConverter.toAst(text);
 
     const message = new Message({
       id: String(eventTs),
@@ -270,8 +271,7 @@ export class ZoomAdapter implements Adapter {
     const threadId = this.encodeThreadId({ channelId, messageId });
 
     const text = message;
-    // TODO Phase 2 Plan 02: replace with ZoomFormatConverter.toAst(text)
-    const formatted = parseMarkdown(text);
+    const formatted = this.formatConverter.toAst(text);
 
     const msg = new Message({
       id: messageId,
@@ -414,11 +414,8 @@ export class ZoomAdapter implements Adapter {
     );
   }
 
-  renderFormatted(_content: FormattedContent): string {
-    throw new NotImplementedError(
-      "ZoomAdapter: renderFormatted not yet implemented",
-      "renderFormatted"
-    );
+  renderFormatted(content: FormattedContent): string {
+    return this.formatConverter.fromAst(content as Root);
   }
 }
 
