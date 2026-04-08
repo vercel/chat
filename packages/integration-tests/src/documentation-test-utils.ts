@@ -19,6 +19,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/zoom",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
   "@chat-adapter/state-pg",
