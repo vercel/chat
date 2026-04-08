@@ -6,9 +6,7 @@ import {
 } from "@chat-adapter/shared";
 import type {
   AgentActivity,
-  AgentActivityPayload,
   AgentSession,
-  AgentSessionPayload,
   CommentChildWebhookPayload,
   IssueWithDescriptionChildWebhookPayload,
   LinearFetch,
@@ -50,7 +48,6 @@ import type {
   LinearCommentData,
   LinearInstallation,
   LinearOAuthCallbackOptions,
-  LinearRawAgentActivityData,
   LinearRawMessage,
   LinearThreadId,
 } from "./types";
@@ -64,6 +61,7 @@ import {
   normalizeAgentActivityType,
   renderMessageToLinearMarkdown,
   toAgentPlanStatus,
+  type LinearAgentSessionThreadId,
 } from "./utils";
 
 const COMMENT_SESSION_THREAD_PATTERN = /^([^:]+):c:([^:]+):s:([^:]+)$/;
@@ -98,37 +96,6 @@ interface LinearOAuthTokenResponse {
   access_token: string;
   expires_in?: number;
   refresh_token?: string;
-}
-
-interface LinearAgentActivityMutationData {
-  agentActivityCreate: Pick<AgentActivityPayload, "success"> & {
-    agentActivity: Pick<AgentActivity, "createdAt" | "id" | "updatedAt"> | null;
-  };
-}
-
-interface LinearAgentSessionUpdateMutationData {
-  agentSessionUpdate: Pick<AgentSessionPayload, "success">;
-}
-
-interface LinearAgentSessionActivitiesData {
-  agentSession:
-    | (Pick<AgentSession, "id" | "status" | "summary"> & {
-        activities: {
-          edges: Array<{
-            node: Pick<
-              AgentActivity,
-              "content" | "createdAt" | "id" | "updatedAt"
-            >;
-          }>;
-        };
-        comment?: Pick<CommentChildWebhookPayload, "id"> | null;
-        issue?: Pick<
-          IssueWithDescriptionChildWebhookPayload,
-          "id" | "identifier" | "title" | "url"
-        > | null;
-        sourceComment?: Pick<CommentChildWebhookPayload, "id"> | null;
-      })
-    | null;
 }
 
 interface LinearAgentSessionMetadataData {
@@ -930,119 +897,49 @@ export class LinearAdapter
   }
 
   private async createAgentActivity(
-    agentSession: LinearAgentSessionData,
-    content: Record<string, string>,
-    options?: { ephemeral?: boolean }
+    threadId: LinearAgentSessionThreadId,
+    input: Omit<Parameters<
+      LinearClient["createAgentActivity"]
+    >[0], 'agentSessionId'>
   ): Promise<RawMessage<LinearRawMessage>> {
-    const result = await this.getClient().client.rawRequest<
-      LinearAgentActivityMutationData,
-      {
-        input: {
-          agentSessionId: string;
-          content: Record<string, string>;
-          ephemeral?: boolean;
-        };
-      }
-    >(
-      /* GraphQL */ `
-        mutation LinearAdapterCreateAgentActivity(
-          $input: AgentActivityCreateInput!
-        ) {
-          agentActivityCreate(input: $input) {
-            success
-            agentActivity {
-              id
-              createdAt
-              updatedAt
-            }
-          }
-        }
-      `,
-      {
-        input: {
-          agentSessionId: agentSession.id,
-          content,
-          ...(options?.ephemeral ? { ephemeral: true } : {}),
-        },
-      }
-    );
+    const linear = this.getClient();
+    const result = await linear.createAgentActivity({
+      agentSessionId: threadId.agentSessionId,
+      ...input,
+    });
 
-    if (!result.data) {
+    const [activity, agentSession] = await Promise.all([
+      result.agentActivity,
+      linear.agentSession(threadId.agentSessionId)
+    ]);
+    if (!(result.success && activity)) {
       throw new AdapterError(
-        `Linear agent activity creation returned no data for session ${agentSession.id}`,
+        `Failed to create Linear agent activity for session ${threadId.agentSessionId}`,
         "linear"
       );
     }
 
-    if (
-      !(
-        result.data.agentActivityCreate.success &&
-        result.data.agentActivityCreate.agentActivity
-      )
-    ) {
-      throw new AdapterError(
-        `Failed to create Linear agent activity for session ${agentSession.id}`,
-        "linear"
-      );
-    }
-
-    const activity = result.data.agentActivityCreate.agentActivity;
     const organizationId = this.getOrganizationId();
-    const rawActivity: LinearRawAgentActivityData = {
-      id: activity.id,
-      createdAt: activity.createdAt,
-      updatedAt: activity.updatedAt,
-      content: content as LinearRawAgentActivityData["content"],
-    };
 
     return {
       id: activity.id,
-      threadId: getSessionThreadId(agentSession, (thread) =>
-        this.encodeThreadId(thread)
-      ),
-      raw: buildAgentActivityRawMessage(
-        agentSession,
-        rawActivity,
-        organizationId
-      ),
+      threadId: this.encodeThreadId(threadId),
+      raw: buildAgentActivityRawMessage(agentSession, activity, organizationId),
     };
   }
 
   private async updateAgentSession(
     agentSessionId: string,
-    input: Record<string, unknown>
+    input: Parameters<
+  LinearClient["updateAgentSession"]
+>[1]
   ): Promise<void> {
-    const result = await this.getClient().client.rawRequest<
-      LinearAgentSessionUpdateMutationData,
-      {
-        agentSessionId: string;
-        input: Record<string, unknown>;
-      }
-    >(
-      /* GraphQL */ `
-        mutation LinearAdapterUpdateAgentSession(
-          $agentSessionId: String!
-          $input: AgentSessionUpdateInput!
-        ) {
-          agentSessionUpdate(id: $agentSessionId, input: $input) {
-            success
-          }
-        }
-      `,
-      {
-        agentSessionId,
-        input,
-      }
+    const result = await this.getClient().updateAgentSession(
+      agentSessionId,
+      input
     );
 
-    if (!result.data) {
-      throw new AdapterError(
-        `Linear agent session update returned no data for session ${agentSessionId}`,
-        "linear"
-      );
-    }
-
-    if (!result.data.agentSessionUpdate.success) {
+    if (!result.success) {
       throw new AdapterError(
         `Failed to update Linear agent session ${agentSessionId}`,
         "linear"
@@ -1293,20 +1190,19 @@ export class LinearAdapter
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
     const client = this.getClient();
-    const { issueId, commentId, agentSessionId } =
+    const decoded =
       this.decodeThreadId(threadId);
     const body = renderMessageToLinearMarkdown(message, this.formatConverter);
 
-    if (agentSessionId) {
+    if (decoded.agentSessionId) {
+      assertAgentSessionThread(decoded)
       return await this.createAgentActivity(
+        decoded,
         {
-          id: agentSessionId,
-          issueId,
-          commentId,
-        },
-        {
-          type: "response",
-          body,
+          content: {
+            type: AgentActivityType.Response,
+            body,
+          },
         }
       );
     }
@@ -1314,15 +1210,15 @@ export class LinearAdapter
     // Create the comment via Linear SDK
     // If commentId is present, reply under that comment (comment-level thread)
     const commentPayload = await client.createComment({
-      issueId,
+      issueId: decoded.issueId,
       body,
-      parentId: commentId,
+      parentId: decoded.commentId,
     });
 
     const comment = await commentPayload.comment;
     if (!comment) {
       this.logger.error("Linear comment creation returned no comment", {
-        issueId,
+        issueId: decoded.issueId,
         threadId,
       });
       throw new AdapterError(
@@ -1339,7 +1235,7 @@ export class LinearAdapter
         {
           id: comment.id,
           body: comment.body,
-          issueId,
+          issueId: decoded.issueId,
           userId: this.botUserId || "",
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
@@ -1477,16 +1373,14 @@ export class LinearAdapter
     assertAgentSessionThread(decoded);
 
     await this.createAgentActivity(
+      decoded,
       {
-        id: decoded.agentSessionId,
-        issueId: decoded.issueId,
-        commentId: decoded.commentId,
-      },
-      {
-        type: "thought",
-        body: status ?? "Thinking...",
-      },
-      { ephemeral: true }
+        content: {
+          type: AgentActivityType.Thought,
+          body: status ?? "Thinking...",
+        },
+        ephemeral: true,
+      }
     );
   }
 
@@ -1602,14 +1496,12 @@ export class LinearAdapter
 
     const finalBody = renderer.finish();
     return await this.createAgentActivity(
+      decoded,
       {
-        id: decoded.agentSessionId,
-        issueId: decoded.issueId,
-        commentId: decoded.commentId,
-      },
-      {
-        type: "response",
-        body: finalBody,
+        content: {
+          type: AgentActivityType.Response,
+          body: finalBody,
+        },
       }
     );
   }
@@ -1631,8 +1523,6 @@ export class LinearAdapter
     if (agentSessionId) {
       return await this.fetchAgentSessionMessages(
         threadId,
-        issueId,
-        commentId,
         agentSessionId
       );
     }
@@ -1728,128 +1618,25 @@ export class LinearAdapter
 
   private async fetchAgentSessionMessages(
     threadId: string,
-    issueId: string,
-    commentId: string | undefined,
     agentSessionId: string
   ): Promise<FetchResult<LinearRawMessage>> {
     const organizationId = this.getOrganizationId();
-    const result = await this.getClient().client.rawRequest<
-      LinearAgentSessionActivitiesData,
-      { agentSessionId: string }
-    >(
-      /* GraphQL */ `
-        query LinearAdapterAgentSessionActivities($agentSessionId: String!) {
-          agentSession(id: $agentSessionId) {
-            id
-            comment {
-              id
-            }
-            sourceComment {
-              id
-            }
-            status
-            summary
-            issue {
-              id
-              identifier
-              title
-              url
-            }
-            activities {
-              edges {
-                node {
-                  id
-                  createdAt
-                  updatedAt
-                  content {
-                    __typename
-                    ... on AgentActivityThoughtContent {
-                      body
-                    }
-                    ... on AgentActivityElicitationContent {
-                      body
-                    }
-                    ... on AgentActivityResponseContent {
-                      body
-                    }
-                    ... on AgentActivityErrorContent {
-                      body
-                    }
-                    ... on AgentActivityPromptContent {
-                      body
-                    }
-                    ... on AgentActivityActionContent {
-                      action
-                      parameter
-                      result
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `,
-      { agentSessionId }
-    );
+    const agentSession = await this.getClient().agentSession(agentSessionId);
+    const activitiesConnection = await agentSession.activities();
 
-    if (!result.data) {
-      this.logger.error(
-        "Linear agent session activities query returned no data",
-        {
-          agentSessionId,
-        }
-      );
-      throw new AdapterError(
-        `Linear agent session activities request returned no data for session ${agentSessionId}`,
-        "linear"
-      );
-    }
-
-    if (!result.data.agentSession) {
-      this.logger.error(
-        "Linear agent session activities query returned no session",
-        {
-          agentSessionId,
-        }
-      );
-      throw new AdapterError(
-        `Failed to fetch Linear agent session ${agentSessionId}`,
-        "linear"
-      );
-    }
-
-    const agentSession: LinearAgentSessionData = {
-      id: result.data.agentSession.id,
-      issueId: result.data.agentSession.issue?.id ?? issueId,
-      issue: result.data.agentSession.issue ?? undefined,
-      comment: result.data.agentSession.comment ?? undefined,
-      commentId: result.data.agentSession.comment?.id ?? commentId,
-      sourceCommentId: result.data.agentSession.sourceComment?.id ?? undefined,
-      status: result.data.agentSession.status ?? undefined,
-      summary: result.data.agentSession.summary ?? undefined,
-    };
-
-    const messages = result.data.agentSession.activities.edges
-      .map((edge) => edge.node)
+    const messages = activitiesConnection.nodes
       .sort((a, b) => {
         const aTime = new Date(a.createdAt ?? 0).getTime();
         const bTime = new Date(b.createdAt ?? 0).getTime();
         return aTime - bTime;
       })
-      .map((activity) => {
-        const agentActivity: LinearRawAgentActivityData = {
-          id: activity.id,
-          createdAt: activity.createdAt,
-          updatedAt: activity.updatedAt,
-          content: activity.content,
-        };
-        const activityType = normalizeAgentActivityType(activity.content);
+      .map((agentActivity) => {
+        const activityType = normalizeAgentActivityType(agentActivity.content);
         const text = getAgentActivityText(agentActivity);
         const isAgentMessage = activityType !== AgentActivityType.Prompt;
 
         return new Message<LinearRawMessage>({
-          id: activity.id,
+          id: agentActivity.id,
           threadId,
           text,
           formatted: this.formatConverter.toAst(text),
@@ -1861,7 +1648,7 @@ export class LinearAdapter
             isMe: isAgentMessage,
           },
           metadata: {
-            dateSent: new Date(activity.createdAt ?? Date.now()),
+            dateSent: new Date(agentActivity.createdAt ?? Date.now()),
             edited: false,
           },
           attachments: [],

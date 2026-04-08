@@ -1,4 +1,5 @@
 import { extractCard, ValidationError } from "@chat-adapter/shared";
+import type { AgentActivity, AgentSession } from "@linear/sdk";
 import { AgentActivityType } from "@linear/sdk";
 import type { AgentSessionEventWebhookPayload } from "@linear/sdk/webhooks";
 import type { AdapterPostableMessage } from "chat";
@@ -7,12 +8,9 @@ import { cardToLinearMarkdown } from "./cards";
 import type { LinearFormatConverter } from "./markdown";
 import type {
   LinearAgentActivityRawMessage,
-  LinearAgentSessionData,
   LinearAgentSessionEventRawMessage,
   LinearCommentData,
   LinearCommentRawMessage,
-  LinearRawAgentActivityData,
-  LinearRawAgentSessionData,
   LinearThreadId,
 } from "./types";
 
@@ -139,13 +137,16 @@ function formatActionActivityText(content: AgentActivityContentLike): string {
 }
 
 export function getAgentActivityText(
-  activity?: LinearAgentActivityLike | LinearRawAgentActivityData | null
+  activity?:
+    | LinearAgentActivityLike
+    | Pick<AgentActivity, "content" | "createdAt" | "id" | "updatedAt">
+    | null
 ): string {
   if (!activity) {
     return "";
   }
 
-  if (typeof activity.body === "string") {
+  if ("body" in activity && typeof activity.body === "string") {
     return activity.body;
   }
 
@@ -212,19 +213,14 @@ export function buildCommentRawMessage(
 }
 
 export function buildAgentActivityRawMessage(
-  agentSession: LinearAgentSessionData,
-  agentActivity: LinearRawAgentActivityData,
+  agentSession: AgentSession,
+  agentActivity: AgentActivity,
   organizationId: string
 ): LinearAgentActivityRawMessage {
-  const rawAgentSession: LinearRawAgentSessionData = {
-    ...agentSession,
-    issueId: getIssueIdFromSession(agentSession),
-  };
-
   return {
     kind: "agent_activity",
     agentActivity,
-    agentSession: rawAgentSession,
+    agentSession,
     organizationId,
   };
 }

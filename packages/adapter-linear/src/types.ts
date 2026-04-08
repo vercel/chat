@@ -8,6 +8,7 @@
 
 import type {
   AgentActivity,
+  AgentSession,
   CommentChildWebhookPayload,
   IssueWithDescriptionChildWebhookPayload,
   UserChildWebhookPayload,
@@ -260,14 +261,6 @@ export interface LinearAgentSessionData {
   summary?: string;
 }
 
-/** Agent activity snapshot used in adapter-built raw activity messages. */
-export type LinearRawAgentActivityData = Pick<
-  AgentActivity,
-  "content" | "createdAt" | "id" | "updatedAt"
-> & {
-  body?: string;
-};
-
 // =============================================================================
 // Raw Message Type
 // =============================================================================
@@ -279,11 +272,6 @@ interface LinearRawMessageBase {
   organizationId: string;
 }
 
-/** Agent-session snapshot guaranteed by adapter-built raw activity messages. */
-export type LinearRawAgentSessionData = LinearAgentSessionData & {
-  issueId: string;
-};
-
 /** Platform-specific raw message for a standard Linear comment. */
 export interface LinearCommentRawMessage extends LinearRawMessageBase {
   /** Raw comment data from webhook or API. */
@@ -294,9 +282,9 @@ export interface LinearCommentRawMessage extends LinearRawMessageBase {
 /** Platform-specific raw message for an agent activity fetched from Linear. */
 export interface LinearAgentActivityRawMessage extends LinearRawMessageBase {
   /** Agent activity payload. */
-  agentActivity: LinearRawAgentActivityData;
+  agentActivity: AgentActivity;
   /** Agent session payload. */
-  agentSession: LinearRawAgentSessionData;
+  agentSession: AgentSession;
   kind: "agent_activity";
 }
 

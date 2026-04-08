@@ -2681,22 +2681,20 @@ describe("runtime operations", () => {
   it("postMessage uses agentActivityCreate for agent-session threads", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
-    const mockRawRequest = vi.fn().mockResolvedValue({
-      data: {
-        agentActivityCreate: {
-          success: true,
-          agentActivity: {
-            id: "activity-123",
-            createdAt: "2025-06-01T12:00:00.000Z",
-            updatedAt: "2025-06-01T12:00:00.000Z",
-          },
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
+      success: true,
+      agentActivity: {
+        id: "activity-123",
+        createdAt: "2025-06-01T12:00:00.000Z",
+        updatedAt: "2025-06-01T12:00:00.000Z",
+        content: {
+          type: "response",
+          body: "Agent response",
         },
       },
     });
     setDefaultClient(adapter, {
-      client: {
-        rawRequest: mockRawRequest,
-      },
+      createAgentActivity: mockCreateAgentActivity,
     });
 
     const result = await adapter.postMessage(
@@ -2704,18 +2702,13 @@ describe("runtime operations", () => {
       "Agent response"
     );
 
-    expect(mockRawRequest).toHaveBeenCalledWith(
-      expect.stringContaining("LinearAdapterCreateAgentActivity"),
-      expect.objectContaining({
-        input: {
-          agentSessionId: "session-789",
-          content: {
-            type: "response",
-            body: "Agent response",
-          },
-        },
-      })
-    );
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "Agent response",
+      },
+    });
     expect(result.id).toBe("activity-123");
     expect(result.raw.kind).toBe("agent_activity");
     expect(result.raw.organizationId).toBe("org-123");
@@ -2724,22 +2717,20 @@ describe("runtime operations", () => {
   it("startTyping uses ephemeral thought activities for agent-session threads", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
-    const mockRawRequest = vi.fn().mockResolvedValue({
-      data: {
-        agentActivityCreate: {
-          success: true,
-          agentActivity: {
-            id: "activity-thinking",
-            createdAt: "2025-06-01T12:00:00.000Z",
-            updatedAt: "2025-06-01T12:00:00.000Z",
-          },
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
+      success: true,
+      agentActivity: {
+        id: "activity-thinking",
+        createdAt: "2025-06-01T12:00:00.000Z",
+        updatedAt: "2025-06-01T12:00:00.000Z",
+        content: {
+          type: "thought",
+          body: "Looking things up...",
         },
       },
     });
     setDefaultClient(adapter, {
-      client: {
-        rawRequest: mockRawRequest,
-      },
+      createAgentActivity: mockCreateAgentActivity,
     });
 
     await adapter.startTyping(
@@ -2747,52 +2738,37 @@ describe("runtime operations", () => {
       "Looking things up..."
     );
 
-    expect(mockRawRequest).toHaveBeenCalledWith(
-      expect.stringContaining("LinearAdapterCreateAgentActivity"),
-      expect.objectContaining({
-        input: {
-          agentSessionId: "session-789",
-          ephemeral: true,
-          content: {
-            type: "thought",
-            body: "Looking things up...",
-          },
-        },
-      })
-    );
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      ephemeral: true,
+      content: {
+        type: "thought",
+        body: "Looking things up...",
+      },
+    });
   });
 
   it("stream updates the session plan and posts a final response", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
-    const mockRawRequest = vi.fn().mockImplementation((query: string) => {
-      if (query.includes("LinearAdapterUpdateAgentSession")) {
-        return Promise.resolve({
-          data: {
-            agentSessionUpdate: {
-              success: true,
-            },
-          },
-        });
-      }
-
-      return Promise.resolve({
-        data: {
-          agentActivityCreate: {
-            success: true,
-            agentActivity: {
-              id: "activity-final",
-              createdAt: "2025-06-01T12:00:01.000Z",
-              updatedAt: "2025-06-01T12:00:01.000Z",
-            },
-          },
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
+      success: true,
+      agentActivity: {
+        id: "activity-final",
+        createdAt: "2025-06-01T12:00:01.000Z",
+        updatedAt: "2025-06-01T12:00:01.000Z",
+        content: {
+          type: "response",
+          body: "Hello world",
         },
-      });
+      },
     });
     setDefaultClient(adapter, {
-      client: {
-        rawRequest: mockRawRequest,
-      },
+      createAgentActivity: mockCreateAgentActivity,
+      updateAgentSession: mockUpdateAgentSession,
     });
 
     async function* textStream() {
@@ -2811,34 +2787,21 @@ describe("runtime operations", () => {
       textStream()
     );
 
-    expect(mockRawRequest).toHaveBeenNthCalledWith(
-      1,
-      expect.stringContaining("LinearAdapterUpdateAgentSession"),
-      expect.objectContaining({
-        agentSessionId: "session-789",
-        input: {
-          plan: [
-            {
-              content: "Search docs",
-              status: "inProgress",
-            },
-          ],
+    expect(mockUpdateAgentSession).toHaveBeenCalledWith("session-789", {
+      plan: [
+        {
+          content: "Search docs",
+          status: "inProgress",
         },
-      })
-    );
-    expect(mockRawRequest).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining("LinearAdapterCreateAgentActivity"),
-      expect.objectContaining({
-        input: {
-          agentSessionId: "session-789",
-          content: {
-            type: "response",
-            body: "Hello world",
-          },
-        },
-      })
-    );
+      ],
+    });
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "Hello world",
+      },
+    });
     expect(result.id).toBe("activity-final");
   });
 
@@ -2864,56 +2827,44 @@ describe("runtime operations", () => {
   it("fetchMessages uses agent session activities for session threads", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-xyz");
-    const mockClient = {
-      client: {
-        rawRequest: vi.fn().mockResolvedValue({
-          data: {
-            agentSession: {
-              id: "session-789",
-              comment: {
-                id: "comment-root",
-              },
-              sourceComment: {
-                id: "comment-source",
-              },
-              status: "active",
-              summary: "Help with the issue",
-              issue: {
-                id: "issue-123",
-                identifier: "TEST-1",
-                title: "Investigate",
-                url: "https://linear.app/test/issue/TEST-1",
-              },
-              activities: {
-                edges: [
-                  {
-                    node: {
-                      id: "activity-2",
-                      createdAt: "2025-06-01T12:00:02.000Z",
-                      updatedAt: "2025-06-01T12:00:02.000Z",
-                      content: {
-                        __typename: "AgentActivityResponseContent",
-                        body: "Agent reply",
-                      },
-                    },
-                  },
-                  {
-                    node: {
-                      id: "activity-1",
-                      createdAt: "2025-06-01T12:00:01.000Z",
-                      updatedAt: "2025-06-01T12:00:01.000Z",
-                      content: {
-                        __typename: "AgentActivityPromptContent",
-                        body: "User prompt",
-                      },
-                    },
-                  },
-                ],
-              },
+    const mockAgentSession = {
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+      sourceCommentId: "comment-source",
+      status: "active",
+      summary: "Help with the issue",
+      issue: Promise.resolve({
+        id: "issue-123",
+        identifier: "TEST-1",
+        title: "Investigate",
+        url: "https://linear.app/test/issue/TEST-1",
+      }),
+      activities: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "activity-2",
+            createdAt: "2025-06-01T12:00:02.000Z",
+            updatedAt: "2025-06-01T12:00:02.000Z",
+            content: {
+              __typename: "AgentActivityResponseContent",
+              body: "Agent reply",
             },
           },
-        }),
-      },
+          {
+            id: "activity-1",
+            createdAt: "2025-06-01T12:00:01.000Z",
+            updatedAt: "2025-06-01T12:00:01.000Z",
+            content: {
+              __typename: "AgentActivityPromptContent",
+              body: "User prompt",
+            },
+          },
+        ],
+      }),
+    };
+    const mockClient = {
+      agentSession: vi.fn().mockResolvedValue(mockAgentSession),
     };
     setDefaultClient(adapter, mockClient);
 
@@ -2921,6 +2872,8 @@ describe("runtime operations", () => {
       "linear:issue-123:c:comment-root:s:session-789"
     );
 
+    expect(mockClient.agentSession).toHaveBeenCalledWith("session-789");
+    expect(mockAgentSession.activities).toHaveBeenCalledWith();
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].text).toBe("User prompt");
     expect(result.messages[1].text).toBe("Agent reply");
