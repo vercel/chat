@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ValidationError } from "@chat-adapter/shared";
+import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
 import {
   type Adapter,
   type AdapterPostableMessage,
@@ -33,10 +33,57 @@ export class ZoomAdapter implements Adapter {
   readonly userName: string;
 
   private readonly config: ZoomAdapterInternalConfig;
+  private cachedToken: { value: string; expiresAt: number } | null = null;
 
   constructor(config: ZoomAdapterInternalConfig) {
     this.config = config;
     this.userName = config.robotJid;
+  }
+
+  /** Fetches and caches a chatbot token via S2S OAuth client_credentials grant.
+   * Uses raw fetch — @zoom/rivet's ChatbotClient does not expose a public token-fetch API
+   * (its ClientCredentialsAuth is internal-only). @zoom/rivet is used in Phase 3 for
+   * message sending via endpoints.sendChatbotMessage().
+   * Reuses the cached token within the 1-hour TTL (with 60-second early-expiry buffer).
+   * On failure, throws AuthenticationError — caller should let the SDK return 500.
+   */
+  async getAccessToken(): Promise<string> {
+    if (this.cachedToken && Date.now() < this.cachedToken.expiresAt - 60_000) {
+      return this.cachedToken.value;
+    }
+
+    const credentials = Buffer.from(
+      `${this.config.clientId}:${this.config.clientSecret}`
+    ).toString("base64");
+
+    const response = await fetch(
+      "https://zoom.us/oauth/token?grant_type=client_credentials",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${credentials}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new AuthenticationError(
+        "zoom",
+        `Token fetch failed with HTTP ${response.status}`
+      );
+    }
+
+    const data = (await response.json()) as {
+      access_token: string;
+      expires_in: number;
+    };
+
+    this.cachedToken = {
+      value: data.access_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+
+    return this.cachedToken.value;
   }
 
   async handleWebhook(

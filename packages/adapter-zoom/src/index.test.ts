@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
+import { ValidationError } from "@chat-adapter/shared";
 import { createZoomAdapter } from "./index.js";
 
 const TEST_SECRET = "test-webhook-secret";
@@ -118,20 +119,101 @@ describe("ZoomAdapter — Webhook Verification (WBHK-01, WBHK-02, WBHK-03)", () 
 });
 
 describe("ZoomAdapter — S2S OAuth Token (AUTH-01, AUTH-02, AUTH-04)", () => {
-  it.todo(
-    "AUTH-01: getAccessToken calls https://zoom.us/oauth/token?grant_type=client_credentials"
-  );
-  it.todo("AUTH-02: token is reused within 1-hour TTL");
-  it.todo("AUTH-02: new token is fetched after TTL expires");
-  it.todo(
-    "AUTH-04: token fetch uses grant_type=client_credentials (not account_credentials)"
-  );
+  function mockTokenFetch(token = "access-token-1", expiresIn = 3600) {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: token,
+          token_type: "bearer",
+          expires_in: expiresIn,
+        }),
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("AUTH-01: getAccessToken calls https://zoom.us/oauth/token?grant_type=client_credentials", async () => {
+    const fetchMock = mockTokenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    await adapter.getAccessToken();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://zoom.us/oauth/token?grant_type=client_credentials",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("AUTH-02: token is reused within 1-hour TTL", async () => {
+    const fetchMock = mockTokenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    await adapter.getAccessToken();
+    await adapter.getAccessToken();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("AUTH-02: new token is fetched after TTL expires", async () => {
+    vi.useFakeTimers();
+    const fetchMock = mockTokenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    await adapter.getAccessToken();
+    vi.advanceTimersByTime(3700 * 1000); // past 1-hour TTL
+    await adapter.getAccessToken();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("AUTH-04: token fetch uses grant_type=client_credentials (not account_credentials)", async () => {
+    const fetchMock = mockTokenFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    await adapter.getAccessToken();
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("grant_type=client_credentials");
+    expect(url).not.toContain("account_credentials");
+  });
 });
 
 describe("ZoomAdapter — Factory Validation (AUTH-03)", () => {
-  it.todo("throws ValidationError when clientId is missing");
-  it.todo("throws ValidationError when clientSecret is missing");
-  it.todo("throws ValidationError when robotJid is missing");
-  it.todo("throws ValidationError when accountId is missing");
-  it.todo("throws ValidationError when webhookSecretToken is missing");
+  const BASE = {
+    clientId: "id",
+    clientSecret: "secret",
+    robotJid: "jid",
+    accountId: "acct",
+    webhookSecretToken: "token",
+  };
+
+  it("throws ValidationError when clientId is missing", () => {
+    expect(() =>
+      createZoomAdapter({ ...BASE, clientId: undefined })
+    ).toThrow(ValidationError);
+  });
+
+  it("throws ValidationError when clientSecret is missing", () => {
+    expect(() =>
+      createZoomAdapter({ ...BASE, clientSecret: undefined })
+    ).toThrow(ValidationError);
+  });
+
+  it("throws ValidationError when robotJid is missing", () => {
+    expect(() =>
+      createZoomAdapter({ ...BASE, robotJid: undefined })
+    ).toThrow(ValidationError);
+  });
+
+  it("throws ValidationError when accountId is missing", () => {
+    expect(() =>
+      createZoomAdapter({ ...BASE, accountId: undefined })
+    ).toThrow(ValidationError);
+  });
+
+  it("throws ValidationError when webhookSecretToken is missing", () => {
+    expect(() =>
+      createZoomAdapter({ ...BASE, webhookSecretToken: undefined })
+    ).toThrow(ValidationError);
+  });
 });
