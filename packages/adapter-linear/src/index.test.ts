@@ -230,6 +230,22 @@ function createInstallation(
   };
 }
 
+function createMockAgentActivityPayload(
+  id: string,
+  content: Record<string, unknown>,
+  createdAt = "2025-06-01T12:00:01.000Z"
+) {
+  return {
+    success: true,
+    agentActivity: Promise.resolve({
+      id,
+      createdAt,
+      updatedAt: createdAt,
+      content,
+    }),
+  };
+}
+
 function buildOAuthCallbackRequest(
   params: Record<string, string | undefined>
 ): Request {
@@ -2791,21 +2807,30 @@ describe("runtime operations", () => {
     expect(mockAgentSession).toHaveBeenCalledWith("session-789");
   });
 
-  it("stream updates the session plan and posts a final response", async () => {
+  it("stream creates action activities for task updates and returns the final response activity", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
-    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
-      success: true,
-      agentActivity: {
-        id: "activity-final",
-        createdAt: "2025-06-01T12:00:01.000Z",
-        updatedAt: "2025-06-01T12:00:01.000Z",
-        content: {
+    const mockCreateAgentActivity = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-opening", {
           type: "response",
-          body: "Hello world",
-        },
-      },
-    });
+          body: "Hello\n",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-task", {
+          type: "action",
+          action: "Search docs",
+          result: "Started",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-final", {
+          type: "response",
+          body: "world",
+        })
+      );
     const mockAgentSession = vi.fn().mockResolvedValue({
       id: "session-789",
       issueId: "issue-123",
@@ -2821,14 +2846,159 @@ describe("runtime operations", () => {
     });
 
     async function* textStream() {
-      yield "Hello ";
+      yield "Hello\n";
       yield {
         type: "task_update" as const,
         id: "task-1",
         title: "Search docs",
         status: "in_progress" as const,
+        output: "Started",
       };
       yield { type: "markdown_text" as const, text: "world" };
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(1, {
+      agentSessionId: "session-789",
+      content: {
+        type: "thought",
+        body: "Hello",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(2, {
+      agentSessionId: "session-789",
+      content: {
+        type: "action",
+        action: "Search docs",
+        result: "Started",
+        parameter: "",
+      },
+      ephemeral: true,
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(3, {
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "world",
+      },
+    });
+    expect(mockUpdateAgentSession).not.toHaveBeenCalled();
+    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
+    expect(result.id).toBe("activity-final");
+  });
+
+  it("stream creates error activities for failed task updates", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-opening", {
+          type: "response",
+          body: "Hello\n",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-error", {
+          type: "error",
+          body: "Search docs\nBoom",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-final", {
+          type: "response",
+          body: "world",
+        })
+      );
+    const mockAgentSession = vi.fn().mockResolvedValue({
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+    });
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+      agentSession: mockAgentSession,
+      updateAgentSession: mockUpdateAgentSession,
+    });
+
+    async function* textStream() {
+      yield "Hello\n";
+      yield {
+        type: "task_update" as const,
+        id: "task-1",
+        title: "Search docs",
+        status: "error" as const,
+        output: "Boom",
+      };
+      yield { type: "markdown_text" as const, text: "world" };
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(1, {
+      agentSessionId: "session-789",
+      content: {
+        type: "thought",
+        body: "Hello",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(2, {
+      agentSessionId: "session-789",
+      content: {
+        type: "error",
+        body: "Search docs\nBoom",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(3, {
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "world",
+      },
+    });
+    expect(mockUpdateAgentSession).not.toHaveBeenCalled();
+    expect(result.id).toBe("activity-final");
+  });
+
+  it("stream updates the session plan for plan updates and posts a final response", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue(
+      createMockAgentActivityPayload("activity-final", {
+        type: "response",
+        body: "Hello world",
+      })
+    );
+    const mockAgentSession = vi.fn().mockResolvedValue({
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+    });
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+      agentSession: mockAgentSession,
+      updateAgentSession: mockUpdateAgentSession,
+    });
+
+    async function* textStream() {
+      yield {
+        type: "plan_update" as const,
+        title: "Search docs",
+      };
+      yield "Hello world";
     }
 
     const result = await adapter.stream(
@@ -2840,7 +3010,7 @@ describe("runtime operations", () => {
       plan: [
         {
           content: "Search docs",
-          status: "inProgress",
+          status: "completed",
         },
       ],
     });
@@ -2851,7 +3021,6 @@ describe("runtime operations", () => {
         body: "Hello world",
       },
     });
-    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
     expect(result.id).toBe("activity-final");
   });
 

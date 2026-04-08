@@ -4,7 +4,7 @@ import {
   AuthenticationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { LinearFetch, User } from "@linear/sdk";
+import type { AgentActivityPayload, LinearFetch, User } from "@linear/sdk";
 import { AgentActivityType, LinearClient } from "@linear/sdk";
 import {
   type AgentSessionEventWebhookPayload,
@@ -52,11 +52,9 @@ import {
   buildCommentRawMessage,
   getAgentActivityText,
   getSessionThreadId,
-  type LinearAgentPlanStatus,
   type LinearAgentSessionThreadId,
   normalizeAgentActivityType,
   renderMessageToLinearMarkdown,
-  toAgentPlanStatus,
 } from "./utils";
 
 const COMMENT_SESSION_THREAD_PATTERN = /^([^:]+):c:([^:]+):s:([^:]+)$/;
@@ -884,18 +882,14 @@ export class LinearAdapter
     await this.requestContext.run(context, handler);
   }
 
-  private async createAgentActivity(
+  /**
+   * Create a a chat raw message for a Linear agent activity.
+   */
+  private async createAgentActivityMessage(
     threadId: LinearAgentSessionThreadId,
-    input: Omit<
-      Parameters<LinearClient["createAgentActivity"]>[0],
-      "agentSessionId"
-    >
+    result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
     const linear = this.getClient();
-    const result = await linear.createAgentActivity({
-      agentSessionId: threadId.agentSessionId,
-      ...input,
-    });
 
     const [activity, agentSession] = await Promise.all([
       result.agentActivity,
@@ -1182,12 +1176,16 @@ export class LinearAdapter
 
     if (decoded.agentSessionId) {
       assertAgentSessionThread(decoded);
-      return await this.createAgentActivity(decoded, {
-        content: {
-          type: AgentActivityType.Response,
-          body,
-        },
-      });
+      return await this.createAgentActivityMessage(
+        decoded,
+        await client.createAgentActivity({
+          agentSessionId: decoded.agentSessionId,
+          content: {
+            type: AgentActivityType.Response,
+            body,
+          },
+        })
+      );
     }
 
     // Create the comment via Linear SDK
@@ -1355,13 +1353,17 @@ export class LinearAdapter
 
     assertAgentSessionThread(decoded);
 
-    await this.createAgentActivity(decoded, {
-      content: {
-        type: AgentActivityType.Thought,
-        body: status ?? "Thinking...",
-      },
-      ephemeral: true,
-    });
+    await this.createAgentActivityMessage(
+      decoded,
+      await this.getClient().createAgentActivity({
+        agentSessionId: decoded.agentSessionId,
+        content: {
+          type: AgentActivityType.Thought,
+          body: status ?? "Thinking...",
+        },
+        ephemeral: true,
+      })
+    );
   }
 
   /**
@@ -1391,14 +1393,29 @@ export class LinearAdapter
     _options?: StreamOptions
   ): Promise<RawMessage<LinearRawMessage>> {
     const renderer = new StreamingMarkdownRenderer();
-    const taskPlan = new Map<
-      string,
-      {
-        content: string;
-        status: LinearAgentPlanStatus;
-      }
-    >();
+    const client = this.getClient();
     assertAgentSessionThread(decoded);
+
+    let lastAppended = "";
+
+    /** Flush the current markdown buffer into a new agent activity */
+    const flushMarkdown = async (
+      type: AgentActivityType.Response | AgentActivityType.Thought,
+      markdown: string = renderer.getCommittableText(),
+      force = false
+    ) => {
+      const delta = markdown.slice(lastAppended.length).trim();
+      if (delta || force) {
+        lastAppended = markdown;
+        return await client.createAgentActivity({
+          agentSessionId: decoded.agentSessionId,
+          content: {
+            type,
+            body: delta,
+          },
+        });
+      }
+    };
 
     for await (const chunk of textStream) {
       if (typeof chunk === "string") {
@@ -1412,24 +1429,60 @@ export class LinearAdapter
       }
 
       if (chunk.type === "task_update") {
-        taskPlan.set(chunk.id, {
-          content: chunk.title,
-          status: toAgentPlanStatus(chunk.status),
-        });
+        // Flush any buffered markdown before sending the action
+        // We push it as thought to differentiate it from the main response content
+        // This is a design choice and we might want to allow the caller to specify the type in the future
+        await flushMarkdown(AgentActivityType.Thought);
 
+        if (chunk.status === "error") {
+          await client.createAgentActivity({
+            agentSessionId: decoded.agentSessionId,
+            content: {
+              type: AgentActivityType.Error,
+              body: [chunk.title, chunk.output].filter(Boolean).join("\n"),
+            },
+          });
+        } else {
+          await client.createAgentActivity({
+            agentSessionId: decoded.agentSessionId,
+            content: {
+              type: AgentActivityType.Action,
+              action: chunk.title,
+              parameter: "",
+              result: chunk.output,
+            },
+            ephemeral: chunk.status !== "complete",
+          });
+        }
+
+        continue;
+      }
+
+      if (chunk.type === "plan_update") {
+        // https://linear.app/developers/agent-interaction#agent-plans
         await this.updateAgentSession(decoded.agentSessionId, {
-          plan: Array.from(taskPlan.values()),
+          plan: [
+            {
+              content: chunk.title,
+              status: "completed",
+            },
+          ],
         });
       }
     }
 
-    const finalBody = renderer.finish();
-    return await this.createAgentActivity(decoded, {
-      content: {
-        type: AgentActivityType.Response,
-        body: finalBody,
-      },
-    });
+    const finalActivity = await flushMarkdown(
+      AgentActivityType.Response,
+      renderer.finish(),
+      true
+    );
+    if (!finalActivity) {
+      throw new Error(
+        "Failed to flush final markdown delta for agent session stream"
+      );
+    }
+
+    return await this.createAgentActivityMessage(decoded, finalActivity);
   }
 
   /**
