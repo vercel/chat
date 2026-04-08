@@ -1,4 +1,5 @@
 import type { Root } from "mdast";
+import type { Logger } from "./logger";
 import { parseMarkdown, toPlainText } from "./markdown";
 import {
   POSTABLE_OBJECT,
@@ -92,6 +93,7 @@ function contentToPlainText(content: PlanContent | undefined): string {
 interface BoundState {
   adapter: Adapter;
   fallback: boolean;
+  logger?: Logger;
   messageId: string;
   threadId: string;
   updateChain: Promise<void>;
@@ -156,6 +158,7 @@ export class Plan implements PostableObject<PlanModel> {
     this._bound = {
       adapter: context.adapter,
       fallback: !this.isSupported(context.adapter),
+      logger: context.logger,
       messageId: context.messageId,
       threadId: context.threadId,
       updateChain: Promise.resolve(),
@@ -179,10 +182,14 @@ export class Plan implements PostableObject<PlanModel> {
     }));
   }
   get currentTask(): PlanTask | null {
-    const current =
-      [...this._model.tasks]
-        .reverse()
-        .find((t) => t.status === "in_progress") ?? this._model.tasks.at(-1);
+    let current: PlanModelTask | undefined;
+    for (let i = this._model.tasks.length - 1; i >= 0; i--) {
+      if (this._model.tasks[i].status === "in_progress") {
+        current = this._model.tasks[i];
+        break;
+      }
+    }
+    current ??= this._model.tasks.at(-1);
     if (!current) {
       return null;
     }
@@ -216,10 +223,14 @@ export class Plan implements PostableObject<PlanModel> {
     if (!this.canMutate()) {
       return null;
     }
-    const current =
-      [...this._model.tasks]
-        .reverse()
-        .find((t) => t.status === "in_progress") ?? this._model.tasks.at(-1);
+    let current: PlanModelTask | undefined;
+    for (let i = this._model.tasks.length - 1; i >= 0; i--) {
+      if (this._model.tasks[i].status === "in_progress") {
+        current = this._model.tasks[i];
+        break;
+      }
+    }
+    current ??= this._model.tasks.at(-1);
 
     if (!current) {
       return null;
@@ -309,7 +320,7 @@ export class Plan implements PostableObject<PlanModel> {
     bound.updateChain = chained.then(
       () => undefined,
       (err) => {
-        console.warn("[Plan] Failed to edit plan:", err);
+        bound.logger?.warn("Failed to edit plan", err);
       }
     );
     return chained;

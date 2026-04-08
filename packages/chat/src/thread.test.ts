@@ -1551,6 +1551,83 @@ describe("ThreadImpl", () => {
       // Despite random delays, edits should complete in order
       expect(editOrder).toEqual([1, 2, 3]);
     });
+
+    it("should return null when calling addTask before post", async () => {
+      const plan = new Plan({ initialMessage: "Not posted yet" });
+      const task = await plan.addTask({ title: "Task 1" });
+      expect(task).toBeNull();
+    });
+
+    it("should return null when calling updateTask before post", async () => {
+      const plan = new Plan({ initialMessage: "Not posted yet" });
+      const updated = await plan.updateTask("some output");
+      expect(updated).toBeNull();
+    });
+
+    it("should return null when calling complete before post", async () => {
+      const plan = new Plan({ initialMessage: "Not posted yet" });
+      await plan.complete({ completeMessage: "Done" });
+      expect(plan.tasks[0].status).toBe("in_progress");
+    });
+
+    it("should propagate editObject errors from addTask", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi
+        .fn()
+        .mockRejectedValue(new Error("rate limited"));
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+
+      await expect(plan.addTask({ title: "Task 1" })).rejects.toThrow(
+        "rate limited"
+      );
+      expect(plan.tasks).toHaveLength(2);
+    });
+
+    it("should continue accepting edits after a failed edit", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("rate limited"))
+        .mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+
+      await expect(plan.addTask({ title: "Task 1" })).rejects.toThrow();
+      await plan.addTask({ title: "Task 2" });
+      expect(plan.tasks).toHaveLength(3);
+      expect(mockEditObject).toHaveBeenCalledTimes(2);
+    });
+
+    it("should set error status via updateTask", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+      await plan.addTask({ title: "Risky step" });
+      await plan.updateTask({ status: "error", output: "Something failed" });
+
+      const current = plan.currentTask;
+      expect(current?.status).toBe("error");
+    });
   });
 
   describe("subscribe and unsubscribe", () => {

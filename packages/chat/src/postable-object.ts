@@ -1,3 +1,4 @@
+import type { Logger } from "./logger";
 import type { Adapter } from "./types";
 
 /**
@@ -11,6 +12,7 @@ export const POSTABLE_OBJECT = Symbol.for("chat.postable");
  */
 export interface PostableObjectContext {
   adapter: Adapter;
+  logger?: Logger;
   messageId: string;
   threadId: string;
 }
@@ -53,4 +55,33 @@ export function isPostableObject(value: unknown): value is PostableObject {
     value !== null &&
     (value as PostableObject).$$typeof === POSTABLE_OBJECT
   );
+}
+
+/**
+ * Post a PostableObject using the adapter's native support or fallback text.
+ */
+export async function postPostableObject(
+  obj: PostableObject,
+  adapter: Adapter,
+  threadId: string,
+  postFn: (
+    threadId: string,
+    message: string
+  ) => Promise<{ id: string; threadId?: string }>,
+  logger?: Logger
+): Promise<void> {
+  const context = (raw: { id: string; threadId?: string }) => ({
+    adapter,
+    logger,
+    messageId: raw.id,
+    threadId: raw.threadId ?? threadId,
+  });
+
+  if (obj.isSupported(adapter) && adapter.postObject) {
+    const raw = await adapter.postObject(threadId, obj.kind, obj.getPostData());
+    obj.onPosted(context(raw));
+  } else {
+    const raw = await postFn(threadId, obj.getFallbackText());
+    obj.onPosted(context(raw));
+  }
 }

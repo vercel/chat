@@ -12,7 +12,7 @@ import {
 } from "./markdown";
 import { Message } from "./message";
 import type { MessageHistoryCache } from "./message-history";
-import { isPostableObject } from "./postable-object";
+import { isPostableObject, postPostableObject } from "./postable-object";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -310,30 +310,11 @@ export class ChannelImpl<TState = Record<string, unknown>>
   }
 
   private async handlePostableObject(obj: PostableObject): Promise<void> {
-    const adapter = this.adapter;
-    if (obj.isSupported(adapter) && adapter.postObject) {
-      const raw = await adapter.postObject(
-        this.id,
-        obj.kind,
-        obj.getPostData()
-      );
-      obj.onPosted({
-        adapter,
-        messageId: raw.id,
-        threadId: raw.threadId ?? this.id,
-      });
-    } else {
-      // Adapter doesn't support this object type - post fallback text
-      const fallbackText = obj.getFallbackText();
-      const raw = this.adapter.postChannelMessage
-        ? await this.adapter.postChannelMessage(this.id, fallbackText)
-        : await this.adapter.postMessage(this.id, fallbackText);
-      obj.onPosted({
-        adapter,
-        messageId: raw.id,
-        threadId: raw.threadId ?? this.id,
-      });
-    }
+    await postPostableObject(obj, this.adapter, this.id, (threadId, message) =>
+      this.adapter.postChannelMessage
+        ? this.adapter.postChannelMessage(threadId, message)
+        : this.adapter.postMessage(threadId, message)
+    );
   }
 
   private async postSingleMessage(

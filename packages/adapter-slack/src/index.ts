@@ -30,6 +30,7 @@ import type {
   Logger,
   ModalElement,
   ModalResponse,
+  PlanContent,
   PlanModel,
   RawMessage,
   ReactionEvent,
@@ -2914,7 +2915,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     ];
   }
 
-  private planContentToPlainText(content: unknown): string {
+  private planContentToPlainText(content: PlanContent | undefined): string {
     if (!content) {
       return "";
     }
@@ -2924,29 +2925,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (typeof content === "string") {
       return content;
     }
-    if (
-      typeof content === "object" &&
-      content !== null &&
-      "markdown" in content
-    ) {
-      const markdown = (content as { markdown?: string }).markdown;
-      if (markdown) {
-        return toPlainText(parseMarkdown(markdown));
-      }
-      return "";
+    if ("markdown" in content) {
+      return toPlainText(parseMarkdown(content.markdown));
     }
-    if (typeof content === "object" && content !== null && "ast" in content) {
-      const ast = (content as { ast?: unknown }).ast;
-      if (ast) {
-        return toPlainText(ast as Parameters<typeof toPlainText>[0]);
-      }
-      return "";
+    if ("ast" in content) {
+      return toPlainText(content.ast);
     }
     return "";
   }
 
   private planContentToRichText(
-    content: unknown
+    content: PlanContent | undefined
   ): { type: "rich_text"; elements: unknown[] } | undefined {
     if (!content) {
       return undefined;
