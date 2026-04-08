@@ -737,7 +737,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       channelVisibility: this.channelVisibility,
       currentMessage: this._currentMessage?.toJSON(),
       isDM: this.isDM,
-      adapterName: this.adapter.name,
+      adapterName: this._adapterName ?? this.adapter.name,
     };
   }
 

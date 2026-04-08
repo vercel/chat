@@ -475,3 +475,13 @@ Get a `JSON.parse` reviver that deserializes `Thread` and `Message` objects from
 const data = JSON.parse(payload, bot.reviver());
 await data.thread.post("Hello from workflow!");
 ```
+
+There is also a standalone `reviver` export that works without a `Chat` instance. This is useful in Vercel Workflow functions where importing the full Chat instance (with its adapter dependencies) is not possible:
+
+```typescript
+import { reviver } from "chat";
+
+const data = JSON.parse(payload, reviver) as { thread: Thread; message: Message };
+```
+
+The standalone reviver uses lazy adapter resolution - the adapter is looked up from the Chat singleton when first accessed. Call `chat.registerSingleton()` before using thread methods like `post()` (typically inside a `"use step"` function).

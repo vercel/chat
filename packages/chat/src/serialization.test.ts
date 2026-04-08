@@ -1,5 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ChannelImpl, type SerializedChannel } from "./channel";
 import { Chat } from "./chat";
 import { clearChatSingleton } from "./chat-singleton";
 import { Message, type SerializedMessage } from "./message";
@@ -911,6 +912,43 @@ describe("Serialization", () => {
       expect(parsed.id).toBe("msg-direct");
       expect(parsed.text).toBe("Direct usage");
       expect(parsed.metadata.dateSent).toBeInstanceOf(Date);
+    });
+
+    it("should allow re-serialization of a revived Thread without singleton", () => {
+      const json: SerializedThread = {
+        _type: "chat:Thread",
+        id: "slack:C123:1234.5678",
+        channelId: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      clearChatSingleton();
+
+      const thread = ThreadImpl.fromJSON(json);
+      const reserialized = thread.toJSON();
+
+      expect(reserialized._type).toBe("chat:Thread");
+      expect(reserialized.adapterName).toBe("slack");
+      expect(reserialized.id).toBe("slack:C123:1234.5678");
+    });
+
+    it("should allow re-serialization of a revived Channel without singleton", () => {
+      const json: SerializedChannel = {
+        _type: "chat:Channel",
+        id: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      clearChatSingleton();
+
+      const channel = ChannelImpl.fromJSON(json);
+      const reserialized = channel.toJSON();
+
+      expect(reserialized._type).toBe("chat:Channel");
+      expect(reserialized.adapterName).toBe("slack");
+      expect(reserialized.id).toBe("C123");
     });
   });
 
