@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
 
-Linear adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in issue comment threads.
+Linear adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in issue comment threads and Linear app-actor agent sessions.
 
 The Linear adapter treats issue comments as messages and issues as threads.
 
@@ -32,6 +32,8 @@ bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Linear!");
 });
 ```
+
+By default, the adapter runs in `mode: "comments"` and treats `Comment` webhooks as the inbound message source. For Linear app-actor installs, set `mode: "agent-sessions"` so inbound handling is driven by `AgentSessionEvent`.
 
 ## Authentication
 
@@ -73,6 +75,7 @@ Use top-level `clientId` / `clientSecret` for Slack-style multi-tenant installs.
 const adapter = createLinearAdapter({
   clientId: process.env.LINEAR_CLIENT_ID!,
   clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+  mode: "agent-sessions",
 });
 ```
 
@@ -104,6 +107,7 @@ createLinearAdapter({
     clientSecret: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET!,
     scopes: ["read", "write", "comments:create", "issues:create"],
   },
+  mode: "agent-sessions",
 });
 ```
 
@@ -141,6 +145,13 @@ createLinearAdapter({
 });
 ```
 
+Once installed with `actor=app`, set `mode: "agent-sessions"` so the adapter treats `AgentSessionEvent` as the entrypoint for mentions:
+
+- `onNewMention` fires from the session-created event
+- `thread.startTyping()` sends an ephemeral Linear `thought`
+- `thread.post(stream)` uses agent activities and session plan updates
+- Session threads are append-only, so `sent.edit()` / `sent.delete()` are not supported there
+
 See the [Linear Agents docs](https://linear.app/developers/agents) for full details.
 
 ## Webhook setup
@@ -153,7 +164,8 @@ See the [Linear Agents docs](https://linear.app/developers/agents) for full deta
    - **URL**: `https://your-domain.com/api/webhooks/linear`
 3. Copy the **Signing secret** as `LINEAR_WEBHOOK_SECRET`
 4. Under **Data change events**, select:
-   - **Comments** (required)
+   - **Comments** (required for `mode: "comments"`)
+   - **Agent session events** (required for `mode: "agent-sessions"`)
    - **Issues** (recommended)
    - **Emoji reactions** (optional)
 5. Under **Team selection**, choose **All public teams** or a specific team
@@ -161,12 +173,14 @@ See the [Linear Agents docs](https://linear.app/developers/agents) for full deta
 
 ## Thread model
 
-Linear has two levels of comment threading:
+Linear has four thread variants:
 
 | Type | Description | Thread ID format |
 |------|-------------|-----------------|
 | Issue-level | Top-level comments on an issue | `linear:{issueId}` |
 | Comment thread | Replies nested under a specific comment | `linear:{issueId}:c:{commentId}` |
+| Agent session on issue | App-actor session attached to an issue | `linear:{issueId}:s:{agentSessionId}` |
+| Agent session on comment thread | App-actor session attached to a comment thread | `linear:{issueId}:c:{commentId}:s:{agentSessionId}` |
 
 When a user writes a comment, the bot replies within the same comment thread.
 
@@ -195,6 +209,7 @@ All options are auto-detected from environment variables when not provided.
 | `clientSecret` | No* | Multi-tenant OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
 | `clientCredentials` | No* | Single-tenant client credentials config |
 | `clientCredentials.scopes` | No | Scopes for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
+| `mode` | No | Inbound webhook handling mode. `"comments"` by default, or `"agent-sessions"` for app-actor installs |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
@@ -223,6 +238,10 @@ LINEAR_CLIENT_ID=your-client-id
 LINEAR_CLIENT_SECRET=your-client-secret
 LINEAR_REDIRECT_URI=https://your-domain.com/api/linear/install/callback
 
+# Optional: inbound webhook mode
+# comments | agent-sessions
+LINEAR_MODE=comments
+
 # Required
 LINEAR_WEBHOOK_SECRET=your-webhook-secret
 ```
@@ -234,10 +253,10 @@ LINEAR_WEBHOOK_SECRET=your-webhook-secret
 | Feature | Supported |
 |---------|-----------|
 | Post message | Yes |
-| Edit message | Yes |
-| Delete message | Yes |
+| Edit message | Partial |
+| Delete message | Partial |
 | File uploads | No |
-| Streaming | No |
+| Streaming | Agent sessions only |
 
 ### Rich content
 
@@ -260,7 +279,7 @@ LINEAR_WEBHOOK_SECRET=your-webhook-secret
 | Mentions | Yes |
 | Add reactions | Yes |
 | Remove reactions | Partial |
-| Typing indicator | No |
+| Typing indicator | Agent sessions only |
 | DMs | No |
 | Ephemeral messages | No |
 
@@ -278,8 +297,8 @@ LINEAR_WEBHOOK_SECRET=your-webhook-secret
 
 ## Limitations
 
-- **No typing indicators** — Linear doesn't support typing indicators
-- **No streaming** — Messages posted in full (editing supported for updates)
+- **Comment threads are still comment-based** — typing indicators and native streaming only exist for app-actor agent sessions
+- **Agent session threads are append-only** — `editMessage` and `deleteMessage` work for normal comments, but not for session activities
 - **No DMs** — Linear doesn't have direct messages
 - **No modals** — Linear doesn't support interactive modals
 - **Action buttons** — Rendered as text; use link buttons for clickable actions
@@ -295,8 +314,10 @@ LINEAR_WEBHOOK_SECRET=your-webhook-secret
 ### Bot not responding to mentions
 
 - Verify webhook events are configured with **Comments** resource type
+- For app-actor mode, also enable **Agent session events**
 - Check that the webhook URL is correct and accessible
 - Ensure the `userName` config matches how users mention the bot
+- If using app-actor installs, ensure the app was installed with `actor=app` and `app:mentionable`
 - Linear may auto-disable webhooks after repeated failures
 
 ### "Webhook expired" error

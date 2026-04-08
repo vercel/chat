@@ -2,9 +2,17 @@
  * Type definitions for the Linear adapter.
  *
  * Uses types from @linear/sdk wherever possible.
- * Only defines adapter-specific config, thread IDs, and webhook payloads.
+ * Only defines adapter-specific config, thread IDs, normalized raw-message data,
+ * and GraphQL response shapes specific to this adapter.
  */
 
+import type {
+  AgentActivity,
+  CommentChildWebhookPayload,
+  IssueWithDescriptionChildWebhookPayload,
+  UserChildWebhookPayload,
+} from "@linear/sdk";
+import type { AgentSessionEventWebhookPayload } from "@linear/sdk/webhooks";
 import type { Logger } from "chat";
 
 // =============================================================================
@@ -39,12 +47,20 @@ export interface LinearOAuthCallbackOptions {
   redirectUri: string;
 }
 
+/** Incoming webhook handling mode for the Linear adapter. */
+export type LinearAdapterMode = "agent-sessions" | "comments";
+
 /**
  * Base configuration options shared by all auth methods.
  */
 interface LinearAdapterBaseConfig {
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
+  /**
+   * Controls which inbound Linear webhook model should trigger message handling.
+   * Defaults to "comments". Use "agent-sessions" for app-actor installs.
+   */
+  mode?: LinearAdapterMode;
   /**
    * Bot display name used for @-mention detection.
    * For API key auth, this is typically the user's display name.
@@ -155,6 +171,8 @@ export type LinearAdapterConfig =
  * - Comment thread: Replies nested under a specific root comment (has commentId)
  */
 export interface LinearThreadId {
+  /** Agent session UUID for app-actor interactions. */
+  agentSessionId?: string;
   /**
    * Root comment ID for comment-level threads.
    * If present, this is a comment thread (replies nest under this comment).
@@ -166,55 +184,14 @@ export interface LinearThreadId {
 }
 
 // =============================================================================
-// Webhook Payloads
+// Normalized Webhook Data
 // =============================================================================
-
-/**
- * Actor who triggered the webhook event.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
- */
-export interface LinearWebhookActor {
-  email?: string;
-  id: string;
-  name: string;
-  type: "user" | "application" | "integration";
-  url?: string;
-}
-
-/**
- * Base fields present on all Linear webhook payloads.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
- */
-interface LinearWebhookBase {
-  /** Action type. */
-  action: string;
-  /** Actor who triggered the action */
-  actor?: LinearWebhookActor;
-  /** ISO 8601 date when the action took place */
-  createdAt: string;
-  /** Organization ID */
-  organizationId: string;
-  /** Entity type that triggered the event */
-  type: string;
-  /** For update actions, previous values of changed properties */
-  updatedFrom?: Record<string, unknown>;
-  /** URL of the subject entity */
-  url?: string;
-  /** UUID uniquely identifying this webhook */
-  webhookId: string;
-  /** UNIX timestamp (ms) when the webhook was sent */
-  webhookTimestamp: number;
-}
 
 /**
  * Comment data from a webhook payload.
  *
- * Verified against Linear's Webhooks Schema Explorer and
- * example payloads from the official documentation.
- *
- * @see https://linear.app/developers/webhooks#webhook-payload
+ * Normalized for adapter use. SDK webhook payloads still expose these fields
+ * as optional because not every comment is attached to an issue.
  */
 export interface LinearCommentData {
   /** Comment body in markdown format */
@@ -235,69 +212,106 @@ export interface LinearCommentData {
   userId: string;
 }
 
-/**
- * Webhook payload for Comment events.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
- */
-export interface CommentWebhookPayload extends LinearWebhookBase {
-  action: "create" | "update" | "remove";
-  actor: LinearWebhookActor;
-  data: LinearCommentData;
-  type: "Comment";
-  url: string;
+/** Minimal issue data attached to agent session payloads. */
+export type LinearAgentSessionIssueData = Pick<
+  IssueWithDescriptionChildWebhookPayload,
+  "id" | "identifier" | "title" | "url"
+>;
+
+/** Minimal comment snapshot attached to agent session payloads. */
+export interface LinearAgentSessionCommentData {
+  body?: CommentChildWebhookPayload["body"];
+  createdAt?: string;
+  id: CommentChildWebhookPayload["id"];
+  issueId?: string;
+  parentId?: string;
+  projectUpdateId?: string;
+  updatedAt?: string;
+  url?: string;
+  userId?: CommentChildWebhookPayload["userId"];
 }
 
-/**
- * Reaction data from a webhook payload.
- */
-export interface LinearReactionData {
-  /** Comment UUID the reaction is on */
+/** Minimal creator snapshot attached to agent session payloads. */
+export type LinearAgentSessionCreatorData = Pick<
+  UserChildWebhookPayload,
+  "avatarUrl" | "email" | "id" | "name" | "url"
+>;
+
+/** Additional source metadata attached to agent sessions. */
+export interface LinearAgentSessionSourceMetadata {
+  agentSessionMetadata?: {
+    sourceCommentId?: string | null;
+  };
+  type?: string;
+  [key: string]: unknown;
+}
+
+/** Agent session data from Linear webhooks and GraphQL queries. */
+export interface LinearAgentSessionData {
+  comment?: LinearAgentSessionCommentData;
   commentId?: string;
-  /** Emoji string */
-  emoji: string;
-  /** Reaction UUID */
+  creator?: LinearAgentSessionCreatorData;
   id: string;
-  /** User UUID who reacted */
-  userId: string;
+  issue?: LinearAgentSessionIssueData;
+  issueId?: string;
+  sourceCommentId?: string | null;
+  sourceMetadata?: LinearAgentSessionSourceMetadata;
+  status?: string;
+  summary?: string;
 }
 
-/**
- * Webhook payload for Reaction events.
- */
-export interface ReactionWebhookPayload extends LinearWebhookBase {
-  action: "create" | "update" | "remove";
-  actor: LinearWebhookActor;
-  data: LinearReactionData;
-  type: "Reaction";
-  url: string;
-}
-
-/** Webhook payload for OAuth app revocation events. */
-export interface OAuthAppRevokedWebhookPayload extends LinearWebhookBase {
-  action: "revoked";
-  oauthClientId: string;
-  type: "OAuthApp";
-}
-
-/**
- * Union of webhook payload types we handle.
- */
-export type LinearWebhookPayload =
-  | CommentWebhookPayload
-  | ReactionWebhookPayload
-  | OAuthAppRevokedWebhookPayload;
+/** Agent activity snapshot used in adapter-built raw activity messages. */
+export type LinearRawAgentActivityData = Pick<
+  AgentActivity,
+  "content" | "createdAt" | "id" | "updatedAt"
+> & {
+  body?: string;
+};
 
 // =============================================================================
 // Raw Message Type
 // =============================================================================
 
+interface LinearRawMessageBase {
+  /** Raw message kind. */
+  kind: "agent_activity" | "agent_session_event" | "comment";
+  /** Organization ID from the webhook or request context. */
+  organizationId: string;
+}
+
+/** Agent-session snapshot guaranteed by adapter-built raw activity messages. */
+export type LinearRawAgentSessionData = LinearAgentSessionData & {
+  issueId: string;
+};
+
+/** Platform-specific raw message for a standard Linear comment. */
+export interface LinearCommentRawMessage extends LinearRawMessageBase {
+  /** Raw comment data from webhook or API. */
+  comment: LinearCommentData;
+  kind: "comment";
+}
+
+/** Platform-specific raw message for an agent activity fetched from Linear. */
+export interface LinearAgentActivityRawMessage extends LinearRawMessageBase {
+  /** Agent activity payload. */
+  agentActivity: LinearRawAgentActivityData;
+  /** Agent session payload. */
+  agentSession: LinearRawAgentSessionData;
+  kind: "agent_activity";
+}
+
+/** Platform-specific raw message for an agent session webhook event. */
+export interface LinearAgentSessionEventRawMessage
+  extends LinearRawMessageBase {
+  kind: "agent_session_event";
+  /** Raw agent-session webhook payload from the SDK. */
+  payload: AgentSessionEventWebhookPayload;
+}
+
 /**
  * Platform-specific raw message type for Linear.
  */
-export interface LinearRawMessage {
-  /** The raw comment data from webhook or API */
-  comment: LinearCommentData;
-  /** Organization ID from the webhook */
-  organizationId: string;
-}
+export type LinearRawMessage =
+  | LinearAgentActivityRawMessage
+  | LinearAgentSessionEventRawMessage
+  | LinearCommentRawMessage;

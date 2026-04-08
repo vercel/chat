@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LinearInstallation } from "./index";
+import type { LinearCommentRawMessage, LinearInstallation } from "./index";
 import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
@@ -93,6 +93,16 @@ function setClientCredentialsState(
   }
 }
 
+function expectCommentRawMessage(raw: {
+  kind: string;
+}): LinearCommentRawMessage {
+  if (raw.kind !== "comment") {
+    throw new Error(`Expected a comment raw message, got ${raw.kind}`);
+  }
+
+  return raw as LinearCommentRawMessage;
+}
+
 function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
   const cache = new Map<string, unknown>();
   return {
@@ -123,7 +133,8 @@ function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
 
 function createMockChatInstance(
   state: StateAdapter,
-  logger = createMockLogger()
+  logger = createMockLogger(),
+  userName = "test-bot"
 ): ChatInstance {
   return {
     processMessage: vi.fn(),
@@ -135,7 +146,7 @@ function createMockChatInstance(
     processSlashCommand: vi.fn(),
     processMemberJoinedChannel: vi.fn(),
     getState: () => state,
-    getUserName: () => "test-bot",
+    getUserName: () => userName,
     getLogger: () => logger,
   };
 }
@@ -144,12 +155,15 @@ function createMockChatInstance(
  * Create a minimal LinearAdapter for testing thread ID methods.
  * We pass a dummy apiKey - it won't be used for encoding/decoding.
  */
-function createTestAdapter(): LinearAdapter {
+function createTestAdapter(
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
   return attachLegacyClientAlias(
     new LinearAdapter({
       apiKey: "test-api-key",
       webhookSecret: "test-secret",
       userName: "test-bot",
+      ...(mode ? { mode } : {}),
       logger: {
         info: () => {},
         warn: () => {},
@@ -160,13 +174,17 @@ function createTestAdapter(): LinearAdapter {
   );
 }
 
-function createMultiTenantAdapter(logger = createMockLogger()): LinearAdapter {
+function createMultiTenantAdapter(
+  logger = createMockLogger(),
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
   return attachLegacyClientAlias(
     new LinearAdapter({
       clientId: "test-client-id",
       clientSecret: "test-client-secret",
       webhookSecret: WEBHOOK_SECRET,
       userName: "test-bot",
+      ...(mode ? { mode } : {}),
       logger,
     })
   );
@@ -219,12 +237,16 @@ function buildOAuthCallbackRequest(
 /**
  * Create an adapter with the known webhook secret and a mock logger.
  */
-function createWebhookAdapter(logger = createMockLogger()): LinearAdapter {
+function createWebhookAdapter(
+  logger = createMockLogger(),
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
   return attachLegacyClientAlias(
     new LinearAdapter({
       apiKey: "test-api-key",
       webhookSecret: WEBHOOK_SECRET,
       userName: "test-bot",
+      ...(mode ? { mode } : {}),
       logger,
     })
   );
@@ -321,6 +343,84 @@ function createReactionPayload(overrides?: {
   };
 }
 
+function createAgentSessionPayload(overrides?: {
+  action?: "created" | "prompted";
+  activityBody?: string;
+  activityId?: string;
+  commentId?: string;
+  creatorId?: string;
+  creatorName?: string;
+  issueId?: string;
+  promptContext?: string;
+  sessionId?: string;
+  sourceCommentBody?: string;
+  sourceCommentId?: string | null;
+}) {
+  const sourceCommentId =
+    overrides && "sourceCommentId" in overrides
+      ? overrides.sourceCommentId
+      : "comment-source";
+
+  return {
+    type: "AgentSessionEvent",
+    action: overrides?.action ?? "created",
+    createdAt: "2025-06-01T12:00:00.000Z",
+    organizationId: "org-123",
+    webhookId: "webhook-agent-1",
+    webhookTimestamp: Date.now(),
+    promptContext:
+      overrides?.promptContext ?? "Issue TEST-1\n\n@get-bot Hello there",
+    agentSession: {
+      id: overrides?.sessionId ?? "agent-session-1",
+      issueId: overrides?.issueId ?? "issue-123",
+      commentId: overrides?.commentId ?? "comment-root",
+      sourceCommentId,
+      comment: {
+        id: overrides?.commentId ?? "comment-root",
+        body: overrides?.sourceCommentBody ?? "@test-bot Hello there",
+        userId: overrides?.creatorId ?? "user-456",
+      },
+      creator: {
+        id: overrides?.creatorId ?? "user-456",
+        name: overrides?.creatorName ?? "Test User",
+      },
+      sourceMetadata: {
+        type: "comment",
+        agentSessionMetadata: {
+          sourceCommentId:
+            sourceCommentId ?? overrides?.commentId ?? "comment-source",
+        },
+      },
+      status: "active",
+      summary: "Help with the issue",
+    },
+    agentActivity: {
+      id: overrides?.activityId ?? "agent-activity-1",
+      body: overrides?.activityBody ?? "Hello from app actor",
+      createdAt: "2025-06-01T12:00:00.000Z",
+      updatedAt: "2025-06-01T12:00:00.000Z",
+      content: {
+        type: overrides?.action === "prompted" ? "prompt" : "prompt",
+        body: overrides?.activityBody ?? "Hello from app actor",
+      },
+    },
+    previousComments: [
+      {
+        id: "previous-comment-1",
+        body: "Previous discussion",
+      },
+    ],
+    guidance: {
+      instructions: "Be concise",
+    },
+    actor: {
+      id: "user-456",
+      name: "Test User",
+      type: "user" as const,
+    },
+  };
+}
+
 describe("encodeThreadId", () => {
   it("should encode an issue-level thread ID", () => {
     const adapter = createTestAdapter();
@@ -356,6 +456,25 @@ describe("encodeThreadId", () => {
     expect(result).toBe(
       "linear:2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9:c:a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     );
+  });
+
+  it("should encode an agent-session issue thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.encodeThreadId({
+      issueId: "issue-123",
+      agentSessionId: "session-789",
+    });
+    expect(result).toBe("linear:issue-123:s:session-789");
+  });
+
+  it("should encode an agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.encodeThreadId({
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
+    });
+    expect(result).toBe("linear:issue-123:c:comment-456:s:session-789");
   });
 });
 
@@ -393,6 +512,27 @@ describe("decodeThreadId", () => {
     expect(result).toEqual({
       issueId: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
       commentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    });
+  });
+
+  it("should decode an agent-session issue thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.decodeThreadId("linear:issue-123:s:session-789");
+    expect(result).toEqual({
+      issueId: "issue-123",
+      agentSessionId: "session-789",
+    });
+  });
+
+  it("should decode an agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.decodeThreadId(
+      "linear:issue-123:c:comment-456:s:session-789"
+    );
+    expect(result).toEqual({
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
     });
   });
 
@@ -437,6 +577,18 @@ describe("encodeThreadId / decodeThreadId roundtrip", () => {
     const decoded = adapter.decodeThreadId(encoded);
     expect(decoded).toEqual(original);
   });
+
+  it("should round-trip agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const original = {
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
+    };
+    const encoded = adapter.encodeThreadId(original);
+    const decoded = adapter.decodeThreadId(encoded);
+    expect(decoded).toEqual(original);
+  });
 });
 
 describe("renderFormatted", () => {
@@ -461,6 +613,7 @@ describe("parseMessage", () => {
   it("should parse a raw Linear message", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-abc123",
         body: "Hello from Linear!",
@@ -469,6 +622,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T12:00:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.id).toBe("comment-abc123");
@@ -479,6 +633,7 @@ describe("parseMessage", () => {
   it("should detect edited messages", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-abc123",
         body: "Edited message",
@@ -487,6 +642,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T13:00:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
@@ -495,6 +651,7 @@ describe("parseMessage", () => {
   it("should handle empty body", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-empty",
         body: "",
@@ -503,6 +660,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T12:00:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.text).toBe("");
@@ -512,6 +670,7 @@ describe("parseMessage", () => {
   it("should set editedAt when message is edited", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-edited",
         body: "Updated text",
@@ -520,6 +679,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T14:30:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
@@ -531,6 +691,7 @@ describe("parseMessage", () => {
   it("should not set editedAt when message is not edited", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-unedited",
         body: "Original text",
@@ -539,6 +700,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T12:00:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.metadata.editedAt).toBeUndefined();
@@ -547,6 +709,7 @@ describe("parseMessage", () => {
   it("should set isBot to false and isMe to false for regular users", () => {
     const adapter = createTestAdapter();
     const raw = {
+      kind: "comment" as const,
       comment: {
         id: "comment-1",
         body: "test",
@@ -555,6 +718,7 @@ describe("parseMessage", () => {
         createdAt: "2025-01-29T12:00:00.000Z",
         updatedAt: "2025-01-29T12:00:00.000Z",
       },
+      organizationId: "org-123",
     };
     const message = adapter.parseMessage(raw);
     expect(message.author.isBot).toBe(false);
@@ -653,8 +817,8 @@ describe("handleWebhook - signature verification", () => {
     const body = JSON.stringify(createCommentPayload());
     const request = buildWebhookRequest(body, null);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Invalid signature");
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Missing webhook signature");
   });
 
   it("should reject requests with an invalid signature", async () => {
@@ -662,8 +826,8 @@ describe("handleWebhook - signature verification", () => {
     const body = JSON.stringify(createCommentPayload());
     const request = buildWebhookRequest(body, "invalid-hex-signature");
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Invalid signature");
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
   it("should reject requests with wrong signature (different secret)", async () => {
@@ -672,7 +836,8 @@ describe("handleWebhook - signature verification", () => {
     const wrongSig = signPayload(body, "wrong-secret");
     const request = buildWebhookRequest(body, wrongSig);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
   it("should accept requests with a valid signature", async () => {
@@ -690,9 +855,8 @@ describe("handleWebhook - signature verification", () => {
 // =============================================================================
 
 describe("handleWebhook - timestamp validation", () => {
-  it("should reject webhooks with timestamps older than 5 minutes", async () => {
-    const logger = createMockLogger();
-    const adapter = createWebhookAdapter(logger);
+  it("should reject webhooks with timestamps older than 1 minute", async () => {
+    const adapter = createWebhookAdapter();
     const payload = createCommentPayload();
     // Set timestamp to 10 minutes ago
     payload.webhookTimestamp = Date.now() - 10 * 60 * 1000;
@@ -700,19 +864,14 @@ describe("handleWebhook - timestamp validation", () => {
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Webhook expired");
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Linear webhook timestamp too old",
-      expect.objectContaining({ webhookTimestamp: payload.webhookTimestamp })
-    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
-  it("should accept webhooks within 5-minute window", async () => {
+  it("should accept webhooks within the SDK verification window", async () => {
     const adapter = createWebhookAdapter();
     const payload = createCommentPayload();
-    // Set timestamp to 2 minutes ago
-    payload.webhookTimestamp = Date.now() - 2 * 60 * 1000;
+    payload.webhookTimestamp = Date.now() - 30 * 1000;
     const body = JSON.stringify(payload);
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
@@ -739,18 +898,13 @@ describe("handleWebhook - timestamp validation", () => {
 
 describe("handleWebhook - invalid JSON", () => {
   it("should return 400 for invalid JSON body", async () => {
-    const logger = createMockLogger();
-    const adapter = createWebhookAdapter(logger);
+    const adapter = createWebhookAdapter();
     const body = "not-valid-json{{{";
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(400);
-    expect(await response.text()).toBe("Invalid JSON");
-    expect(logger.error).toHaveBeenCalledWith(
-      "Linear webhook invalid JSON",
-      expect.any(Object)
-    );
+    expect(await response.text()).toBe("Invalid webhook");
   });
 });
 
@@ -918,6 +1072,240 @@ describe("handleWebhook - comment created", () => {
   });
 });
 
+describe("handleWebhook - agent session events", () => {
+  it("ignores agent session events in comment mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "comments");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("routes created events to processMessage with a session thread and mention flag", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-root:s:agent-session-1",
+      expect.objectContaining({
+        id: "comment-source",
+        isMention: true,
+        text: "@test-bot Hello there",
+        raw: expect.objectContaining({
+          kind: "agent_session_event",
+          organizationId: "org-123",
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it("routes prompted events to the same session thread without mention flag", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      action: "prompted",
+      activityBody: "Can you elaborate?",
+    });
+    const body = JSON.stringify(payload);
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-root:s:agent-session-1",
+      expect.objectContaining({
+        id: "agent-activity-1",
+        isMention: false,
+        text: "Can you elaborate?",
+      }),
+      undefined
+    );
+  });
+
+  it("uses the source comment and creator for created session messages", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      activityBody: undefined,
+      commentId: "comment-root",
+      creatorId: "user-789",
+      creatorName: "Samy",
+      sourceCommentBody: "@test-bot hello from the source comment",
+      sourceCommentId: null,
+    });
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-root:s:agent-session-1",
+      expect.objectContaining({
+        id: "comment-root",
+        text: "@test-bot hello from the source comment",
+        author: expect.objectContaining({
+          fullName: "Samy",
+          isMe: false,
+          userId: "user-789",
+          userName: "Samy",
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it("ignores comment webhooks in agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const commentPayload = createCommentPayload({
+      commentId: "comment-source",
+      body: "@test-bot hello",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not emit an automatic acknowledgement for created events", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockRawRequest = vi.fn();
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRawRequest).not.toHaveBeenCalled();
+  });
+
+  it("handles agent session events in multi-tenant agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger, "agent-sessions");
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const sessionPayload = createAgentSessionPayload({
+      commentId: "comment-abc",
+      sourceCommentBody: "@test-bot hello",
+      sourceCommentId: null,
+    });
+    const sessionBody = JSON.stringify(sessionPayload);
+    const sessionResponse = await adapter.handleWebhook(
+      buildWebhookRequest(sessionBody, signPayload(sessionBody))
+    );
+
+    expect(sessionResponse.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-abc:s:agent-session-1",
+      expect.objectContaining({
+        id: "comment-abc",
+        text: "@test-bot hello",
+      }),
+      undefined
+    );
+  });
+
+  it("ignores comment webhooks in multi-tenant agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger, "agent-sessions");
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const commentPayload = createCommentPayload({
+      body: "@test-bot hello",
+      commentId: "comment-abc",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores comment webhooks in agent-session mode even if they mention chat userName", async () => {
+    const logger = createMockLogger();
+    const adapter = attachLegacyClientAlias(
+      new LinearAdapter({
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+        mode: "agent-sessions",
+        webhookSecret: WEBHOOK_SECRET,
+        logger,
+      })
+    );
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger, "getsquad-dev-samy");
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const commentPayload = createCommentPayload({
+      body: "@getsquad-dev-samy hello",
+      commentId: "comment-abc",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+});
+
 // =============================================================================
 // Webhook - reaction handling
 // =============================================================================
@@ -990,7 +1378,7 @@ describe("handleWebhook - unknown event types", () => {
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
+    expect(await response.text()).toBe("OK");
   });
 });
 
@@ -1141,9 +1529,10 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.raw.comment.body).toBe("Some text");
-    expect(message.raw.comment.issueId).toBe("issue-123");
-    expect(message.raw.organizationId).toBe("org-123");
+    const raw = expectCommentRawMessage(message.raw);
+    expect(raw.comment.body).toBe("Some text");
+    expect(raw.comment.issueId).toBe("issue-123");
+    expect(raw.organizationId).toBe("org-123");
   });
 });
 
@@ -1185,7 +1574,7 @@ describe("postMessage", () => {
     });
     expect(result.id).toBe("new-comment-1");
     expect(result.threadId).toBe("linear:issue-123:c:parent-comment");
-    expect(result.raw.comment.body).toBe("Bot reply");
+    expect(expectCommentRawMessage(result.raw).comment.body).toBe("Bot reply");
   });
 
   it("should create top-level comment for issue-level threads", async () => {
@@ -1341,8 +1730,9 @@ describe("editMessage", () => {
       body: "Updated body",
     });
     expect(result.id).toBe("edited-comment-1");
-    expect(result.raw.comment.body).toBe("Updated body");
-    expect(result.raw.comment.issueId).toBe("issue-123");
+    const raw = expectCommentRawMessage(result.raw);
+    expect(raw.comment.body).toBe("Updated body");
+    expect(raw.comment.issueId).toBe("issue-123");
   });
 
   it("should throw when comment update returns null", async () => {
@@ -2181,7 +2571,9 @@ describe("runtime operations", () => {
       parentId: "parent-comment",
     });
     expect(result.raw.organizationId).toBe("org-123");
-    expect(result.raw.comment.userId).toBe("bot-user-id");
+    expect(expectCommentRawMessage(result.raw).comment.userId).toBe(
+      "bot-user-id"
+    );
   });
 
   it("editMessage uses the default client and preserves organizationId", async () => {
@@ -2284,6 +2676,301 @@ describe("runtime operations", () => {
 
     expect(result.channelName).toBe("TEST-42: Fix the thing");
     expect(mockClient.issue).toHaveBeenCalledWith("issue-uuid-123");
+  });
+
+  it("postMessage uses agentActivityCreate for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        agentActivityCreate: {
+          success: true,
+          agentActivity: {
+            id: "activity-123",
+            createdAt: "2025-06-01T12:00:00.000Z",
+            updatedAt: "2025-06-01T12:00:00.000Z",
+          },
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    const result = await adapter.postMessage(
+      "linear:issue-123:c:comment-root:s:session-789",
+      "Agent response"
+    );
+
+    expect(mockRawRequest).toHaveBeenCalledWith(
+      expect.stringContaining("LinearAdapterCreateAgentActivity"),
+      expect.objectContaining({
+        input: {
+          agentSessionId: "session-789",
+          content: {
+            type: "response",
+            body: "Agent response",
+          },
+        },
+      })
+    );
+    expect(result.id).toBe("activity-123");
+    expect(result.raw.kind).toBe("agent_activity");
+    expect(result.raw.organizationId).toBe("org-123");
+  });
+
+  it("startTyping uses ephemeral thought activities for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        agentActivityCreate: {
+          success: true,
+          agentActivity: {
+            id: "activity-thinking",
+            createdAt: "2025-06-01T12:00:00.000Z",
+            updatedAt: "2025-06-01T12:00:00.000Z",
+          },
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    await adapter.startTyping(
+      "linear:issue-123:c:comment-root:s:session-789",
+      "Looking things up..."
+    );
+
+    expect(mockRawRequest).toHaveBeenCalledWith(
+      expect.stringContaining("LinearAdapterCreateAgentActivity"),
+      expect.objectContaining({
+        input: {
+          agentSessionId: "session-789",
+          ephemeral: true,
+          content: {
+            type: "thought",
+            body: "Looking things up...",
+          },
+        },
+      })
+    );
+  });
+
+  it("stream updates the session plan and posts a final response", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockRawRequest = vi.fn().mockImplementation((query: string) => {
+      if (query.includes("LinearAdapterUpdateAgentSession")) {
+        return Promise.resolve({
+          data: {
+            agentSessionUpdate: {
+              success: true,
+            },
+          },
+        });
+      }
+
+      return Promise.resolve({
+        data: {
+          agentActivityCreate: {
+            success: true,
+            agentActivity: {
+              id: "activity-final",
+              createdAt: "2025-06-01T12:00:01.000Z",
+              updatedAt: "2025-06-01T12:00:01.000Z",
+            },
+          },
+        },
+      });
+    });
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    async function* textStream() {
+      yield "Hello ";
+      yield {
+        type: "task_update" as const,
+        id: "task-1",
+        title: "Search docs",
+        status: "in_progress" as const,
+      };
+      yield { type: "markdown_text" as const, text: "world" };
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockRawRequest).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("LinearAdapterUpdateAgentSession"),
+      expect.objectContaining({
+        agentSessionId: "session-789",
+        input: {
+          plan: [
+            {
+              content: "Search docs",
+              status: "inProgress",
+            },
+          ],
+        },
+      })
+    );
+    expect(mockRawRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("LinearAdapterCreateAgentActivity"),
+      expect.objectContaining({
+        input: {
+          agentSessionId: "session-789",
+          content: {
+            type: "response",
+            body: "Hello world",
+          },
+        },
+      })
+    );
+    expect(result.id).toBe("activity-final");
+  });
+
+  it("editMessage and deleteMessage throw for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+
+    await expect(
+      adapter.editMessage(
+        "linear:issue-123:c:comment-root:s:session-789",
+        "activity-1",
+        "Updated"
+      )
+    ).rejects.toThrow("append-only");
+
+    await expect(
+      adapter.deleteMessage(
+        "linear:issue-123:c:comment-root:s:session-789",
+        "activity-1"
+      )
+    ).rejects.toThrow("append-only");
+  });
+
+  it("fetchMessages uses agent session activities for session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
+    const mockClient = {
+      client: {
+        rawRequest: vi.fn().mockResolvedValue({
+          data: {
+            agentSession: {
+              id: "session-789",
+              comment: {
+                id: "comment-root",
+              },
+              sourceComment: {
+                id: "comment-source",
+              },
+              status: "active",
+              summary: "Help with the issue",
+              issue: {
+                id: "issue-123",
+                identifier: "TEST-1",
+                title: "Investigate",
+                url: "https://linear.app/test/issue/TEST-1",
+              },
+              activities: {
+                edges: [
+                  {
+                    node: {
+                      id: "activity-2",
+                      createdAt: "2025-06-01T12:00:02.000Z",
+                      updatedAt: "2025-06-01T12:00:02.000Z",
+                      content: {
+                        __typename: "AgentActivityResponseContent",
+                        body: "Agent reply",
+                      },
+                    },
+                  },
+                  {
+                    node: {
+                      id: "activity-1",
+                      createdAt: "2025-06-01T12:00:01.000Z",
+                      updatedAt: "2025-06-01T12:00:01.000Z",
+                      content: {
+                        __typename: "AgentActivityPromptContent",
+                        body: "User prompt",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      },
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.fetchMessages(
+      "linear:issue-123:c:comment-root:s:session-789"
+    );
+
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0].text).toBe("User prompt");
+    expect(result.messages[1].text).toBe("Agent reply");
+    expect(result.messages[1].raw.organizationId).toBe("org-xyz");
+  });
+
+  it("fetchThread includes agent session metadata for session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockIssue = {
+      identifier: "TEST-42",
+      title: "Fix the thing",
+      url: "https://linear.app/test/issue/TEST-42",
+    };
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        agentSession: {
+          id: "session-789",
+          comment: {
+            id: "comment-root",
+          },
+          sourceComment: {
+            id: "comment-source",
+          },
+          status: "active",
+          summary: "Investigating",
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    const result = await adapter.fetchThread(
+      "linear:issue-123:c:comment-root:s:session-789"
+    );
+
+    expect(result.metadata).toEqual(
+      expect.objectContaining({
+        issueId: "issue-123",
+        agentSessionId: "session-789",
+        agentSessionStatus: "active",
+        agentSessionSummary: "Investigating",
+        sourceCommentId: "comment-source",
+        rootCommentId: "comment-root",
+      })
+    );
   });
 
   it("throws when organizationId is unavailable", async () => {
@@ -2657,6 +3344,16 @@ describe("createLinearAdapter", () => {
     const adapter = createLinearAdapter({
       clientId: "client-id",
       clientSecret: "client-secret",
+      mode: "agent-sessions",
+      webhookSecret: "secret",
+    });
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should accept explicit comment mode", () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_123",
+      mode: "comments",
       webhookSecret: "secret",
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
