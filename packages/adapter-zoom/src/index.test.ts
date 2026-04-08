@@ -383,6 +383,124 @@ describe("ZoomAdapter — team_chat.app_mention (WBHK-05)", () => {
   });
 });
 
+describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
+  function mockFetch(
+    status: number,
+    body: unknown
+  ): ReturnType<typeof vi.fn> {
+    return vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("MSG-01-a: postMessage to channel JID calls POST to correct URL with Bearer token and to_jid", async () => {
+    const fetchMock = mockFetch(200, { message_id: "msg-uuid-123" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-001";
+    await adapter.postMessage(threadId, "Hello channel");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.zoom.us/v2/chat/users/test-robot-jid/messages",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+        body: JSON.stringify({ message: "Hello channel", to_jid: "chan@conference.xmpp.zoom.us" }),
+      })
+    );
+  });
+
+  it("MSG-01-b: postMessage to DM JID calls POST with correct body (no reply_main_message_id)", async () => {
+    const fetchMock = mockFetch(200, { message_id: "msg-uuid-123" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:user@xmpp.zoom.us:msg-002";
+    await adapter.postMessage(threadId, "Hello DM");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({ message: "Hello DM", to_jid: "user@xmpp.zoom.us" }),
+      })
+    );
+    const callBody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>;
+    expect(callBody).not.toHaveProperty("reply_main_message_id");
+  });
+
+  it("MSG-01-c: postMessage returns RawMessage with id, threadId, and raw", async () => {
+    const fetchMock = mockFetch(200, { message_id: "msg-uuid-123" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-003";
+    const result = await adapter.postMessage(threadId, "Hello");
+
+    expect(result.id).toBe("msg-uuid-123");
+    expect(result.threadId).toBe(threadId);
+    expect(result.raw).toEqual({ message_id: "msg-uuid-123" });
+  });
+
+  it("MSG-02-a: postMessage with replyTo includes reply_main_message_id in body", async () => {
+    const fetchMock = mockFetch(200, { message_id: "msg-uuid-456" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-004";
+    const replyMsg = { metadata: { replyTo: "parent-id" } } as unknown as import("./index.js").AdapterPostableMessage;
+    await adapter.postMessage(threadId, replyMsg);
+
+    const callBody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>;
+    expect(callBody.reply_main_message_id).toBe("parent-id");
+  });
+
+  it("MSG-02-b: postMessage with replyTo to a DM logs debug warning about THRD-03", async () => {
+    const fetchMock = mockFetch(200, { message_id: "msg-uuid-789" });
+    vi.stubGlobal("fetch", fetchMock);
+    const mockLogger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn().mockReturnThis(),
+    };
+    const adapter = createZoomAdapter({ ...TEST_CREDENTIALS, logger: mockLogger });
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:user@xmpp.zoom.us:msg-005";
+    const replyMsg = { metadata: { replyTo: "parent-id" } } as unknown as import("./index.js").AdapterPostableMessage;
+    await adapter.postMessage(threadId, replyMsg);
+
+    const debugCalls = mockLogger.debug.mock.calls as Array<[string, ...unknown[]]>;
+    const hasThrd03Warning = debugCalls.some(([msg]) =>
+      typeof msg === "string" && msg.includes("THRD-03")
+    );
+    expect(hasThrd03Warning).toBe(true);
+  });
+
+  it("zoomFetch-error: non-2xx response throws Error with operation name and status code", async () => {
+    const fetchMock = mockFetch(403, { error: "Forbidden" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-006";
+    await expect(adapter.postMessage(threadId, "Hello")).rejects.toThrow(/postMessage.*403|403.*postMessage/);
+  });
+});
+
 describe("ZoomAdapter — Unhandled events and uninitialized adapter safety (THRD-02, THRD-03)", () => {
   afterEach(() => vi.restoreAllMocks());
 
