@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it, vi, afterEach } from "vitest";
 import { ValidationError } from "@chat-adapter/shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createZoomAdapter } from "./index.js";
 
 const TEST_SECRET = "test-webhook-secret";
@@ -188,9 +188,9 @@ describe("ZoomAdapter — Factory Validation (AUTH-03)", () => {
   };
 
   it("throws ValidationError when clientId is missing", () => {
-    expect(() =>
-      createZoomAdapter({ ...BASE, clientId: undefined })
-    ).toThrow(ValidationError);
+    expect(() => createZoomAdapter({ ...BASE, clientId: undefined })).toThrow(
+      ValidationError
+    );
   });
 
   it("throws ValidationError when clientSecret is missing", () => {
@@ -200,15 +200,15 @@ describe("ZoomAdapter — Factory Validation (AUTH-03)", () => {
   });
 
   it("throws ValidationError when robotJid is missing", () => {
-    expect(() =>
-      createZoomAdapter({ ...BASE, robotJid: undefined })
-    ).toThrow(ValidationError);
+    expect(() => createZoomAdapter({ ...BASE, robotJid: undefined })).toThrow(
+      ValidationError
+    );
   });
 
   it("throws ValidationError when accountId is missing", () => {
-    expect(() =>
-      createZoomAdapter({ ...BASE, accountId: undefined })
-    ).toThrow(ValidationError);
+    expect(() => createZoomAdapter({ ...BASE, accountId: undefined })).toThrow(
+      ValidationError
+    );
   });
 
   it("throws ValidationError when webhookSecretToken is missing", () => {
