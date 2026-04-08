@@ -1151,16 +1151,25 @@ export class LinearAdapter
     commentId: string,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
-    const rootComment = await this.getClient().comment({ id: commentId });
-    if (!rootComment) {
-      return { messages: [] };
-    }
-    const organizationId = this.getOrganizationId();
+    const linear = this.getClient();
 
-    // Get the children (replies) of the root comment
-    const childrenConnection = await rootComment.children({
-      first: options?.limit ?? 50,
-    });
+    const [rootComment, childrenConnection] = await Promise.all([
+      linear.comment({ id: commentId }),
+      // Get the children (replies) of the root comment
+      linear.comments({
+        filter: {
+          parent: { id: { eq: commentId } },
+        },
+        ...(options?.direction === "forward"
+          ? {
+              first: options?.limit ?? 50,
+            }
+          : {
+              last: options?.limit ?? 50,
+            }),
+      }),
+    ]);
+    const organizationId = this.getOrganizationId();
 
     // Include the root comment as the first message, then its children
     const rootMessages = await this.commentsToMessages(

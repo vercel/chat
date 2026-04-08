@@ -1595,22 +1595,23 @@ describe("fetchMessages", () => {
       updatedAt: new Date("2025-06-01T10:00:00.000Z"),
       url: "https://linear.app/comment/root",
       user: Promise.resolve(mockUser),
-      children: vi.fn().mockResolvedValue({
-        nodes: [
-          {
-            id: "child-1",
-            body: "Reply",
-            createdAt: new Date("2025-06-01T11:00:00.000Z"),
-            updatedAt: new Date("2025-06-01T11:00:00.000Z"),
-            url: "https://linear.app/comment/child-1",
-            user: Promise.resolve(mockUser),
-          },
-        ],
-        pageInfo: { hasNextPage: false, endCursor: null },
-      }),
+    };
+    const mockChildrenConnection = {
+      nodes: [
+        {
+          id: "child-1",
+          body: "Reply",
+          createdAt: new Date("2025-06-01T11:00:00.000Z"),
+          updatedAt: new Date("2025-06-01T11:00:00.000Z"),
+          url: "https://linear.app/comment/child-1",
+          user: Promise.resolve(mockUser),
+        },
+      ],
+      pageInfo: { hasNextPage: false, endCursor: null },
     };
     const mockLinearClient = {
       comment: vi.fn().mockResolvedValue(mockRootComment),
+      comments: vi.fn().mockResolvedValue(mockChildrenConnection),
     };
     (
       adapter as unknown as { linearClient: typeof mockLinearClient }
@@ -1623,26 +1624,45 @@ describe("fetchMessages", () => {
     expect(mockLinearClient.comment).toHaveBeenCalledWith({
       id: "root-comment",
     });
+    expect(mockLinearClient.comments).toHaveBeenCalledWith({
+      filter: {
+        parent: { id: { eq: "root-comment" } },
+      },
+      last: 50,
+    });
     // Root comment + 1 child
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].text).toBe("Root comment");
     expect(result.messages[1].text).toBe("Reply");
   });
 
-  it("should return empty messages when root comment not found", async () => {
+  it("should surface root comment lookup failures", async () => {
     const adapter = createWebhookAdapter();
     const mockLinearClient = {
-      comment: vi.fn().mockResolvedValue(null),
+      comment: vi
+        .fn()
+        .mockRejectedValue(new Error("Could not find referenced comment")),
+      comments: vi.fn().mockResolvedValue({
+        nodes: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
     };
     (
       adapter as unknown as { linearClient: typeof mockLinearClient }
     ).linearClient = mockLinearClient as never;
 
-    const result = await adapter.fetchMessages(
-      "linear:issue-abc:c:nonexistent"
-    );
-
-    expect(result.messages).toHaveLength(0);
+    await expect(
+      adapter.fetchMessages("linear:issue-abc:c:nonexistent")
+    ).rejects.toThrow("Could not find referenced comment");
+    expect(mockLinearClient.comment).toHaveBeenCalledWith({
+      id: "nonexistent",
+    });
+    expect(mockLinearClient.comments).toHaveBeenCalledWith({
+      filter: {
+        parent: { id: { eq: "nonexistent" } },
+      },
+      last: 50,
+    });
   });
 
   it("should pass limit option to API", async () => {
