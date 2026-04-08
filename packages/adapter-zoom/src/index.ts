@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { ValidationError } from "@chat-adapter/shared";
 import {
   type Adapter,
@@ -13,7 +14,12 @@ import {
   type ThreadInfo,
   type WebhookOptions,
 } from "chat";
-import type { ZoomAdapterConfig, ZoomAdapterInternalConfig } from "./types.js";
+import type {
+  ZoomAdapterConfig,
+  ZoomAdapterInternalConfig,
+  ZoomCrcPayload,
+  ZoomWebhookPayload,
+} from "./types.js";
 
 export type {
   ZoomAdapterConfig,
@@ -34,13 +40,91 @@ export class ZoomAdapter implements Adapter {
   }
 
   async handleWebhook(
-    _request: Request,
-    _options?: WebhookOptions
+    request: Request,
+    options?: WebhookOptions
   ): Promise<Response> {
-    throw new NotImplementedError(
-      "ZoomAdapter: handleWebhook not yet implemented",
-      "handleWebhook"
-    );
+    // WBHK-03: Capture raw body FIRST — Web Request body can only be consumed once.
+    // The raw string is passed unchanged to HMAC verification.
+    const body = await request.text();
+
+    let parsed: ZoomWebhookPayload;
+    try {
+      parsed = JSON.parse(body) as ZoomWebhookPayload;
+    } catch {
+      return new Response("Invalid JSON", { status: 400 });
+    }
+
+    // WBHK-01: Handle CRC URL validation challenge BEFORE signature check.
+    // CRC requests do NOT include x-zm-signature — checking signature first
+    // would return 401 and prevent Zoom Marketplace from validating the endpoint.
+    if (parsed.event === "endpoint.url_validation") {
+      const { plainToken } = (parsed as ZoomCrcPayload).payload;
+      const encryptedToken = createHmac(
+        "sha256",
+        this.config.webhookSecretToken
+      )
+        .update(plainToken)
+        .digest("hex");
+      return Response.json({ plainToken, encryptedToken });
+    }
+
+    // WBHK-02: Verify signature for all other events
+    if (!this.verifySignature(body, request)) {
+      return new Response("Invalid signature", { status: 401 });
+    }
+
+    // Process event asynchronously if waitUntil is available (edge runtime pattern)
+    const handlePromise = this.processEvent(parsed, options);
+    if (options?.waitUntil) {
+      options.waitUntil(handlePromise);
+    } else {
+      await handlePromise;
+    }
+    return new Response("ok", { status: 200 });
+  }
+
+  private verifySignature(body: string, request: Request): boolean {
+    const timestamp = request.headers.get("x-zm-request-timestamp");
+    const signature = request.headers.get("x-zm-signature");
+
+    if (!(timestamp && signature)) {
+      return false;
+    }
+
+    // Reject stale requests — fixed 5-minute window per Zoom spec
+    const fiveMinutesMs = 5 * 60 * 1000;
+    if (Date.now() - Number(timestamp) * 1000 > fiveMinutesMs) {
+      return false;
+    }
+
+    const message = `v0:${timestamp}:${body}`;
+    const expected =
+      "v0=" +
+      createHmac("sha256", this.config.webhookSecretToken)
+        .update(message)
+        .digest("hex");
+
+    try {
+      return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      // Buffer length mismatch throws — treat as invalid signature.
+      // ZOOM-506645: Unicode normalization bug — emoji/non-ASCII payloads may fail
+      // HMAC verification due to normalization differences between Zoom signing and receipt.
+      // Log raw body hex for diagnosis without exposing full payload.
+      this.config.logger.debug(
+        "Signature comparison failed (possible ZOOM-506645 Unicode normalization issue)",
+        { bodyHex: Buffer.from(body).toString("hex").substring(0, 200) }
+      );
+      return false;
+    }
+  }
+
+  private async processEvent(
+    _payload: ZoomWebhookPayload,
+    _options?: WebhookOptions
+  ): Promise<void> {
+    // Phase 2 will implement event routing (bot_notification, team_chat.app_mention)
+    // Phase 1 scope ends at signature verification
   }
 
   async initialize(_chat: ChatInstance): Promise<void> {

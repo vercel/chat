@@ -59,7 +59,10 @@ describe("ZoomAdapter — Webhook Verification (WBHK-01, WBHK-02, WBHK-03)", () 
     const expectedEncryptedToken = createHmac("sha256", TEST_SECRET)
       .update(plainToken)
       .digest("hex");
-    expect(json).toEqual({ plainToken, encryptedToken: expectedEncryptedToken });
+    expect(json).toEqual({
+      plainToken,
+      encryptedToken: expectedEncryptedToken,
+    });
   });
 
   it("WBHK-02: tampered x-zm-signature returns HTTP 401", async () => {
