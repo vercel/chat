@@ -1375,7 +1375,7 @@ export class LinearAdapter
     await this.ensureValidToken();
     const decoded = this.decodeThreadId(threadId);
 
-    if (!decoded.agentSessionId) {
+    if (decoded.agentSessionId) {
       assertAgentSessionThread(decoded);
       return await this.streamInAgentSession(decoded, textStream, options);
     }

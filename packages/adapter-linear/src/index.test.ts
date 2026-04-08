@@ -158,7 +158,7 @@ function createMockChatInstance(
 function createTestAdapter(
   mode?: "agent-sessions" | "comments"
 ): LinearAdapter {
-  return attachLegacyClientAlias(
+  const adapter = attachLegacyClientAlias(
     new LinearAdapter({
       apiKey: "test-api-key",
       webhookSecret: "test-secret",
@@ -172,13 +172,16 @@ function createTestAdapter(
       },
     })
   );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
 }
 
 function createMultiTenantAdapter(
   logger = createMockLogger(),
   mode?: "agent-sessions" | "comments"
 ): LinearAdapter {
-  return attachLegacyClientAlias(
+  const adapter = attachLegacyClientAlias(
     new LinearAdapter({
       clientId: "test-client-id",
       clientSecret: "test-client-secret",
@@ -188,13 +191,16 @@ function createMultiTenantAdapter(
       logger,
     })
   );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
 }
 
 function createClientCredentialsAdapter(
   logger = createMockLogger(),
   scopes?: string[]
 ): LinearAdapter {
-  return attachLegacyClientAlias(
+  const adapter = attachLegacyClientAlias(
     new LinearAdapter({
       clientCredentials: {
         clientId: "test-client-id",
@@ -206,6 +212,9 @@ function createClientCredentialsAdapter(
       logger,
     })
   );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
 }
 
 function createInstallation(
@@ -241,7 +250,7 @@ function createWebhookAdapter(
   logger = createMockLogger(),
   mode?: "agent-sessions" | "comments"
 ): LinearAdapter {
-  return attachLegacyClientAlias(
+  const adapter = attachLegacyClientAlias(
     new LinearAdapter({
       apiKey: "test-api-key",
       webhookSecret: WEBHOOK_SECRET,
@@ -250,6 +259,9 @@ function createWebhookAdapter(
       logger,
     })
   );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
 }
 
 /**
@@ -774,9 +786,17 @@ describe("constructor", () => {
     ).toThrow("Authentication is required");
   });
 
-  it("should have undefined botUserId before initialization", () => {
-    const adapter = createTestAdapter();
-    expect(adapter.botUserId).toBeUndefined();
+  it("should throw when botUserId is accessed before initialization", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(() => adapter.botUserId).toThrow(
+      "No bot user ID available in context"
+    );
   });
 });
 
@@ -2304,7 +2324,14 @@ describe("initialize", () => {
 
   it("should warn when viewer fetch fails", async () => {
     const logger = createMockLogger();
-    const adapter = createWebhookAdapter(logger);
+    const adapter = attachLegacyClientAlias(
+      new LinearAdapter({
+        apiKey: "test-api-key",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot",
+        logger,
+      })
+    );
 
     const failingClient: Record<string, unknown> = {
       client: { rawRequest: vi.fn() },
@@ -2318,7 +2345,9 @@ describe("initialize", () => {
 
     await adapter.initialize(mockChat);
 
-    expect(adapter.botUserId).toBeUndefined();
+    expect(() => adapter.botUserId).toThrow(
+      "No bot user ID available in context"
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       "Could not fetch Linear bot user ID",
       expect.any(Object)
@@ -2693,8 +2722,14 @@ describe("runtime operations", () => {
         },
       },
     });
+    const mockAgentSession = vi.fn().mockResolvedValue({
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+    });
     setDefaultClient(adapter, {
       createAgentActivity: mockCreateAgentActivity,
+      agentSession: mockAgentSession,
     });
 
     const result = await adapter.postMessage(
@@ -2709,6 +2744,7 @@ describe("runtime operations", () => {
         body: "Agent response",
       },
     });
+    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
     expect(result.id).toBe("activity-123");
     expect(result.raw.kind).toBe("agent_activity");
     expect(result.raw.organizationId).toBe("org-123");
@@ -2729,8 +2765,14 @@ describe("runtime operations", () => {
         },
       },
     });
+    const mockAgentSession = vi.fn().mockResolvedValue({
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+    });
     setDefaultClient(adapter, {
       createAgentActivity: mockCreateAgentActivity,
+      agentSession: mockAgentSession,
     });
 
     await adapter.startTyping(
@@ -2746,14 +2788,12 @@ describe("runtime operations", () => {
         body: "Looking things up...",
       },
     });
+    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
   });
 
   it("stream updates the session plan and posts a final response", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
-    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
-      success: true,
-    });
     const mockCreateAgentActivity = vi.fn().mockResolvedValue({
       success: true,
       agentActivity: {
@@ -2766,8 +2806,17 @@ describe("runtime operations", () => {
         },
       },
     });
+    const mockAgentSession = vi.fn().mockResolvedValue({
+      id: "session-789",
+      issueId: "issue-123",
+      commentId: "comment-root",
+    });
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
     setDefaultClient(adapter, {
       createAgentActivity: mockCreateAgentActivity,
+      agentSession: mockAgentSession,
       updateAgentSession: mockUpdateAgentSession,
     });
 
@@ -2802,6 +2851,7 @@ describe("runtime operations", () => {
         body: "Hello world",
       },
     });
+    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
     expect(result.id).toBe("activity-final");
   });
 
@@ -2880,7 +2930,7 @@ describe("runtime operations", () => {
     expect(result.messages[1].raw.organizationId).toBe("org-xyz");
   });
 
-  it("fetchThread includes agent session metadata for session threads", async () => {
+  it("fetchThread includes issue metadata for session threads", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");
     const mockIssue = {
@@ -2888,26 +2938,8 @@ describe("runtime operations", () => {
       title: "Fix the thing",
       url: "https://linear.app/test/issue/TEST-42",
     };
-    const mockRawRequest = vi.fn().mockResolvedValue({
-      data: {
-        agentSession: {
-          id: "session-789",
-          comment: {
-            id: "comment-root",
-          },
-          sourceComment: {
-            id: "comment-source",
-          },
-          status: "active",
-          summary: "Investigating",
-        },
-      },
-    });
     setDefaultClient(adapter, {
       issue: vi.fn().mockResolvedValue(mockIssue),
-      client: {
-        rawRequest: mockRawRequest,
-      },
     });
 
     const result = await adapter.fetchThread(
@@ -2918,10 +2950,9 @@ describe("runtime operations", () => {
       expect.objectContaining({
         issueId: "issue-123",
         agentSessionId: "session-789",
-        agentSessionStatus: "active",
-        agentSessionSummary: "Investigating",
-        sourceCommentId: "comment-source",
-        rootCommentId: "comment-root",
+        identifier: "TEST-42",
+        title: "Fix the thing",
+        url: "https://linear.app/test/issue/TEST-42",
       })
     );
   });
