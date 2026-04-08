@@ -301,14 +301,73 @@ export class ZoomAdapter implements Adapter {
     this.config.logger.debug("ZoomAdapter initialized");
   }
 
+  private async zoomFetch(
+    url: string,
+    options: RequestInit,
+    operation: string
+  ): Promise<Response> {
+    const token = await this.getAccessToken();
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      this.config.logger.debug(`${operation} API error`, {
+        status: response.status,
+        body,
+      });
+      throw new Error(
+        `ZoomAdapter: ${operation} failed with HTTP ${response.status}`
+      );
+    }
+    return response;
+  }
+
   async postMessage(
-    _threadId: string,
-    _message: AdapterPostableMessage
+    threadId: string,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    throw new NotImplementedError(
-      "ZoomAdapter: postMessage not yet implemented",
+    const { channelId } = this.decodeThreadId(threadId);
+    const isDM = !channelId.endsWith("@conference.xmpp.zoom.us");
+    const text = this.formatConverter.renderPostable(message);
+
+    const body: Record<string, unknown> = {
+      message: text,
+      to_jid: channelId,
+    };
+
+    // MSG-02: threading — add reply_main_message_id if present
+    // AdapterPostableMessage has no metadata field; use safe cast for runtime access
+    const replyTo = (message as { metadata?: { replyTo?: string } }).metadata
+      ?.replyTo;
+    if (replyTo) {
+      if (isDM) {
+        this.config.logger.debug(
+          "Posting threaded reply to DM thread — Zoom does not fire chat_message.replied webhook for 1:1 DM thread replies (THRD-03)"
+        );
+      }
+      body.reply_main_message_id = replyTo;
+    }
+
+    const response = await this.zoomFetch(
+      `https://api.zoom.us/v2/chat/users/${this.config.robotJid}/messages`,
+      { method: "POST", body: JSON.stringify(body) },
       "postMessage"
     );
+    const data = (await response.json()) as {
+      message_id?: string;
+      id?: string;
+    };
+    return {
+      id: data.message_id ?? data.id ?? String(Date.now()),
+      threadId,
+      raw: data,
+    };
   }
 
   async editMessage(

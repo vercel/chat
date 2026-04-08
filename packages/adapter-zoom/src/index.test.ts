@@ -383,11 +383,10 @@ describe("ZoomAdapter — team_chat.app_mention (WBHK-05)", () => {
   });
 });
 
+const POST_MESSAGE_ERROR_PATTERN = /postMessage.*403|403.*postMessage/;
+
 describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
-  function mockFetch(
-    status: number,
-    body: unknown
-  ): ReturnType<typeof vi.fn> {
+  function mockFetch(status: number, body: unknown): ReturnType<typeof vi.fn> {
     return vi.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
@@ -414,7 +413,10 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer test-token",
         }),
-        body: JSON.stringify({ message: "Hello channel", to_jid: "chan@conference.xmpp.zoom.us" }),
+        body: JSON.stringify({
+          message: "Hello channel",
+          to_jid: "chan@conference.xmpp.zoom.us",
+        }),
       })
     );
   });
@@ -431,10 +433,15 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        body: JSON.stringify({ message: "Hello DM", to_jid: "user@xmpp.zoom.us" }),
+        body: JSON.stringify({
+          message: "Hello DM",
+          to_jid: "user@xmpp.zoom.us",
+        }),
       })
     );
-    const callBody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>;
+    const callBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>;
     expect(callBody).not.toHaveProperty("reply_main_message_id");
   });
 
@@ -459,10 +466,16 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
     vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
 
     const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-004";
-    const replyMsg = { metadata: { replyTo: "parent-id" } } as unknown as import("./index.js").AdapterPostableMessage;
+    // Combine a valid postable string shape with metadata for replyTo
+    const replyMsg = {
+      raw: "Reply text",
+      metadata: { replyTo: "parent-id" },
+    } as unknown as import("./index.js").AdapterPostableMessage;
     await adapter.postMessage(threadId, replyMsg);
 
-    const callBody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>;
+    const callBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>;
     expect(callBody.reply_main_message_id).toBe("parent-id");
   });
 
@@ -476,16 +489,23 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
       error: vi.fn(),
       child: vi.fn().mockReturnThis(),
     };
-    const adapter = createZoomAdapter({ ...TEST_CREDENTIALS, logger: mockLogger });
+    const adapter = createZoomAdapter({
+      ...TEST_CREDENTIALS,
+      logger: mockLogger,
+    });
     vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
 
     const threadId = "zoom:user@xmpp.zoom.us:msg-005";
-    const replyMsg = { metadata: { replyTo: "parent-id" } } as unknown as import("./index.js").AdapterPostableMessage;
+    // Combine a valid postable string shape with metadata for replyTo
+    const replyMsg = {
+      raw: "DM reply",
+      metadata: { replyTo: "parent-id" },
+    } as unknown as import("./index.js").AdapterPostableMessage;
     await adapter.postMessage(threadId, replyMsg);
 
-    const debugCalls = mockLogger.debug.mock.calls as Array<[string, ...unknown[]]>;
-    const hasThrd03Warning = debugCalls.some(([msg]) =>
-      typeof msg === "string" && msg.includes("THRD-03")
+    const debugCalls = mockLogger.debug.mock.calls as [string, ...unknown[]][];
+    const hasThrd03Warning = debugCalls.some(
+      ([msg]) => typeof msg === "string" && msg.includes("THRD-03")
     );
     expect(hasThrd03Warning).toBe(true);
   });
@@ -497,7 +517,9 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
     vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
 
     const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-006";
-    await expect(adapter.postMessage(threadId, "Hello")).rejects.toThrow(/postMessage.*403|403.*postMessage/);
+    await expect(adapter.postMessage(threadId, "Hello")).rejects.toThrow(
+      POST_MESSAGE_ERROR_PATTERN
+    );
   });
 });
 
