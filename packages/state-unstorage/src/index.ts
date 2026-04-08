@@ -123,13 +123,7 @@ export class UnstorageStateAdapter implements StateAdapter {
    */
   async subscribe(threadId: string): Promise<void> {
     this.ensureConnected();
-    await this.withMutex(this.subscriptionsSetKey(), async () => {
-      const subscriptions = await this.readSubscriptions();
-      if (!subscriptions.includes(threadId)) {
-        subscriptions.push(threadId);
-        await this.storage.setItem(this.subscriptionsSetKey(), subscriptions);
-      }
-    });
+    await this.storage.setItem<boolean>(this.key("sub", threadId), true);
   }
 
   /**
@@ -137,11 +131,7 @@ export class UnstorageStateAdapter implements StateAdapter {
    */
   async unsubscribe(threadId: string): Promise<void> {
     this.ensureConnected();
-    await this.withMutex(this.subscriptionsSetKey(), async () => {
-      const subscriptions = await this.readSubscriptions();
-      const filtered = subscriptions.filter((id) => id !== threadId);
-      await this.storage.setItem(this.subscriptionsSetKey(), filtered);
-    });
+    await this.storage.removeItem(this.key("sub", threadId));
   }
 
   /**
@@ -149,8 +139,8 @@ export class UnstorageStateAdapter implements StateAdapter {
    */
   async isSubscribed(threadId: string): Promise<boolean> {
     this.ensureConnected();
-    const subscriptions = await this.readSubscriptions();
-    return subscriptions.includes(threadId);
+    const value = await this.storage.getItem(this.key("sub", threadId));
+    return value !== null && value !== undefined;
   }
 
   /**
@@ -463,19 +453,6 @@ export class UnstorageStateAdapter implements StateAdapter {
     id: string
   ): string {
     return `${this.keyPrefix}:${type}:${id}`;
-  }
-
-  private subscriptionsSetKey(): string {
-    return `${this.keyPrefix}:subscriptions`;
-  }
-
-  private async readSubscriptions(): Promise<string[]> {
-    const raw = await this.storage.getItem<unknown>(this.subscriptionsSetKey());
-    if (!Array.isArray(raw)) {
-      return [];
-    }
-
-    return raw.filter((entry): entry is string => typeof entry === "string");
   }
 
   private async readLock(key: string): Promise<LockRecord | null> {

@@ -42,3 +42,28 @@ Note that force-releasing a lock does not cancel the previous handler — it con
 ### Caching
 
 State adapters provide key-value storage with TTL for thread state (`thread.setState()`), message deduplication, and other internal caching.
+
+## Unstorage adapter
+
+Use `@chat-adapter/state-unstorage` when you want one state adapter API with a pluggable backend via [unstorage](https://unstorage.unjs.io/):
+
+```typescript
+import { createUnstorageState } from "@chat-adapter/state-unstorage";
+import { createStorage } from "unstorage";
+import redisDriver from "unstorage/drivers/redis";
+
+const storage = createStorage({
+  driver: redisDriver({
+    url: process.env.REDIS_URL,
+    base: "chat-sdk",
+  }),
+});
+
+const chat = new Chat({
+  userName: "my-bot",
+  adapters: { slack },
+  state: createUnstorageState({ storage }),
+});
+```
+
+If you run multiple instances and need strict distributed atomicity, choose a backend with strong consistency guarantees.

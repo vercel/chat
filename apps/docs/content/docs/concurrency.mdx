@@ -190,7 +190,7 @@ The `queue` and `debounce` strategies require three additional methods on your s
 | `dequeue(threadId)` | Pop the next (oldest) message from the queue. Returns `null` if empty. |
 | `queueDepth(threadId)` | Return the current number of queued messages. |
 
-All built-in state adapters (`@chat-adapter/state-memory`, `@chat-adapter/state-redis`, `@chat-adapter/state-ioredis`) implement these methods. The Redis adapters use Lua scripts for atomicity.
+All built-in state adapters (`@chat-adapter/state-memory`, `@chat-adapter/state-redis`, `@chat-adapter/state-ioredis`, `@chat-adapter/state-unstorage`) implement these methods. The Redis adapters use Lua scripts for atomicity. The unstorage adapter behavior depends on the underlying driver consistency guarantees.
 
 ## Observability
 
