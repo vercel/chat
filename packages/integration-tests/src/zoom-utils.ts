@@ -5,7 +5,7 @@
 import { createHmac } from "node:crypto";
 import { vi } from "vitest";
 
-export const ZOOM_WEBHOOK_SECRET = "test-zoom-webhook-secret";
+const ZOOM_WEBHOOK_SECRET = "test-zoom-webhook-secret";
 
 export const ZOOM_CREDENTIALS = {
   clientId: "test-client-id",
@@ -46,7 +46,10 @@ export function setupZoomFetchMock(): () => void {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = vi.fn(
-    async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+    async (
+      input: RequestInfo | URL,
+      _init?: RequestInit
+    ): Promise<Response> => {
       let url: string;
       if (typeof input === "string") {
         url = input;

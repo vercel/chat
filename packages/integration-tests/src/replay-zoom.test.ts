@@ -12,10 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixtures from "../fixtures/replay/zoom/zoom.json";
 import { createWaitUntilTracker } from "./test-scenarios";
 import {
-  ZOOM_CREDENTIALS,
   createZoomWebhookRequest,
   setupZoomFetchMock,
+  ZOOM_CREDENTIALS,
 } from "./zoom-utils";
+
+const ALL_MESSAGES_PATTERN = /.*/;
 
 const mockLogger: Logger = {
   debug: () => {},
@@ -52,7 +54,7 @@ describe("Replay Tests - Zoom bot_notification", () => {
     capturedThread = null;
     capturedMessage = null;
 
-    chat.onNewMessage(/.*/, async (thread, message) => {
+    chat.onNewMessage(ALL_MESSAGES_PATTERN, async (thread, message) => {
       capturedThread = thread;
       capturedMessage = message;
     });
@@ -121,7 +123,7 @@ describe("Replay Tests - Zoom team_chat.app_mention", () => {
     capturedThread = null;
     capturedMessage = null;
 
-    chat.onNewMessage(/.*/, async (thread, message) => {
+    chat.onNewMessage(ALL_MESSAGES_PATTERN, async (thread, message) => {
       capturedThread = thread;
       capturedMessage = message;
     });
@@ -134,10 +136,9 @@ describe("Replay Tests - Zoom team_chat.app_mention", () => {
 
   it("should parse a team_chat.app_mention webhook into a normalized Message", async () => {
     const tracker = createWaitUntilTracker();
-    await chat.webhooks.zoom(
-      createZoomWebhookRequest(fixtures.appMention),
-      { waitUntil: tracker.waitUntil }
-    );
+    await chat.webhooks.zoom(createZoomWebhookRequest(fixtures.appMention), {
+      waitUntil: tracker.waitUntil,
+    });
     await tracker.waitForAll();
 
     expect(capturedMessage).not.toBeNull();
@@ -147,10 +148,9 @@ describe("Replay Tests - Zoom team_chat.app_mention", () => {
 
   it("should construct correct threadId for team_chat.app_mention", async () => {
     const tracker = createWaitUntilTracker();
-    await chat.webhooks.zoom(
-      createZoomWebhookRequest(fixtures.appMention),
-      { waitUntil: tracker.waitUntil }
-    );
+    await chat.webhooks.zoom(createZoomWebhookRequest(fixtures.appMention), {
+      waitUntil: tracker.waitUntil,
+    });
     await tracker.waitForAll();
 
     expect(capturedThread).not.toBeNull();

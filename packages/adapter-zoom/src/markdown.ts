@@ -62,7 +62,8 @@ export class ZoomFormatConverter extends BaseFormatConverter {
     const transformed = walkAst(
       structuredClone(ast) as Root,
       (node: Content) => {
-        if (node.type === "underline") {
+        const nodeType = (node as unknown as { type: string }).type;
+        if (nodeType === "underline") {
           const ul = node as unknown as UnderlineNode;
           // Render children as plain text content, wrap in __...__
           // Use an html inline node so stringifyMarkdown passes through the raw

@@ -8,6 +8,7 @@ export interface ZoomAdapterConfig {
   clientSecret?: string;
   logger?: Logger;
   robotJid?: string;
+  userName?: string;
   webhookSecretToken?: string;
 }
 
@@ -18,6 +19,7 @@ export interface ZoomAdapterInternalConfig {
   clientSecret: string;
   logger: Logger;
   robotJid: string;
+  userName: string;
   webhookSecretToken: string;
 }
 

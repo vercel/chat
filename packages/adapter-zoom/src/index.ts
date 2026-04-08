@@ -48,7 +48,7 @@ export class ZoomAdapter implements Adapter {
 
   constructor(config: ZoomAdapterInternalConfig) {
     this.config = config;
-    this.userName = config.robotJid;
+    this.userName = config.userName;
   }
 
   /** Fetches and caches a chatbot token via S2S OAuth client_credentials grant.
@@ -521,12 +521,15 @@ export function createZoomAdapter(config?: ZoomAdapterConfig): ZoomAdapter {
       "webhookSecretToken is required. Set ZOOM_WEBHOOK_SECRET_TOKEN or provide it in config."
     );
   }
+  const userName =
+    config?.userName ?? process.env.ZOOM_BOT_USERNAME ?? "zoom-bot";
   return new ZoomAdapter({
     clientId,
     clientSecret,
     robotJid,
     accountId,
     webhookSecretToken,
+    userName,
     logger,
   });
 }
