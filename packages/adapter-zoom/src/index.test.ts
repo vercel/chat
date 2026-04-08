@@ -523,6 +523,141 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
   });
 });
 
+describe("ZoomAdapter — editMessage (MSG-03)", () => {
+  function mockFetch(status: number, body: unknown): ReturnType<typeof vi.fn> {
+    return vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("MSG-03-a: editMessage calls PATCH to correct URL with Bearer token and body", async () => {
+    const fetchMock = mockFetch(200, { id: "msg-to-edit" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    await adapter.editMessage(
+      "zoom:chan@conference.xmpp.zoom.us:msg-to-edit",
+      "msg-to-edit",
+      "Updated text" as unknown as import("./index.js").AdapterPostableMessage
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.zoom.us/v2/chat/messages/msg-to-edit",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+        body: JSON.stringify({ message: "Updated text" }),
+      })
+    );
+  });
+
+  it("MSG-03-b: editMessage returns RawMessage with id, threadId, and raw", async () => {
+    const responseBody = { id: "msg-to-edit", updated: true };
+    const fetchMock = mockFetch(200, responseBody);
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-to-edit";
+    const result = await adapter.editMessage(
+      threadId,
+      "msg-to-edit",
+      "Updated text" as unknown as import("./index.js").AdapterPostableMessage
+    );
+
+    expect(result.id).toBe("msg-to-edit");
+    expect(result.threadId).toBe(threadId);
+    expect(result.raw).toEqual(responseBody);
+  });
+
+  it("MSG-03-error: editMessage throws Error with operation name and status on non-2xx response", async () => {
+    const fetchMock = mockFetch(404, { error: "Not Found" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    await expect(
+      adapter.editMessage(
+        "zoom:chan@conference.xmpp.zoom.us:msg-to-edit",
+        "msg-to-edit",
+        "Updated text" as unknown as import("./index.js").AdapterPostableMessage
+      )
+    ).rejects.toThrow(/editMessage.*404|404.*editMessage/);
+  });
+});
+
+describe("ZoomAdapter — deleteMessage (MSG-04)", () => {
+  function mockFetch(status: number, body: unknown): ReturnType<typeof vi.fn> {
+    return vi.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("MSG-04-a: deleteMessage calls DELETE to correct URL with Bearer token", async () => {
+    const fetchMock = mockFetch(204, {});
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    await adapter.deleteMessage(
+      "zoom:chan@conference.xmpp.zoom.us:msg-to-delete",
+      "msg-to-delete"
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.zoom.us/v2/chat/messages/msg-to-delete",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      })
+    );
+  });
+
+  it("MSG-04-b: deleteMessage returns void", async () => {
+    vi.stubGlobal("fetch", mockFetch(204, {}));
+    vi.spyOn(
+      createZoomAdapter(TEST_CREDENTIALS),
+      "getAccessToken"
+    ).mockResolvedValue("test-token");
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+    const result = await adapter.deleteMessage(
+      "zoom:chan@conference.xmpp.zoom.us:msg-to-delete",
+      "msg-to-delete"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("MSG-04-error: deleteMessage throws Error with operation name and status on non-2xx response", async () => {
+    const fetchMock = mockFetch(403, { error: "Forbidden" });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = createZoomAdapter(TEST_CREDENTIALS);
+    vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
+
+    await expect(
+      adapter.deleteMessage(
+        "zoom:chan@conference.xmpp.zoom.us:msg-to-delete",
+        "msg-to-delete"
+      )
+    ).rejects.toThrow(/deleteMessage.*403|403.*deleteMessage/);
+  });
+});
+
 describe("ZoomAdapter — Unhandled events and uninitialized adapter safety (THRD-02, THRD-03)", () => {
   afterEach(() => vi.restoreAllMocks());
 
