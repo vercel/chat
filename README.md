@@ -86,6 +86,7 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 | `@chat-adapter/whatsapp` | [WhatsApp adapter](https://chat-sdk.dev/adapters/whatsapp) |
 | `@chat-adapter/state-redis` | [Redis state adapter](https://chat-sdk.dev/docs/state/redis) (production) |
 | `@chat-adapter/state-ioredis` | [ioredis state adapter](https://chat-sdk.dev/docs/state/ioredis) (alternative) |
+| `@chat-adapter/state-unstorage` | [Unstorage state adapter](https://chat-sdk.dev/docs/state/unstorage) (bring your own backend) |
 | `@chat-adapter/state-pg` | [PostgreSQL state adapter](https://chat-sdk.dev/docs/state/postgres) (production) |
 | `@chat-adapter/state-memory` | [In-memory state adapter](https://chat-sdk.dev/docs/state/memory) (development) |
 

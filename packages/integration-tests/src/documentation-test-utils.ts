@@ -21,6 +21,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/whatsapp",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
+  "@chat-adapter/state-unstorage",
   "@chat-adapter/state-pg",
   "@chat-adapter/state-memory",
   "next/server",
@@ -28,6 +29,9 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "ioredis",
   "pg",
   "postgres",
+  "unstorage",
+  "unstorage/drivers/memory",
+  "unstorage/drivers/redis",
 ];
 
 export const VALID_DOC_PACKAGES = [
@@ -42,6 +46,7 @@ export const VALID_DOC_PACKAGES = [
   "@chat-adapter/whatsapp",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
+  "@chat-adapter/state-unstorage",
   "@chat-adapter/state-pg",
   "@chat-adapter/state-memory",
   "@chat-adapter/shared",
@@ -61,6 +66,9 @@ export const VALID_DOC_PACKAGES = [
   "ioredis",
   "pg",
   "postgres",
+  "unstorage",
+  "unstorage/drivers/memory",
+  "unstorage/drivers/redis",
   "tsup",
   "vitest",
   "vitest/config",
@@ -146,6 +154,9 @@ export function createTempProject(codeBlocks: string[]): string {
         ],
         "@chat-adapter/state-pg": [
           join(import.meta.dirname, "../../state-pg/src/index.ts"),
+        ],
+        "@chat-adapter/state-unstorage": [
+          join(import.meta.dirname, "../../state-unstorage/src/index.ts"),
         ],
         "@chat-adapter/state-memory": [
           join(import.meta.dirname, "../../state-memory/src/index.ts"),

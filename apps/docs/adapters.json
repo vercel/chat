@@ -100,6 +100,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-ioredis"
   },
   {
+    "name": "Unstorage",
+    "slug": "unstorage",
+    "type": "state",
+    "description": "State adapter powered by unstorage so you can choose any unstorage-compatible backend.",
+    "packageName": "@chat-adapter/state-unstorage",
+    "icon": "memory",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-unstorage"
+  },
+  {
     "name": "PostgreSQL",
     "slug": "postgres",
     "type": "state",

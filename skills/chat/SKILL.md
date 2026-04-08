@@ -171,6 +171,7 @@ await thread.post(
 |--------------|---------|---------|
 | Redis | `@chat-adapter/state-redis` | `createRedisState` |
 | ioredis | `@chat-adapter/state-ioredis` | `createIoRedisState` |
+| Unstorage | `@chat-adapter/state-unstorage` | `createUnstorageState` |
 | PostgreSQL | `@chat-adapter/state-pg` | `createPostgresState` |
 | Memory | `@chat-adapter/state-memory` | `createMemoryState` |
 

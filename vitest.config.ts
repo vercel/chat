@@ -14,6 +14,7 @@ export default defineConfig({
       "packages/state-ioredis",
       "packages/state-memory",
       "packages/state-redis",
+      "packages/state-unstorage",
     ],
   },
 });
