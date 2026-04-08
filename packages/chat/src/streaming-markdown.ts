@@ -4,8 +4,6 @@ interface StreamingMarkdownRendererOptions {
   /**
    * Wrap confirmed table blocks in code fences for append-only consumers that
    * cannot render markdown tables while a stream is in flight.
-   *
-   * Defaults to true to preserve existing behavior for current consumers.
    */
   wrapTablesForAppend?: boolean;
 }
