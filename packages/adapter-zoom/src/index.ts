@@ -371,19 +371,24 @@ export class ZoomAdapter implements Adapter {
   }
 
   async editMessage(
-    _threadId: string,
-    _messageId: string,
-    _message: AdapterPostableMessage
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    throw new NotImplementedError(
-      "ZoomAdapter: editMessage not yet implemented",
+    const text = this.formatConverter.renderPostable(message);
+    const response = await this.zoomFetch(
+      `https://api.zoom.us/v2/chat/messages/${messageId}`,
+      { method: "PATCH", body: JSON.stringify({ message: text }) },
       "editMessage"
     );
+    const data = (await response.json()) as Record<string, unknown>;
+    return { id: messageId, threadId, raw: data };
   }
 
-  async deleteMessage(_threadId: string, _messageId: string): Promise<void> {
-    throw new NotImplementedError(
-      "ZoomAdapter: deleteMessage not yet implemented",
+  async deleteMessage(_threadId: string, messageId: string): Promise<void> {
+    await this.zoomFetch(
+      `https://api.zoom.us/v2/chat/messages/${messageId}`,
+      { method: "DELETE" },
       "deleteMessage"
     );
   }

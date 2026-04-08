@@ -384,6 +384,8 @@ describe("ZoomAdapter — team_chat.app_mention (WBHK-05)", () => {
 });
 
 const POST_MESSAGE_ERROR_PATTERN = /postMessage.*403|403.*postMessage/;
+const EDIT_MESSAGE_ERROR_PATTERN = /editMessage.*404|404.*editMessage/;
+const DELETE_MESSAGE_ERROR_PATTERN = /deleteMessage.*403|403.*deleteMessage/;
 
 describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
   function mockFetch(status: number, body: unknown): ReturnType<typeof vi.fn> {
@@ -590,7 +592,7 @@ describe("ZoomAdapter — editMessage (MSG-03)", () => {
         "msg-to-edit",
         "Updated text" as unknown as import("./index.js").AdapterPostableMessage
       )
-    ).rejects.toThrow(/editMessage.*404|404.*editMessage/);
+    ).rejects.toThrow(EDIT_MESSAGE_ERROR_PATTERN);
   });
 });
 
@@ -654,7 +656,7 @@ describe("ZoomAdapter — deleteMessage (MSG-04)", () => {
         "zoom:chan@conference.xmpp.zoom.us:msg-to-delete",
         "msg-to-delete"
       )
-    ).rejects.toThrow(/deleteMessage.*403|403.*deleteMessage/);
+    ).rejects.toThrow(DELETE_MESSAGE_ERROR_PATTERN);
   });
 });
 
