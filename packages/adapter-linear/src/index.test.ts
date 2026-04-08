@@ -2874,62 +2874,6 @@ describe("runtime operations", () => {
     ).rejects.toThrow("append-only");
   });
 
-  it("fetchMessages uses agent session activities for session threads", async () => {
-    const adapter = createWebhookAdapter();
-    setDefaultOrganizationId(adapter, "org-xyz");
-    const mockAgentSession = {
-      id: "session-789",
-      issueId: "issue-123",
-      commentId: "comment-root",
-      sourceCommentId: "comment-source",
-      status: "active",
-      summary: "Help with the issue",
-      issue: Promise.resolve({
-        id: "issue-123",
-        identifier: "TEST-1",
-        title: "Investigate",
-        url: "https://linear.app/test/issue/TEST-1",
-      }),
-      activities: vi.fn().mockResolvedValue({
-        nodes: [
-          {
-            id: "activity-2",
-            createdAt: "2025-06-01T12:00:02.000Z",
-            updatedAt: "2025-06-01T12:00:02.000Z",
-            content: {
-              __typename: "AgentActivityResponseContent",
-              body: "Agent reply",
-            },
-          },
-          {
-            id: "activity-1",
-            createdAt: "2025-06-01T12:00:01.000Z",
-            updatedAt: "2025-06-01T12:00:01.000Z",
-            content: {
-              __typename: "AgentActivityPromptContent",
-              body: "User prompt",
-            },
-          },
-        ],
-      }),
-    };
-    const mockClient = {
-      agentSession: vi.fn().mockResolvedValue(mockAgentSession),
-    };
-    setDefaultClient(adapter, mockClient);
-
-    const result = await adapter.fetchMessages(
-      "linear:issue-123:c:comment-root:s:session-789"
-    );
-
-    expect(mockClient.agentSession).toHaveBeenCalledWith("session-789");
-    expect(mockAgentSession.activities).toHaveBeenCalledWith();
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages[0].text).toBe("User prompt");
-    expect(result.messages[1].text).toBe("Agent reply");
-    expect(result.messages[1].raw.organizationId).toBe("org-xyz");
-  });
-
   it("fetchThread includes issue metadata for session threads", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-123");

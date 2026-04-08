@@ -1377,9 +1377,9 @@ export class LinearAdapter
 
     if (decoded.agentSessionId) {
       assertAgentSessionThread(decoded);
-      return await this.streamInAgentSession(decoded, textStream, options);
+      return this.streamInAgentSession(decoded, textStream, options);
     }
-    return await this.streamAsComment(threadId, textStream, options);
+    return this.streamAsComment(threadId, textStream, options);
   }
 
   /**
@@ -1522,20 +1522,20 @@ export class LinearAdapter
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
     await this.ensureValidToken();
-    const { issueId, commentId, agentSessionId } =
-      this.decodeThreadId(threadId);
+    const decoded = this.decodeThreadId(threadId);
 
-    if (agentSessionId) {
-      return await this.fetchAgentSessionMessages(threadId, agentSessionId);
-    }
-
-    if (commentId) {
+    if (decoded.commentId) {
       // Comment-level thread: fetch root comment's children
-      return this.fetchCommentThread(threadId, issueId, commentId, options);
+      return this.fetchCommentThread(
+        threadId,
+        decoded.issueId,
+        decoded.commentId,
+        options
+      );
     }
 
     // Issue-level thread: fetch all top-level comments
-    return this.fetchIssueComments(threadId, issueId, options);
+    return this.fetchIssueComments(threadId, decoded.issueId, options);
   }
 
   /**
@@ -1615,58 +1615,6 @@ export class LinearAdapter
       nextCursor: childrenConnection.pageInfo.hasNextPage
         ? (childrenConnection.pageInfo.endCursor ?? undefined)
         : undefined,
-    };
-  }
-
-  /**
-   * Fetch messages from an agent session thread (agent activities).
-   */
-  private async fetchAgentSessionMessages(
-    threadId: string,
-    agentSessionId: string
-  ): Promise<FetchResult<LinearRawMessage>> {
-    const organizationId = this.getOrganizationId();
-    const agentSession = await this.getClient().agentSession(agentSessionId);
-    const activitiesConnection = await agentSession.activities();
-
-    const messages = activitiesConnection.nodes
-      .sort((a, b) => {
-        const aTime = new Date(a.createdAt ?? 0).getTime();
-        const bTime = new Date(b.createdAt ?? 0).getTime();
-        return aTime - bTime;
-      })
-      .map((agentActivity) => {
-        const activityType = normalizeAgentActivityType(agentActivity.content);
-        const text = getAgentActivityText(agentActivity);
-        const isAgentMessage = activityType !== AgentActivityType.Prompt;
-
-        return new Message<LinearRawMessage>({
-          id: agentActivity.id,
-          threadId,
-          text,
-          formatted: this.formatConverter.toAst(text),
-          author: {
-            userId: isAgentMessage ? (this.botUserId ?? "self") : "unknown",
-            userName: isAgentMessage ? this.userName : "unknown",
-            fullName: isAgentMessage ? this.userName : "unknown",
-            isBot: isAgentMessage,
-            isMe: isAgentMessage,
-          },
-          metadata: {
-            dateSent: new Date(agentActivity.createdAt ?? Date.now()),
-            edited: false,
-          },
-          attachments: [],
-          raw: buildAgentActivityRawMessage(
-            agentSession,
-            agentActivity,
-            organizationId
-          ),
-        });
-      });
-
-    return {
-      messages,
     };
   }
 
