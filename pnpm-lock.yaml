@@ -487,9 +487,6 @@ importers:
       '@chat-adapter/shared':
         specifier: workspace:*
         version: link:../adapter-shared
-      '@zoom/rivet':
-        specifier: ^0.4.0
-        version: 0.4.0
       chat:
         specifier: workspace:*
         version: link:../chat
@@ -576,6 +573,9 @@ importers:
       '@chat-adapter/whatsapp':
         specifier: workspace:*
         version: link:../adapter-whatsapp
+      '@chat-adapter/zoom':
+        specifier: workspace:*
+        version: link:../adapter-zoom
       chat:
         specifier: workspace:*
         version: link:../chat
@@ -3032,9 +3032,6 @@ packages:
   '@workflow/serde@4.1.0-beta.2':
     resolution: {integrity: sha512-8kkeoQKLDaKXefjV5dbhBj2aErfKp1Mc4pb6tj8144cF+Em5SPbyMbyLCHp+BVrFfFVCBluCtMx+jjvaFVZGww==}
 
-  '@zoom/rivet@0.4.0':
-    resolution: {integrity: sha512-bsY3PuPDmZWQtol1IWojUDye6SeaOdD+WF5B+MlWSV2VD/9+LNpBkayb4YuUp0lksANHBcNROo1QxQKPWH7IEw==}
-
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
@@ -4214,9 +4211,6 @@ packages:
 
   jose@4.15.9:
     resolution: {integrity: sha512-1vUQX+IdDMVPj4k8kOxgUqlcK518yluMuGZwqlr44FS1ppZB/5GWh4rZG89erpOBOJjU/OBsnCVFfapsRz6nEA==}
-
-  jose@5.10.0:
-    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
   jotai@2.17.1:
     resolution: {integrity: sha512-TFNZZDa/0ewCLQyRC/Sq9crtixNj/Xdf/wmj9631xxMuKToVJZDbqcHIYN0OboH+7kh6P6tpIK7uKWClj86PKw==}
@@ -8329,15 +8323,6 @@ snapshots:
 
   '@workflow/serde@4.1.0-beta.2': {}
 
-  '@zoom/rivet@0.4.0':
-    dependencies:
-      axios: 1.13.6
-      dayjs: 1.11.19
-      form-data: 4.0.5
-      jose: 5.10.0
-    transitivePeerDependencies:
-      - debug
-
   accepts@2.0.0:
     dependencies:
       mime-types: 3.0.2
@@ -9713,8 +9698,6 @@ snapshots:
   jiti@2.6.1: {}
 
   jose@4.15.9: {}
-
-  jose@5.10.0: {}
 
   jotai@2.17.1(@types/react@19.2.7)(react@19.2.3):
     optionalDependencies:

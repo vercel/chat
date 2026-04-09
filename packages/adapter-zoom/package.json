@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@zoom/rivet": "^0.4.0",
     "chat": "workspace:*"
   },
   "devDependencies": {
