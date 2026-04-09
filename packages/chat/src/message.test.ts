@@ -117,6 +117,29 @@ describe("Message", () => {
       });
     });
 
+    it("should preserve fetchMetadata through full JSON.stringify/parse roundtrip", () => {
+      const msg = makeMessage({
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/img.png",
+            fetchMetadata: {
+              mediaId: "123",
+              url: "https://example.com/img.png",
+            },
+            fetchData: () => Promise.resolve(Buffer.from("binary")),
+          },
+        ],
+      });
+      const roundtripped = JSON.parse(JSON.stringify(msg.toJSON()));
+      const restored = Message.fromJSON(roundtripped);
+      expect(restored.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
+      expect(restored.attachments[0].fetchData).toBeUndefined();
+    });
+
     it("should include isMention flag", () => {
       const json = makeMessage({ isMention: true }).toJSON();
       expect(json.isMention).toBe(true);
