@@ -52,7 +52,7 @@ export interface SerializedThread {
 }
 
 /** Shared thread configuration fields. */
-export interface BaseThreadOptions {
+interface BaseThreadOptions {
   id: string;
   channelId: string;
   channelVisibility?: ChannelVisibility;
