@@ -2005,58 +2005,31 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       width: file.original_w,
       height: file.original_h,
       fetchMetadata: url ? { url } : undefined,
-      fetchData: url
-        ? async () => {
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${botToken}`,
-              },
-            });
-            if (!response.ok) {
-              throw new NetworkError(
-                "slack",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const contentType = response.headers.get("content-type") ?? "";
-            if (contentType.includes("text/html")) {
-              throw new NetworkError(
-                "slack",
-                "Failed to download file from Slack: received HTML login page instead of file data. " +
-                  `Ensure your Slack app has the "files:read" OAuth scope. ` +
-                  `URL: ${url}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          }
-        : undefined,
+      fetchData: url ? () => this.fetchSlackFile(url, botToken) : undefined,
     };
   }
 
-  private fetchSlackFile(url: string, token: string): Promise<Buffer> {
-    return (async () => {
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        throw new NetworkError(
-          "slack",
-          `Failed to fetch file: ${response.status} ${response.statusText}`
-        );
-      }
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("text/html")) {
-        throw new NetworkError(
-          "slack",
-          "Failed to download file from Slack: received HTML login page instead of file data. " +
-            `Ensure your Slack app has the "files:read" OAuth scope. ` +
-            `URL: ${url}`
-        );
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
-    })();
+  private async fetchSlackFile(url: string, token: string): Promise<Buffer> {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "slack",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      throw new NetworkError(
+        "slack",
+        "Failed to download file from Slack: received HTML login page instead of file data. " +
+          `Ensure your Slack app has the "files:read" OAuth scope. ` +
+          `URL: ${url}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {

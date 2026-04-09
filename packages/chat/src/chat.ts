@@ -2254,9 +2254,10 @@ export class Chat<
       });
     }
 
-    if (adapter?.rehydrateAttachment && msg.attachments.length > 0) {
+    const rehydrate = adapter?.rehydrateAttachment?.bind(adapter);
+    if (rehydrate && msg.attachments.length > 0) {
       msg.attachments = msg.attachments.map((att) =>
-        att.fetchData ? att : (adapter.rehydrateAttachment?.(att) ?? att)
+        att.fetchData ? att : rehydrate(att)
       );
     }
 
