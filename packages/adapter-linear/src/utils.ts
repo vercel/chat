@@ -15,15 +15,6 @@ export type LinearAgentSessionThreadId = LinearThreadId & {
   agentSessionId: string;
 };
 
-interface LinearAgentSessionLike {
-  commentId?: string | null;
-  id: string;
-  issue?: {
-    id: string;
-  } | null;
-  issueId?: string | null;
-}
-
 export function renderMessageToLinearMarkdown(
   message: AdapterPostableMessage,
   formatConverter: LinearFormatConverter
@@ -47,35 +38,5 @@ export function assertAgentSessionThread(
       "linear",
       "Expected a Linear agent session thread"
     );
-  }
-}
-
-export function getIssueIdFromSession(session: LinearAgentSessionLike): string {
-  const issueId = session.issueId ?? session.issue?.id ?? undefined;
-  if (!issueId) {
-    throw new ValidationError(
-      "linear",
-      `Agent session ${session.id} is missing issueId`
-    );
-  }
-
-  return issueId;
-}
-
-export function toAgentPlanStatus(
-  status: "pending" | "in_progress" | "complete" | "error"
-): LinearAgentPlanStatus {
-  switch (status) {
-    case "pending":
-      return "pending";
-    case "in_progress":
-      return "inProgress";
-    case "complete":
-      return "completed";
-    case "error":
-      return "canceled";
-    default: {
-      throw new Error(`Unsupported Linear agent plan status: ${status}`);
-    }
   }
 }
