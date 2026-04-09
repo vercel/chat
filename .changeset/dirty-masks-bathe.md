@@ -2,9 +2,10 @@
 "@chat-adapter/linear": major
 ---
 
-Rework the Linear adapter for multi-tenant OAuth installs.
+Add multi-tenant support in the Linear adapter using `clientId` / `clientSecret`.
 
-- Top-level `clientId` / `clientSecret` now configure multi-tenant OAuth and `handleOAuthCallback()`.
-- Move single-tenant client-credentials auth to `clientCredentials: { clientId, clientSecret, scopes? }`.
-- Rename env-based client-credentials auth to `LINEAR_CLIENT_CREDENTIALS_CLIENT_ID` / `LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET` and optional `LINEAR_CLIENT_CREDENTIALS_SCOPES`.
-- Add installation management helpers: `setInstallation()`, `getInstallation()`, `deleteInstallation()`, and `withInstallation()`.
+The Linear adapter now exposes a `handleOAuthCallback()` function for OAuth multi-tenant support. 
+
+Add `clientCredentials.scopes` to the Linear adapter so single-tenant client-credentials auth can request custom OAuth scopes.
+
+Add support for agent sessions in Linear, with streaming / task / plan support.
