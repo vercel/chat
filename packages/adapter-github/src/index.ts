@@ -39,6 +39,7 @@ import type {
 } from "./types";
 
 const REVIEW_COMMENT_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+):rc:(\d+)$/;
+const ISSUE_THREAD_PATTERN = /^([^/]+)\/([^:]+):issue:(\d+)$/;
 const PR_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+)$/;
 
 // Re-export types
@@ -54,8 +55,8 @@ export type {
 /**
  * GitHub adapter for chat SDK.
  *
- * Supports both PR-level comments (Conversation tab) and review comment threads
- * (Files Changed tab - line-specific).
+ * Supports PR-level comments (Conversation tab), review comment threads
+ * (Files Changed tab - line-specific), and issue comments.
  *
  * @example Single-tenant (your own org)
  * ```typescript
@@ -425,11 +426,7 @@ export class GitHubAdapter
     // Handle events
     if (eventType === "issue_comment") {
       const issuePayload = payload as IssueCommentWebhookPayload;
-      // Only process comments on PRs (they have a pull_request field)
-      if (
-        issuePayload.action === "created" &&
-        issuePayload.issue.pull_request
-      ) {
+      if (issuePayload.action === "created") {
         this.handleIssueComment(issuePayload, installationId, options);
       }
     } else if (eventType === "pull_request_review_comment") {
@@ -478,11 +475,12 @@ export class GitHubAdapter
 
     const { comment, issue, repository, sender } = payload;
 
-    // Build thread ID (PR-level)
+    const isPR = !!issue.pull_request;
     const threadId = this.encodeThreadId({
       owner: repository.owner.login,
       repo: repository.name,
       prNumber: issue.number,
+      type: isPR ? "pr" : "issue",
     });
 
     // Build message
@@ -490,7 +488,8 @@ export class GitHubAdapter
       comment,
       repository,
       issue.number,
-      threadId
+      threadId,
+      isPR ? "pr" : "issue"
     );
 
     // Check if this is from the bot itself
@@ -558,7 +557,8 @@ export class GitHubAdapter
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
-    threadId: string
+    threadId: string,
+    threadType: "pr" | "issue" = "pr"
   ): Message<GitHubRawMessage> {
     const author = this.parseAuthor(comment.user);
 
@@ -577,6 +577,7 @@ export class GitHubAdapter
           owner: repository.owner,
         },
         prNumber,
+        threadType,
       },
       author,
       metadata: {
@@ -663,7 +664,7 @@ export class GitHubAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
 
     const octokit = await this.getOctokitForThread(owner, repo);
@@ -708,7 +709,7 @@ export class GitHubAdapter
         },
       };
     }
-    // PR-level thread - issue comment
+    // PR-level or issue-level thread - issue comment
     const { data: comment } = await octokit.issues.createComment({
       owner,
       repo,
@@ -729,6 +730,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -741,7 +743,7 @@ export class GitHubAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const commentId = Number.parseInt(messageId, 10);
 
@@ -805,6 +807,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -998,7 +1001,7 @@ export class GitHubAdapter
     threadId: string,
     options?: FetchOptions
   ): Promise<FetchResult<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const limit = options?.limit ?? 100;
     const direction = options?.direction ?? "backward";
@@ -1049,7 +1052,8 @@ export class GitHubAdapter
             name: repo,
           },
           prNumber,
-          threadId
+          threadId,
+          type ?? "pr"
         )
       );
     }
@@ -1076,10 +1080,33 @@ export class GitHubAdapter
    * Fetch thread metadata.
    */
   async fetchThread(threadId: string): Promise<ThreadInfo> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
 
     const octokit = await this.getOctokitForThread(owner, repo);
+
+    if (type === "issue") {
+      const { data: issue } = await octokit.issues.get({
+        owner,
+        repo,
+        issue_number: prNumber,
+      });
+
+      return {
+        id: threadId,
+        channelId: `${owner}/${repo}`,
+        channelName: `${repo} #${prNumber}`,
+        isDM: false,
+        metadata: {
+          owner,
+          repo,
+          issueNumber: prNumber,
+          issueTitle: issue.title,
+          issueState: issue.state,
+          type: "issue",
+        },
+      };
+    }
 
     const { data: pr } = await octokit.pulls.get({
       owner,
@@ -1108,11 +1135,22 @@ export class GitHubAdapter
    *
    * Thread ID formats:
    * - PR-level: `github:{owner}/{repo}:{prNumber}`
+   * - Issue-level: `github:{owner}/{repo}:issue:{issueNumber}`
    * - Review comment: `github:{owner}/{repo}:{prNumber}:rc:{reviewCommentId}`
    */
   encodeThreadId(platformData: GitHubThreadId): string {
-    const { owner, repo, prNumber, reviewCommentId } = platformData;
+    const { owner, repo, prNumber, type, reviewCommentId } = platformData;
 
+    if (type === "issue" && reviewCommentId) {
+      throw new ValidationError(
+        "github",
+        "Review comments are not supported on issue threads"
+      );
+    }
+
+    if (type === "issue") {
+      return `github:${owner}/${repo}:issue:${prNumber}`;
+    }
     if (reviewCommentId) {
       return `github:${owner}/${repo}:${prNumber}:rc:${reviewCommentId}`;
     }
@@ -1139,7 +1177,19 @@ export class GitHubAdapter
         owner: rcMatch[1],
         repo: rcMatch[2],
         prNumber: Number.parseInt(rcMatch[3], 10),
+        type: "pr",
         reviewCommentId: Number.parseInt(rcMatch[4], 10),
+      };
+    }
+
+    // Issue-level thread format
+    const issueMatch = withoutPrefix.match(ISSUE_THREAD_PATTERN);
+    if (issueMatch) {
+      return {
+        owner: issueMatch[1],
+        repo: issueMatch[2],
+        prNumber: Number.parseInt(issueMatch[3], 10),
+        type: "issue",
       };
     }
 
@@ -1150,6 +1200,7 @@ export class GitHubAdapter
         owner: prMatch[1],
         repo: prMatch[2],
         prNumber: Number.parseInt(prMatch[3], 10),
+        type: "pr",
       };
     }
 
@@ -1171,6 +1222,7 @@ export class GitHubAdapter
   /**
    * List threads (PRs) in a GitHub repository.
    * Each open PR is treated as a thread.
+   * Note: Issue threads are not listed here — they are created reactively via webhooks.
    */
   async listThreads(
     channelId: string,
@@ -1233,6 +1285,7 @@ export class GitHubAdapter
               owner: { id: 0, login: owner, type: "User" },
             },
             prNumber: pr.number,
+            threadType: "pr",
           },
           author: this.parseAuthor(pr.user as GitHubUser),
           metadata: {
@@ -1303,16 +1356,19 @@ export class GitHubAdapter
    */
   parseMessage(raw: GitHubRawMessage): Message<GitHubRawMessage> {
     if (raw.type === "issue_comment") {
+      const threadType = raw.threadType ?? "pr";
       const threadId = this.encodeThreadId({
         owner: raw.repository.owner.login,
         repo: raw.repository.name,
         prNumber: raw.prNumber,
+        type: threadType,
       });
       return this.parseIssueComment(
         raw.comment,
         { owner: raw.repository.owner, name: raw.repository.name },
         raw.prNumber,
-        threadId
+        threadId,
+        threadType
       );
     }
     const rootCommentId = raw.comment.in_reply_to_id ?? raw.comment.id;

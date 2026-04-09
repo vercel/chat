@@ -1492,7 +1492,7 @@ describe("installationKeyPrefix", () => {
 describe("handleOAuthCallback", () => {
   const secret = "test-signing-secret";
 
-  it("exchanges code for token and saves installation", async () => {
+  function createOAuthAdapter() {
     const state = createMockState();
     const adapter = createSlackAdapter({
       signingSecret: secret,
@@ -1504,21 +1504,27 @@ describe("handleOAuthCallback", () => {
     // Mock the oauth.v2.access call on the internal client
     const mockClient = (adapter as unknown as { client: { oauth: unknown } })
       .client;
+    const mockAccess = vi.fn().mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-oauth-bot-token",
+      bot_user_id: "U_BOT_OAUTH",
+      team: { id: "T_OAUTH_1", name: "OAuth Team" },
+    });
     (
       mockClient as unknown as {
         oauth: { v2: { access: ReturnType<typeof vi.fn> } };
       }
     ).oauth = {
       v2: {
-        access: vi.fn().mockResolvedValue({
-          ok: true,
-          access_token: "xoxb-oauth-bot-token",
-          bot_user_id: "U_BOT_OAUTH",
-          team: { id: "T_OAUTH_1", name: "OAuth Team" },
-        }),
+        access: mockAccess,
       },
     };
 
+    return { adapter, state, mockAccess };
+  }
+
+  it("exchanges code for token and saves installation", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
     await adapter.initialize(createMockChatInstance(state));
 
     const request = new Request(
@@ -1535,6 +1541,76 @@ describe("handleOAuthCallback", () => {
     const stored = await adapter.getInstallation("T_OAUTH_1");
     expect(stored).not.toBeNull();
     expect(stored?.botToken).toBe("xoxb-oauth-bot-token");
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+    });
+  });
+
+  it("forwards redirect_uri from callback options", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123"
+    );
+    await adapter.handleOAuthCallback(request, {
+      redirectUri: "https://example.com/install/callback",
+    });
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/install/callback",
+    });
+  });
+
+  it("prefers callback options redirect_uri over the query param", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123&redirect_uri=https%3A%2F%2Fexample.com%2Fquery-callback"
+    );
+    await adapter.handleOAuthCallback(request, {
+      redirectUri: "https://example.com/explicit-callback",
+    });
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/explicit-callback",
+    });
+  });
+
+  it("falls back to redirect_uri from the callback query param", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123&redirect_uri=https%3A%2F%2Fexample.com%2Fquery-callback"
+    );
+    await adapter.handleOAuthCallback(request);
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/query-callback",
+    });
+  });
+
+  it("throws when the callback code is missing", async () => {
+    const { adapter, state } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request("https://example.com/auth/callback/slack");
+    await expect(adapter.handleOAuthCallback(request)).rejects.toThrow(
+      "Missing 'code' query parameter in OAuth callback request."
+    );
   });
 
   it("throws without clientId and clientSecret", async () => {
@@ -4945,6 +5021,16 @@ describe("reverse user lookup", () => {
         signingSecret: secret,
         logger: mockLogger,
       });
+      mockClientMethod(
+        adapter,
+        "auth.test",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          user_id: "U_BOT",
+          user: "bot",
+          bot_id: "B_BOT",
+        })
+      );
       await adapter.initialize(createMockChatInstance(state));
 
       // Seed user cache

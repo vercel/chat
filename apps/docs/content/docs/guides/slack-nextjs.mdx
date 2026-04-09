@@ -87,6 +87,8 @@ After creating the app:
 1. Go to **OAuth & Permissions**, click **Install to Workspace**, and copy the **Bot User OAuth Token** (`xoxb-...`) — you'll need this as `SLACK_BOT_TOKEN`
 2. Go to **Basic Information** → **App Credentials** and copy the **Signing Secret** — you'll need this as `SLACK_SIGNING_SECRET`
 
+If you're distributing the app across multiple workspaces via OAuth instead of installing it to one workspace, configure `clientId` and `clientSecret` on the Slack adapter and pass the same redirect URI used during the authorize step into `handleOAuthCallback(request, { redirectUri })` in your callback route.
+
 ## Configure environment variables
 
 Create a `.env.local` file in your project root:

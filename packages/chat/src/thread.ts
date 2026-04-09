@@ -15,6 +15,7 @@ import {
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
 import type { MessageHistoryCache } from "./message-history";
+import { isPostableObject, postPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type {
   Adapter,
@@ -25,6 +26,7 @@ import type {
   ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
+  PostableObject,
   PostEphemeralOptions,
   ScheduledMessage,
   SentMessage,
@@ -374,9 +376,22 @@ export class ThreadImpl<TState = Record<string, unknown>>
     await this._stateAdapter.unsubscribe(this.id);
   }
 
+  async post<T extends PostableObject>(message: T): Promise<T>;
+  async post(
+    message:
+      | string
+      | AdapterPostableMessage
+      | AsyncIterable<string>
+      | ChatElement
+  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage> {
+  ): Promise<SentMessage | PostableObject> {
+    if (isPostableObject(message)) {
+      await this.handlePostableObject(message);
+      return message;
+    }
+
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
       return this.handleStream(message);
@@ -410,6 +425,16 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     return result;
+  }
+
+  private async handlePostableObject(obj: PostableObject): Promise<void> {
+    await postPostableObject(
+      obj,
+      this.adapter,
+      this.id,
+      (threadId, message) => this.adapter.postMessage(threadId, message),
+      this._logger
+    );
   }
 
   async postEphemeral(

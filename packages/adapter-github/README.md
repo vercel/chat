@@ -143,12 +143,13 @@ For repository or organization webhooks:
 
 ## Thread model
 
-GitHub has two types of comment threads:
+GitHub has three types of comment threads:
 
-| Type | Tab | Thread ID format |
-|------|-----|-----------------|
-| PR-level | Conversation | `github:{owner}/{repo}:{prNumber}` |
-| Review comments | Files Changed | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Type | Context | Thread ID format |
+|------|---------|-----------------|
+| PR-level | PR Conversation tab | `github:{owner}/{repo}:{prNumber}` |
+| Review comments | PR Files Changed tab | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Issue comments | Issue thread | `github:{owner}/{repo}:issue:{issueNumber}` |
 
 ## Reactions
 

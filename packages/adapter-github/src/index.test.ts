@@ -12,6 +12,7 @@ import type {
 const mockIssuesCreateComment = vi.fn();
 const mockIssuesUpdateComment = vi.fn();
 const mockIssuesDeleteComment = vi.fn();
+const mockIssuesGet = vi.fn();
 const mockIssuesListComments = vi.fn();
 const mockPullsCreateReplyForReviewComment = vi.fn();
 const mockPullsUpdateReviewComment = vi.fn();
@@ -34,6 +35,7 @@ vi.mock("@octokit/rest", () => {
       createComment: mockIssuesCreateComment,
       updateComment: mockIssuesUpdateComment,
       deleteComment: mockIssuesDeleteComment,
+      get: mockIssuesGet,
       listComments: mockIssuesListComments,
     };
     pulls = {
@@ -536,7 +538,7 @@ describe("GitHubAdapter", () => {
       );
     });
 
-    it("should ignore issue_comment not on a PR", async () => {
+    it("should process issue_comment on a plain issue", async () => {
       const mockChat = {
         getLogger: vi.fn(),
         getState: vi.fn(),
@@ -558,7 +560,15 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat.processMessage).toHaveBeenCalledWith(
+        adapter,
+        "github:acme/app:issue:10",
+        expect.objectContaining({
+          id: "100",
+          threadId: "github:acme/app:issue:10",
+        }),
+        undefined
+      );
     });
 
     it("should ignore issue_comment with action other than created", async () => {
@@ -1378,6 +1388,62 @@ describe("GitHubAdapter", () => {
       expect(message.author.isBot).toBe(false);
     });
 
+    it("should parse an issue_comment raw message from an issue thread", () => {
+      const raw = {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body: "Issue comment",
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/issues/10#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 10,
+        threadType: "issue" as const,
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.id).toBe("100");
+      expect(message.threadId).toBe("github:acme/app:issue:10");
+      expect(message.text).toBe("Issue comment");
+      expect(message.raw.type).toBe("issue_comment");
+      if (message.raw.type === "issue_comment") {
+        expect(message.raw.threadType).toBe("issue");
+      }
+    });
+
+    it("should default to PR thread format when threadType is omitted", () => {
+      const raw = {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body: "Test comment",
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+        // threadType omitted — should default to PR format
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.threadId).toBe("github:acme/app:42");
+    });
+
     it("should parse a review_comment raw message (root comment)", () => {
       const raw = {
         type: "review_comment" as const,
@@ -1754,6 +1820,37 @@ describe("GitHubAdapter", () => {
 
       expect(result.metadata.reviewCommentId).toBe(200);
     });
+
+    it("should fetch issue metadata for issue thread", async () => {
+      mockIssuesGet.mockResolvedValueOnce({
+        data: {
+          title: "Bug report",
+          state: "open",
+          number: 10,
+        },
+      });
+
+      const result = await adapter.fetchThread("github:acme/app:issue:10");
+
+      expect(mockIssuesGet).toHaveBeenCalledWith({
+        owner: "acme",
+        repo: "app",
+        issue_number: 10,
+      });
+      expect(mockPullsGet).not.toHaveBeenCalled();
+      expect(result.id).toBe("github:acme/app:issue:10");
+      expect(result.channelId).toBe("acme/app");
+      expect(result.channelName).toBe("app #10");
+      expect(result.isDM).toBe(false);
+      expect(result.metadata).toEqual({
+        owner: "acme",
+        repo: "app",
+        issueNumber: 10,
+        issueTitle: "Bug report",
+        issueState: "open",
+        type: "issue",
+      });
+    });
   });
 
   describe("listThreads", () => {
@@ -1967,6 +2064,28 @@ describe("GitHubAdapter", () => {
       });
       expect(result).toBe("github:my-org/my-cool-app:42");
     });
+
+    it("should encode issue thread ID", () => {
+      const result = adapter.encodeThreadId({
+        owner: "acme",
+        repo: "app",
+        prNumber: 10,
+        type: "issue",
+      });
+      expect(result).toBe("github:acme/app:issue:10");
+    });
+
+    it("should throw for issue thread with reviewCommentId", () => {
+      expect(() =>
+        adapter.encodeThreadId({
+          owner: "acme",
+          repo: "app",
+          prNumber: 10,
+          type: "issue",
+          reviewCommentId: 999,
+        })
+      ).toThrow("Review comments are not supported on issue threads");
+    });
   });
 
   describe("decodeThreadId", () => {
@@ -1976,6 +2095,7 @@ describe("GitHubAdapter", () => {
         owner: "acme",
         repo: "app",
         prNumber: 123,
+        type: "pr",
       });
     });
 
@@ -1985,7 +2105,18 @@ describe("GitHubAdapter", () => {
         owner: "acme",
         repo: "app",
         prNumber: 123,
+        type: "pr",
         reviewCommentId: 456789,
+      });
+    });
+
+    it("should decode issue thread ID", () => {
+      const result = adapter.decodeThreadId("github:acme/app:issue:10");
+      expect(result).toEqual({
+        owner: "acme",
+        repo: "app",
+        prNumber: 10,
+        type: "issue",
       });
     });
 
@@ -2007,6 +2138,7 @@ describe("GitHubAdapter", () => {
         owner: "my-org",
         repo: "my-cool-app",
         prNumber: 42,
+        type: "pr",
       });
     });
 
@@ -2015,6 +2147,7 @@ describe("GitHubAdapter", () => {
         owner: "vercel",
         repo: "next.js",
         prNumber: 99999,
+        type: "pr",
       };
       const encoded = adapter.encodeThreadId(original);
       const decoded = adapter.decodeThreadId(encoded);
@@ -2026,7 +2159,20 @@ describe("GitHubAdapter", () => {
         owner: "vercel",
         repo: "next.js",
         prNumber: 99999,
+        type: "pr",
         reviewCommentId: 123456789,
+      };
+      const encoded = adapter.encodeThreadId(original);
+      const decoded = adapter.decodeThreadId(encoded);
+      expect(decoded).toEqual(original);
+    });
+
+    it("should roundtrip issue thread ID", () => {
+      const original: GitHubThreadId = {
+        owner: "vercel",
+        repo: "next.js",
+        prNumber: 42,
+        type: "issue",
       };
       const encoded = adapter.encodeThreadId(original);
       const decoded = adapter.decodeThreadId(encoded);
