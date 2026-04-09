@@ -31,12 +31,19 @@ export function assertAgentSessionThread(
   }
 }
 
+const PROFILE_URL_REGEX = /^https:\/\/linear\.app\/\S+\/profiles\/([^/?#]+)/;
+
 /**
  * Get a user display name from its profile URL.
  * Bit of a hack to avoid fetching the user just to get the display name.
  */
 export function getUserNameFromProfileUrl(url: string): string {
-  return url.replace("https://linear.app/gitbook-x/profiles/", "");
+  const match = url.match(PROFILE_URL_REGEX);
+  if (!match) {
+    return "";
+  }
+
+  return match[1];
 }
 
 /**

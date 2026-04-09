@@ -1316,6 +1316,8 @@ export class LinearAdapter
         },
         ephemeral: true,
       });
+
+      return;
     }
 
     this.logger.warn(
