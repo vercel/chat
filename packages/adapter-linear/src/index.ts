@@ -4,7 +4,7 @@ import {
   AuthenticationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { AgentActivityPayload, LinearFetch, User } from "@linear/sdk";
+import type { AgentActivityPayload, AgentSession, Comment } from "@linear/sdk";
 import { AgentActivityType, LinearClient } from "@linear/sdk";
 import {
   type AgentSessionEventWebhookPayload,
@@ -35,8 +35,6 @@ import type {
   LinearAdapterConfig,
   LinearAdapterMode,
   LinearAdapterMultiTenantConfig,
-  LinearAgentSessionCommentData,
-  LinearAgentSessionData,
   LinearClientCredentialsConfig,
   LinearCommentData,
   LinearInstallation,
@@ -47,13 +45,7 @@ import type {
 } from "./types";
 import {
   assertAgentSessionThread,
-  buildAgentActivityRawMessage,
-  buildAgentSessionEventRawMessage,
-  buildCommentRawMessage,
-  getAgentActivityText,
-  getSessionThreadId,
   type LinearAgentSessionThreadId,
-  normalizeAgentActivityType,
   renderMessageToLinearMarkdown,
 } from "./utils";
 
@@ -89,8 +81,7 @@ export type {
   LinearAdapterMode,
   LinearAdapterMultiTenantConfig,
   LinearAdapterOAuthConfig,
-  LinearAgentActivityRawMessage,
-  LinearAgentSessionEventRawMessage,
+  LinearAgentSessionCommentRawMessage,
   LinearClientCredentialsConfig,
   LinearCommentRawMessage,
   LinearInstallation,
@@ -329,58 +320,36 @@ export class LinearAdapter
     };
   }
 
-  private getAgentSessionSourceComment(
-    agentSession:
-      | LinearAgentSessionData
-      | AgentSessionEventWebhookPayload["agentSession"],
-    previousComments?:
-      | LinearAgentSessionCommentData[]
-      | NonNullable<AgentSessionEventWebhookPayload["previousComments"]>
-      | null
-  ):
-    | {
-        body?: string | null;
-        id: string;
-        userId?: string | null;
-      }
-    | undefined {
-    return agentSession.comment ?? previousComments?.at(-1) ?? undefined;
-  }
+  private buildMessageFromComment(
+    raw: LinearRawMessage,
+    author: Author,
+    threadId: string,
+    isMention = false
+  ): Message<LinearRawMessage> {
+    const text = raw.comment.body;
+    const formatted: FormattedContent = this.formatConverter.toAst(text);
 
-  private getAgentSessionMetadataSourceCommentId(
-    sourceMetadata: unknown
-  ): string | undefined {
-    if (!sourceMetadata || typeof sourceMetadata !== "object") {
-      return undefined;
-    }
-
-    const metadata = sourceMetadata as {
-      agentSessionMetadata?: {
-        sourceCommentId?: string | null;
-      };
-    };
-
-    return metadata.agentSessionMetadata?.sourceCommentId ?? undefined;
-  }
-
-  private getAgentSessionSourceCommentId(
-    agentSession:
-      | LinearAgentSessionData
-      | AgentSessionEventWebhookPayload["agentSession"],
-    previousComments?:
-      | LinearAgentSessionCommentData[]
-      | NonNullable<AgentSessionEventWebhookPayload["previousComments"]>
-      | null
-  ): string | undefined {
-    return (
-      agentSession.sourceCommentId ??
-      this.getAgentSessionMetadataSourceCommentId(
-        agentSession.sourceMetadata
-      ) ??
-      this.getAgentSessionSourceComment(agentSession, previousComments)?.id ??
-      agentSession.commentId ??
-      undefined
-    );
+    return new Message<LinearRawMessage>({
+      id: raw.comment.id,
+      threadId,
+      text,
+      formatted,
+      author,
+      metadata: {
+        dateSent: raw.comment.createdAt
+          ? new Date(raw.comment.createdAt)
+          : new Date(),
+        edited: raw.comment.createdAt !== raw.comment.updatedAt,
+        editedAt:
+          raw.comment.createdAt !== raw.comment.updatedAt &&
+          raw.comment.updatedAt
+            ? new Date(raw.comment.updatedAt)
+            : undefined,
+      },
+      attachments: [],
+      isMention,
+      raw,
+    });
   }
 
   private getClient(): LinearClient {
@@ -737,81 +706,132 @@ export class LinearAdapter
     }
   }
 
-  private buildAgentSessionMessage(
-    payload: AgentSessionEventWebhookPayload
-  ): Message<LinearRawMessage> {
-    const raw = buildAgentSessionEventRawMessage(payload);
-    const sourceComment = this.getAgentSessionSourceComment(
-      payload.agentSession,
-      payload.previousComments
-    );
-    const threadId = getSessionThreadId(payload.agentSession, (thread) =>
-      this.encodeThreadId(thread)
-    );
-    const sourceCommentText = sourceComment?.body?.trim();
-    const text =
-      payload.action === "created"
-        ? sourceCommentText ||
-          getAgentActivityText(payload.agentActivity) ||
-          payload.promptContext ||
-          ""
-        : getAgentActivityText(payload.agentActivity) ||
-          sourceCommentText ||
-          payload.promptContext ||
-          "";
+  private async buildMessageFromSdkComment(
+    comment: Comment,
+    threadId: string,
+    issueId: string,
+    organizationId: string,
+    agentSessionId?: string,
+    isMention = false
+  ): Promise<Message<LinearRawMessage>> {
+    const user = await comment.user;
 
-    const authorUserId =
-      sourceComment?.userId ??
-      payload.agentActivity?.userId ??
-      payload.agentSession.creator?.id;
-    const authorName =
-      payload.agentActivity?.user?.name ??
-      payload.agentSession.creator?.name ??
-      "unknown";
-
-    if (!authorUserId) {
+    if (!user) {
       throw new AdapterError(
-        `Unable to determine author user ID for agent session event ${payload.webhookId}`,
+        `Unable to determine user for comment ${comment.id}`,
         "linear"
       );
     }
 
-    const isMe = authorUserId === this.botUserId;
-
-    const author: Author = {
-      userId: authorUserId,
-      userName: authorName,
-      fullName: authorName,
-      isBot: isMe || authorUserId === payload.appUserId,
-      isMe,
+    const commentData: LinearCommentData = {
+      id: comment.id,
+      body: comment.body,
+      issueId,
+      userId: user.id,
+      parentId: comment.parentId ?? undefined,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      url: comment.url ?? undefined,
     };
 
-    const messageId =
-      payload.action === "created"
-        ? (this.getAgentSessionSourceCommentId(
-            payload.agentSession,
-            payload.previousComments
-          ) ??
-          payload.agentActivity?.id ??
-          payload.agentSession.id)
-        : (payload.agentActivity?.id ?? payload.agentSession.id);
+    const author: Author = {
+      userId: user.id,
+      userName: user.displayName ?? "unknown",
+      fullName: user.name ?? user.displayName ?? "unknown",
+      isBot: false,
+      isMe: user.id === this.botUserId,
+    };
 
-    return new Message<LinearRawMessage>({
-      id: messageId,
-      threadId,
-      text,
-      formatted: this.formatConverter.toAst(text),
-      raw,
+    return this.buildMessageFromComment(
+      agentSessionId
+        ? {
+            kind: "agent_session_comment",
+            comment: commentData,
+            agentSessionId,
+            organizationId,
+          }
+        : {
+            kind: "comment",
+            comment: commentData,
+            organizationId,
+          },
       author,
-      isMention: payload.action === "created",
-      metadata: {
-        dateSent: new Date(
-          payload.agentActivity?.createdAt ?? payload.createdAt ?? Date.now()
-        ),
-        edited: false,
-      },
-      attachments: [],
-    });
+      threadId,
+      isMention
+    );
+  }
+
+  private async buildAgentSessionMessage(
+    payload: AgentSessionEventWebhookPayload
+  ): Promise<Message<LinearRawMessage> | null> {
+    const issueId =
+      payload.agentSession.issueId ?? payload.agentSession.issue?.id;
+    if (!issueId) {
+      return null;
+    }
+
+    const decodedThreadId: LinearThreadId = {
+      issueId,
+      commentId: payload.agentSession.commentId ?? undefined,
+      agentSessionId: payload.agentSession.id,
+    };
+
+    const threadId = this.encodeThreadId(decodedThreadId);
+
+    if (payload.action === "created") {
+      if (
+        payload.agentSession.comment?.body != null &&
+        payload.agentSession.comment.userId
+      ) {
+        const commentData: LinearCommentData = {
+          id: payload.agentSession.comment.id,
+          body: payload.agentSession.comment.body,
+          issueId,
+          userId: payload.agentSession.comment.userId,
+          parentId: undefined,
+          createdAt: payload.createdAt.toISOString(),
+          updatedAt: payload.createdAt.toISOString(),
+          url: payload.agentSession.url ?? undefined,
+        };
+        const authorName = payload.agentSession.creator?.name ?? "unknown";
+        const author: Author = {
+          userId: payload.agentSession.comment.userId,
+          userName: authorName,
+          fullName: authorName,
+          isBot: payload.agentSession.comment.userId === this.botUserId,
+          isMe: payload.agentSession.comment.userId === this.botUserId,
+        };
+
+        return this.buildMessageFromComment(
+          {
+            kind: "agent_session_comment",
+            organizationId: payload.organizationId,
+            comment: commentData,
+            agentSessionId: payload.agentSession.id,
+          },
+          author,
+          threadId,
+          true
+        );
+      }
+
+      const commentId =
+        payload.agentSession.comment?.id ?? payload.agentSession.commentId;
+      if (!commentId) {
+        return null;
+      }
+
+      return await this.buildMessageFromSdkComment(
+        await this.getClient().comment({ id: commentId }),
+        threadId,
+        issueId,
+        payload.organizationId,
+        payload.agentSession.id,
+        true
+      );
+    }
+
+    return null;
   }
 
   private getWebhookActorName(
@@ -889,12 +909,7 @@ export class LinearAdapter
     threadId: LinearAgentSessionThreadId,
     result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
-    const linear = this.getClient();
-
-    const [activity, agentSession] = await Promise.all([
-      result.agentActivity,
-      linear.agentSession(threadId.agentSessionId),
-    ]);
+    const activity = await result.agentActivity;
     if (!(result.success && activity)) {
       throw new AdapterError(
         `Failed to create Linear agent activity for session ${threadId.agentSessionId}`,
@@ -902,13 +917,28 @@ export class LinearAdapter
       );
     }
 
-    const organizationId = this.getOrganizationId();
+    const sourceComment = await activity.sourceComment;
+    if (!sourceComment) {
+      throw new AdapterError(
+        `Failed to resolve source comment for Linear agent activity ${activity.id}`,
+        "linear"
+      );
+    }
 
-    return {
-      id: activity.id,
-      threadId: this.encodeThreadId(threadId),
-      raw: buildAgentActivityRawMessage(agentSession, activity, organizationId),
-    };
+    if (!activity.agentSessionId) {
+      throw new AdapterError(
+        `Missing agentSessionId for Linear agent activity ${activity.id}`,
+        "linear"
+      );
+    }
+
+    return this.buildMessageFromSdkComment(
+      sourceComment,
+      this.encodeThreadId(threadId),
+      threadId.issueId,
+      activity.agentSessionId,
+      this.getOrganizationId()
+    );
   }
 
   private async updateAgentSession(
@@ -977,7 +1007,7 @@ export class LinearAdapter
             return;
           }
 
-          this.handleAgentSessionEvent(payload, options);
+          await this.handleAgentSessionEvent(payload, options);
         }
       );
     });
@@ -1060,10 +1090,10 @@ export class LinearAdapter
     this.chat.processMessage(this, threadId, message, options);
   }
 
-  private handleAgentSessionEvent(
+  private async handleAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn(
         "Chat instance not initialized, ignoring agent session event"
@@ -1078,16 +1108,23 @@ export class LinearAdapter
       return;
     }
 
-    const issueId =
-      payload.agentSession.issueId ?? payload.agentSession.issue?.id;
-    if (!issueId) {
-      this.logger.warn("Ignoring Linear agent session event without issueId", {
-        agentSessionId: payload.agentSession.id,
+    const message = await this.buildAgentSessionMessage(payload);
+    if (!message) {
+      this.logger.warn(
+        "Unable to build message for Linear agent session event",
+        {
+          agentSessionId: payload.agentSession.id,
+        }
+      );
+      return;
+    }
+    if (message.author.userId === this.botUserId) {
+      this.logger.debug("Ignoring agent session message from self", {
+        messageId: message.id,
       });
       return;
     }
 
-    const message = this.buildAgentSessionMessage(payload);
     this.chat.processMessage(this, message.threadId, message, options);
   }
 
@@ -1122,7 +1159,6 @@ export class LinearAdapter
     threadId: string,
     organizationId: string
   ): Message<LinearRawMessage> {
-    const text = comment.body;
     const authorName = this.getWebhookActorName(actor);
 
     const author: Author = {
@@ -1133,27 +1169,15 @@ export class LinearAdapter
       isMe: comment.userId === this.botUserId,
     };
 
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
-
-    const raw = buildCommentRawMessage(comment, organizationId);
-
-    return new Message<LinearRawMessage>({
-      id: comment.id,
-      threadId,
-      text,
-      formatted,
-      raw,
-      author,
-      metadata: {
-        dateSent: comment.createdAt ? new Date(comment.createdAt) : new Date(),
-        edited: comment.createdAt !== comment.updatedAt,
-        editedAt:
-          comment.createdAt !== comment.updatedAt && comment.updatedAt
-            ? new Date(comment.updatedAt)
-            : undefined,
+    return this.buildMessageFromComment(
+      {
+        kind: "comment",
+        comment,
+        organizationId,
       },
-      attachments: [],
-    });
+      author,
+      threadId
+    );
   }
 
   /**
@@ -1212,18 +1236,20 @@ export class LinearAdapter
     return {
       id: comment.id,
       threadId,
-      raw: buildCommentRawMessage(
-        {
+      raw: {
+        kind: "comment",
+        comment: {
           id: comment.id,
           body: comment.body,
           issueId: decoded.issueId,
+          parentId: decoded.commentId,
           userId: this.botUserId || "",
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
-        organizationId
-      ),
+        organizationId,
+      },
     };
   }
 
@@ -1269,18 +1295,20 @@ export class LinearAdapter
     return {
       id: comment.id,
       threadId,
-      raw: buildCommentRawMessage(
-        {
+      raw: {
+        kind: "comment",
+        comment: {
           id: comment.id,
           body: comment.body,
           issueId,
+          parentId: comment.parentId ?? undefined,
           userId: this.botUserId || "",
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
-        organizationId
-      ),
+        organizationId,
+      },
     };
   }
 
@@ -1351,19 +1379,14 @@ export class LinearAdapter
       return;
     }
 
-    assertAgentSessionThread(decoded);
-
-    await this.createAgentActivityMessage(
-      decoded,
-      await this.getClient().createAgentActivity({
-        agentSessionId: decoded.agentSessionId,
-        content: {
-          type: AgentActivityType.Thought,
-          body: status ?? "Thinking...",
-        },
-        ephemeral: true,
-      })
-    );
+    await this.getClient().createAgentActivity({
+      agentSessionId: decoded.agentSessionId,
+      content: {
+        type: AgentActivityType.Thought,
+        body: status ?? "Thinking...",
+      },
+      ephemeral: true,
+    });
   }
 
   /**
@@ -1564,6 +1587,64 @@ export class LinearAdapter
     return rawMessage;
   }
 
+  private async fetchAgentSessionCommentThread(
+    thread: LinearAgentSessionThreadId,
+    options?: FetchOptions
+  ): Promise<{
+    agentSession: AgentSession;
+    childComments: Comment[];
+    issueId: string;
+    nextCursor?: string;
+    rootComment: Comment;
+    threadId: string;
+  }> {
+    const linear = this.getClient();
+    const agentSession = await linear.agentSession(thread.agentSessionId);
+    const issueId = agentSession.issueId ?? thread.issueId;
+    if (!issueId) {
+      throw new AdapterError(
+        `Linear agent session ${thread.agentSessionId} is missing issueId`,
+        "linear"
+      );
+    }
+
+    const rootComment = await agentSession.comment;
+    if (!rootComment) {
+      throw new AdapterError(
+        `Linear agent session ${thread.agentSessionId} is missing a root comment`,
+        "linear"
+      );
+    }
+
+    const childrenConnection = await linear.comments({
+      filter: {
+        parent: { id: { eq: rootComment.id } },
+      },
+      ...(options?.direction === "forward"
+        ? {
+            first: options?.limit ?? 50,
+          }
+        : {
+            last: options?.limit ?? 50,
+          }),
+    });
+
+    return {
+      agentSession,
+      issueId,
+      rootComment,
+      childComments: childrenConnection.nodes,
+      threadId: this.encodeThreadId({
+        issueId,
+        commentId: agentSession.commentId ?? rootComment.id,
+        agentSessionId: agentSession.id,
+      }),
+      nextCursor: childrenConnection.pageInfo.hasNextPage
+        ? (childrenConnection.pageInfo.endCursor ?? undefined)
+        : undefined,
+    };
+  }
+
   /**
    * Fetch messages from a thread.
    *
@@ -1577,9 +1658,14 @@ export class LinearAdapter
     await this.ensureValidToken();
     const decoded = this.decodeThreadId(threadId);
 
+    if (decoded.agentSessionId) {
+      assertAgentSessionThread(decoded);
+      return await this.fetchAgentSessionMessages(decoded, options);
+    }
+
     if (decoded.commentId) {
       // Comment-level thread: fetch root comment's children
-      return this.fetchCommentThread(
+      return await this.fetchCommentThread(
         threadId,
         decoded.issueId,
         decoded.commentId,
@@ -1588,7 +1674,33 @@ export class LinearAdapter
     }
 
     // Issue-level thread: fetch all top-level comments
-    return this.fetchIssueComments(threadId, decoded.issueId, options);
+    return await this.fetchIssueComments(threadId, decoded.issueId, options);
+  }
+
+  /**
+   * Fetch the visible comment thread associated with an agent session.
+   */
+  private async fetchAgentSessionMessages(
+    thread: LinearAgentSessionThreadId,
+    options?: FetchOptions
+  ): Promise<FetchResult<LinearRawMessage>> {
+    const organizationId = this.getOrganizationId();
+    const sessionThread = await this.fetchAgentSessionCommentThread(
+      thread,
+      options
+    );
+    const messages = await this.commentsToMessages(
+      [sessionThread.rootComment, ...sessionThread.childComments],
+      sessionThread.threadId,
+      sessionThread.issueId,
+      organizationId,
+      sessionThread.agentSession.id
+    );
+
+    return {
+      messages,
+      nextCursor: sessionThread.nextCursor,
+    };
   }
 
   /**
@@ -1609,7 +1721,8 @@ export class LinearAdapter
       commentsConnection.nodes,
       threadId,
       issueId,
-      organizationId
+      organizationId,
+      undefined
     );
 
     return {
@@ -1654,13 +1767,15 @@ export class LinearAdapter
       [rootComment],
       threadId,
       issueId,
-      organizationId
+      organizationId,
+      undefined
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
       threadId,
       issueId,
-      organizationId
+      organizationId,
+      undefined
     );
 
     return {
@@ -1675,63 +1790,23 @@ export class LinearAdapter
    * Convert an array of Linear SDK Comment objects to Message instances.
    */
   private async commentsToMessages(
-    comments: Array<{
-      id: string;
-      body: string;
-      createdAt: Date;
-      updatedAt: Date;
-      url: string;
-      user: LinearFetch<User> | undefined;
-    }>,
+    comments: Comment[],
     threadId: string,
     issueId: string,
-    organizationId: string
+    organizationId: string,
+    agentSessionId: string | undefined
   ): Promise<Message<LinearRawMessage>[]> {
     const messages: Message<LinearRawMessage>[] = [];
 
     for (const comment of comments) {
-      const user = await comment.user;
-      const author: Author = {
-        userId: user?.id || "unknown",
-        userName: user?.displayName || "unknown",
-        fullName: user?.name || user?.displayName || "unknown",
-        isBot: false,
-        isMe: user?.id === this.botUserId,
-      };
-
-      const formatted: FormattedContent = this.formatConverter.toAst(
-        comment.body
-      );
-
       messages.push(
-        new Message<LinearRawMessage>({
-          id: comment.id,
+        await this.buildMessageFromSdkComment(
+          comment,
           threadId,
-          text: comment.body,
-          formatted,
-          author,
-          metadata: {
-            dateSent: new Date(comment.createdAt),
-            edited: comment.createdAt.getTime() !== comment.updatedAt.getTime(),
-            editedAt:
-              comment.createdAt.getTime() !== comment.updatedAt.getTime()
-                ? new Date(comment.updatedAt)
-                : undefined,
-          },
-          attachments: [],
-          raw: buildCommentRawMessage(
-            {
-              id: comment.id,
-              body: comment.body,
-              issueId,
-              userId: user?.id || "unknown",
-              createdAt: comment.createdAt.toISOString(),
-              updatedAt: comment.updatedAt.toISOString(),
-              url: comment.url,
-            },
-            organizationId
-          ),
-        })
+          issueId,
+          organizationId,
+          agentSessionId
+        )
       );
     }
 
@@ -1854,86 +1929,7 @@ export class LinearAdapter
    */
   parseMessage(raw: LinearRawMessage): Message<LinearRawMessage> {
     switch (raw.kind) {
-      case "agent_activity": {
-        const text = getAgentActivityText(raw.agentActivity);
-        const isAgentMessage =
-          normalizeAgentActivityType(raw.agentActivity.content) !==
-          AgentActivityType.Prompt;
-
-        return new Message<LinearRawMessage>({
-          id: raw.agentActivity.id,
-          threadId: "",
-          text,
-          formatted: this.formatConverter.toAst(text),
-          author: {
-            userId: isAgentMessage ? (this.botUserId ?? "self") : "unknown",
-            userName: isAgentMessage ? this.userName : "unknown",
-            fullName: isAgentMessage ? this.userName : "unknown",
-            isBot: isAgentMessage,
-            isMe: isAgentMessage,
-          },
-          metadata: {
-            dateSent: new Date(raw.agentActivity.createdAt),
-            edited: false,
-          },
-          attachments: [],
-          raw,
-        });
-      }
-      case "agent_session_event": {
-        const { payload } = raw;
-        const sourceComment = this.getAgentSessionSourceComment(
-          payload.agentSession,
-          payload.previousComments
-        );
-        const text =
-          getAgentActivityText(payload.agentActivity) ||
-          sourceComment?.body ||
-          payload.promptContext ||
-          "";
-        const authorUserId =
-          sourceComment?.userId ??
-          payload.agentActivity?.userId ??
-          payload.agentSession.creator?.id ??
-          "";
-        const authorName =
-          payload.agentActivity?.user?.name ??
-          payload.agentSession.creator?.name ??
-          "unknown";
-
-        const isMe = authorUserId === this.botUserId;
-
-        return new Message<LinearRawMessage>({
-          id:
-            this.getAgentSessionSourceCommentId(
-              payload.agentSession,
-              payload.previousComments
-            ) ??
-            payload.agentActivity?.id ??
-            payload.agentSession.id,
-          threadId: "",
-          text,
-          formatted: this.formatConverter.toAst(text),
-          author: {
-            userId: authorUserId,
-            userName: authorName,
-            fullName: authorName,
-            isBot: isMe || authorUserId === payload.appUserId,
-            isMe,
-          },
-          metadata: {
-            dateSent: new Date(
-              payload.agentActivity?.createdAt ??
-                payload.createdAt ??
-                Date.now()
-            ),
-            edited: false,
-          },
-          attachments: [],
-          isMention: payload.action === "created",
-          raw,
-        });
-      }
+      case "agent_session_comment":
       case "comment": {
         const text = raw.comment.body || "";
         const formatted: FormattedContent = this.formatConverter.toAst(text);

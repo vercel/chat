@@ -1,7 +1,11 @@
 import { createHmac } from "node:crypto";
 import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LinearCommentRawMessage, LinearInstallation } from "./index";
+import type {
+  LinearAgentSessionCommentRawMessage,
+  LinearCommentRawMessage,
+  LinearInstallation,
+} from "./index";
 import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
@@ -101,6 +105,18 @@ function expectCommentRawMessage(raw: {
   }
 
   return raw as LinearCommentRawMessage;
+}
+
+function expectAgentSessionCommentRawMessage(raw: {
+  kind: string;
+}): LinearAgentSessionCommentRawMessage {
+  if (raw.kind !== "agent_session_comment") {
+    throw new Error(
+      `Expected an agent session comment raw message, got ${raw.kind}`
+    );
+  }
+
+  return raw as LinearAgentSessionCommentRawMessage;
 }
 
 function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
@@ -752,6 +768,34 @@ describe("parseMessage", () => {
     expect(message.author.isBot).toBe(false);
     expect(message.author.isMe).toBe(false);
   });
+
+  it("should parse an agent session comment raw message like a comment", () => {
+    const adapter = createTestAdapter("agent-sessions");
+    const raw = {
+      kind: "agent_session_comment" as const,
+      organizationId: "org-123",
+      agentSession: {
+        id: "session-123",
+        issueId: "issue-123",
+        commentId: "comment-root",
+      },
+      comment: {
+        id: "comment-abc123",
+        body: "Hello from an agent session",
+        issueId: "issue-123",
+        userId: "user-456",
+        createdAt: "2025-01-29T12:00:00.000Z",
+        updatedAt: "2025-01-29T12:00:00.000Z",
+      },
+    };
+
+    const message = adapter.parseMessage(raw);
+
+    expect(message.id).toBe("comment-abc123");
+    expect(message.text).toBe("Hello from an agent session");
+    expect(message.author.userId).toBe("user-456");
+    expect(message.raw.kind).toBe("agent_session_comment");
+  });
 });
 
 // =============================================================================
@@ -1141,11 +1185,11 @@ describe("handleWebhook - agent session events", () => {
       adapter,
       "linear:issue-123:c:comment-root:s:agent-session-1",
       expect.objectContaining({
-        id: "comment-source",
+        id: "comment-root",
         isMention: true,
         text: "@test-bot Hello there",
         raw: expect.objectContaining({
-          kind: "agent_session_event",
+          kind: "agent_session_comment",
           organizationId: "org-123",
         }),
       }),
@@ -1158,6 +1202,57 @@ describe("handleWebhook - agent session events", () => {
     const adapter = createWebhookAdapter(logger, "agent-sessions");
     const chat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof chat }).chat = chat;
+    setDefaultClient(adapter, {
+      agentSession: vi.fn().mockResolvedValue({
+        id: "agent-session-1",
+        issueId: "issue-123",
+        commentId: "comment-root",
+        comment: Promise.resolve({
+          id: "comment-root",
+          body: "@test-bot Hello there",
+          parentId: undefined,
+          createdAt: new Date("2025-06-01T12:00:00.000Z"),
+          updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+          url: "https://linear.app/test/comment/comment-root",
+          user: Promise.resolve({
+            id: "user-456",
+            displayName: "Test User",
+            name: "Test User",
+          }),
+        }),
+      }),
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-agent",
+            body: "Hello from app actor",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:05.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:05.000Z"),
+            url: "https://linear.app/test/comment/comment-agent",
+            user: Promise.resolve({
+              id: "bot-user-id",
+              displayName: "Test Bot",
+              name: "Test Bot",
+            }),
+          },
+          {
+            id: "comment-follow-up",
+            body: "Can you elaborate?",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:10.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:10.000Z"),
+            url: "https://linear.app/test/comment/comment-follow-up",
+            user: Promise.resolve({
+              id: "user-456",
+              displayName: "Test User",
+              name: "Test User",
+            }),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
+    });
 
     const payload = createAgentSessionPayload({
       action: "prompted",
@@ -1172,9 +1267,12 @@ describe("handleWebhook - agent session events", () => {
       adapter,
       "linear:issue-123:c:comment-root:s:agent-session-1",
       expect.objectContaining({
-        id: "agent-activity-1",
+        id: "comment-follow-up",
         isMention: false,
         text: "Can you elaborate?",
+        raw: expect.objectContaining({
+          kind: "agent_session_comment",
+        }),
       }),
       undefined
     );
@@ -2062,6 +2160,86 @@ describe("fetchMessages", () => {
     expect(result.messages[1].text).toBe("Reply");
   });
 
+  it("should fetch agent session threads as visible comments only", async () => {
+    const adapter = createWebhookAdapter(undefined, "agent-sessions");
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
+
+    const mockRootComment = {
+      id: "root-comment",
+      body: "@test-bot Hello",
+      parentId: undefined,
+      createdAt: new Date("2025-06-01T10:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+      url: "https://linear.app/comment/root",
+      user: Promise.resolve({
+        id: "user-1",
+        displayName: "Alice",
+        name: "Alice Smith",
+      }),
+    };
+    const mockChildrenConnection = {
+      nodes: [
+        {
+          id: "bot-comment",
+          body: "Hi there",
+          parentId: "root-comment",
+          createdAt: new Date("2025-06-01T10:01:00.000Z"),
+          updatedAt: new Date("2025-06-01T10:01:00.000Z"),
+          url: "https://linear.app/comment/bot",
+          user: Promise.resolve({
+            id: "bot-id",
+            displayName: "Test Bot",
+            name: "Test Bot",
+          }),
+        },
+        {
+          id: "user-follow-up",
+          body: "What is Argos?",
+          parentId: "root-comment",
+          createdAt: new Date("2025-06-01T10:02:00.000Z"),
+          updatedAt: new Date("2025-06-01T10:02:00.000Z"),
+          url: "https://linear.app/comment/user-follow-up",
+          user: Promise.resolve({
+            id: "user-1",
+            displayName: "Alice",
+            name: "Alice Smith",
+          }),
+        },
+      ],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
+    const mockLinearClient = {
+      agentSession: vi.fn().mockResolvedValue({
+        id: "session-789",
+        issueId: "issue-abc",
+        commentId: "root-comment",
+        comment: Promise.resolve(mockRootComment),
+      }),
+      comments: vi.fn().mockResolvedValue(mockChildrenConnection),
+    };
+    (
+      adapter as unknown as { linearClient: typeof mockLinearClient }
+    ).linearClient = mockLinearClient as never;
+
+    const result = await adapter.fetchMessages(
+      "linear:issue-abc:c:root-comment:s:session-789"
+    );
+
+    expect(mockLinearClient.agentSession).toHaveBeenCalledWith("session-789");
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages.map((message) => message.raw.kind)).toEqual([
+      "agent_session_comment",
+      "agent_session_comment",
+      "agent_session_comment",
+    ]);
+    expect(result.messages[2].text).toBe("What is Argos?");
+    expect(
+      expectAgentSessionCommentRawMessage(result.messages[1].raw).agentSession
+        .id
+    ).toBe("session-789");
+  });
+
   it("should surface root comment lookup failures", async () => {
     const adapter = createWebhookAdapter();
     const mockLinearClient = {
@@ -2742,10 +2920,41 @@ describe("runtime operations", () => {
       id: "session-789",
       issueId: "issue-123",
       commentId: "comment-root",
+      comment: Promise.resolve({
+        id: "comment-root",
+        body: "@test-bot Hello there",
+        parentId: undefined,
+        createdAt: new Date("2025-06-01T12:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+        url: "https://linear.app/comment/root",
+        user: Promise.resolve({
+          id: "user-456",
+          displayName: "Test User",
+          name: "Test User",
+        }),
+      }),
     });
     setDefaultClient(adapter, {
       createAgentActivity: mockCreateAgentActivity,
       agentSession: mockAgentSession,
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-bot-response",
+            body: "Agent response",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:01.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:01.000Z"),
+            url: "https://linear.app/comment/bot-response",
+            user: Promise.resolve({
+              id: "bot-user-id",
+              displayName: "Test Bot",
+              name: "Test Bot",
+            }),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
     });
 
     const result = await adapter.postMessage(
@@ -2761,8 +2970,8 @@ describe("runtime operations", () => {
       },
     });
     expect(mockAgentSession).toHaveBeenCalledWith("session-789");
-    expect(result.id).toBe("activity-123");
-    expect(result.raw.kind).toBe("agent_activity");
+    expect(result.id).toBe("comment-bot-response");
+    expect(result.raw.kind).toBe("agent_session_comment");
     expect(result.raw.organizationId).toBe("org-123");
   });
 
@@ -2781,14 +2990,8 @@ describe("runtime operations", () => {
         },
       },
     });
-    const mockAgentSession = vi.fn().mockResolvedValue({
-      id: "session-789",
-      issueId: "issue-123",
-      commentId: "comment-root",
-    });
     setDefaultClient(adapter, {
       createAgentActivity: mockCreateAgentActivity,
-      agentSession: mockAgentSession,
     });
 
     await adapter.startTyping(
@@ -2804,7 +3007,6 @@ describe("runtime operations", () => {
         body: "Looking things up...",
       },
     });
-    expect(mockAgentSession).toHaveBeenCalledWith("session-789");
   });
 
   it("stream creates action activities for task updates and returns the final response activity", async () => {
@@ -2835,6 +3037,19 @@ describe("runtime operations", () => {
       id: "session-789",
       issueId: "issue-123",
       commentId: "comment-root",
+      comment: Promise.resolve({
+        id: "comment-root",
+        body: "@test-bot Hello",
+        parentId: undefined,
+        createdAt: new Date("2025-06-01T12:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+        url: "https://linear.app/comment/root",
+        user: Promise.resolve({
+          id: "user-456",
+          displayName: "Test User",
+          name: "Test User",
+        }),
+      }),
     });
     const mockUpdateAgentSession = vi.fn().mockResolvedValue({
       success: true,
@@ -2843,6 +3058,24 @@ describe("runtime operations", () => {
       createAgentActivity: mockCreateAgentActivity,
       agentSession: mockAgentSession,
       updateAgentSession: mockUpdateAgentSession,
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-bot-final",
+            body: "world",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:02.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:02.000Z"),
+            url: "https://linear.app/comment/final",
+            user: Promise.resolve({
+              id: "bot-user-id",
+              displayName: "Test Bot",
+              name: "Test Bot",
+            }),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
     });
 
     async function* textStream() {
@@ -2888,7 +3121,8 @@ describe("runtime operations", () => {
     });
     expect(mockUpdateAgentSession).not.toHaveBeenCalled();
     expect(mockAgentSession).toHaveBeenCalledWith("session-789");
-    expect(result.id).toBe("activity-final");
+    expect(result.id).toBe("comment-bot-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
   });
 
   it("stream creates error activities for failed task updates", async () => {
@@ -2918,6 +3152,19 @@ describe("runtime operations", () => {
       id: "session-789",
       issueId: "issue-123",
       commentId: "comment-root",
+      comment: Promise.resolve({
+        id: "comment-root",
+        body: "@test-bot Hello",
+        parentId: undefined,
+        createdAt: new Date("2025-06-01T12:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+        url: "https://linear.app/comment/root",
+        user: Promise.resolve({
+          id: "user-456",
+          displayName: "Test User",
+          name: "Test User",
+        }),
+      }),
     });
     const mockUpdateAgentSession = vi.fn().mockResolvedValue({
       success: true,
@@ -2926,6 +3173,24 @@ describe("runtime operations", () => {
       createAgentActivity: mockCreateAgentActivity,
       agentSession: mockAgentSession,
       updateAgentSession: mockUpdateAgentSession,
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-bot-final",
+            body: "world",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:02.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:02.000Z"),
+            url: "https://linear.app/comment/final",
+            user: Promise.resolve({
+              id: "bot-user-id",
+              displayName: "Test Bot",
+              name: "Test Bot",
+            }),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
     });
 
     async function* textStream() {
@@ -2967,7 +3232,8 @@ describe("runtime operations", () => {
       },
     });
     expect(mockUpdateAgentSession).not.toHaveBeenCalled();
-    expect(result.id).toBe("activity-final");
+    expect(result.id).toBe("comment-bot-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
   });
 
   it("stream updates the session plan for plan updates and posts a final response", async () => {
@@ -2983,6 +3249,19 @@ describe("runtime operations", () => {
       id: "session-789",
       issueId: "issue-123",
       commentId: "comment-root",
+      comment: Promise.resolve({
+        id: "comment-root",
+        body: "@test-bot Hello",
+        parentId: undefined,
+        createdAt: new Date("2025-06-01T12:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+        url: "https://linear.app/comment/root",
+        user: Promise.resolve({
+          id: "user-456",
+          displayName: "Test User",
+          name: "Test User",
+        }),
+      }),
     });
     const mockUpdateAgentSession = vi.fn().mockResolvedValue({
       success: true,
@@ -2991,6 +3270,24 @@ describe("runtime operations", () => {
       createAgentActivity: mockCreateAgentActivity,
       agentSession: mockAgentSession,
       updateAgentSession: mockUpdateAgentSession,
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-bot-final",
+            body: "Hello world",
+            parentId: "comment-root",
+            createdAt: new Date("2025-06-01T12:00:02.000Z"),
+            updatedAt: new Date("2025-06-01T12:00:02.000Z"),
+            url: "https://linear.app/comment/final",
+            user: Promise.resolve({
+              id: "bot-user-id",
+              displayName: "Test Bot",
+              name: "Test Bot",
+            }),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
     });
 
     async function* textStream() {
@@ -3021,7 +3318,8 @@ describe("runtime operations", () => {
         body: "Hello world",
       },
     });
-    expect(result.id).toBe("activity-final");
+    expect(result.id).toBe("comment-bot-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
   });
 
   it("editMessage and deleteMessage throw for agent-session threads", async () => {

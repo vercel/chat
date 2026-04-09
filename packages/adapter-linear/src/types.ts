@@ -7,13 +7,10 @@
  */
 
 import type {
-  AgentActivity,
-  AgentSession,
   CommentChildWebhookPayload,
   IssueWithDescriptionChildWebhookPayload,
   UserChildWebhookPayload,
 } from "@linear/sdk";
-import type { AgentSessionEventWebhookPayload } from "@linear/sdk/webhooks";
 import type { Logger } from "chat";
 
 // =============================================================================
@@ -214,11 +211,11 @@ export interface LinearCommentData {
   /** Issue UUID the comment is associated with */
   issueId: string;
   /** Parent comment UUID (for nested/threaded replies) */
-  parentId?: string;
+  parentId: string | undefined;
   /** ISO 8601 last update date */
   updatedAt: string;
   /** Direct URL to the comment */
-  url?: string;
+  url: string | undefined;
   /** User UUID who wrote the comment */
   userId: string;
 }
@@ -277,7 +274,7 @@ export interface LinearAgentSessionData {
 
 interface LinearRawMessageBase {
   /** Raw message kind. */
-  kind: "agent_activity" | "agent_session_event" | "comment";
+  kind: "agent_session_comment" | "comment";
   /** Organization ID from the webhook or request context. */
   organizationId: string;
 }
@@ -289,27 +286,19 @@ export interface LinearCommentRawMessage extends LinearRawMessageBase {
   kind: "comment";
 }
 
-/** Platform-specific raw message for an agent activity fetched from Linear. */
-export interface LinearAgentActivityRawMessage extends LinearRawMessageBase {
-  /** Agent activity payload. */
-  agentActivity: AgentActivity;
-  /** Agent session payload. */
-  agentSession: AgentSession;
-  kind: "agent_activity";
-}
-
-/** Platform-specific raw message for an agent session webhook event. */
-export interface LinearAgentSessionEventRawMessage
+/** Platform-specific raw message for a comment backed by an agent session. */
+export interface LinearAgentSessionCommentRawMessage
   extends LinearRawMessageBase {
-  kind: "agent_session_event";
-  /** Raw agent-session webhook payload from the SDK. */
-  payload: AgentSessionEventWebhookPayload;
+  /** The agent session the comment belongs to. */
+  agentSessionId: string;
+  /** The visible Linear comment backing this message. */
+  comment: LinearCommentData;
+  kind: "agent_session_comment";
 }
 
 /**
  * Platform-specific raw message type for Linear.
  */
 export type LinearRawMessage =
-  | LinearAgentActivityRawMessage
-  | LinearAgentSessionEventRawMessage
+  | LinearAgentSessionCommentRawMessage
   | LinearCommentRawMessage;
