@@ -25,18 +25,18 @@ export function createTestMessage(
   >
 ) {
   const { text, id, author, raw, edited, ...rest } = opts;
-  return _createTestMessage(id ?? `msg-${++messageCounter}`, text, {
-    raw: raw ?? {},
-    metadata: edited != null ? { dateSent: new Date(), edited } : undefined,
-    author: author
-      ? {
-          userId: author.userId ?? "U000",
-          userName: author.userName ?? "testuser",
-          fullName: author.fullName ?? "Test User",
-          isBot: author.isBot ?? false,
-          isMe: author.isMe ?? false,
-        }
-      : undefined,
-    ...rest,
-  });
+  const overrides: Partial<MessageData> = { raw: raw ?? {}, ...rest };
+  if (edited != null) {
+    overrides.metadata = { dateSent: new Date(), edited };
+  }
+  if (author) {
+    overrides.author = {
+      userId: author.userId ?? "U000",
+      userName: author.userName ?? "testuser",
+      fullName: author.fullName ?? "Test User",
+      isBot: author.isBot ?? false,
+      isMe: author.isMe ?? false,
+    };
+  }
+  return _createTestMessage(id ?? `msg-${++messageCounter}`, text, overrides);
 }
