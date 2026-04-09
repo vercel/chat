@@ -4,11 +4,9 @@
 import { vi } from "vitest";
 import { parseMarkdown } from "./markdown";
 import { Message, type MessageData } from "./message";
-import type { MessageHistoryCache } from "./message-history";
-import { ThreadImpl } from "./thread";
+import { type BaseThreadOptions, ThreadImpl } from "./thread";
 import type {
   Adapter,
-  ChannelVisibility,
   FormattedContent,
   Lock,
   Logger,
@@ -259,24 +257,11 @@ export function createTestMessage(
 let threadCounter = 0;
 
 /** Options for creating a test thread. All fields optional — sensible defaults provided. */
-export interface CreateTestThreadOptions {
+export interface CreateTestThreadOptions extends Partial<BaseThreadOptions> {
   /** Adapter name (default: "slack") */
   adapter?: string;
   /** Partial overrides merged onto the mock adapter's spy methods */
   adapterOverrides?: Partial<Adapter>;
-  /** Thread ID (auto-generated if omitted) */
-  id?: string;
-  /** Channel ID (auto-generated if omitted) */
-  channelId?: string;
-  channelVisibility?: ChannelVisibility;
-  currentMessage?: Message;
-  fallbackStreamingPlaceholderText?: string | null;
-  initialMessage?: Message;
-  isDM?: boolean;
-  isSubscribedContext?: boolean;
-  logger?: Logger;
-  messageHistory?: MessageHistoryCache;
-  streamingUpdateIntervalMs?: number;
 }
 
 /** Return value of createTestThread. */
