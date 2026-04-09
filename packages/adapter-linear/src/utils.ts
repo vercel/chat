@@ -3,17 +3,7 @@ import type { AdapterPostableMessage } from "chat";
 import { convertEmojiPlaceholders } from "chat";
 import { cardToLinearMarkdown } from "./cards";
 import type { LinearFormatConverter } from "./markdown";
-import type { LinearThreadId } from "./types";
-
-export type LinearAgentPlanStatus =
-  | "pending"
-  | "inProgress"
-  | "completed"
-  | "canceled";
-
-export type LinearAgentSessionThreadId = LinearThreadId & {
-  agentSessionId: string;
-};
+import type { LinearAgentSessionThreadId, LinearThreadId } from "./types";
 
 export function renderMessageToLinearMarkdown(
   message: AdapterPostableMessage,
@@ -47,4 +37,11 @@ export function assertAgentSessionThread(
  */
 export function getUserNameFromProfileUrl(url: string): string {
   return url.replace("https://linear.app/gitbook-x/profiles/", "");
+}
+
+/**
+ * Calculate an expiry timestamp given an optional expiresIn duration in seconds.
+ */
+export function calculateExpiry(expiresIn?: number): number | null {
+  return typeof expiresIn === "number" ? Date.now() + expiresIn * 1000 : null;
 }

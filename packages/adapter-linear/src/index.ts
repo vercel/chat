@@ -34,6 +34,7 @@ import type {
   LinearAdapterConfig,
   LinearAdapterMode,
   LinearAdapterMultiTenantConfig,
+  LinearAgentSessionThreadId,
   LinearClientCredentialsConfig,
   LinearCommentData,
   LinearInstallation,
@@ -44,8 +45,8 @@ import type {
 } from "./types";
 import {
   assertAgentSessionThread,
+  calculateExpiry,
   getUserNameFromProfileUrl,
-  type LinearAgentSessionThreadId,
   renderMessageToLinearMarkdown,
 } from "./utils";
 
@@ -160,21 +161,6 @@ export class LinearAdapter
     scopes: string[];
   } | null = null;
   private accessTokenExpiry: number | null = null;
-
-  /** Bot user ID used for self-message detection */
-  get botUserId(): string {
-    const id =
-      this.requestContext.getStore()?.botUserId ?? this.defaultBotUserId;
-
-    if (!id) {
-      throw new AdapterError(
-        "No bot user ID available in context. Ensure the adapter has been initialized and authenticated properly.",
-        "linear"
-      );
-    }
-
-    return id;
-  }
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
     const webhookSecret =
@@ -320,6 +306,9 @@ export class LinearAdapter
     };
   }
 
+  /**
+   * Get a Linear client for the current request context, or the default client in single-tenant mode.
+   */
   private getClient(): LinearClient {
     const context = this.requestContext.getStore();
     if (context?.client) {
@@ -336,7 +325,10 @@ export class LinearAdapter
     );
   }
 
-  private getOrganizationId(): string {
+  /**
+   * Get the organization ID for the current request context, or the default organization ID in single-tenant mode.
+   */
+  private get organizationId(): string {
     const organizationId =
       this.requestContext.getStore()?.organizationId ??
       this.defaultOrganizationId;
@@ -351,6 +343,23 @@ export class LinearAdapter
     return organizationId;
   }
 
+  /**
+   * Get the user ID of the chat bot.
+   */
+  get botUserId(): string {
+    const id =
+      this.requestContext.getStore()?.botUserId ?? this.defaultBotUserId;
+
+    if (!id) {
+      throw new AdapterError(
+        "No bot user ID available in context. Ensure the adapter has been initialized and authenticated properly.",
+        "linear"
+      );
+    }
+
+    return id;
+  }
+
   private isMultiTenantMode(): boolean {
     return Boolean(this.oauthClientId && this.oauthClientSecret);
   }
@@ -359,6 +368,9 @@ export class LinearAdapter
     return `${INSTALLATION_KEY_PREFIX}:${organizationId}`;
   }
 
+  /**
+   * Save a Linear installation for a given organization ID. Used in multi-tenant mode after successful OAuth exchange.
+   */
   async setInstallation(
     organizationId: string,
     installation: LinearInstallation
@@ -376,6 +388,9 @@ export class LinearAdapter
     this.logger.info("Linear installation saved", { organizationId });
   }
 
+  /**
+   * Get a Linear installation for a given organization ID in multi-tenant mode.
+   */
   async getInstallation(
     organizationId: string
   ): Promise<LinearInstallation | null> {
@@ -393,6 +408,9 @@ export class LinearAdapter
     return installation ?? null;
   }
 
+  /**
+   * Delete a Linear installation for a given organization ID in multi-tenant mode. Used for uninstall handling.
+   */
   async deleteInstallation(organizationId: string): Promise<void> {
     if (!this.chat) {
       throw new ValidationError(
@@ -462,7 +480,7 @@ export class LinearAdapter
     const installation: LinearInstallation = {
       accessToken: token.access_token,
       botUserId: identity.botUserId,
-      expiresAt: this.calculateExpiry(token.expires_in),
+      expiresAt: calculateExpiry(token.expires_in),
       organizationId: identity.organizationId,
       refreshToken: token.refresh_token,
     };
@@ -491,6 +509,9 @@ export class LinearAdapter
     return await this.requestContext.run(context, async () => await fn());
   }
 
+  /**
+   * Get the identity of an authenticated client.
+   */
   private async fetchClientIdentity(client: LinearClient): Promise<{
     botUserId: string;
     displayName: string;
@@ -533,10 +554,9 @@ export class LinearAdapter
     };
   }
 
-  private calculateExpiry(expiresIn?: number): number | null {
-    return typeof expiresIn === "number" ? Date.now() + expiresIn * 1000 : null;
-  }
-
+  /**
+   * Fetch an OAuth token from Linear.
+   */
   private async fetchOAuthToken(
     body: URLSearchParams,
     errorMessage: string
@@ -560,6 +580,9 @@ export class LinearAdapter
     return (await response.json()) as LinearOAuthTokenResponse;
   }
 
+  /**
+   * Refresh the access token for a given installation if it's close to expiry. Returns the refreshed installation.
+   */
   private async refreshInstallation(
     installation: LinearInstallation
   ): Promise<LinearInstallation> {
@@ -593,7 +616,7 @@ export class LinearAdapter
     const refreshedInstallation: LinearInstallation = {
       ...installation,
       accessToken: token.access_token,
-      expiresAt: this.calculateExpiry(token.expires_in),
+      expiresAt: calculateExpiry(token.expires_in),
       refreshToken: token.refresh_token ?? installation.refreshToken,
     };
 
@@ -604,6 +627,10 @@ export class LinearAdapter
     return refreshedInstallation;
   }
 
+  /**
+   * Get the current installation for an organization, throwing if not found.
+   * Used in multi-tenant mode to ensure a valid installation is available in webhook handlers and withInstallation().
+   */
   private async requireInstallation(
     organizationId: string
   ): Promise<LinearInstallation> {
@@ -674,12 +701,14 @@ export class LinearAdapter
     }
   }
 
+  /**
+   * Parse a comment from the Linear SDK into a chat message.
+   */
   private async parseMessageFromComment(
     comment: Comment,
     issueId: string,
     agentSessionId?: string
   ): Promise<Message<LinearRawMessage>> {
-    const organizationId = this.getOrganizationId();
     const user = await comment.user;
     if (!user) {
       throw new AdapterError(
@@ -711,17 +740,20 @@ export class LinearAdapter
             kind: "agent_session_comment",
             comment: commentData,
             agentSessionId,
-            organizationId,
+            organizationId: this.organizationId,
           }
         : {
             kind: "comment",
             comment: commentData,
-            organizationId,
+            organizationId: this.organizationId,
           }
     );
   }
 
-  private buildAgentSessionMessage(
+  /**
+   * Parse an agent session event from a Linear webhook into a chat message, if applicable.
+   */
+  private parseMessageFromAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload
   ): Message<LinearRawMessage> | null {
     const issueId =
@@ -830,60 +862,10 @@ export class LinearAdapter
     return null;
   }
 
-  private async runWebhookWithInstallation(
-    organizationId: string,
-    handler: () => void | Promise<void>
-  ): Promise<void> {
-    if (!this.isMultiTenantMode()) {
-      await handler();
-      return;
-    }
-
-    let installation: LinearInstallation | null;
-    try {
-      installation = await this.getInstallation(organizationId);
-    } catch (error) {
-      this.logger.error("Failed to resolve Linear installation for webhook", {
-        organizationId,
-        error,
-      });
-      throw error;
-    }
-
-    if (!installation) {
-      this.logger.warn("No Linear installation found for organization", {
-        organizationId,
-      });
-      return;
-    }
-
-    let resolvedInstallation: LinearInstallation;
-    try {
-      resolvedInstallation = await this.refreshInstallation(installation);
-    } catch (error) {
-      this.logger.error("Failed to refresh Linear installation for webhook", {
-        organizationId,
-        error,
-      });
-      throw error;
-    }
-
-    const context: LinearRequestContext = {
-      accessToken: resolvedInstallation.accessToken,
-      botUserId: resolvedInstallation.botUserId,
-      client: new LinearClient({
-        accessToken: resolvedInstallation.accessToken,
-      }),
-      organizationId: resolvedInstallation.organizationId,
-    };
-
-    await this.requestContext.run(context, handler);
-  }
-
   /**
    * Create a a chat raw message for a Linear agent activity.
    */
-  private async createAgentActivityMessage(
+  private async parseMessageFromAgentActivity(
     threadId: LinearAgentSessionThreadId,
     result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
@@ -917,23 +899,6 @@ export class LinearAdapter
     );
   }
 
-  private async updateAgentSession(
-    agentSessionId: string,
-    input: Parameters<LinearClient["updateAgentSession"]>[1]
-  ): Promise<void> {
-    const result = await this.getClient().updateAgentSession(
-      agentSessionId,
-      input
-    );
-
-    if (!result.success) {
-      throw new AdapterError(
-        `Failed to update Linear agent session ${agentSessionId}`,
-        "linear"
-      );
-    }
-  }
-
   /**
    * Handle incoming webhook from Linear.
    *
@@ -963,7 +928,7 @@ export class LinearAdapter
     });
 
     webhookHandler.on("Comment", async (payload) => {
-      await this.runWebhookWithInstallation(payload.organizationId, () => {
+      await this.withInstallation(payload.organizationId, () => {
         if (this.mode !== "comments" || payload.action !== "create") {
           return;
         }
@@ -973,7 +938,7 @@ export class LinearAdapter
     });
 
     webhookHandler.on("AgentSessionEvent", async (payload) => {
-      await this.runWebhookWithInstallation(payload.organizationId, () => {
+      await this.withInstallation(payload.organizationId, () => {
         if (this.mode !== "agent-sessions") {
           return;
         }
@@ -983,7 +948,7 @@ export class LinearAdapter
     });
 
     webhookHandler.on("Reaction", async (payload) => {
-      await this.runWebhookWithInstallation(payload.organizationId, () => {
+      await this.withInstallation(payload.organizationId, () => {
         this.handleReaction(payload);
       });
     });
@@ -1057,6 +1022,11 @@ export class LinearAdapter
     this.chat.processMessage(this, threadId, message, options);
   }
 
+  /**
+   * Handle a new event in an agent session thread. This can be either:
+   * - A user posting a new message in an existing agent session thread (prompted action)
+   * - A user mentioning the bot in an issue, creating a new agent session and posting the first message (created action)
+   */
   private handleAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload,
     options?: WebhookOptions
@@ -1068,7 +1038,7 @@ export class LinearAdapter
       return;
     }
 
-    const message = this.buildAgentSessionMessage(payload);
+    const message = this.parseMessageFromAgentSessionEvent(payload);
     if (!message) {
       this.logger.warn(
         "Unable to build message for Linear agent session event",
@@ -1122,7 +1092,7 @@ export class LinearAdapter
 
     if (decoded.agentSessionId) {
       assertAgentSessionThread(decoded);
-      return await this.createAgentActivityMessage(
+      return await this.parseMessageFromAgentActivity(
         decoded,
         await client.createAgentActivity({
           agentSessionId: decoded.agentSessionId,
@@ -1153,7 +1123,6 @@ export class LinearAdapter
         "linear"
       );
     }
-    const organizationId = this.getOrganizationId();
 
     return {
       id: comment.id,
@@ -1176,7 +1145,7 @@ export class LinearAdapter
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
-        organizationId,
+        organizationId: this.organizationId,
       },
     };
   }
@@ -1218,7 +1187,6 @@ export class LinearAdapter
       });
       throw new AdapterError("Failed to update comment on Linear", "linear");
     }
-    const organizationId = this.getOrganizationId();
 
     return {
       id: comment.id,
@@ -1241,7 +1209,7 @@ export class LinearAdapter
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
         },
-        organizationId,
+        organizationId: this.organizationId,
       },
     };
   }
@@ -1251,8 +1219,8 @@ export class LinearAdapter
    *
    * Uses LinearClient.deleteComment(id).
    */
-  async deleteMessage(_threadId: string, messageId: string): Promise<void> {
-    const { agentSessionId } = this.decodeThreadId(_threadId);
+  async deleteMessage(threadId: string, messageId: string): Promise<void> {
+    const { agentSessionId } = this.decodeThreadId(threadId);
     if (agentSessionId) {
       throw new AdapterError(
         "Linear agent session activities are append-only and cannot be deleted",
@@ -1309,18 +1277,20 @@ export class LinearAdapter
     await this.ensureValidToken();
     const decoded = this.decodeThreadId(threadId);
 
-    if (!decoded.agentSessionId) {
-      return;
+    if (decoded.agentSessionId) {
+      await this.getClient().createAgentActivity({
+        agentSessionId: decoded.agentSessionId,
+        content: {
+          type: AgentActivityType.Thought,
+          body: status ?? "Thinking...",
+        },
+        ephemeral: true,
+      });
     }
 
-    await this.getClient().createAgentActivity({
-      agentSessionId: decoded.agentSessionId,
-      content: {
-        type: AgentActivityType.Thought,
-        body: status ?? "Thinking...",
-      },
-      ephemeral: true,
-    });
+    this.logger.warn(
+      "startTyping is only supported in agent session threads. Ignoring for comment thread."
+    );
   }
 
   /**
@@ -1417,7 +1387,7 @@ export class LinearAdapter
 
       if (chunk.type === "plan_update") {
         // https://linear.app/developers/agent-interaction#agent-plans
-        await this.updateAgentSession(decoded.agentSessionId, {
+        await this.getClient().updateAgentSession(decoded.agentSessionId, {
           plan: [
             {
               content: chunk.title,
@@ -1439,7 +1409,7 @@ export class LinearAdapter
       );
     }
 
-    return await this.createAgentActivityMessage(decoded, finalActivity);
+    return await this.parseMessageFromAgentActivity(decoded, finalActivity);
   }
 
   /**

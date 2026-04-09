@@ -3332,9 +3332,9 @@ describe("multi-tenant installations", () => {
       expect(
         (
           adapter as unknown as {
-            getOrganizationId: () => string | undefined;
+            organizationId: string;
           }
-        ).getOrganizationId()
+        ).organizationId
       ).toBe("org-123");
     });
 

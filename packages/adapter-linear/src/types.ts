@@ -186,6 +186,13 @@ export interface LinearThreadId {
   issueId: string;
 }
 
+/**
+ * Decoded thread ID for Linear threads associated with agent sessions.
+ */
+export type LinearAgentSessionThreadId = LinearThreadId & {
+  agentSessionId: string;
+};
+
 // =============================================================================
 // Raw Message Type
 // =============================================================================
