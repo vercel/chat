@@ -51,30 +51,41 @@ export interface SerializedThread {
   isDM: boolean;
 }
 
-/** Shared thread configuration fields. */
-interface BaseThreadOptions {
-  id: string;
+/**
+ * Config for creating a ThreadImpl with explicit adapter/state instances.
+ */
+interface ThreadImplConfigWithAdapter {
+  adapter: Adapter;
   channelId: string;
   channelVisibility?: ChannelVisibility;
   currentMessage?: Message;
   fallbackStreamingPlaceholderText?: string | null;
+  id: string;
+  initialMessage?: Message;
+  isDM?: boolean;
+  isSubscribedContext?: boolean;
+  logger?: Logger;
+  messageHistory?: MessageHistoryCache;
+  stateAdapter: StateAdapter;
+  streamingUpdateIntervalMs?: number;
+}
+
+/**
+ * Config for creating a ThreadImpl with lazy adapter resolution.
+ * The adapter will be looked up from the Chat singleton on first access.
+ */
+interface ThreadImplConfigLazy {
+  adapterName: string;
+  channelId: string;
+  channelVisibility?: ChannelVisibility;
+  currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
+  id: string;
   initialMessage?: Message;
   isDM?: boolean;
   isSubscribedContext?: boolean;
   logger?: Logger;
   streamingUpdateIntervalMs?: number;
-}
-
-/** Config for creating a ThreadImpl with explicit adapter/state instances. */
-interface ThreadImplConfigWithAdapter extends BaseThreadOptions {
-  adapter: Adapter;
-  messageHistory?: MessageHistoryCache;
-  stateAdapter: StateAdapter;
-}
-
-/** Config for creating a ThreadImpl with lazy adapter resolution. */
-interface ThreadImplConfigLazy extends BaseThreadOptions {
-  adapterName: string;
 }
 
 type ThreadImplConfig = ThreadImplConfigWithAdapter | ThreadImplConfigLazy;
