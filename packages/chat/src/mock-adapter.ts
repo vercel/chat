@@ -4,7 +4,7 @@
 import { vi } from "vitest";
 import { parseMarkdown } from "./markdown";
 import { Message, type MessageData } from "./message";
-import { ThreadImpl } from "./thread";
+import { ThreadImpl, type ThreadImplConfigWithAdapter } from "./thread";
 import type {
   Adapter,
   FormattedContent,
@@ -254,22 +254,26 @@ export function createTestMessage(
   });
 }
 
+let threadCounter = 0;
+
+type TestThreadOpts = {
+  adapter: string | (Partial<Adapter> & { name: string });
+} & Partial<Omit<ThreadImplConfigWithAdapter, "adapter" | "stateAdapter">>;
+
 /**
  * Create a test thread backed by a mock adapter with spyable methods.
  * All adapter methods (post, postEphemeral, fetchMessages, etc.) are vi.fn() spies.
- * Extra properties are spread into the ThreadImpl config.
  */
-export function createTestThread(opts: {
-  adapter: string | (Partial<Adapter> & { name: string });
-  id: string;
-  channelId: string;
-  [key: string]: unknown;
-}): ThreadImpl & { mockAdapter: Adapter; mockState: MockStateAdapter } {
-  const { adapter: adapterOpt, id, channelId, ...rest } = opts;
+export function createTestThread(
+  opts: TestThreadOpts,
+): ThreadImpl & { mockAdapter: Adapter; mockState: MockStateAdapter } {
+  const { adapter: adapterOpt, id: idOpt, channelId: channelIdOpt, ...rest } = opts;
   const adapterName = typeof adapterOpt === "string" ? adapterOpt : adapterOpt.name;
   const adapterOverrides = typeof adapterOpt === "string" ? {} : adapterOpt;
   const mockAdapter = { ...createMockAdapter(adapterName), ...adapterOverrides };
   const mockState = createMockState();
+  const id = idOpt ?? `${adapterName}:C${++threadCounter}:thread`;
+  const channelId = channelIdOpt ?? `C${threadCounter}`;
 
   const thread = new ThreadImpl({
     id,

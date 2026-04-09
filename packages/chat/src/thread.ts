@@ -54,7 +54,7 @@ export interface SerializedThread {
 /**
  * Config for creating a ThreadImpl with explicit adapter/state instances.
  */
-interface ThreadImplConfigWithAdapter {
+export interface ThreadImplConfigWithAdapter {
   adapter: Adapter;
   channelId: string;
   channelVisibility?: ChannelVisibility;
