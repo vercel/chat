@@ -23,6 +23,7 @@ import type {
   ZoomAppMentionPayload,
   ZoomBotNotificationPayload,
   ZoomCrcPayload,
+  ZoomMessageWithReply,
   ZoomThreadId,
   ZoomWebhookPayload,
 } from "./types.js";
@@ -32,6 +33,7 @@ export type {
   ZoomAppMentionPayload,
   ZoomBotNotificationPayload,
   ZoomCrcPayload,
+  ZoomMessageWithReply,
   ZoomThreadId,
   ZoomWebhookPayload,
 } from "./types.js";
@@ -342,9 +344,9 @@ export class ZoomAdapter implements Adapter {
     };
 
     // MSG-02: threading — add reply_main_message_id if present
-    // AdapterPostableMessage has no metadata field; use safe cast for runtime access
-    const replyTo = (message as { metadata?: { replyTo?: string } }).metadata
-      ?.replyTo;
+    // ZoomMessageWithReply is the Zoom-specific extension type for threaded replies
+    const zoomMsg = message as ZoomMessageWithReply;
+    const replyTo = zoomMsg.metadata?.replyTo;
     if (replyTo) {
       if (isDM) {
         this.config.logger.debug(

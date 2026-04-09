@@ -3,6 +3,7 @@ import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance } from "chat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createZoomAdapter } from "./index.js";
+import type { ZoomMessageWithReply } from "./types.js";
 
 const TEST_SECRET = "test-webhook-secret";
 const TEST_CREDENTIALS = {
@@ -469,11 +470,14 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
 
     const threadId = "zoom:chan@conference.xmpp.zoom.us:msg-004";
     // Combine a valid postable string shape with metadata for replyTo
-    const replyMsg = {
+    const replyMsg: ZoomMessageWithReply = {
       raw: "Reply text",
       metadata: { replyTo: "parent-id" },
-    } as unknown as import("./index.js").AdapterPostableMessage;
-    await adapter.postMessage(threadId, replyMsg);
+    };
+    await adapter.postMessage(
+      threadId,
+      replyMsg as unknown as import("./index.js").AdapterPostableMessage
+    );
 
     const callBody = JSON.parse(
       (fetchMock.mock.calls[0][1] as { body: string }).body
@@ -499,11 +503,14 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
 
     const threadId = "zoom:user@xmpp.zoom.us:msg-005";
     // Combine a valid postable string shape with metadata for replyTo
-    const replyMsg = {
+    const replyMsg: ZoomMessageWithReply = {
       raw: "DM reply",
       metadata: { replyTo: "parent-id" },
-    } as unknown as import("./index.js").AdapterPostableMessage;
-    await adapter.postMessage(threadId, replyMsg);
+    };
+    await adapter.postMessage(
+      threadId,
+      replyMsg as unknown as import("./index.js").AdapterPostableMessage
+    );
 
     const debugCalls = mockLogger.debug.mock.calls as [string, ...unknown[]][];
     const hasThrd03Warning = debugCalls.some(
