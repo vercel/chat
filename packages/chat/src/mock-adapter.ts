@@ -4,9 +4,11 @@
 import { vi } from "vitest";
 import { parseMarkdown } from "./markdown";
 import { Message, type MessageData } from "./message";
-import { ThreadImpl, type ThreadImplConfigWithAdapter } from "./thread";
+import type { MessageHistoryCache } from "./message-history";
+import { ThreadImpl } from "./thread";
 import type {
   Adapter,
+  ChannelVisibility,
   FormattedContent,
   Lock,
   Logger,
@@ -256,33 +258,54 @@ export function createTestMessage(
 
 let threadCounter = 0;
 
-type TestThreadOpts = {
-  adapter: string | (Partial<Adapter> & { name: string });
-} & Partial<Omit<ThreadImplConfigWithAdapter, "adapter" | "stateAdapter">>;
+/** Options for creating a test thread. All fields optional — sensible defaults provided. */
+export interface CreateTestThreadOptions {
+  /** Adapter name (default: "slack") */
+  adapter?: string;
+  /** Partial overrides merged onto the mock adapter's spy methods */
+  adapterOverrides?: Partial<Adapter>;
+  /** Thread ID (auto-generated if omitted) */
+  id?: string;
+  /** Channel ID (auto-generated if omitted) */
+  channelId?: string;
+  channelVisibility?: ChannelVisibility;
+  currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
+  initialMessage?: Message;
+  isDM?: boolean;
+  isSubscribedContext?: boolean;
+  logger?: Logger;
+  messageHistory?: MessageHistoryCache;
+  streamingUpdateIntervalMs?: number;
+}
+
+/** Return value of createTestThread. */
+export interface TestThread {
+  thread: ThreadImpl;
+  mockAdapter: Adapter;
+  mockState: MockStateAdapter;
+}
 
 /**
  * Create a test thread backed by a mock adapter with spyable methods.
- * All adapter methods (post, postEphemeral, fetchMessages, etc.) are vi.fn() spies.
+ * All adapter methods (post, edit, fetchMessages, etc.) are vi.fn() spies.
  */
-export function createTestThread(
-  opts: TestThreadOpts
-): ThreadImpl & { mockAdapter: Adapter; mockState: MockStateAdapter } {
+export function createTestThread(opts?: CreateTestThreadOptions): TestThread {
   const {
-    adapter: adapterOpt,
+    adapter: adapterName = "slack",
+    adapterOverrides,
     id: idOpt,
     channelId: channelIdOpt,
     ...rest
-  } = opts;
-  const adapterName =
-    typeof adapterOpt === "string" ? adapterOpt : adapterOpt.name;
-  const adapterOverrides = typeof adapterOpt === "string" ? {} : adapterOpt;
+  } = opts ?? {};
   const mockAdapter = {
     ...createMockAdapter(adapterName),
     ...adapterOverrides,
   };
   const mockState = createMockState();
-  const id = idOpt ?? `${adapterName}:C${++threadCounter}:thread`;
-  const channelId = channelIdOpt ?? `C${threadCounter}`;
+  const counter = ++threadCounter;
+  const id = idOpt ?? `${adapterName}:C${counter}:thread`;
+  const channelId = channelIdOpt ?? `C${counter}`;
 
   const thread = new ThreadImpl({
     id,
@@ -292,5 +315,5 @@ export function createTestThread(
     ...rest,
   });
 
-  return Object.assign(thread, { mockAdapter, mockState });
+  return { thread, mockAdapter, mockState };
 }

@@ -3,11 +3,10 @@ import { createTestMessage as _createTestMessage } from "./mock-adapter";
 import type { Author } from "./types";
 
 export {
-  createMockAdapter,
-  createMockState,
   createTestThread,
+  type CreateTestThreadOptions,
   type MockStateAdapter,
-  mockLogger,
+  type TestThread,
 } from "./mock-adapter";
 
 let messageCounter = 0;
