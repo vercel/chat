@@ -115,7 +115,7 @@ zoom:{channelId}:{messageId}
 
 Examples:
 - Channel message: `zoom:abc123@conference.xmpp.zoom.us:msg-id-456`
-- DM: `zoom:{userJid}:{userJid}` (sender-based, since Zoom DM thread IDs are not exposed)
+- DM: `zoom:{userJid}:{event_ts}` (sender-based channel with event timestamp as message ID)
 
 ## Known limitations
 
