@@ -14,6 +14,12 @@ export interface ZoomAdapterConfig {
 
 /** Internal config with all required fields resolved. */
 export interface ZoomAdapterInternalConfig {
+  /**
+   * Account ID for the Zoom S2S OAuth app. Validated at startup but not sent
+   * in the token request body — Zoom's client_credentials grant embeds the
+   * account association in the Marketplace app registration, not the HTTP request.
+   * Stored here for diagnostics and potential future use (e.g., account-scoped API calls).
+   */
   accountId: string;
   clientId: string;
   clientSecret: string;
@@ -86,6 +92,21 @@ export interface ZoomThreadId {
 export interface UnderlineNode {
   children: PhrasingContent[];
   type: "underline";
+}
+
+/** Zoom-specific postable message extension for threaded replies (MSG-02).
+ * Pass a message matching this shape to postMessage() to set reply_main_message_id.
+ * The postMessage() signature remains AdapterPostableMessage (Adapter interface contract);
+ * the cast to ZoomMessageWithReply happens inside the function body.
+ */
+export interface ZoomMessageWithReply {
+  /** The postable message content */
+  raw?: string;
+  markdown?: string;
+  /** Zoom threading: set to the parent message_id to create a threaded reply */
+  metadata?: {
+    replyTo?: string;
+  };
 }
 
 /** Top-level Zoom webhook payload (discriminated union on `event`). */
