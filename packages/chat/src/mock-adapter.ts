@@ -4,6 +4,7 @@
 import { vi } from "vitest";
 import { parseMarkdown } from "./markdown";
 import { Message, type MessageData } from "./message";
+import { ThreadImpl } from "./thread";
 import type {
   Adapter,
   FormattedContent,
@@ -220,7 +221,7 @@ export function createMockState(): MockStateAdapter {
 }
 
 /**
- * Create a test message for testing.
+ * Create a test message.
  * @param id - Message ID
  * @param text - Message text content
  * @param overrides - Optional overrides for message fields
@@ -251,4 +252,32 @@ export function createTestMessage(
     links: [],
     ...overrides,
   });
+}
+
+/**
+ * Create a test thread backed by a mock adapter with spyable methods.
+ * All adapter methods (post, postEphemeral, fetchMessages, etc.) are vi.fn() spies.
+ * Extra properties are spread into the ThreadImpl config.
+ */
+export function createTestThread(opts: {
+  adapter: string | (Partial<Adapter> & { name: string });
+  id: string;
+  channelId: string;
+  [key: string]: unknown;
+}): ThreadImpl & { mockAdapter: Adapter; mockState: MockStateAdapter } {
+  const { adapter: adapterOpt, id, channelId, ...rest } = opts;
+  const adapterName = typeof adapterOpt === "string" ? adapterOpt : adapterOpt.name;
+  const adapterOverrides = typeof adapterOpt === "string" ? {} : adapterOpt;
+  const mockAdapter = { ...createMockAdapter(adapterName), ...adapterOverrides };
+  const mockState = createMockState();
+
+  const thread = new ThreadImpl({
+    id,
+    channelId,
+    adapter: mockAdapter,
+    stateAdapter: mockState,
+    ...rest,
+  });
+
+  return Object.assign(thread, { mockAdapter, mockState });
 }
