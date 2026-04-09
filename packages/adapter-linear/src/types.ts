@@ -6,11 +6,6 @@
  * and GraphQL response shapes specific to this adapter.
  */
 
-import type {
-  CommentChildWebhookPayload,
-  IssueWithDescriptionChildWebhookPayload,
-  UserChildWebhookPayload,
-} from "@linear/sdk";
 import type { Logger } from "chat";
 
 // =============================================================================
@@ -192,14 +187,11 @@ export interface LinearThreadId {
 }
 
 // =============================================================================
-// Normalized Webhook Data
+// Raw Message Type
 // =============================================================================
 
 /**
- * Comment data from a webhook payload.
- *
- * Normalized for adapter use. SDK webhook payloads still expose these fields
- * as optional because not every comment is attached to an issue.
+ * Comment data stored in a LinearRawMessage, normalized from webhook payloads and API responses.
  */
 export interface LinearCommentData {
   /** Comment body in markdown format */
@@ -230,58 +222,6 @@ export interface LinearCommentData {
     avatarUrl: string | undefined;
   };
 }
-
-/** Minimal issue data attached to agent session payloads. */
-export type LinearAgentSessionIssueData = Pick<
-  IssueWithDescriptionChildWebhookPayload,
-  "id" | "identifier" | "title" | "url"
->;
-
-/** Minimal comment snapshot attached to agent session payloads. */
-export interface LinearAgentSessionCommentData {
-  body?: CommentChildWebhookPayload["body"];
-  createdAt?: string;
-  id: CommentChildWebhookPayload["id"];
-  issueId?: string;
-  parentId?: string;
-  projectUpdateId?: string;
-  updatedAt?: string;
-  url?: string;
-  userId?: CommentChildWebhookPayload["userId"];
-}
-
-/** Minimal creator snapshot attached to agent session payloads. */
-export type LinearAgentSessionCreatorData = Pick<
-  UserChildWebhookPayload,
-  "avatarUrl" | "email" | "id" | "name" | "url"
->;
-
-/** Additional source metadata attached to agent sessions. */
-export interface LinearAgentSessionSourceMetadata {
-  agentSessionMetadata?: {
-    sourceCommentId?: string | null;
-  };
-  type?: string;
-  [key: string]: unknown;
-}
-
-/** Agent session data from Linear webhooks and GraphQL queries. */
-export interface LinearAgentSessionData {
-  comment?: LinearAgentSessionCommentData;
-  commentId?: string;
-  creator?: LinearAgentSessionCreatorData;
-  id: string;
-  issue?: LinearAgentSessionIssueData;
-  issueId?: string;
-  sourceCommentId?: string | null;
-  sourceMetadata?: LinearAgentSessionSourceMetadata;
-  status?: string;
-  summary?: string;
-}
-
-// =============================================================================
-// Raw Message Type
-// =============================================================================
 
 interface LinearRawMessageBase {
   /** Raw message kind. */
