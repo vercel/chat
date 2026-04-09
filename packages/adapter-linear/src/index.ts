@@ -721,30 +721,12 @@ export class LinearAdapter
     );
   }
 
-  private async buildAgentSessionMessage(
+  private buildAgentSessionMessage(
     payload: AgentSessionEventWebhookPayload
-  ): Promise<Message<LinearRawMessage> | null> {
-    this.logger.info("[DEBUGLINEAR] buildAgentSessionMessage:start", {
-      action: payload.action,
-      agentSessionId: payload.agentSession.id,
-      commentId:
-        payload.agentSession.comment?.id ?? payload.agentSession.commentId,
-      createdAtType: typeof payload.createdAt,
-      hasCommentBody: payload.agentSession.comment?.body != null,
-      hasCommentUserId: Boolean(payload.agentSession.comment?.userId),
-      issueId:
-        payload.agentSession.issueId ?? payload.agentSession.issue?.id ?? null,
-    });
-
+  ): Message<LinearRawMessage> | null {
     const issueId =
       payload.agentSession.issueId ?? payload.agentSession.issue?.id;
     if (!issueId) {
-      this.logger.warn(
-        "[DEBUGLINEAR] buildAgentSessionMessage:missing-issue-id",
-        {
-          agentSessionId: payload.agentSession.id,
-        }
-      );
       return null;
     }
 
@@ -905,22 +887,8 @@ export class LinearAdapter
     threadId: LinearAgentSessionThreadId,
     result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
-    this.logger.info("[DEBUGLINEAR] createAgentActivityMessage:start", {
-      issueId: threadId.issueId,
-      commentId: threadId.commentId ?? null,
-      agentSessionId: threadId.agentSessionId,
-    });
     const activity = await result.agentActivity;
     if (!(result.success && activity)) {
-      this.logger.error(
-        "[DEBUGLINEAR] createAgentActivityMessage:missing-activity",
-        {
-          issueId: threadId.issueId,
-          commentId: threadId.commentId ?? null,
-          agentSessionId: threadId.agentSessionId,
-          success: result.success,
-        }
-      );
       throw new AdapterError(
         `Failed to create Linear agent activity for session ${threadId.agentSessionId}`,
         "linear"
@@ -929,15 +897,6 @@ export class LinearAdapter
 
     const sourceComment = await activity.sourceComment;
     if (!sourceComment) {
-      this.logger.error(
-        "[DEBUGLINEAR] createAgentActivityMessage:missing-source-comment",
-        {
-          activityId: activity.id,
-          issueId: threadId.issueId,
-          commentId: threadId.commentId ?? null,
-          agentSessionId: threadId.agentSessionId,
-        }
-      );
       throw new AdapterError(
         `Failed to resolve source comment for Linear agent activity ${activity.id}`,
         "linear"
@@ -945,30 +904,12 @@ export class LinearAdapter
     }
 
     if (!activity.agentSessionId) {
-      this.logger.error(
-        "[DEBUGLINEAR] createAgentActivityMessage:missing-agent-session-id",
-        {
-          activityId: activity.id,
-          issueId: threadId.issueId,
-          commentId: threadId.commentId ?? null,
-        }
-      );
       throw new AdapterError(
         `Missing agentSessionId for Linear agent activity ${activity.id}`,
         "linear"
       );
     }
 
-    this.logger.info(
-      "[DEBUGLINEAR] createAgentActivityMessage:resolved-source-comment",
-      {
-        activityId: activity.id,
-        sourceCommentId: sourceComment.id,
-        sourceCommentParentId: sourceComment.parentId ?? null,
-        activityAgentSessionId: activity.agentSessionId,
-        organizationId: this.getOrganizationId(),
-      }
-    );
     return this.buildMessageFromSdkComment(
       sourceComment,
       threadId.issueId,
@@ -1023,66 +964,29 @@ export class LinearAdapter
     });
 
     webhookHandler.on("Comment", async (payload) => {
-      await this.runWebhookWithInstallation(
-        payload.organizationId,
-        async () => {
-          if (this.mode !== "comments" || payload.action !== "create") {
-            return;
-          }
-
-          this.handleCommentCreated(payload, options);
+      await this.runWebhookWithInstallation(payload.organizationId, () => {
+        if (this.mode !== "comments" || payload.action !== "create") {
+          return;
         }
-      );
+
+        this.handleCommentCreated(payload, options);
+      });
     });
 
     webhookHandler.on("AgentSessionEvent", async (payload) => {
-      await this.runWebhookWithInstallation(
-        payload.organizationId,
-        async () => {
-          if (this.mode !== "agent-sessions") {
-            return;
-          }
-
-          this.logger.info("[DEBUGLINEAR] handleWebhook:agent-session-event", {
-            action: payload.action,
-            agentSessionId: payload.agentSession.id,
-            commentId:
-              payload.agentSession.comment?.id ??
-              payload.agentSession.commentId,
-            createdAtType: typeof payload.createdAt,
-            hasAgentActivity: Boolean(payload.agentActivity),
-            hasSessionComment: Boolean(payload.agentSession.comment),
-            organizationId: payload.organizationId,
-          });
-
-          try {
-            await this.handleAgentSessionEvent(payload, options);
-          } catch (error) {
-            this.logger.error(
-              "[DEBUGLINEAR] handleWebhook:agent-session-event:error",
-              {
-                action: payload.action,
-                agentSessionId: payload.agentSession.id,
-                commentId:
-                  payload.agentSession.comment?.id ??
-                  payload.agentSession.commentId,
-                organizationId: payload.organizationId,
-                error,
-              }
-            );
-            throw error;
-          }
+      await this.runWebhookWithInstallation(payload.organizationId, () => {
+        if (this.mode !== "agent-sessions") {
+          return;
         }
-      );
+
+        this.handleAgentSessionEvent(payload, options);
+      });
     });
 
     webhookHandler.on("Reaction", async (payload) => {
-      await this.runWebhookWithInstallation(
-        payload.organizationId,
-        async () => {
-          this.handleReaction(payload);
-        }
-      );
+      await this.runWebhookWithInstallation(payload.organizationId, () => {
+        this.handleReaction(payload);
+      });
     });
 
     return await webhookHandler(request);
@@ -1095,10 +999,10 @@ export class LinearAdapter
    * - If the comment has a parentId, it's a reply -> thread under the parent (root comment)
    * - If no parentId, this is a root comment -> thread under this comment's own ID
    */
-  private async handleCommentCreated(
+  private handleCommentCreated(
     payload: CommentWebhookPayload,
     options?: WebhookOptions
-  ): Promise<void> {
+  ): void {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
       return;
@@ -1113,8 +1017,8 @@ export class LinearAdapter
       });
       return;
     }
-    if (!data.userId) {
-      this.logger.debug("Ignoring comment with no userId", {
+    if (!data.user) {
+      this.logger.debug("Ignoring comment with no user", {
         commentId: data.id,
       });
       return;
@@ -1127,16 +1031,6 @@ export class LinearAdapter
       commentId: rootCommentId,
     });
 
-    // Skip bot's own messages
-    if (data.userId === this.botUserId) {
-      this.logger.debug("Ignoring message from self", {
-        messageId: data.id,
-      });
-      return;
-    }
-
-    const user = await this.getClient().user(data.userId);
-
     const comment: LinearCommentData = {
       body: data.body,
       createdAt: data.createdAt,
@@ -1146,11 +1040,11 @@ export class LinearAdapter
       updatedAt: data.updatedAt,
       url: payload.url ?? undefined,
       user: {
-        id: user.id,
-        displayName: user.displayName,
-        fullName: user.name,
-        email: user.email,
-        avatarUrl: user.avatarUrl ?? undefined,
+        id: data.user.id,
+        displayName: getUserNameFromProfileUrl(data.user.url),
+        fullName: data.user.name,
+        email: data.user.email,
+        avatarUrl: data.user.avatarUrl ?? undefined,
       },
     };
 
@@ -1164,26 +1058,10 @@ export class LinearAdapter
     this.chat.processMessage(this, threadId, message, options);
   }
 
-  private async handleAgentSessionEvent(
+  private handleAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload,
     options?: WebhookOptions
-  ): Promise<void> {
-    this.logger.info("[DEBUGLINEAR] handleAgentSessionEvent:start", {
-      action: payload.action,
-      agentSessionId: payload.agentSession?.id ?? null,
-      commentId:
-        payload.agentSession?.comment?.id ??
-        payload.agentSession?.commentId ??
-        null,
-      issueId:
-        payload.agentSession?.issueId ??
-        payload.agentSession?.issue?.id ??
-        null,
-      createdAtValue: payload.createdAt,
-      mode: this.mode,
-      organizationId: payload.organizationId,
-    });
-
+  ): void {
     if (!this.chat) {
       this.logger.warn(
         "Chat instance not initialized, ignoring agent session event"
@@ -1191,7 +1069,7 @@ export class LinearAdapter
       return;
     }
 
-    const message = await this.buildAgentSessionMessage(payload);
+    const message = this.buildAgentSessionMessage(payload);
     if (!message) {
       this.logger.warn(
         "Unable to build message for Linear agent session event",
@@ -1201,17 +1079,6 @@ export class LinearAdapter
       );
       return;
     }
-
-    this.logger.info("[DEBUGLINEAR] handleAgentSessionEvent:dispatch", {
-      action: payload.action,
-      agentSessionId: payload.agentSession.id,
-      threadId: message.threadId,
-      messageId: message.id,
-      isMention: message.isMention,
-      isMe: message.author.isMe,
-      isBot: message.author.isBot,
-      body: message.text,
-    });
     this.chat.processMessage(this, message.threadId, message, options);
   }
 

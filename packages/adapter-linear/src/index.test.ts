@@ -25,6 +25,34 @@ function createMockLogger() {
   };
 }
 
+function createRawCommentMessage(
+  overrides?: Partial<LinearCommentRawMessage["comment"]> & {
+    user?: Partial<LinearCommentRawMessage["comment"]["user"]>;
+  }
+): LinearCommentRawMessage {
+  const user = overrides?.user ?? {};
+  return {
+    kind: "comment",
+    organizationId: "org-123",
+    comment: {
+      id: overrides?.id ?? "comment-abc123",
+      body: overrides?.body ?? "Hello from Linear!",
+      issueId: overrides?.issueId ?? "issue-123",
+      user: {
+        id: user.id ?? "user-456",
+        displayName: user.displayName ?? "Test User",
+        fullName: user.fullName ?? "Test User",
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+      },
+      parentId: overrides?.parentId,
+      createdAt: overrides?.createdAt ?? "2025-01-29T12:00:00.000Z",
+      updatedAt: overrides?.updatedAt ?? "2025-01-29T12:00:00.000Z",
+      url: overrides?.url,
+    },
+  };
+}
+
 function attachLegacyClientAlias(adapter: LinearAdapter): LinearAdapter {
   Object.defineProperty(adapter, "linearClient", {
     configurable: true,
@@ -359,6 +387,13 @@ function createCommentPayload(overrides?: {
       body: overrides?.body ?? "Hello from webhook",
       issueId: overrides?.issueId ?? "issue-123",
       userId: overrides?.userId ?? "user-456",
+      user: {
+        id: overrides?.userId ?? "user-456",
+        name: "Test User",
+        email: undefined,
+        avatarUrl: undefined,
+        url: "https://linear.app/gitbook-x/profiles/Test User",
+      },
       createdAt: "2025-06-01T12:00:00.000Z",
       updatedAt: "2025-06-01T12:00:00.000Z",
       parentId: overrides?.parentId,
@@ -670,18 +705,7 @@ describe("renderFormatted", () => {
 describe("parseMessage", () => {
   it("should parse a raw Linear message", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-abc123",
-        body: "Hello from Linear!",
-        issueId: "issue-123",
-        userId: "user-456",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage();
     const message = adapter.parseMessage(raw);
     expect(message.id).toBe("comment-abc123");
     expect(message.text).toBe("Hello from Linear!");
@@ -690,36 +714,22 @@ describe("parseMessage", () => {
 
   it("should detect edited messages", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-abc123",
-        body: "Edited message",
-        issueId: "issue-123",
-        userId: "user-456",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T13:00:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage({
+      body: "Edited message",
+      updatedAt: "2025-01-29T13:00:00.000Z",
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
   });
 
   it("should handle empty body", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-empty",
-        body: "",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-empty",
+      body: "",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.text).toBe("");
     expect(message.metadata.edited).toBe(false);
@@ -727,18 +737,13 @@ describe("parseMessage", () => {
 
   it("should set editedAt when message is edited", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-edited",
-        body: "Updated text",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T14:30:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-edited",
+      body: "Updated text",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+      updatedAt: "2025-01-29T14:30:00.000Z",
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
     expect(message.metadata.editedAt).toEqual(
@@ -748,36 +753,24 @@ describe("parseMessage", () => {
 
   it("should not set editedAt when message is not edited", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-unedited",
-        body: "Original text",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-unedited",
+      body: "Original text",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.editedAt).toBeUndefined();
   });
 
   it("should set isBot to false and isMe to false for regular users", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      kind: "comment" as const,
-      comment: {
-        id: "comment-1",
-        body: "test",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-      organizationId: "org-123",
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-1",
+      body: "test",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.author.isBot).toBe(false);
     expect(message.author.isMe).toBe(false);
@@ -788,18 +781,11 @@ describe("parseMessage", () => {
     const raw = {
       kind: "agent_session_comment" as const,
       organizationId: "org-123",
-      agentSession: {
-        id: "session-123",
-        issueId: "issue-123",
-        commentId: "comment-root",
-      },
+      agentSessionId: "session-123",
       comment: {
-        id: "comment-abc123",
-        body: "Hello from an agent session",
-        issueId: "issue-123",
-        userId: "user-456",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
+        ...createRawCommentMessage({
+          body: "Hello from an agent session",
+        }).comment,
       },
     };
 
@@ -1010,15 +996,7 @@ describe("handleWebhook - comment created", () => {
   it("should process comment create events via chat.processMessage", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
-    await (adapter as unknown as { chat: unknown }).constructor;
-    // Set chat instance via initialize-like assignment
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -1042,13 +1020,7 @@ describe("handleWebhook - comment created", () => {
   it("should use parentId as root comment when present (threaded reply)", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({
@@ -1119,20 +1091,12 @@ describe("handleWebhook - comment created", () => {
     );
   });
 
-  it("should skip bot's own messages", async () => {
+  it("should mark bot-authored comments as self", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
-    // Set bot user ID
-    (adapter as unknown as { defaultBotUserId: string }).defaultBotUserId =
-      "bot-user-id";
+    setBotUserId(adapter, "bot-user-id");
 
     const payload = createCommentPayload({ userId: "bot-user-id" });
     const body = JSON.stringify(payload);
@@ -1141,11 +1105,10 @@ describe("handleWebhook - comment created", () => {
     const response = await adapter.handleWebhook(request);
 
     expect(response.status).toBe(200);
-    expect(mockChat.processMessage).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      "Ignoring message from self",
-      expect.any(Object)
-    );
+    expect(mockChat.processMessage).toHaveBeenCalledTimes(1);
+    const message = mockChat.processMessage.mock.calls[0][2];
+    expect(message.author.userId).toBe("bot-user-id");
+    expect(message.author.isMe).toBe(true);
   });
 
   it("should ignore comments when chat is not initialized", async () => {
@@ -1436,16 +1399,10 @@ describe("handleWebhook - unknown event types", () => {
 // =============================================================================
 
 describe("buildMessage via webhook", () => {
-  it("should set author fields from actor", async () => {
+  it("should set author fields from webhook comment user", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "user" });
@@ -1461,16 +1418,10 @@ describe("buildMessage via webhook", () => {
     expect(message.author.isMe).toBe(false);
   });
 
-  it("should set isBot true for application actors", async () => {
+  it("should ignore application actor type for comment authors", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "application" });
@@ -1480,19 +1431,13 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.author.isBot).toBe(true);
+    expect(message.author.isBot).toBe(false);
   });
 
-  it("should set isBot true for integration actors", async () => {
+  it("should ignore integration actor type for comment authors", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "integration" });
@@ -1502,19 +1447,13 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.author.isBot).toBe(true);
+    expect(message.author.isBot).toBe(false);
   });
 
   it("should set dateSent from createdAt", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -1535,13 +1474,7 @@ describe("buildMessage via webhook", () => {
   it("should detect edited messages from differing createdAt/updatedAt", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -1562,13 +1495,7 @@ describe("buildMessage via webhook", () => {
   it("should include raw comment data in message", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ body: "Some text" });
@@ -2706,7 +2633,7 @@ describe("runtime operations", () => {
       parentId: "parent-comment",
     });
     expect(result.raw.organizationId).toBe("org-123");
-    expect(expectCommentRawMessage(result.raw).comment.userId).toBe(
+    expect(expectCommentRawMessage(result.raw).comment.user.id).toBe(
       "bot-user-id"
     );
   });
