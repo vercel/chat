@@ -100,13 +100,13 @@ export interface UnderlineNode {
  * the cast to ZoomMessageWithReply happens inside the function body.
  */
 export interface ZoomMessageWithReply {
-  /** The postable message content */
-  raw?: string;
   markdown?: string;
   /** Zoom threading: set to the parent message_id to create a threaded reply */
   metadata?: {
     replyTo?: string;
   };
+  /** The postable message content */
+  raw?: string;
 }
 
 /** Top-level Zoom webhook payload (discriminated union on `event`). */
