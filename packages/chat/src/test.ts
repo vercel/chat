@@ -1,25 +1,30 @@
-import { createTestMessage as _createTestMessage } from "./mock-adapter";
 import type { MessageData } from "./message";
+import { createTestMessage as _createTestMessage } from "./mock-adapter";
 import type { Author } from "./types";
 
 export {
   createMockAdapter,
   createMockState,
   createTestThread,
-  mockLogger,
   type MockStateAdapter,
+  mockLogger,
 } from "./mock-adapter";
 
 let messageCounter = 0;
 
 /** Create a test message with sensible defaults. Only `text` is required. Extra properties are spread as MessageData overrides. */
-export function createTestMessage(opts: {
-  text: string;
-  id?: string;
-  author?: Partial<Author>;
-  raw?: unknown;
-  edited?: boolean;
-} & Omit<Partial<MessageData>, "text" | "id" | "author" | "raw" | "formatted">) {
+export function createTestMessage(
+  opts: {
+    text: string;
+    id?: string;
+    author?: Partial<Author>;
+    raw?: unknown;
+    edited?: boolean;
+  } & Omit<
+    Partial<MessageData>,
+    "text" | "id" | "author" | "raw" | "formatted"
+  >
+) {
   const { text, id, author, raw, edited, ...rest } = opts;
   return _createTestMessage(id ?? `msg-${++messageCounter}`, text, {
     raw: raw ?? {},

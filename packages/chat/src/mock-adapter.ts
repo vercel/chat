@@ -265,12 +265,21 @@ type TestThreadOpts = {
  * All adapter methods (post, postEphemeral, fetchMessages, etc.) are vi.fn() spies.
  */
 export function createTestThread(
-  opts: TestThreadOpts,
+  opts: TestThreadOpts
 ): ThreadImpl & { mockAdapter: Adapter; mockState: MockStateAdapter } {
-  const { adapter: adapterOpt, id: idOpt, channelId: channelIdOpt, ...rest } = opts;
-  const adapterName = typeof adapterOpt === "string" ? adapterOpt : adapterOpt.name;
+  const {
+    adapter: adapterOpt,
+    id: idOpt,
+    channelId: channelIdOpt,
+    ...rest
+  } = opts;
+  const adapterName =
+    typeof adapterOpt === "string" ? adapterOpt : adapterOpt.name;
   const adapterOverrides = typeof adapterOpt === "string" ? {} : adapterOpt;
-  const mockAdapter = { ...createMockAdapter(adapterName), ...adapterOverrides };
+  const mockAdapter = {
+    ...createMockAdapter(adapterName),
+    ...adapterOverrides,
+  };
   const mockState = createMockState();
   const id = idOpt ?? `${adapterName}:C${++threadCounter}:thread`;
   const channelId = channelIdOpt ?? `C${threadCounter}`;
