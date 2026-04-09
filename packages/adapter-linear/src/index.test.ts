@@ -2787,9 +2787,9 @@ describe("runtime operations", () => {
     });
     expect(result.id).toBe("comment-activity-123");
     expect(result.raw.kind).toBe("agent_session_comment");
-    expect(result.raw.organizationId).toBe("session-789");
+    expect(result.raw.organizationId).toBe("org-123");
     expect(expectAgentSessionCommentRawMessage(result.raw).agentSessionId).toBe(
-      "org-123"
+      "session-789"
     );
   });
 

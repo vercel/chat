@@ -4,7 +4,7 @@ import {
   AuthenticationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { AgentActivityPayload, AgentSession, Comment } from "@linear/sdk";
+import type { AgentActivityPayload, Comment } from "@linear/sdk";
 import { AgentActivityType, LinearClient } from "@linear/sdk";
 import {
   type AgentSessionEventWebhookPayload,
@@ -674,12 +674,12 @@ export class LinearAdapter
     }
   }
 
-  private async buildMessageFromSdkComment(
+  private async parseMessageFromComment(
     comment: Comment,
     issueId: string,
-    organizationId: string,
     agentSessionId?: string
   ): Promise<Message<LinearRawMessage>> {
+    const organizationId = this.getOrganizationId();
     const user = await comment.user;
     if (!user) {
       throw new AdapterError(
@@ -910,11 +910,10 @@ export class LinearAdapter
       );
     }
 
-    return this.buildMessageFromSdkComment(
+    return this.parseMessageFromComment(
       sourceComment,
       threadId.issueId,
-      activity.agentSessionId,
-      this.getOrganizationId()
+      activity.agentSessionId
     );
   }
 
@@ -1522,64 +1521,6 @@ export class LinearAdapter
     return rawMessage;
   }
 
-  private async fetchAgentSessionCommentThread(
-    thread: LinearAgentSessionThreadId,
-    options?: FetchOptions
-  ): Promise<{
-    agentSession: AgentSession;
-    childComments: Comment[];
-    issueId: string;
-    nextCursor?: string;
-    rootComment: Comment;
-    threadId: string;
-  }> {
-    const linear = this.getClient();
-    const agentSession = await linear.agentSession(thread.agentSessionId);
-    const issueId = agentSession.issueId ?? thread.issueId;
-    if (!issueId) {
-      throw new AdapterError(
-        `Linear agent session ${thread.agentSessionId} is missing issueId`,
-        "linear"
-      );
-    }
-
-    const rootComment = await agentSession.comment;
-    if (!rootComment) {
-      throw new AdapterError(
-        `Linear agent session ${thread.agentSessionId} is missing a root comment`,
-        "linear"
-      );
-    }
-
-    const childrenConnection = await linear.comments({
-      filter: {
-        parent: { id: { eq: rootComment.id } },
-      },
-      ...(options?.direction === "forward"
-        ? {
-            first: options?.limit ?? 50,
-          }
-        : {
-            last: options?.limit ?? 50,
-          }),
-    });
-
-    return {
-      agentSession,
-      issueId,
-      rootComment,
-      childComments: childrenConnection.nodes,
-      threadId: this.encodeThreadId({
-        issueId,
-        commentId: agentSession.commentId ?? rootComment.id,
-        agentSessionId: agentSession.id,
-      }),
-      nextCursor: childrenConnection.pageInfo.hasNextPage
-        ? (childrenConnection.pageInfo.endCursor ?? undefined)
-        : undefined,
-    };
-  }
-
   /**
    * Fetch messages from a thread.
    *
@@ -1618,21 +1559,48 @@ export class LinearAdapter
     thread: LinearAgentSessionThreadId,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
-    const organizationId = this.getOrganizationId();
-    const sessionThread = await this.fetchAgentSessionCommentThread(
-      thread,
-      options
-    );
+    const linear = this.getClient();
+    const agentSession = await linear.agentSession(thread.agentSessionId);
+    const issueId = agentSession.issueId ?? thread.issueId;
+    if (!issueId) {
+      throw new AdapterError(
+        `Linear agent session ${thread.agentSessionId} is missing issueId`,
+        "linear"
+      );
+    }
+
+    const rootComment = await agentSession.comment;
+    if (!rootComment) {
+      throw new AdapterError(
+        `Linear agent session ${thread.agentSessionId} is missing a root comment`,
+        "linear"
+      );
+    }
+
+    const childrenConnection = await linear.comments({
+      filter: {
+        parent: { id: { eq: rootComment.id } },
+      },
+      ...(options?.direction === "forward"
+        ? {
+            first: options?.limit ?? 50,
+          }
+        : {
+            last: options?.limit ?? 50,
+          }),
+    });
+
     const messages = await this.commentsToMessages(
-      [sessionThread.rootComment, ...sessionThread.childComments],
-      sessionThread.issueId,
-      organizationId,
-      sessionThread.agentSession.id
+      [rootComment, ...childrenConnection.nodes],
+      issueId,
+      agentSession.id
     );
 
     return {
       messages,
-      nextCursor: sessionThread.nextCursor,
+      nextCursor: childrenConnection.pageInfo.hasNextPage
+        ? (childrenConnection.pageInfo.endCursor ?? undefined)
+        : undefined,
     };
   }
 
@@ -1644,7 +1612,6 @@ export class LinearAdapter
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
     const issue = await this.getClient().issue(issueId);
-    const organizationId = this.getOrganizationId();
     const commentsConnection = await issue.comments({
       first: options?.limit ?? 50,
     });
@@ -1652,7 +1619,6 @@ export class LinearAdapter
     const messages = await this.commentsToMessages(
       commentsConnection.nodes,
       issueId,
-      organizationId,
       undefined
     );
 
@@ -1690,19 +1656,16 @@ export class LinearAdapter
             }),
       }),
     ]);
-    const organizationId = this.getOrganizationId();
 
     // Include the root comment as the first message, then its children
     const rootMessages = await this.commentsToMessages(
       [rootComment],
       issueId,
-      organizationId,
       undefined
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
       issueId,
-      organizationId,
       undefined
     );
 
@@ -1720,19 +1683,13 @@ export class LinearAdapter
   private async commentsToMessages(
     comments: Comment[],
     issueId: string,
-    organizationId: string,
     agentSessionId: string | undefined
   ): Promise<Message<LinearRawMessage>[]> {
     const messages: Message<LinearRawMessage>[] = [];
 
     for (const comment of comments) {
       messages.push(
-        await this.buildMessageFromSdkComment(
-          comment,
-          issueId,
-          organizationId,
-          agentSessionId
-        )
+        await this.parseMessageFromComment(comment, issueId, agentSessionId)
       );
     }
 
