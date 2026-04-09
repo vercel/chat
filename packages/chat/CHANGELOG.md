@@ -1,5 +1,11 @@
 # chat
 
+## 4.25.0
+
+### Minor Changes
+
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+
 ## 4.24.0
 
 ### Minor Changes
