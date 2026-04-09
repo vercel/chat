@@ -495,10 +495,17 @@ export class LinearAdapter
    * Use this for operations outside webhook handling (cron jobs, workflows).
    */
   async withInstallation<T>(
-    organizationId: string,
+    organizationId: string | LinearInstallation,
     fn: () => Promise<T> | T
   ): Promise<T> {
-    const installation = await this.requireInstallation(organizationId);
+    if (!this.isMultiTenantMode()) {
+      return await fn();
+    }
+
+    const installation =
+      typeof organizationId === "string"
+        ? await this.requireInstallation(organizationId)
+        : await this.refreshInstallation(organizationId);
     const context: LinearRequestContext = {
       accessToken: installation.accessToken,
       botUserId: installation.botUserId,
@@ -928,7 +935,7 @@ export class LinearAdapter
     });
 
     webhookHandler.on("Comment", async (payload) => {
-      await this.withInstallation(payload.organizationId, () => {
+      await this.withWebhookInstallation(payload.organizationId, () => {
         if (this.mode !== "comments" || payload.action !== "create") {
           return;
         }
@@ -938,7 +945,7 @@ export class LinearAdapter
     });
 
     webhookHandler.on("AgentSessionEvent", async (payload) => {
-      await this.withInstallation(payload.organizationId, () => {
+      await this.withWebhookInstallation(payload.organizationId, () => {
         if (this.mode !== "agent-sessions") {
           return;
         }
@@ -948,12 +955,33 @@ export class LinearAdapter
     });
 
     webhookHandler.on("Reaction", async (payload) => {
-      await this.withInstallation(payload.organizationId, () => {
+      await this.withWebhookInstallation(payload.organizationId, () => {
         this.handleReaction(payload);
       });
     });
 
     return await webhookHandler(request);
+  }
+
+  /**
+   * Run a webhook handler function with the appropriate installation context based on the organization ID in the payload.
+   */
+  private async withWebhookInstallation(
+    organizationId: string,
+    fn: () => Promise<void> | void
+  ): Promise<void> {
+    if (!this.isMultiTenantMode()) {
+      return await fn();
+    }
+
+    const installation = await this.getInstallation(organizationId);
+    if (!installation) {
+      this.logger.warn("No Linear installation found for organization", {
+        organizationId,
+      });
+      return;
+    }
+    await this.withInstallation(installation, fn);
   }
 
   /**
