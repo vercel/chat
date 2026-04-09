@@ -216,8 +216,19 @@ export interface LinearCommentData {
   updatedAt: string;
   /** Direct URL to the comment */
   url: string | undefined;
-  /** User UUID who wrote the comment */
-  userId: string;
+  /** User who wrote the comment */
+  user: {
+    /** User UUID */
+    id: string;
+    /** User's display name */
+    displayName: string;
+    /** User's full name */
+    fullName: string;
+    /** User's email address */
+    email: string | undefined;
+    /** URL to the user's avatar image */
+    avatarUrl: string | undefined;
+  };
 }
 
 /** Minimal issue data attached to agent session payloads. */

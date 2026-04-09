@@ -15,7 +15,6 @@ import {
 import type {
   Adapter,
   AdapterPostableMessage,
-  Author,
   ChatInstance,
   EmojiValue,
   FetchOptions,
@@ -318,38 +317,6 @@ export class LinearAdapter
         ...(this.mode === "agent-sessions" ? ["app:mentionable"] : []),
       ],
     };
-  }
-
-  private buildMessageFromComment(
-    raw: LinearRawMessage,
-    author: Author,
-    threadId: string,
-    isMention = false
-  ): Message<LinearRawMessage> {
-    const text = raw.comment.body;
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
-
-    return new Message<LinearRawMessage>({
-      id: raw.comment.id,
-      threadId,
-      text,
-      formatted,
-      author,
-      metadata: {
-        dateSent: raw.comment.createdAt
-          ? new Date(raw.comment.createdAt)
-          : new Date(),
-        edited: raw.comment.createdAt !== raw.comment.updatedAt,
-        editedAt:
-          raw.comment.createdAt !== raw.comment.updatedAt &&
-          raw.comment.updatedAt
-            ? new Date(raw.comment.updatedAt)
-            : undefined,
-      },
-      attachments: [],
-      isMention,
-      raw,
-    });
   }
 
   private getClient(): LinearClient {
@@ -708,14 +675,11 @@ export class LinearAdapter
 
   private async buildMessageFromSdkComment(
     comment: Comment,
-    threadId: string,
     issueId: string,
     organizationId: string,
-    agentSessionId?: string,
-    isMention = false
+    agentSessionId?: string
   ): Promise<Message<LinearRawMessage>> {
     const user = await comment.user;
-
     if (!user) {
       throw new AdapterError(
         `Unable to determine user for comment ${comment.id}`,
@@ -727,22 +691,20 @@ export class LinearAdapter
       id: comment.id,
       body: comment.body,
       issueId,
-      userId: user.id,
+      user: {
+        id: user.id,
+        displayName: user.displayName,
+        fullName: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl ?? undefined,
+      },
       parentId: comment.parentId ?? undefined,
       createdAt: comment.createdAt.toISOString(),
       updatedAt: comment.updatedAt.toISOString(),
       url: comment.url ?? undefined,
     };
 
-    const author: Author = {
-      userId: user.id,
-      userName: user.displayName ?? "unknown",
-      fullName: user.name ?? user.displayName ?? "unknown",
-      isBot: false,
-      isMe: user.id === this.botUserId,
-    };
-
-    return this.buildMessageFromComment(
+    return this.parseMessage(
       agentSessionId
         ? {
             kind: "agent_session_comment",
@@ -754,10 +716,7 @@ export class LinearAdapter
             kind: "comment",
             comment: commentData,
             organizationId,
-          },
-      author,
-      threadId,
-      isMention
+          }
     );
   }
 
@@ -770,86 +729,50 @@ export class LinearAdapter
       return null;
     }
 
-    const decodedThreadId: LinearThreadId = {
-      issueId,
-      commentId: payload.agentSession.commentId ?? undefined,
-      agentSessionId: payload.agentSession.id,
-    };
-
-    const threadId = this.encodeThreadId(decodedThreadId);
-
-    if (payload.action === "created") {
-      if (
-        payload.agentSession.comment?.body != null &&
+    if (
+      payload.agentSession.comment?.body != null &&
+      payload.agentSession.comment.userId
+    ) {
+      const user = await this.getClient().user(
         payload.agentSession.comment.userId
-      ) {
-        const commentData: LinearCommentData = {
-          id: payload.agentSession.comment.id,
-          body: payload.agentSession.comment.body,
-          issueId,
-          userId: payload.agentSession.comment.userId,
-          parentId: undefined,
-          createdAt: payload.createdAt.toISOString(),
-          updatedAt: payload.createdAt.toISOString(),
-          url: payload.agentSession.url ?? undefined,
-        };
-        const authorName = payload.agentSession.creator?.name ?? "unknown";
-        const author: Author = {
-          userId: payload.agentSession.comment.userId,
-          userName: authorName,
-          fullName: authorName,
-          isBot: payload.agentSession.comment.userId === this.botUserId,
-          isMe: payload.agentSession.comment.userId === this.botUserId,
-        };
-
-        return this.buildMessageFromComment(
-          {
-            kind: "agent_session_comment",
-            organizationId: payload.organizationId,
-            comment: commentData,
-            agentSessionId: payload.agentSession.id,
-          },
-          author,
-          threadId,
-          true
-        );
-      }
-
-      const commentId =
-        payload.agentSession.comment?.id ?? payload.agentSession.commentId;
-      if (!commentId) {
-        return null;
-      }
-
-      return await this.buildMessageFromSdkComment(
-        await this.getClient().comment({ id: commentId }),
-        threadId,
-        issueId,
-        payload.organizationId,
-        payload.agentSession.id,
-        true
       );
+      const commentData: LinearCommentData = {
+        id: payload.agentSession.comment.id,
+        body: payload.agentSession.comment.body,
+        issueId,
+        user: {
+          id: user.id,
+          displayName: user.displayName,
+          fullName: user.name,
+          email: user.email,
+          avatarUrl: user.avatarUrl ?? undefined,
+        },
+        parentId: undefined,
+        createdAt: payload.createdAt.toISOString(),
+        updatedAt: payload.createdAt.toISOString(),
+        url: payload.agentSession.url ?? undefined,
+      };
+
+      return this.parseMessage({
+        kind: "agent_session_comment",
+        organizationId: payload.organizationId,
+        comment: commentData,
+        agentSessionId: payload.agentSession.id,
+      });
     }
 
-    return null;
-  }
-
-  private getWebhookActorName(
-    actor: CommentWebhookPayload["actor"] | ReactionWebhookPayload["actor"]
-  ): string {
-    if (!actor) {
-      return "unknown";
+    const commentId =
+      payload.agentSession.comment?.id ?? payload.agentSession.commentId;
+    if (!commentId) {
+      return null;
     }
 
-    if ("name" in actor && actor.name) {
-      return actor.name;
-    }
-
-    if ("service" in actor && actor.service) {
-      return actor.service;
-    }
-
-    return "unknown";
+    return await this.buildMessageFromSdkComment(
+      await this.getClient().comment({ id: commentId }),
+      issueId,
+      payload.organizationId,
+      payload.agentSession.id
+    );
   }
 
   private async runWebhookWithInstallation(
@@ -934,7 +857,6 @@ export class LinearAdapter
 
     return this.buildMessageFromSdkComment(
       sourceComment,
-      this.encodeThreadId(threadId),
       threadId.issueId,
       activity.agentSessionId,
       this.getOrganizationId()
@@ -1031,20 +953,26 @@ export class LinearAdapter
    * - If the comment has a parentId, it's a reply -> thread under the parent (root comment)
    * - If no parentId, this is a root comment -> thread under this comment's own ID
    */
-  private handleCommentCreated(
+  private async handleCommentCreated(
     payload: CommentWebhookPayload,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
       return;
     }
 
-    const { data, actor } = payload;
+    const { data } = payload;
 
     // Skip if the comment has no issueId (e.g., project update comment)
     if (!data.issueId) {
       this.logger.debug("Ignoring non-issue comment", {
+        commentId: data.id,
+      });
+      return;
+    }
+    if (!data.userId) {
+      this.logger.debug("Ignoring comment with no userId", {
         commentId: data.id,
       });
       return;
@@ -1057,6 +985,16 @@ export class LinearAdapter
       commentId: rootCommentId,
     });
 
+    // Skip bot's own messages
+    if (data.userId === this.botUserId) {
+      this.logger.debug("Ignoring message from self", {
+        messageId: data.id,
+      });
+      return;
+    }
+
+    const user = await this.getClient().user(data.userId);
+
     const comment: LinearCommentData = {
       body: data.body,
       createdAt: data.createdAt,
@@ -1065,27 +1003,21 @@ export class LinearAdapter
       parentId: data.parentId ?? undefined,
       updatedAt: data.updatedAt,
       url: payload.url ?? undefined,
-      userId:
-        data.userId ??
-        (actor && "id" in actor ? actor.id : undefined) ??
-        "unknown",
+      user: {
+        id: user.id,
+        displayName: user.displayName,
+        fullName: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl ?? undefined,
+      },
     };
 
     // Build message
-    const message = this.buildMessage(
+    const message = this.parseMessage({
+      kind: "comment",
       comment,
-      actor,
-      threadId,
-      payload.organizationId
-    );
-
-    // Skip bot's own messages
-    if (comment.userId === this.botUserId) {
-      this.logger.debug("Ignoring message from self", {
-        messageId: comment.id,
-      });
-      return;
-    }
+      organizationId: payload.organizationId,
+    });
 
     this.chat.processMessage(this, threadId, message, options);
   }
@@ -1136,7 +1068,7 @@ export class LinearAdapter
       return;
     }
 
-    const { data, actor } = payload;
+    const { data } = payload;
 
     // Reactions on comments need a commentId to find the thread.
     // Since reaction webhooks don't include issueId directly,
@@ -1146,38 +1078,7 @@ export class LinearAdapter
       emoji: data.emoji,
       commentId: data.commentId,
       action: payload.action,
-      actorName: this.getWebhookActorName(actor),
     });
-  }
-
-  /**
-   * Build a Message from a Linear comment and actor.
-   */
-  private buildMessage(
-    comment: LinearCommentData,
-    actor: CommentWebhookPayload["actor"],
-    threadId: string,
-    organizationId: string
-  ): Message<LinearRawMessage> {
-    const authorName = this.getWebhookActorName(actor);
-
-    const author: Author = {
-      userId: comment.userId,
-      userName: authorName,
-      fullName: authorName,
-      isBot: actor?.type !== "user",
-      isMe: comment.userId === this.botUserId,
-    };
-
-    return this.buildMessageFromComment(
-      {
-        kind: "comment",
-        comment,
-        organizationId,
-      },
-      author,
-      threadId
-    );
   }
 
   /**
@@ -1243,7 +1144,13 @@ export class LinearAdapter
           body: comment.body,
           issueId: decoded.issueId,
           parentId: decoded.commentId,
-          userId: this.botUserId || "",
+          user: {
+            id: this.botUserId,
+            displayName: this.userName,
+            fullName: this.userName,
+            email: undefined,
+            avatarUrl: undefined,
+          },
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
@@ -1302,7 +1209,13 @@ export class LinearAdapter
           body: comment.body,
           issueId,
           parentId: comment.parentId ?? undefined,
-          userId: this.botUserId || "",
+          user: {
+            id: this.botUserId,
+            displayName: this.userName,
+            fullName: this.userName,
+            email: undefined,
+            avatarUrl: undefined,
+          },
           createdAt: comment.createdAt.toISOString(),
           updatedAt: comment.updatedAt.toISOString(),
           url: comment.url,
@@ -1666,7 +1579,6 @@ export class LinearAdapter
     if (decoded.commentId) {
       // Comment-level thread: fetch root comment's children
       return await this.fetchCommentThread(
-        threadId,
         decoded.issueId,
         decoded.commentId,
         options
@@ -1674,7 +1586,7 @@ export class LinearAdapter
     }
 
     // Issue-level thread: fetch all top-level comments
-    return await this.fetchIssueComments(threadId, decoded.issueId, options);
+    return await this.fetchIssueComments(decoded.issueId, options);
   }
 
   /**
@@ -1691,7 +1603,6 @@ export class LinearAdapter
     );
     const messages = await this.commentsToMessages(
       [sessionThread.rootComment, ...sessionThread.childComments],
-      sessionThread.threadId,
       sessionThread.issueId,
       organizationId,
       sessionThread.agentSession.id
@@ -1707,7 +1618,6 @@ export class LinearAdapter
    * Fetch top-level comments on an issue.
    */
   private async fetchIssueComments(
-    threadId: string,
     issueId: string,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
@@ -1719,7 +1629,6 @@ export class LinearAdapter
 
     const messages = await this.commentsToMessages(
       commentsConnection.nodes,
-      threadId,
       issueId,
       organizationId,
       undefined
@@ -1737,7 +1646,6 @@ export class LinearAdapter
    * Fetch a comment thread (root comment + its children/replies).
    */
   private async fetchCommentThread(
-    threadId: string,
     issueId: string,
     commentId: string,
     options?: FetchOptions
@@ -1765,14 +1673,12 @@ export class LinearAdapter
     // Include the root comment as the first message, then its children
     const rootMessages = await this.commentsToMessages(
       [rootComment],
-      threadId,
       issueId,
       organizationId,
       undefined
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
-      threadId,
       issueId,
       organizationId,
       undefined
@@ -1791,7 +1697,6 @@ export class LinearAdapter
    */
   private async commentsToMessages(
     comments: Comment[],
-    threadId: string,
     issueId: string,
     organizationId: string,
     agentSessionId: string | undefined
@@ -1802,7 +1707,6 @@ export class LinearAdapter
       messages.push(
         await this.buildMessageFromSdkComment(
           comment,
-          threadId,
           issueId,
           organizationId,
           agentSessionId
@@ -1928,46 +1832,40 @@ export class LinearAdapter
    * Parse platform message format to normalized format.
    */
   parseMessage(raw: LinearRawMessage): Message<LinearRawMessage> {
-    switch (raw.kind) {
-      case "agent_session_comment":
-      case "comment": {
-        const text = raw.comment.body || "";
-        const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const text = raw.comment.body;
+    const formatted: FormattedContent = this.formatConverter.toAst(text);
 
-        return new Message<LinearRawMessage>({
-          id: raw.comment.id,
-          threadId: "",
-          text,
-          formatted,
-          author: {
-            userId: raw.comment.userId,
-            userName: "unknown",
-            fullName: "unknown",
-            isBot: false,
-            isMe: raw.comment.userId === this.botUserId,
-          },
-          metadata: {
-            dateSent: raw.comment.createdAt
-              ? new Date(raw.comment.createdAt)
-              : new Date(),
-            edited: raw.comment.createdAt !== raw.comment.updatedAt,
-            editedAt:
-              raw.comment.createdAt !== raw.comment.updatedAt &&
-              raw.comment.updatedAt
-                ? new Date(raw.comment.updatedAt)
-                : undefined,
-          },
-          attachments: [],
-          raw,
-        });
-      }
-      default: {
-        throw new ValidationError(
-          "linear",
-          "Unsupported Linear raw message kind"
-        );
-      }
-    }
+    return new Message<LinearRawMessage>({
+      id: raw.comment.id,
+      threadId: this.encodeThreadId({
+        issueId: raw.comment.issueId,
+        commentId: raw.comment.id,
+        agentSessionId:
+          raw.kind === "agent_session_comment" ? raw.agentSessionId : undefined,
+      }),
+      text,
+      formatted,
+      author: {
+        userId: raw.comment.user.id,
+        userName: raw.comment.user.displayName,
+        fullName: raw.comment.user.fullName,
+        isBot: false,
+        isMe: raw.comment.user.id === this.botUserId,
+      },
+      metadata: {
+        dateSent: raw.comment.createdAt
+          ? new Date(raw.comment.createdAt)
+          : new Date(),
+        edited: raw.comment.createdAt !== raw.comment.updatedAt,
+        editedAt:
+          raw.comment.createdAt !== raw.comment.updatedAt &&
+          raw.comment.updatedAt
+            ? new Date(raw.comment.updatedAt)
+            : undefined,
+      },
+      attachments: [],
+      raw,
+    });
   }
 
   /**
