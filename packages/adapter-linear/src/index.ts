@@ -68,10 +68,8 @@ function parseEnvClientCredentialScopes(value?: string): string[] | undefined {
 }
 
 interface LinearRequestContext {
-  accessToken: string;
-  botUserId: string;
   client: LinearClient;
-  organizationId: string;
+  installation: LinearInstallation;
 }
 
 // Re-export types
@@ -330,7 +328,7 @@ export class LinearAdapter
    */
   private get organizationId(): string {
     const organizationId =
-      this.requestContext.getStore()?.organizationId ??
+      this.requestContext.getStore()?.installation.organizationId ??
       this.defaultOrganizationId;
 
     if (!organizationId) {
@@ -348,7 +346,8 @@ export class LinearAdapter
    */
   get botUserId(): string {
     const id =
-      this.requestContext.getStore()?.botUserId ?? this.defaultBotUserId;
+      this.requestContext.getStore()?.installation.botUserId ??
+      this.defaultBotUserId;
 
     if (!id) {
       throw new AdapterError(
@@ -399,6 +398,15 @@ export class LinearAdapter
         "linear",
         "Adapter not initialized. Ensure chat.initialize() has been called first."
       );
+    }
+
+    const contextInstallation = this.requestContext.getStore();
+    if (
+      contextInstallation &&
+      contextInstallation.installation.organizationId === organizationId
+    ) {
+      // Optimization to avoid fetching from state if we already have the installation in the request context (e.g. in webhook handlers)
+      return contextInstallation.installation;
     }
 
     const installation = await this.chat
@@ -507,10 +515,8 @@ export class LinearAdapter
         ? await this.requireInstallation(organizationId)
         : await this.refreshInstallation(organizationId);
     const context: LinearRequestContext = {
-      accessToken: installation.accessToken,
-      botUserId: installation.botUserId,
+      installation,
       client: new LinearClient({ accessToken: installation.accessToken }),
-      organizationId: installation.organizationId,
     };
 
     return await this.requestContext.run(context, async () => await fn());
@@ -590,7 +596,7 @@ export class LinearAdapter
   /**
    * Refresh the access token for a given installation if it's close to expiry. Returns the refreshed installation.
    */
-  private async refreshInstallation(
+  async refreshInstallation(
     installation: LinearInstallation
   ): Promise<LinearInstallation> {
     if (
