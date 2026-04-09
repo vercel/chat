@@ -249,6 +249,8 @@ export interface LinearAgentSessionCommentRawMessage
   extends LinearRawMessageBase {
   /** The agent session the comment belongs to. */
   agentSessionId: string;
+  /** The prompt context associated with this agent session comment. */
+  agentSessionPromptContext?: string;
   /** The visible Linear comment backing this message. */
   comment: LinearCommentData;
   kind: "agent_session_comment";

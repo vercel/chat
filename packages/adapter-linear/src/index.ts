@@ -812,6 +812,7 @@ export class LinearAdapter
         organizationId: payload.organizationId,
         comment: commentData,
         agentSessionId: payload.agentSession.id,
+        agentSessionPromptContext: payload.promptContext ?? undefined,
       });
     }
 
@@ -858,6 +859,7 @@ export class LinearAdapter
         organizationId: payload.organizationId,
         comment: commentData,
         agentSessionId: payload.agentSession.id,
+        agentSessionPromptContext: payload.promptContext ?? undefined,
       });
     }
 
