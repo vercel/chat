@@ -40,3 +40,11 @@ export function assertAgentSessionThread(
     );
   }
 }
+
+/**
+ * Get a user display name from its profile URL.
+ * Bit of a hack to avoid fetching the user just to get the display name.
+ */
+export function getUserNameFromProfileUrl(url: string): string {
+  return url.replace("https://linear.app/gitbook-x/profiles/", "");
+}

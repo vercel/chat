@@ -44,6 +44,7 @@ import type {
 } from "./types";
 import {
   assertAgentSessionThread,
+  getUserNameFromProfileUrl,
   type LinearAgentSessionThreadId,
   renderMessageToLinearMarkdown,
 } from "./utils";
@@ -723,33 +724,65 @@ export class LinearAdapter
   private async buildAgentSessionMessage(
     payload: AgentSessionEventWebhookPayload
   ): Promise<Message<LinearRawMessage> | null> {
+    this.logger.info("[DEBUGLINEAR] buildAgentSessionMessage:start", {
+      action: payload.action,
+      agentSessionId: payload.agentSession.id,
+      commentId:
+        payload.agentSession.comment?.id ?? payload.agentSession.commentId,
+      createdAtType: typeof payload.createdAt,
+      hasCommentBody: payload.agentSession.comment?.body != null,
+      hasCommentUserId: Boolean(payload.agentSession.comment?.userId),
+      issueId:
+        payload.agentSession.issueId ?? payload.agentSession.issue?.id ?? null,
+    });
+
     const issueId =
       payload.agentSession.issueId ?? payload.agentSession.issue?.id;
     if (!issueId) {
+      this.logger.warn(
+        "[DEBUGLINEAR] buildAgentSessionMessage:missing-issue-id",
+        {
+          agentSessionId: payload.agentSession.id,
+        }
+      );
       return null;
     }
 
-    if (
-      payload.agentSession.comment?.body != null &&
-      payload.agentSession.comment.userId
-    ) {
-      const user = await this.getClient().user(
-        payload.agentSession.comment.userId
-      );
+    //
+    // When user is posting a new message in an agent session thread
+    //
+    if (payload.action === "prompted") {
+      const { agentActivity } = payload;
+      if (!agentActivity) {
+        this.logger.warn("Missing agent activity for prompted action", {
+          agentSessionId: payload.agentSession.id,
+        });
+        return null;
+      }
+
+      if (!agentActivity.sourceCommentId) {
+        this.logger.warn("Missing source comment ID for agent activity", {
+          agentSessionId: payload.agentSession.id,
+          agentActivityId: agentActivity.id,
+        });
+        return null;
+      }
+
+      const content = agentActivity.content as { type: "prompt"; body: string };
       const commentData: LinearCommentData = {
-        id: payload.agentSession.comment.id,
-        body: payload.agentSession.comment.body,
+        id: agentActivity.sourceCommentId,
+        body: content.body,
         issueId,
         user: {
-          id: user.id,
-          displayName: user.displayName,
-          fullName: user.name,
-          email: user.email,
-          avatarUrl: user.avatarUrl ?? undefined,
+          id: agentActivity.user.id,
+          displayName: getUserNameFromProfileUrl(agentActivity.user.url),
+          fullName: agentActivity.user.name,
+          email: agentActivity.user.email,
+          avatarUrl: agentActivity.user.avatarUrl ?? undefined,
         },
-        parentId: undefined,
-        createdAt: payload.createdAt.toISOString(),
-        updatedAt: payload.createdAt.toISOString(),
+        parentId: payload.agentSession.comment?.id,
+        createdAt: agentActivity.createdAt,
+        updatedAt: agentActivity.createdAt,
         url: payload.agentSession.url ?? undefined,
       };
 
@@ -761,18 +794,58 @@ export class LinearAdapter
       });
     }
 
-    const commentId =
-      payload.agentSession.comment?.id ?? payload.agentSession.commentId;
-    if (!commentId) {
-      return null;
+    //
+    // When user is mentioning the bot in an issue, creating a new agent session and posting the first message
+    //
+    if (payload.action === "created") {
+      const { agentSession } = payload;
+      if (!agentSession.creator) {
+        this.logger.warn("Missing creator for agent session", {
+          agentSessionId: payload.agentSession.id,
+        });
+        return null;
+      }
+
+      if (!agentSession.comment) {
+        this.logger.warn("Missing comment for agent session", {
+          agentSessionId: payload.agentSession.id,
+        });
+        return null;
+      }
+
+      const commentData: LinearCommentData = {
+        id: agentSession.comment.id,
+        body: agentSession.comment.body,
+        issueId,
+        user: {
+          id: agentSession.creator.id,
+          displayName: getUserNameFromProfileUrl(agentSession.creator.url),
+          fullName: agentSession.creator.name,
+          email: agentSession.creator.email,
+          avatarUrl: agentSession.creator.avatarUrl ?? undefined,
+        },
+        parentId: undefined,
+        // @ts-expect-error - @linear/sdk types are incorrect as they don't transform string dates to Date objects for webhook payloads
+        createdAt: payload.createdAt,
+        // @ts-expect-error - @linear/sdk types are incorrect as they don't transform string dates to Date objects for webhook payloads
+        updatedAt: payload.createdAt,
+        url: payload.agentSession.url ?? undefined,
+      };
+
+      return this.parseMessage({
+        kind: "agent_session_comment",
+        organizationId: payload.organizationId,
+        comment: commentData,
+        agentSessionId: payload.agentSession.id,
+      });
     }
 
-    return await this.buildMessageFromSdkComment(
-      await this.getClient().comment({ id: commentId }),
+    this.logger.warn("Unsupported agent session event action", {
+      action: payload.action,
+      agentSessionId: payload.agentSession.id,
       issueId,
-      payload.organizationId,
-      payload.agentSession.id
-    );
+    });
+    return null;
   }
 
   private async runWebhookWithInstallation(
@@ -832,8 +905,22 @@ export class LinearAdapter
     threadId: LinearAgentSessionThreadId,
     result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
+    this.logger.info("[DEBUGLINEAR] createAgentActivityMessage:start", {
+      issueId: threadId.issueId,
+      commentId: threadId.commentId ?? null,
+      agentSessionId: threadId.agentSessionId,
+    });
     const activity = await result.agentActivity;
     if (!(result.success && activity)) {
+      this.logger.error(
+        "[DEBUGLINEAR] createAgentActivityMessage:missing-activity",
+        {
+          issueId: threadId.issueId,
+          commentId: threadId.commentId ?? null,
+          agentSessionId: threadId.agentSessionId,
+          success: result.success,
+        }
+      );
       throw new AdapterError(
         `Failed to create Linear agent activity for session ${threadId.agentSessionId}`,
         "linear"
@@ -842,6 +929,15 @@ export class LinearAdapter
 
     const sourceComment = await activity.sourceComment;
     if (!sourceComment) {
+      this.logger.error(
+        "[DEBUGLINEAR] createAgentActivityMessage:missing-source-comment",
+        {
+          activityId: activity.id,
+          issueId: threadId.issueId,
+          commentId: threadId.commentId ?? null,
+          agentSessionId: threadId.agentSessionId,
+        }
+      );
       throw new AdapterError(
         `Failed to resolve source comment for Linear agent activity ${activity.id}`,
         "linear"
@@ -849,12 +945,30 @@ export class LinearAdapter
     }
 
     if (!activity.agentSessionId) {
+      this.logger.error(
+        "[DEBUGLINEAR] createAgentActivityMessage:missing-agent-session-id",
+        {
+          activityId: activity.id,
+          issueId: threadId.issueId,
+          commentId: threadId.commentId ?? null,
+        }
+      );
       throw new AdapterError(
         `Missing agentSessionId for Linear agent activity ${activity.id}`,
         "linear"
       );
     }
 
+    this.logger.info(
+      "[DEBUGLINEAR] createAgentActivityMessage:resolved-source-comment",
+      {
+        activityId: activity.id,
+        sourceCommentId: sourceComment.id,
+        sourceCommentParentId: sourceComment.parentId ?? null,
+        activityAgentSessionId: activity.agentSessionId,
+        organizationId: this.getOrganizationId(),
+      }
+    );
     return this.buildMessageFromSdkComment(
       sourceComment,
       threadId.issueId,
@@ -929,7 +1043,35 @@ export class LinearAdapter
             return;
           }
 
-          await this.handleAgentSessionEvent(payload, options);
+          this.logger.info("[DEBUGLINEAR] handleWebhook:agent-session-event", {
+            action: payload.action,
+            agentSessionId: payload.agentSession.id,
+            commentId:
+              payload.agentSession.comment?.id ??
+              payload.agentSession.commentId,
+            createdAtType: typeof payload.createdAt,
+            hasAgentActivity: Boolean(payload.agentActivity),
+            hasSessionComment: Boolean(payload.agentSession.comment),
+            organizationId: payload.organizationId,
+          });
+
+          try {
+            await this.handleAgentSessionEvent(payload, options);
+          } catch (error) {
+            this.logger.error(
+              "[DEBUGLINEAR] handleWebhook:agent-session-event:error",
+              {
+                action: payload.action,
+                agentSessionId: payload.agentSession.id,
+                commentId:
+                  payload.agentSession.comment?.id ??
+                  payload.agentSession.commentId,
+                organizationId: payload.organizationId,
+                error,
+              }
+            );
+            throw error;
+          }
         }
       );
     });
@@ -1026,17 +1168,26 @@ export class LinearAdapter
     payload: AgentSessionEventWebhookPayload,
     options?: WebhookOptions
   ): Promise<void> {
+    this.logger.info("[DEBUGLINEAR] handleAgentSessionEvent:start", {
+      action: payload.action,
+      agentSessionId: payload.agentSession?.id ?? null,
+      commentId:
+        payload.agentSession?.comment?.id ??
+        payload.agentSession?.commentId ??
+        null,
+      issueId:
+        payload.agentSession?.issueId ??
+        payload.agentSession?.issue?.id ??
+        null,
+      createdAtValue: payload.createdAt,
+      mode: this.mode,
+      organizationId: payload.organizationId,
+    });
+
     if (!this.chat) {
       this.logger.warn(
         "Chat instance not initialized, ignoring agent session event"
       );
-      return;
-    }
-
-    if (!payload.agentSession?.id) {
-      this.logger.warn("Malformed Linear agent session event", {
-        payload,
-      });
       return;
     }
 
@@ -1050,13 +1201,17 @@ export class LinearAdapter
       );
       return;
     }
-    if (message.author.userId === this.botUserId) {
-      this.logger.debug("Ignoring agent session message from self", {
-        messageId: message.id,
-      });
-      return;
-    }
 
+    this.logger.info("[DEBUGLINEAR] handleAgentSessionEvent:dispatch", {
+      action: payload.action,
+      agentSessionId: payload.agentSession.id,
+      threadId: message.threadId,
+      messageId: message.id,
+      isMention: message.isMention,
+      isMe: message.author.isMe,
+      isBot: message.author.isBot,
+      body: message.text,
+    });
     this.chat.processMessage(this, message.threadId, message, options);
   }
 
@@ -1837,6 +1992,7 @@ export class LinearAdapter
 
     return new Message<LinearRawMessage>({
       id: raw.comment.id,
+      isMention: raw.kind === "agent_session_comment", // Agent session comments are treated as mentions as they directly target the bot
       threadId: this.encodeThreadId({
         issueId: raw.comment.issueId,
         commentId: raw.comment.id,
