@@ -645,7 +645,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       }
 
       const content = renderer.render();
-      if (content !== lastEditContent) {
+      if (content.trim() && content !== lastEditContent) {
         try {
           await this.adapter.editMessage(threadIdForEdits, msg.id, {
             markdown: content,
@@ -671,12 +671,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
         renderer.push(chunk);
         if (!msg) {
           const content = renderer.render();
-          msg = await this.adapter.postMessage(this.id, {
-            markdown: content,
-          });
-          threadIdForEdits = msg.threadId || this.id;
-          lastEditContent = content;
-          scheduleNextEdit();
+          if (content.trim()) {
+            msg = await this.adapter.postMessage(this.id, {
+              markdown: content,
+            });
+            threadIdForEdits = msg.threadId || this.id;
+            lastEditContent = content;
+            scheduleNextEdit();
+          }
         }
       }
     } finally {
@@ -697,13 +699,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     if (!msg) {
       msg = await this.adapter.postMessage(this.id, {
-        markdown: accumulated,
+        markdown: accumulated.trim() ? accumulated : " ",
       });
       threadIdForEdits = msg.threadId || this.id;
       lastEditContent = accumulated;
     }
 
-    if (finalContent !== lastEditContent) {
+    if (finalContent.trim() && finalContent !== lastEditContent) {
       await this.adapter.editMessage(threadIdForEdits, msg.id, {
         markdown: accumulated,
       });
