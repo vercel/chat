@@ -1,5 +1,6 @@
 ---
-name: chat-sdk
+
+## name: chat-sdk
 description: >
   Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
   (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot,
@@ -7,15 +8,42 @@ description: >
   commands, cards, modals, files, or AI streaming,
   (3) Set up webhook routes or multi-adapter bots,
   (4) Send rich cards or streamed AI responses to chat platforms,
-  (5) Build or maintain a custom adapter or state adapter.
+  (5) Build or maintain a custom adapter or state adapter,
+  (6) Scaffold a new bot project with create-bot.
   Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "google chat bot", "discord bot",
   "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
-  "state adapter", "build adapter", and building bots that work across multiple chat platforms.
----
+  "state adapter", "build adapter", "create-bot", "scaffold bot", and building bots that work
+  across multiple chat platforms.
 
 # Chat SDK
 
 Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp. Write bot logic once, deploy everywhere.
+
+## Scaffold a new project
+
+The `create-bot` CLI scaffolds a complete Next.js bot project with adapters, environment variables, and a webhook route:
+
+```bash
+npx create-bot my-bot
+```
+
+It supports non-interactive usage for CI or scripting:
+
+```bash
+npx create-bot my-bot --adapter slack discord --adapter redis -d "My bot" --pm pnpm -y
+```
+
+Key flags: `--adapter <values...>` (platform or state adapters), `-d <text>` (description), `--pm <manager>` (npm/yarn/pnpm/bun), `-y` (skip confirmations), `-q` (quiet output). Run `npx create-bot --help` for the full list.
+
+The scaffolded project structure:
+
+```
+src/
+  lib/bot.ts                            # Bot config — adapters, state, handlers
+  app/api/webhooks/[platform]/route.ts  # Webhook route (all platforms)
+.env.example                            # Required environment variables
+next.config.ts                          # Next.js config
+```
 
 ## Start with published sources
 
@@ -32,6 +60,7 @@ node_modules/chat/docs/guides/             # framework/platform guides
 If one of the paths below does not exist, that package is not installed in the project yet.
 
 Read these before writing code:
+
 - `node_modules/chat/docs/getting-started.mdx` — install and setup
 - `node_modules/chat/docs/usage.mdx` — `Chat` config and lifecycle
 - `node_modules/chat/docs/handling-events.mdx` — event routing and handlers
@@ -90,21 +119,23 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ## Event handlers
 
-| Handler | Trigger |
-|---------|---------|
-| `onNewMention` | Bot @-mentioned in an unsubscribed thread |
-| `onDirectMessage` | New DM in an unsubscribed DM thread |
-| `onSubscribedMessage` | Any message in a subscribed thread |
-| `onNewMessage(regex)` | Regex match in an unsubscribed thread |
-| `onReaction(emojis?)` | Emoji added or removed |
-| `onAction(actionIds?)` | Button clicks and select/radio interactions |
-| `onModalSubmit(callbackId?)` | Modal form submitted |
-| `onModalClose(callbackId?)` | Modal dismissed/cancelled |
-| `onSlashCommand(commands?)` | Slash command invocation |
-| `onAssistantThreadStarted` | Slack assistant thread opened |
-| `onAssistantContextChanged` | Slack assistant context changed |
-| `onAppHomeOpened` | Slack App Home opened |
-| `onMemberJoinedChannel` | Slack member joined channel event |
+
+| Handler                      | Trigger                                     |
+| ---------------------------- | ------------------------------------------- |
+| `onNewMention`               | Bot @-mentioned in an unsubscribed thread   |
+| `onDirectMessage`            | New DM in an unsubscribed DM thread         |
+| `onSubscribedMessage`        | Any message in a subscribed thread          |
+| `onNewMessage(regex)`        | Regex match in an unsubscribed thread       |
+| `onReaction(emojis?)`        | Emoji added or removed                      |
+| `onAction(actionIds?)`       | Button clicks and select/radio interactions |
+| `onModalSubmit(callbackId?)` | Modal form submitted                        |
+| `onModalClose(callbackId?)`  | Modal dismissed/cancelled                   |
+| `onSlashCommand(commands?)`  | Slash command invocation                    |
+| `onAssistantThreadStarted`   | Slack assistant thread opened               |
+| `onAssistantContextChanged`  | Slack assistant context changed             |
+| `onAppHomeOpened`            | Slack App Home opened                       |
+| `onMemberJoinedChannel`      | Slack member joined channel event           |
+
 
 Read `node_modules/chat/docs/handling-events.mdx`, `node_modules/chat/docs/actions.mdx`, `node_modules/chat/docs/modals.mdx`, and `node_modules/chat/docs/slash-commands.mdx` before wiring handlers. `onDirectMessage` behavior is documented in `node_modules/chat/docs/direct-messages.mdx`.
 
@@ -124,6 +155,7 @@ bot.onNewMention(async (thread, message) => {
 ```
 
 Key details:
+
 - `streamingUpdateIntervalMs` controls post+edit fallback cadence
 - `fallbackStreamingPlaceholderText` defaults to `"..."`; set `null` to disable
 - Structured `StreamChunk` support is Slack-only; other adapters ignore non-text chunks
@@ -133,9 +165,11 @@ Key details:
 Set `jsxImportSource: "chat"` in `tsconfig.json`.
 
 Card components:
+
 - `Card`, `CardText`, `Section`, `Fields`, `Field`, `Button`, `CardLink`, `LinkButton`, `Actions`, `Select`, `SelectOption`, `RadioSelect`, `Table`, `Image`, `Divider`
 
 Modal components:
+
 - `Modal`, `TextInput`, `Select`, `SelectOption`, `RadioSelect`
 
 ```tsx
@@ -152,56 +186,18 @@ await thread.post(
 
 ## Adapter inventory
 
-### Official platform adapters
-
-| Platform | Package | Factory |
-|---------|---------|---------|
-| Slack | `@chat-adapter/slack` | `createSlackAdapter` |
-| Microsoft Teams | `@chat-adapter/teams` | `createTeamsAdapter` |
-| Google Chat | `@chat-adapter/gchat` | `createGoogleChatAdapter` |
-| Discord | `@chat-adapter/discord` | `createDiscordAdapter` |
-| GitHub | `@chat-adapter/github` | `createGitHubAdapter` |
-| Linear | `@chat-adapter/linear` | `createLinearAdapter` |
-| Telegram | `@chat-adapter/telegram` | `createTelegramAdapter` |
-| WhatsApp Business Cloud | `@chat-adapter/whatsapp` | `createWhatsAppAdapter` |
-
-### Official state adapters
-
-| State backend | Package | Factory |
-|--------------|---------|---------|
-| Redis | `@chat-adapter/state-redis` | `createRedisState` |
-| ioredis | `@chat-adapter/state-ioredis` | `createIoRedisState` |
-| PostgreSQL | `@chat-adapter/state-pg` | `createPostgresState` |
-| Memory | `@chat-adapter/state-memory` | `createMemoryState` |
-
-### Community adapters
-
-- `chat-state-cloudflare-do`
-- `@beeper/chat-adapter-matrix`
-- `chat-adapter-imessage`
-- `@bitbasti/chat-adapter-webex`
-- `@resend/chat-sdk-adapter`
-- `@zernio/chat-sdk-adapter`
-- `chat-adapter-baileys`
-- `@liveblocks/chat-sdk-adapter`
-- `chat-adapter-sendblue`
-- `chat-adapter-zalo`
-
-### Coming-soon platform entries
-
-- Instagram
-- Signal
-- X
-- Messenger
+For the full list of official, vendor-official, and community adapters (platform and state), see https://chat-sdk.dev/adapters.
 
 ## Building a custom adapter
 
 Read these published docs first:
+
 - `node_modules/chat/docs/contributing/building.mdx`
 - `node_modules/chat/docs/contributing/testing.mdx`
 - `node_modules/chat/docs/contributing/publishing.mdx`
 
 Also inspect:
+
 - `node_modules/chat/dist/index.d.ts` — `Adapter` and related interfaces
 - `node_modules/@chat-adapter/shared/dist/index.d.ts` — shared errors and utilities
 - Installed official adapter `dist/index.d.ts` files — reference implementations for config and APIs
