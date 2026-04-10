@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "getting-started",
+    "create-bot",
     "---Usage---",
     "usage",
     "threads-messages-channels",

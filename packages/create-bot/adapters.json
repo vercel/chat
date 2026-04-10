@@ -1,0 +1,386 @@
+{
+  "platformAdapters": [
+    {
+      "name": "Slack",
+      "value": "slack",
+      "package": "@chat-adapter/slack",
+      "factoryFn": "createSlackAdapter",
+      "typeName": "SlackAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "SLACK_SIGNING_SECRET",
+          "description": "Slack app signing secret",
+          "required": true
+        },
+        {
+          "name": "SLACK_BOT_TOKEN",
+          "description": "Slack bot OAuth token (xoxb-...)",
+          "required": true
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Microsoft Teams",
+      "value": "teams",
+      "package": "@chat-adapter/teams",
+      "factoryFn": "createTeamsAdapter",
+      "typeName": "TeamsAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "TEAMS_APP_ID",
+          "description": "Teams app (client) ID",
+          "required": true
+        },
+        {
+          "name": "TEAMS_APP_PASSWORD",
+          "description": "Teams app password (client secret)",
+          "required": true
+        },
+        {
+          "name": "TEAMS_APP_TENANT_ID",
+          "description": "Azure AD tenant ID (for single-tenant apps)",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Google Chat",
+      "value": "gchat",
+      "package": "@chat-adapter/gchat",
+      "factoryFn": "createGoogleChatAdapter",
+      "typeName": "GoogleChatAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "GOOGLE_CHAT_CREDENTIALS",
+          "description": "Service account JSON string",
+          "required": true
+        },
+        {
+          "name": "GOOGLE_CHAT_USE_ADC",
+          "description": "Use Application Default Credentials (set to \"true\")",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Discord",
+      "value": "discord",
+      "package": "@chat-adapter/discord",
+      "factoryFn": "createDiscordAdapter",
+      "typeName": "DiscordAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "DISCORD_BOT_TOKEN",
+          "description": "Discord bot token",
+          "required": true
+        },
+        {
+          "name": "DISCORD_PUBLIC_KEY",
+          "description": "Discord application public key",
+          "required": true
+        },
+        {
+          "name": "DISCORD_APPLICATION_ID",
+          "description": "Discord application ID",
+          "required": true
+        }
+      ],
+      "serverExternalPackages": [
+        "discord.js",
+        "@discordjs/ws",
+        "@discordjs/voice",
+        "zlib-sync",
+        "bufferutil",
+        "utf-8-validate"
+      ]
+    },
+    {
+      "name": "Telegram",
+      "value": "telegram",
+      "package": "@chat-adapter/telegram",
+      "factoryFn": "createTelegramAdapter",
+      "typeName": "TelegramAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "TELEGRAM_BOT_TOKEN",
+          "description": "Telegram bot token from @BotFather",
+          "required": true
+        },
+        {
+          "name": "TELEGRAM_WEBHOOK_SECRET_TOKEN",
+          "description": "Secret token for webhook verification",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "WhatsApp",
+      "value": "whatsapp",
+      "package": "@chat-adapter/whatsapp",
+      "factoryFn": "createWhatsAppAdapter",
+      "typeName": "WhatsAppAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "WHATSAPP_ACCESS_TOKEN",
+          "description": "WhatsApp Cloud API access token",
+          "required": true
+        },
+        {
+          "name": "WHATSAPP_PHONE_NUMBER_ID",
+          "description": "WhatsApp phone number ID",
+          "required": true
+        },
+        {
+          "name": "WHATSAPP_APP_SECRET",
+          "description": "WhatsApp app secret for webhook verification",
+          "required": false
+        },
+        {
+          "name": "WHATSAPP_VERIFY_TOKEN",
+          "description": "Webhook verification token",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "GitHub",
+      "value": "github",
+      "package": "@chat-adapter/github",
+      "factoryFn": "createGitHubAdapter",
+      "typeName": "GitHubAdapter",
+      "category": "Developer Tools",
+      "envVars": [
+        {
+          "name": "GITHUB_WEBHOOK_SECRET",
+          "description": "GitHub webhook secret",
+          "required": true
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "description": "GitHub personal access token (simple auth)",
+          "required": false
+        },
+        {
+          "name": "GITHUB_APP_ID",
+          "description": "GitHub App ID (app auth)",
+          "required": false
+        },
+        {
+          "name": "GITHUB_PRIVATE_KEY",
+          "description": "GitHub App private key (app auth)",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Linear",
+      "value": "linear",
+      "package": "@chat-adapter/linear",
+      "factoryFn": "createLinearAdapter",
+      "typeName": "LinearAdapter",
+      "category": "Developer Tools",
+      "envVars": [
+        {
+          "name": "LINEAR_WEBHOOK_SECRET",
+          "description": "Linear webhook signing secret",
+          "required": true
+        },
+        {
+          "name": "LINEAR_API_KEY",
+          "description": "Linear API key",
+          "required": false
+        },
+        {
+          "name": "LINEAR_ACCESS_TOKEN",
+          "description": "Linear OAuth access token",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Beeper Matrix",
+      "value": "matrix",
+      "package": "@beeper/chat-adapter-matrix",
+      "factoryFn": "createMatrixAdapter",
+      "typeName": "MatrixAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "MATRIX_BASE_URL",
+          "description": "Matrix homeserver URL",
+          "required": true
+        },
+        {
+          "name": "MATRIX_ACCESS_TOKEN",
+          "description": "Matrix access token",
+          "required": true
+        },
+        {
+          "name": "MATRIX_USER_ID",
+          "description": "Matrix user ID",
+          "required": true
+        },
+        {
+          "name": "MATRIX_RECOVERY_KEY",
+          "description": "Matrix recovery key",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Photon iMessage",
+      "value": "imessage",
+      "package": "chat-adapter-imessage",
+      "factoryFn": "createiMessageAdapter",
+      "typeName": "iMessageAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "IMESSAGE_SERVER_URL",
+          "description": "Photon iMessage server URL",
+          "required": true
+        },
+        {
+          "name": "IMESSAGE_API_KEY",
+          "description": "Photon iMessage API key",
+          "required": true
+        },
+        {
+          "name": "IMESSAGE_LOCAL",
+          "description": "Use local on-device iMessage integration",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Resend",
+      "value": "resend",
+      "package": "@resend/chat-sdk-adapter",
+      "factoryFn": "createResendAdapter",
+      "typeName": "ResendAdapter",
+      "category": "Developer Tools",
+      "envVars": [
+        {
+          "name": "RESEND_API_KEY",
+          "description": "Resend API key",
+          "required": true
+        },
+        {
+          "name": "RESEND_WEBHOOK_SECRET",
+          "description": "Resend webhook signing secret",
+          "required": true
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Zernio",
+      "value": "zernio",
+      "package": "@zernio/chat-sdk-adapter",
+      "factoryFn": "createZernioAdapter",
+      "typeName": "ZernioAdapter",
+      "category": "Messaging Platforms",
+      "envVars": [
+        {
+          "name": "ZERNIO_API_KEY",
+          "description": "Zernio API key",
+          "required": true
+        },
+        {
+          "name": "ZERNIO_WEBHOOK_SECRET",
+          "description": "Zernio webhook signing secret",
+          "required": false
+        }
+      ],
+      "serverExternalPackages": []
+    },
+    {
+      "name": "Liveblocks",
+      "value": "liveblocks",
+      "package": "@liveblocks/chat-sdk-adapter",
+      "factoryFn": "createLiveblocksAdapter",
+      "typeName": "LiveblocksAdapter",
+      "category": "Developer Tools",
+      "envVars": [
+        {
+          "name": "LIVEBLOCKS_SECRET_KEY",
+          "description": "Liveblocks secret key",
+          "required": true
+        },
+        {
+          "name": "LIVEBLOCKS_WEBHOOK_SECRET",
+          "description": "Liveblocks webhook signing secret",
+          "required": true
+        }
+      ],
+      "serverExternalPackages": []
+    }
+  ],
+  "stateAdapters": [
+    {
+      "name": "In-Memory",
+      "value": "memory",
+      "package": "@chat-adapter/state-memory",
+      "factoryFn": "createMemoryState",
+      "hint": "development only",
+      "envVars": []
+    },
+    {
+      "name": "Redis",
+      "value": "redis",
+      "package": "@chat-adapter/state-redis",
+      "factoryFn": "createRedisState",
+      "hint": "production — node-redis driver",
+      "envVars": [
+        {
+          "name": "REDIS_URL",
+          "description": "Redis connection URL",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ioredis",
+      "value": "ioredis",
+      "package": "@chat-adapter/state-ioredis",
+      "factoryFn": "createIoRedisState",
+      "hint": "production — ioredis driver",
+      "envVars": [
+        {
+          "name": "REDIS_URL",
+          "description": "Redis connection URL",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "PostgreSQL",
+      "value": "pg",
+      "package": "@chat-adapter/state-pg",
+      "factoryFn": "createPostgresState",
+      "hint": "production",
+      "envVars": [
+        {
+          "name": "POSTGRES_URL",
+          "description": "PostgreSQL connection URL (or DATABASE_URL)",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

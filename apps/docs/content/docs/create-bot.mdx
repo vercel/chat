@@ -1,0 +1,86 @@
+---
+title: create-bot
+description: Scaffold a new Chat SDK bot project with a single command.
+---
+
+`create-bot` is the fastest way to start a new Chat SDK project. It scaffolds a Next.js app with your chosen platform adapters, state adapter, environment variables, and webhook route — ready to run.
+
+## Quick start
+
+```bash tab="npm"
+npx create-bot my-bot
+```
+
+```bash tab="pnpm"
+pnpm create bot my-bot
+```
+
+```bash tab="yarn"
+yarn create bot my-bot
+```
+
+```bash tab="bun"
+bunx create-bot my-bot
+```
+
+The CLI walks you through selecting platform adapters (Slack, Teams, Discord, etc.) and a state adapter (Redis, PostgreSQL, or in-memory), then installs dependencies automatically.
+
+## What you get
+
+```
+my-bot/
+  src/
+    lib/bot.ts                              # Bot config with your adapters and handlers
+    app/api/webhooks/[platform]/route.ts    # Dynamic webhook route for all platforms
+  .env.example                              # Pre-populated environment variables
+  next.config.ts                            # Next.js config with serverExternalPackages
+  package.json                              # Dependencies for your selected adapters
+  tsconfig.json                             # TypeScript config with Chat SDK JSX runtime
+```
+
+The generated `bot.ts` includes starter handlers for `onNewMention` and `onSubscribedMessage` so you can start testing immediately.
+
+## Non-interactive usage
+
+Every prompt can be skipped with flags, making `create-bot` fully scriptable for CI, automation, and AI agents:
+
+```bash
+npx create-bot my-bot -d 'My bot' --adapter slack teams redis -yq
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-d, --description <text>` | Project description |
+| `--adapter <values...>` | Platform or state adapters to include (skips interactive prompt) |
+| `--pm <manager>` | Package manager to use (`npm`, `yarn`, `pnpm`, `bun`) |
+| `-y, --yes` | Skip confirmation prompts (accept defaults) |
+| `-q, --quiet` | Suppress non-essential output |
+| `--no-color` | Disable color output (respects `NO_COLOR`) |
+
+### Available adapter values
+
+**Messaging Platforms:** `slack`, `teams`, `gchat`, `discord`, `telegram`, `whatsapp`, `matrix`, `imessage`, `zernio`
+
+**Developer Tools:** `github`, `linear`, `resend`, `liveblocks`
+
+**State:** `memory`, `redis`, `ioredis`, `pg`
+
+## After scaffolding
+
+1. Copy the example environment file and fill in your platform credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+2. Start the dev server:
+
+```bash
+npm run dev
+```
+
+3. Expose your local server (e.g. with [ngrok](https://ngrok.com)) and configure your platform's webhook URL to `https://<your-url>/api/webhooks/<platform>`.
+
+See the [platform adapter docs](/docs/adapters) for setup instructions specific to each platform.
