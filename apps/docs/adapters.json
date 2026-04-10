@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Zoom",
+    "slug": "zoom",
+    "type": "platform",
+    "description": "Build bots for Zoom Team Chat with webhook verification, message threading, and bidirectional markdown formatting.",
+    "packageName": "@chat-adapter/zoom",
+    "icon": "zoom",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-zoom"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",

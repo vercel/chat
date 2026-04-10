@@ -2,20 +2,20 @@
 name: chat-sdk
 description: >
   Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
-  (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot,
+  (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, WhatsApp, or Zoom bot,
   (2) Use Chat SDK to handle mentions, direct messages, subscribed threads, reactions, slash
   commands, cards, modals, files, or AI streaming,
   (3) Set up webhook routes or multi-adapter bots,
   (4) Send rich cards or streamed AI responses to chat platforms,
   (5) Build or maintain a custom adapter or state adapter.
   Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "google chat bot", "discord bot",
-  "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
+  "telegram bot", "whatsapp bot", "zoom bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
   "state adapter", "build adapter", and building bots that work across multiple chat platforms.
 ---
 
 # Chat SDK
 
-Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp. Write bot logic once, deploy everywhere.
+Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, WhatsApp, and Zoom. Write bot logic once, deploy everywhere.
 
 ## Start with published sources
 
@@ -82,7 +82,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 ## Core concepts
 
 - **Chat** — main entry point; coordinates adapters, routing, locks, and state
-- **Adapters** — platform-specific integrations for Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp
+- **Adapters** — platform-specific integrations for Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, WhatsApp, and Zoom
 - **State adapters** — persistence for subscriptions, locks, dedupe, and thread state
 - **Thread** — conversation context with `post()`, `stream()`, `subscribe()`, `setState()`, `startTyping()`
 - **Message** — normalized content with `text`, `formatted`, attachments, author info, and platform `raw`
@@ -164,6 +164,7 @@ await thread.post(
 | Linear | `@chat-adapter/linear` | `createLinearAdapter` |
 | Telegram | `@chat-adapter/telegram` | `createTelegramAdapter` |
 | WhatsApp Business Cloud | `@chat-adapter/whatsapp` | `createWhatsAppAdapter` |
+| Zoom | `@chat-adapter/zoom` | `createZoomAdapter` |
 
 ### Official state adapters
 
