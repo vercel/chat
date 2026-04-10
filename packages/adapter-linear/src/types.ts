@@ -198,6 +198,23 @@ export type LinearAgentSessionThreadId = LinearThreadId & {
 // =============================================================================
 
 /**
+ * Data associated with a Linear actor.
+ */
+export interface LinearActorData {
+  /** URL to the actor's avatar image */
+  avatarUrl: string | undefined;
+  /** Actor's display name */
+  displayName: string;
+  /** Actor's email address */
+  email: string | undefined;
+  /** Actor's full name */
+  fullName: string;
+  /** Actor UUID */
+  id: string;
+  type: "user" | "bot";
+}
+
+/**
  * Comment data stored in a LinearRawMessage, normalized from webhook payloads and API responses.
  */
 export interface LinearCommentData {
@@ -216,18 +233,7 @@ export interface LinearCommentData {
   /** Direct URL to the comment */
   url: string | undefined;
   /** User who wrote the comment */
-  user: {
-    /** User UUID */
-    id: string;
-    /** User's display name */
-    displayName: string;
-    /** User's full name */
-    fullName: string;
-    /** User's email address */
-    email: string | undefined;
-    /** URL to the user's avatar image */
-    avatarUrl: string | undefined;
-  };
+  user: LinearActorData;
 }
 
 interface LinearRawMessageBase {

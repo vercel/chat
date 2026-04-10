@@ -30,6 +30,7 @@ import type {
 import { ConsoleLogger, Message, StreamingMarkdownRenderer } from "chat";
 import { LinearFormatConverter } from "./markdown";
 import type {
+  LinearActorData,
   LinearAdapterAutoConfig,
   LinearAdapterConfig,
   LinearAdapterMode,
@@ -722,25 +723,47 @@ export class LinearAdapter
     issueId: string,
     agentSessionId?: string
   ): Promise<Message<LinearRawMessage>> {
-    const user = await comment.user;
-    if (!user) {
-      throw new AdapterError(
-        `Unable to determine user for comment ${comment.id}`,
-        "linear"
-      );
+    let user: LinearActorData;
+    if (comment.userId) {
+      const fetchedUser = await comment.user;
+      if (!fetchedUser) {
+        throw new AdapterError(
+          `User with ID ${comment.userId} not found for comment ${comment.id}`,
+          "linear"
+        );
+      }
+      user = {
+        type: "user",
+        id: fetchedUser.id,
+        displayName: fetchedUser.displayName,
+        fullName: fetchedUser.name,
+        email: fetchedUser.email,
+        avatarUrl: fetchedUser.avatarUrl ?? undefined,
+      };
+    } else {
+      // If the comment has no userId, it was likely created by an app. Use the bot user as fallback.
+      const botActor = await comment.botActor;
+      if (!botActor) {
+        throw new AdapterError(
+          `Comment ${comment.id} has no userId and no botActor, cannot determine author.`,
+          "linear"
+        );
+      }
+      user = {
+        type: "bot",
+        id: botActor.id ?? this.botUserId,
+        displayName: botActor.userDisplayName ?? botActor.name ?? "unknown",
+        fullName: botActor.name ?? botActor.userDisplayName ?? "unknown",
+        email: undefined,
+        avatarUrl: botActor.avatarUrl ?? undefined,
+      };
     }
 
     const commentData: LinearCommentData = {
       id: comment.id,
       body: comment.body,
       issueId,
-      user: {
-        id: user.id,
-        displayName: user.displayName,
-        fullName: user.name,
-        email: user.email,
-        avatarUrl: user.avatarUrl ?? undefined,
-      },
+      user,
       parentId: comment.parentId ?? undefined,
       createdAt: comment.createdAt.toISOString(),
       updatedAt: comment.updatedAt.toISOString(),
@@ -801,6 +824,7 @@ export class LinearAdapter
         body: content.body,
         issueId,
         user: {
+          type: "user",
           id: agentActivity.user.id,
           displayName: getUserNameFromProfileUrl(agentActivity.user.url),
           fullName: agentActivity.user.name,
@@ -827,9 +851,11 @@ export class LinearAdapter
     //
     if (payload.action === "created") {
       const { agentSession } = payload;
-      if (!agentSession.creator) {
-        this.logger.warn("Missing creator for agent session", {
+
+      if (agentSession.appUserId !== this.botUserId) {
+        this.logger.warn("Ignoring agent session event from another bot", {
           agentSessionId: payload.agentSession.id,
+          appUserId: agentSession.appUserId,
         });
         return null;
       }
@@ -845,13 +871,23 @@ export class LinearAdapter
         id: agentSession.comment.id,
         body: agentSession.comment.body,
         issueId,
-        user: {
-          id: agentSession.creator.id,
-          displayName: getUserNameFromProfileUrl(agentSession.creator.url),
-          fullName: agentSession.creator.name,
-          email: agentSession.creator.email,
-          avatarUrl: agentSession.creator.avatarUrl ?? undefined,
-        },
+        user: agentSession.creator
+          ? {
+              type: "user",
+              id: agentSession.creator.id,
+              displayName: getUserNameFromProfileUrl(agentSession.creator.url),
+              fullName: agentSession.creator.name,
+              email: agentSession.creator.email,
+              avatarUrl: agentSession.creator.avatarUrl ?? undefined,
+            }
+          : {
+              type: "bot",
+              id: this.botUserId,
+              displayName: this.userName,
+              fullName: this.userName,
+              email: undefined,
+              avatarUrl: undefined,
+            },
         parentId: undefined,
         // @ts-expect-error - @linear/sdk types are incorrect as they don't transform string dates to Date objects for webhook payloads
         createdAt: payload.createdAt,
@@ -955,6 +991,9 @@ export class LinearAdapter
     webhookHandler.on("AgentSessionEvent", async (payload) => {
       await this.withWebhookInstallation(payload.organizationId, () => {
         if (this.mode !== "agent-sessions") {
+          this.logger.warn(
+            "Received AgentSessionEvent webhook but adapter is not in agent-sessions mode, ignoring"
+          );
           return;
         }
 
@@ -1040,6 +1079,7 @@ export class LinearAdapter
       updatedAt: data.updatedAt,
       url: payload.url ?? undefined,
       user: {
+        type: "user",
         id: data.user.id,
         displayName: getUserNameFromProfileUrl(data.user.url),
         fullName: data.user.name,
@@ -1171,6 +1211,7 @@ export class LinearAdapter
           issueId: decoded.issueId,
           parentId: decoded.commentId,
           user: {
+            type: "bot",
             id: this.botUserId,
             displayName: this.userName,
             fullName: this.userName,
@@ -1235,6 +1276,7 @@ export class LinearAdapter
           issueId,
           parentId: comment.parentId ?? undefined,
           user: {
+            type: "bot",
             id: this.botUserId,
             displayName: this.userName,
             fullName: this.userName,
@@ -1837,7 +1879,7 @@ export class LinearAdapter
         userId: raw.comment.user.id,
         userName: raw.comment.user.displayName,
         fullName: raw.comment.user.fullName,
-        isBot: false,
+        isBot: raw.comment.user.type === "bot",
         isMe: raw.comment.user.id === this.botUserId,
       },
       metadata: {

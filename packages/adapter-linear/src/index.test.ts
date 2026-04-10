@@ -44,6 +44,7 @@ function createRawCommentMessage(
         fullName: user.fullName ?? "Test User",
         email: user.email,
         avatarUrl: user.avatarUrl,
+        type: user.type ?? "user",
       },
       parentId: overrides?.parentId,
       createdAt: overrides?.createdAt ?? "2025-01-29T12:00:00.000Z",
@@ -294,10 +295,11 @@ function createMockAgentActivityPayload(
         createdAt: new Date(createdAt),
         updatedAt: new Date(createdAt),
         url: `https://linear.app/comment/${id}`,
-        user: Promise.resolve({
+        user: Promise.resolve(undefined),
+        botActor: Promise.resolve({
           id: "bot-user-id",
-          displayName: "Test Bot",
           name: "Test Bot",
+          userDisplayName: "Test Bot",
         }),
       }),
     }),
@@ -440,7 +442,15 @@ function createAgentSessionPayload(overrides?: {
   action?: "created" | "prompted";
   activityBody?: string;
   activityId?: string;
+  appUserId?: string;
   commentId?: string;
+  creator?: {
+    avatarUrl?: string;
+    email?: string;
+    id: string;
+    name: string;
+    url: string;
+  } | null;
   creatorId?: string;
   creatorName?: string;
   issueId?: string;
@@ -453,12 +463,22 @@ function createAgentSessionPayload(overrides?: {
     overrides && "sourceCommentId" in overrides
       ? overrides.sourceCommentId
       : "comment-source";
+  const creator =
+    overrides && "creator" in overrides
+      ? overrides.creator
+      : {
+          id: overrides?.creatorId ?? "user-456",
+          name: overrides?.creatorName ?? "Test User",
+          email: undefined,
+          avatarUrl: undefined,
+          url: "https://linear.app/test/profiles/test-user",
+        };
 
   return {
     type: "AgentSessionEvent",
     action: overrides?.action ?? "created",
     createdAt: "2025-06-01T12:00:00.000Z",
-    appUserId: "app-user-123",
+    appUserId: overrides?.appUserId ?? "bot-user-id",
     oauthClientId: "oauth-client-123",
     organizationId: "org-123",
     webhookId: "webhook-agent-1",
@@ -467,18 +487,16 @@ function createAgentSessionPayload(overrides?: {
       overrides?.promptContext ?? "Issue TEST-1\n\n@get-bot Hello there",
     agentSession: {
       id: overrides?.sessionId ?? "agent-session-1",
+      appUserId: overrides?.appUserId ?? "bot-user-id",
       issueId: overrides?.issueId ?? "issue-123",
       commentId: overrides?.commentId ?? "comment-root",
       sourceCommentId,
       comment: {
         id: overrides?.commentId ?? "comment-root",
         body: overrides?.sourceCommentBody ?? "@test-bot Hello there",
-        userId: overrides?.creatorId ?? "user-456",
+        userId: creator?.id,
       },
-      creator: {
-        id: overrides?.creatorId ?? "user-456",
-        name: overrides?.creatorName ?? "Test User",
-      },
+      creator,
       sourceMetadata: {
         type: "comment",
         agentSessionMetadata: {
@@ -1144,9 +1162,12 @@ describe("handleWebhook - agent session events", () => {
 
     expect(response.status).toBe(200);
     expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Received AgentSessionEvent webhook but adapter is not in agent-sessions mode, ignoring"
+    );
   });
 
-  it("returns 500 for created events in agent-session mode", async () => {
+  it("dispatches created events in agent-session mode when owned by this bot", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger, "agent-sessions");
     const chat = createMockChatInstance(createMockState(), logger);
@@ -1157,8 +1178,16 @@ describe("handleWebhook - agent session events", () => {
     const request = buildWebhookRequest(body, signPayload(body));
     const response = await adapter.handleWebhook(request);
 
-    expect(response.status).toBe(500);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.threadId).toBe(
+      "linear:issue-123:c:comment-root:s:agent-session-1"
+    );
+    expect(message.author.userId).toBe("user-456");
+    expect(message.author.userName).toBe("test-user");
+    expect(message.author.isBot).toBe(false);
+    expect(message.author.isMe).toBe(false);
   });
 
   it("routes prompted events to the same session thread without mention flag", async () => {
@@ -1179,27 +1208,27 @@ describe("handleWebhook - agent session events", () => {
     expect(chat.processMessage).not.toHaveBeenCalled();
   });
 
-  it("returns 500 before dispatching created session messages", async () => {
+  it("falls back to the bot author when a created session has no creator", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger, "agent-sessions");
     const chat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof chat }).chat = chat;
 
     const payload = createAgentSessionPayload({
-      activityBody: undefined,
-      commentId: "comment-root",
-      creatorId: "user-789",
-      creatorName: "Samy",
-      sourceCommentBody: "@test-bot hello from the source comment",
-      sourceCommentId: null,
+      creator: null,
     });
     const body = JSON.stringify(payload);
     const response = await adapter.handleWebhook(
       buildWebhookRequest(body, signPayload(body))
     );
 
-    expect(response.status).toBe(500);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.author.userId).toBe("bot-user-id");
+    expect(message.author.userName).toBe("test-bot");
+    expect(message.author.isBot).toBe(true);
+    expect(message.author.isMe).toBe(true);
   });
 
   it("ignores comment webhooks in agent-session mode", async () => {
@@ -1241,11 +1270,37 @@ describe("handleWebhook - agent session events", () => {
       buildWebhookRequest(body, signPayload(body))
     );
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
     expect(mockRawRequest).not.toHaveBeenCalled();
   });
 
-  it("returns 500 for created events in multi-tenant agent-session mode", async () => {
+  it("ignores created events that belong to another bot", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      appUserId: "other-bot-id",
+    });
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Ignoring agent session event from another bot",
+      expect.objectContaining({
+        agentSessionId: "agent-session-1",
+        appUserId: "other-bot-id",
+      })
+    );
+  });
+
+  it("dispatches created events in multi-tenant agent-session mode", async () => {
     const logger = createMockLogger();
     const adapter = createMultiTenantAdapter(logger, "agent-sessions");
     const state = createMockState();
@@ -1263,8 +1318,12 @@ describe("handleWebhook - agent session events", () => {
       buildWebhookRequest(sessionBody, signPayload(sessionBody))
     );
 
-    expect(sessionResponse.status).toBe(500);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(sessionResponse.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.threadId).toBe(
+      "linear:issue-123:c:comment-abc:s:agent-session-1"
+    );
   });
 
   it("ignores comment webhooks in multi-tenant agent-session mode", async () => {
@@ -1907,6 +1966,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-1",
         body: "First comment",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T10:00:00.000Z"),
         url: "https://linear.app/comment/1",
@@ -1915,6 +1975,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-2",
         body: "Second comment",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T11:00:00.000Z"),
         updatedAt: new Date("2025-06-01T11:00:00.000Z"),
         url: "https://linear.app/comment/2",
@@ -1957,6 +2018,7 @@ describe("fetchMessages", () => {
     const mockRootComment = {
       id: "root-comment",
       body: "Root comment",
+      userId: "user-1",
       createdAt: new Date("2025-06-01T10:00:00.000Z"),
       updatedAt: new Date("2025-06-01T10:00:00.000Z"),
       url: "https://linear.app/comment/root",
@@ -1967,6 +2029,7 @@ describe("fetchMessages", () => {
         {
           id: "child-1",
           body: "Reply",
+          userId: "user-1",
           createdAt: new Date("2025-06-01T11:00:00.000Z"),
           updatedAt: new Date("2025-06-01T11:00:00.000Z"),
           url: "https://linear.app/comment/child-1",
@@ -2011,6 +2074,7 @@ describe("fetchMessages", () => {
       id: "root-comment",
       body: "@test-bot Hello",
       parentId: undefined,
+      userId: "user-1",
       createdAt: new Date("2025-06-01T10:00:00.000Z"),
       updatedAt: new Date("2025-06-01T10:00:00.000Z"),
       url: "https://linear.app/comment/root",
@@ -2029,16 +2093,18 @@ describe("fetchMessages", () => {
           createdAt: new Date("2025-06-01T10:01:00.000Z"),
           updatedAt: new Date("2025-06-01T10:01:00.000Z"),
           url: "https://linear.app/comment/bot",
-          user: Promise.resolve({
+          user: Promise.resolve(undefined),
+          botActor: Promise.resolve({
             id: "bot-id",
-            displayName: "Test Bot",
             name: "Test Bot",
+            userDisplayName: "Test Bot",
           }),
         },
         {
           id: "user-follow-up",
           body: "What is Argos?",
           parentId: "root-comment",
+          userId: "user-1",
           createdAt: new Date("2025-06-01T10:02:00.000Z"),
           updatedAt: new Date("2025-06-01T10:02:00.000Z"),
           url: "https://linear.app/comment/user-follow-up",
@@ -2075,6 +2141,8 @@ describe("fetchMessages", () => {
       "agent_session_comment",
       "agent_session_comment",
     ]);
+    expect(result.messages[1].author.isBot).toBe(true);
+    expect(result.messages[1].author.isMe).toBe(true);
     expect(result.messages[2].text).toBe("What is Argos?");
     expect(
       expectAgentSessionCommentRawMessage(result.messages[1].raw).agentSessionId
@@ -2164,6 +2232,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-edited",
         body: "Edited text",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T12:00:00.000Z"),
         url: "https://linear.app/comment/1",
@@ -2205,6 +2274,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-bot",
         body: "Bot message",
+        userId: "bot-id",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T10:00:00.000Z"),
         url: "https://linear.app/comment/bot",
@@ -2230,7 +2300,47 @@ describe("fetchMessages", () => {
     expect(result.messages[0].author.userId).toBe("bot-id");
   });
 
-  it("should handle comments with no user", async () => {
+  it("should resolve bot-authored comments from botActor when userId is missing", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
+    const mockComments = [
+      {
+        id: "comment-bot-actor",
+        body: "Delegated reply",
+        createdAt: new Date("2025-06-01T10:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+        url: "https://linear.app/comment/delegated",
+        user: Promise.resolve(undefined),
+        botActor: Promise.resolve({
+          id: "bot-id",
+          name: "Delegation Bot",
+          userDisplayName: "Delegation Bot",
+        }),
+      },
+    ];
+    const mockIssue = {
+      comments: vi.fn().mockResolvedValue({
+        nodes: mockComments,
+        pageInfo: { hasNextPage: false },
+      }),
+    };
+    const mockLinearClient = {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+    };
+    (
+      adapter as unknown as { linearClient: typeof mockLinearClient }
+    ).linearClient = mockLinearClient as never;
+
+    const result = await adapter.fetchMessages("linear:issue-abc");
+
+    expect(result.messages[0].author.userId).toBe("bot-id");
+    expect(result.messages[0].author.userName).toBe("Delegation Bot");
+    expect(result.messages[0].author.isBot).toBe(true);
+    expect(result.messages[0].author.isMe).toBe(true);
+  });
+
+  it("should throw when a comment has neither userId nor botActor", async () => {
     const adapter = createWebhookAdapter();
     setDefaultOrganizationId(adapter, "org-xyz");
     const mockComments = [
@@ -2257,7 +2367,7 @@ describe("fetchMessages", () => {
     ).linearClient = mockLinearClient as never;
 
     await expect(adapter.fetchMessages("linear:issue-abc")).rejects.toThrow(
-      "Unable to determine user for comment comment-no-user"
+      "Comment comment-no-user has no userId and no botActor, cannot determine author."
     );
   });
 });
@@ -2701,6 +2811,7 @@ describe("runtime operations", () => {
           {
             id: "comment-1",
             body: "First comment",
+            userId: "user-1",
             createdAt: new Date("2025-06-01T10:00:00.000Z"),
             updatedAt: new Date("2025-06-01T10:00:00.000Z"),
             url: "https://linear.app/comment/1",
@@ -2761,10 +2872,11 @@ describe("runtime operations", () => {
           createdAt: new Date("2025-06-01T12:00:01.000Z"),
           updatedAt: new Date("2025-06-01T12:00:01.000Z"),
           url: "https://linear.app/comment/comment-activity-123",
-          user: Promise.resolve({
+          user: Promise.resolve(undefined),
+          botActor: Promise.resolve({
             id: "bot-user-id",
-            displayName: "Test Bot",
             name: "Test Bot",
+            userDisplayName: "Test Bot",
           }),
         }),
       }),
@@ -2788,6 +2900,8 @@ describe("runtime operations", () => {
     expect(result.id).toBe("comment-activity-123");
     expect(result.raw.kind).toBe("agent_session_comment");
     expect(result.raw.organizationId).toBe("org-123");
+    expect(result.author.isBot).toBe(true);
+    expect(result.author.isMe).toBe(true);
     expect(expectAgentSessionCommentRawMessage(result.raw).agentSessionId).toBe(
       "session-789"
     );
