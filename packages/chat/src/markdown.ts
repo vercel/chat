@@ -255,12 +255,17 @@ export function getNodeValue(node: Content): string {
 }
 
 /**
+ * Cached processor for parsing markdown to avoid recreating on each call.
+ * This improves performance significantly for high-throughput scenarios.
+ */
+const cachedParseProcessor = unified().use(remarkParse).use(remarkGfm);
+
+/**
  * Parse markdown string into an AST.
  * Supports GFM (GitHub Flavored Markdown) for strikethrough, tables, etc.
  */
 export function parseMarkdown(markdown: string): Root {
-  const processor = unified().use(remarkParse).use(remarkGfm);
-  return processor.parse(markdown);
+  return cachedParseProcessor.parse(markdown);
 }
 
 /**
@@ -274,14 +279,27 @@ export interface StringifyOptions {
 }
 
 /**
+ * Cache for stringify processors to avoid recreating them for the same options.
+ */
+const stringifyProcessorsCache = new Map<string, any>();
+
+/**
  * Stringify an AST back to markdown.
  */
 export function stringifyMarkdown(
   ast: Root,
   options?: StringifyOptions
 ): string {
-  const processor = unified().use(remarkStringify, options).use(remarkGfm);
-  return processor.stringify(ast);
+  // Use a string key based on options to cache the processor
+  const cacheKey = options ? JSON.stringify(options) : "default";
+
+  let processor = stringifyProcessorsCache.get(cacheKey);
+  if (!processor) {
+    processor = unified().use(remarkStringify, options).use(remarkGfm);
+    stringifyProcessorsCache.set(cacheKey, processor);
+  }
+
+  return String(processor.stringify(ast));
 }
 
 /**
