@@ -5,7 +5,6 @@ import {
   decodePubSubMessage,
   deleteSpaceSubscription,
   listSpaceSubscriptions,
-  verifyPubSubRequest,
 } from "./workspace-events";
 
 vi.mock("@googleapis/workspaceevents", () => ({
@@ -85,39 +84,6 @@ describe("decodePubSubMessage", () => {
     const result = decodePubSubMessage(push);
     expect(result.reaction?.name).toBe("spaces/ABC/messages/123/reactions/456");
     expect(result.reaction?.emoji?.unicode).toBe("\u{1F44D}");
-  });
-});
-
-describe("verifyPubSubRequest", () => {
-  it("should reject non-POST requests", () => {
-    const req = new Request("https://example.com/webhook", {
-      method: "GET",
-    });
-    expect(verifyPubSubRequest(req)).toBe(false);
-  });
-
-  it("should reject wrong content-type", () => {
-    const req = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: { "content-type": "text/plain" },
-    });
-    expect(verifyPubSubRequest(req)).toBe(false);
-  });
-
-  it("should accept valid POST with JSON content-type", () => {
-    const req = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-    });
-    expect(verifyPubSubRequest(req)).toBe(true);
-  });
-
-  it("should accept application/json with charset", () => {
-    const req = new Request("https://example.com/webhook", {
-      method: "POST",
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
-    expect(verifyPubSubRequest(req)).toBe(true);
   });
 });
 

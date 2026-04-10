@@ -28,7 +28,7 @@ bot.onNewMention(async (thread, message) => {
 
 ### Why `fullStream` over `textStream`?
 
-When AI SDK agents make tool calls between text steps, `textStream` concatenates all text without separators — `"hello.how are you?"` instead of `"hello.\n\nhow are you?"`. The `fullStream` contains explicit `step-finish` events that Chat SDK uses to inject paragraph breaks between steps automatically.
+When AI SDK agents make tool calls between text steps, `textStream` concatenates all text without separators — `"hello.how are you?"` instead of `"hello.\n\nhow are you?"`. The `fullStream` contains explicit `finish-step` events that Chat SDK uses to inject paragraph breaks between steps automatically.
 
 Both stream types are auto-detected:
 
@@ -183,21 +183,21 @@ await thread.stream(textStream, {
 
 ## Streaming with conversation history
 
-Combine message history with streaming for multi-turn AI conversations:
+Combine message history with streaming for multi-turn AI conversations.
+Use [`toAiMessages()`](/docs/api/to-ai-messages) to convert chat messages into the `{ role, content }` format expected by AI SDKs:
 
 ```typescript title="lib/bot.ts" lineNumbers
+import { toAiMessages } from "chat";
+
 bot.onSubscribedMessage(async (thread, message) => {
   // Fetch recent messages for context
   const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
 
-  const history = result.messages
-    .filter((msg) => msg.text.trim())
-    .map((msg) => ({
-      role: msg.author.isMe ? "assistant" as const : "user" as const,
-      content: msg.text,
-    }));
+  const history = await toAiMessages(result.messages);
 
   const response = await agent.stream({ prompt: history });
   await thread.post(response.fullStream);
 });
 ```
+
+See the [`toAiMessages` API reference](/docs/api/to-ai-messages) for all options including `includeNames`, `transformMessage`, and attachment handling.

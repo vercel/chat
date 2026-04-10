@@ -191,6 +191,7 @@ export function buildAdapters(): Adapters {
       adapters.github = withRecording(
         createGitHubAdapter({
           logger: logger.child("github"),
+          userName: "chat-sdk-bot",
         }),
         "github",
         GITHUB_METHODS

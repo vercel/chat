@@ -20,6 +20,12 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 | [`Message`](/docs/api/message) | Normalized message with text, AST, author, and metadata |
 | [`ScheduledMessage`](/docs/api/thread#scheduledmessage) | Returned by `thread.schedule()` / `channel.schedule()` with `cancel()` |
 
+## Utilities
+
+| Export | Description |
+|--------|-------------|
+| [`toAiMessages`](/docs/api/to-ai-messages) | Convert `Message[]` to AI SDK `{ role, content }[]` format |
+
 ## Message formats
 
 | Export | Description |

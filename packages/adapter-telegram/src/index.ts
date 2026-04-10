@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -101,15 +102,101 @@ interface ResolvedTelegramLongPollingConfig {
 
 type TelegramRuntimeMode = "webhook" | "polling";
 
+/**
+ * Escape markdown special characters inside entity text so wrapping
+ * with markdown syntax doesn't break parsing.
+ */
+const escapeMarkdownInEntity = (text: string): string =>
+  text.replace(/([[\]()\\])/g, "\\$1");
+
+/**
+ * Convert Telegram message entities to markdown.
+ *
+ * Telegram delivers formatting as separate entity objects alongside plain text.
+ * This function reconstructs markdown so that links, bold, italic, code, etc.
+ * are preserved when the text is later parsed as markdown.
+ *
+ * Entities use UTF-16 offsets, which match JavaScript's native string indexing.
+ */
+export function applyTelegramEntities(
+  text: string,
+  entities: TelegramMessageEntity[]
+): string {
+  if (entities.length === 0) {
+    return text;
+  }
+
+  // Sort entities by offset descending so replacements don't shift later offsets
+  const sorted = [...entities].sort((a, b) => {
+    const offsetDiff = b.offset - a.offset;
+    // For entities at the same offset, apply the shorter (inner) one first
+    if (offsetDiff !== 0) {
+      return offsetDiff;
+    }
+    return a.length - b.length;
+  });
+
+  let result = text;
+
+  for (const entity of sorted) {
+    const start = entity.offset;
+    const end = entity.offset + entity.length;
+    const entityText = result.slice(start, end);
+
+    let replacement: string | undefined;
+
+    switch (entity.type) {
+      case "text_link": {
+        if (entity.url) {
+          replacement = `[${escapeMarkdownInEntity(entityText)}](${entity.url})`;
+        }
+        break;
+      }
+      case "bold": {
+        replacement = `**${entityText}**`;
+        break;
+      }
+      case "italic": {
+        replacement = `*${entityText}*`;
+        break;
+      }
+      case "code": {
+        replacement = `\`${entityText}\``;
+        break;
+      }
+      case "pre": {
+        const lang = entity.language ?? "";
+        replacement = `\`\`\`${lang}\n${entityText}\n\`\`\``;
+        break;
+      }
+      case "strikethrough": {
+        replacement = `~~${entityText}~~`;
+        break;
+      }
+      default:
+        // url, mention, bot_command, etc. are already present in the text as-is
+        break;
+    }
+
+    if (replacement !== undefined) {
+      result = result.slice(0, start) + replacement + result.slice(end);
+    }
+  }
+
+  return result;
+}
+
 export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
   readonly name = "telegram";
+  readonly lockScope = "channel" as const;
   readonly persistMessageHistory = true;
 
   private readonly botToken: string;
   private readonly apiBaseUrl: string;
   private readonly secretToken?: string;
+  private warnedNoVerification = false;
   private readonly logger: Logger;
   private readonly formatConverter = new TelegramFormatConverter();
   private readonly messageCache = new Map<
@@ -229,12 +316,28 @@ export class TelegramAdapter
   ): Promise<Response> {
     if (this.secretToken) {
       const headerToken = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER);
-      if (headerToken !== this.secretToken) {
+      let valid = false;
+      try {
+        valid =
+          !!headerToken &&
+          timingSafeEqual(
+            Buffer.from(headerToken),
+            Buffer.from(this.secretToken)
+          );
+      } catch {
+        // Length mismatch throws — treat as invalid
+      }
+      if (!valid) {
         this.logger.warn(
           "Telegram webhook rejected due to invalid secret token"
         );
         return new Response("Invalid secret token", { status: 401 });
       }
+    } else if (!this.warnedNoVerification) {
+      this.warnedNoVerification = true;
+      this.logger.warn(
+        "Telegram webhook verification is disabled. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or secretToken to verify incoming requests."
+      );
     }
 
     let update: TelegramUpdate;
@@ -556,7 +659,7 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const parseMode = this.resolveParseMode(message, card);
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
@@ -642,7 +745,7 @@ export class TelegramAdapter
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
-    const parseMode = card ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    const parseMode = this.resolveParseMode(message, card);
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
@@ -936,7 +1039,9 @@ export class TelegramAdapter
     raw: TelegramMessage,
     threadId: string
   ): Message<TelegramRawMessage> {
-    const text = raw.text ?? raw.caption ?? "";
+    const plainText = raw.text ?? raw.caption ?? "";
+    const entities = raw.entities ?? raw.caption_entities ?? [];
+    const text = applyTelegramEntities(plainText, entities);
     let author: TelegramMessageAuthor;
 
     if (raw.from) {
@@ -971,7 +1076,7 @@ export class TelegramAdapter
             : undefined,
       },
       attachments: this.extractAttachments(raw),
-      isMention: this.isBotMentioned(raw, text),
+      isMention: this.isBotMentioned(raw, plainText),
     });
 
     return message;
@@ -1390,6 +1495,15 @@ export class TelegramAdapter
     }
 
     return value.replace(LEADING_AT_PATTERN, "").trim() || "bot";
+  }
+
+  private resolveParseMode(
+    message: AdapterPostableMessage,
+    card: ReturnType<typeof extractCard>
+  ): string | undefined {
+    const hasMarkdown =
+      typeof message === "object" && message !== null && "markdown" in message;
+    return card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
   }
 
   private truncateMessage(text: string): string {

@@ -80,7 +80,7 @@ describe("Replay Tests - Modals", () => {
         userId: "U00FAKEUSER2",
         userName: "jane.smith",
         adapterName: "slack",
-        channelId: "C00FAKECHAN2",
+        channelId: "slack:C00FAKECHAN2",
         isDM: false,
       });
 
@@ -254,7 +254,7 @@ describe("Replay Tests - Modals", () => {
       expect(capturedAction?.threadId).toBe(
         "slack:C00FAKECHAN3:1771126602.612659"
       );
-      expect(capturedAction?.thread?.channelId).toBe("C00FAKECHAN3");
+      expect(capturedAction?.thread?.channelId).toBe("slack:C00FAKECHAN3");
     });
 
     it("should allow editing relatedMessage from ephemeral modal submission", async () => {

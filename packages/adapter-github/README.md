@@ -97,6 +97,38 @@ createGitHubAdapter({
 
 The adapter automatically extracts installation IDs from webhooks and caches API clients per-installation.
 
+## Installation lookup
+
+You can resolve the GitHub App installation ID associated with a `Thread` or `Message`:
+
+```typescript
+import { Chat } from "chat";
+import { createGitHubAdapter } from "@chat-adapter/github";
+
+const github = createGitHubAdapter({
+  appId: process.env.GITHUB_APP_ID!,
+  privateKey: process.env.GITHUB_PRIVATE_KEY!,
+  webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+});
+
+const bot = new Chat({
+  adapters: { github },
+});
+
+bot.onNewMention(async (thread, message) => {
+  const installationIdFromThread = await github.getInstallationId(thread);
+  const installationIdFromMessage = await github.getInstallationId(message.threadId);
+
+  await thread.post(
+    `Thread install: ${installationIdFromThread}, message install: ${installationIdFromMessage}`
+  );
+});
+```
+
+- Single-tenant GitHub App mode returns the fixed configured installation ID.
+- PAT mode returns `undefined`.
+- Multi-tenant mode only succeeds after the adapter has received a webhook for that repository and cached the installation mapping. Use a persistent state adapter so the mapping survives restarts.
+
 ## Webhook setup
 
 For repository or organization webhooks:
@@ -111,12 +143,13 @@ For repository or organization webhooks:
 
 ## Thread model
 
-GitHub has two types of comment threads:
+GitHub has three types of comment threads:
 
-| Type | Tab | Thread ID format |
-|------|-----|-----------------|
-| PR-level | Conversation | `github:{owner}/{repo}:{prNumber}` |
-| Review comments | Files Changed | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Type | Context | Thread ID format |
+|------|---------|-----------------|
+| PR-level | PR Conversation tab | `github:{owner}/{repo}:{prNumber}` |
+| Review comments | PR Files Changed tab | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Issue comments | Issue thread | `github:{owner}/{repo}:issue:{issueNumber}` |
 
 ## Reactions
 

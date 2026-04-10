@@ -99,9 +99,11 @@ export interface TelegramChat {
  * @see https://core.telegram.org/bots/api#messageentity
  */
 export interface TelegramMessageEntity {
+  language?: string;
   length: number;
   offset: number;
   type: string;
+  url?: string;
   user?: TelegramUser;
 }
 

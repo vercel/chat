@@ -1,5 +1,50 @@
 # chat
 
+## 4.24.0
+
+### Minor Changes
+
+- 4f5d200: Add Teams dialog (task module) support with `actionType: "modal"` on buttons and `onOpenModal` webhook hook
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 27b34e1: Use adapter to parse channel id for `thread.channelId`
+
+## 4.23.0
+
+### Minor Changes
+
+- 4166e09: Add `channelVisibility` enum to distinguish private, workspace, external, and unknown channel scopes. Implements `getChannelVisibility()` on the Adapter interface and Slack adapter, replacing the previous `isExternalChannel` boolean.
+
+## 4.22.0
+
+### Minor Changes
+
+- f2d8957: Implement new concurrency strategies for overlapping messages
+
+## 4.21.0
+
+### Minor Changes
+
+- e45a67f: Add optional `disconnect()` hook to the Adapter interface, called during `chat.shutdown()` for resource cleanup
+
+### Patch Changes
+
+- 13ba1c7: Fix `fromFullStream()` step separator detection for AI SDK v5+: rename `step-finish` event check to `finish-step`
+- 95fd8ce: Add missing `toJSON()` method declarations to `Thread` and `Channel` interfaces to match their implementations.
+
+## 4.20.2
+
+## 4.20.1
+
+### Patch Changes
+
+- e206371: new toAiMessages API for history-to-AI-SDK transformation. And introduces LinkPreview object on Message
+- 8d88b8c: Fix GitHub adapter streaming: accumulate text and post once instead of using the fallbackStream post+edit loop, which caused 422 errors from empty body edits during TTFT. Also log fallbackStream edit failures via the Logger instead of silently swallowing them.
+
+## 4.20.0
+
 ## 4.19.0
 
 ### Minor Changes

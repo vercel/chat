@@ -465,6 +465,8 @@ await bot.initialize();
 await bot.shutdown();
 ```
 
+During shutdown, the SDK calls the optional `disconnect()` method on each adapter before disconnecting the state adapter. This lets adapters clean up platform connections, close WebSockets, or tear down subscriptions. If any adapter's `disconnect()` fails, the remaining adapters and state adapter still disconnect gracefully.
+
 ### reviver
 
 Get a `JSON.parse` reviver that deserializes `Thread` and `Message` objects from workflow payloads.

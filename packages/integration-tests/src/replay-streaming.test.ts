@@ -192,16 +192,16 @@ describe("Streaming Replay Tests", () => {
       expect(aiModeEnabled).toBe(true);
 
       // Verify initial message was sent
-      expectSentMessage(ctx.mockBotAdapter, "AI Mode Enabled!");
+      expectSentMessage(ctx.mockTeamsApp, "AI Mode Enabled!");
 
       // Verify streaming completed with final message
-      expectUpdatedMessage(ctx.mockBotAdapter, "Love is a complex emotion.");
+      expectUpdatedMessage(ctx.mockTeamsApp, "Love is a complex emotion.");
     });
 
     it("should stream response to follow-up message in AI mode", async () => {
       // First enable AI mode
       await ctx.sendWebhook(teamsFixtures.aiMention);
-      ctx.mockBotAdapter.clearMocks();
+      ctx.mockTeamsApp.clearMocks();
 
       // Send follow-up
       await ctx.sendWebhook(teamsFixtures.followUp);
@@ -213,7 +213,7 @@ describe("Streaming Replay Tests", () => {
 
       // Verify streaming response
       expectUpdatedMessage(
-        ctx.mockBotAdapter,
+        ctx.mockTeamsApp,
         "I am an AI assistant here to help."
       );
     });

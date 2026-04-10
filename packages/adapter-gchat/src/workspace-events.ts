@@ -318,32 +318,3 @@ export function decodePubSubMessage(
     reaction: payload.reaction,
   };
 }
-
-/**
- * Verify a Pub/Sub push message is authentic.
- * In production, you should verify the JWT token in the Authorization header.
- *
- * @see https://cloud.google.com/pubsub/docs/authenticate-push-subscriptions
- */
-export function verifyPubSubRequest(
-  request: Request,
-  _expectedAudience?: string
-): boolean {
-  // Basic check - Pub/Sub always sends POST with specific content type
-  if (request.method !== "POST") {
-    return false;
-  }
-
-  const contentType = request.headers.get("content-type");
-  if (!contentType?.includes("application/json")) {
-    return false;
-  }
-
-  // For full verification, you would:
-  // 1. Extract the Bearer token from Authorization header
-  // 2. Verify it's a valid Google-signed JWT
-  // 3. Check the audience matches your endpoint
-  // This requires additional setup - see Google's docs
-
-  return true;
-}

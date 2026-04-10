@@ -30,6 +30,7 @@ describe("Serialization", () => {
         _type: "chat:Thread",
         id: "slack:C123:1234.5678",
         channelId: "C123",
+        channelVisibility: "unknown",
         currentMessage: undefined,
         isDM: false,
         adapterName: "slack",
@@ -52,6 +53,59 @@ describe("Serialization", () => {
 
       expect(json._type).toBe("chat:Thread");
       expect(json.isDM).toBe(true);
+    });
+
+    it("should serialize external channel thread correctly", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        channelVisibility: "external",
+      });
+
+      const json = thread.toJSON();
+
+      expect(json._type).toBe("chat:Thread");
+      expect(json.channelVisibility).toBe("external");
+    });
+
+    it("should serialize private channel thread correctly", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        channelVisibility: "private",
+      });
+
+      const json = thread.toJSON();
+
+      expect(json._type).toBe("chat:Thread");
+      expect(json.channelVisibility).toBe("private");
+    });
+
+    it("should serialize workspace channel thread correctly", () => {
+      const mockAdapter = createMockAdapter("slack");
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        channelVisibility: "workspace",
+      });
+
+      const json = thread.toJSON();
+
+      expect(json.channelVisibility).toBe("workspace");
     });
 
     it("should produce JSON-serializable output", () => {
@@ -161,6 +215,37 @@ describe("Serialization", () => {
       expect(restored.channelId).toBe(original.channelId);
       expect(restored.isDM).toBe(original.isDM);
       expect(restored.adapter.name).toBe(original.adapter.name);
+    });
+
+    it("should round-trip channelVisibility correctly", () => {
+      const mockAdapter = createMockAdapter("slack");
+
+      const original = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        channelVisibility: "external",
+      });
+
+      const json = original.toJSON();
+      const restored = ThreadImpl.fromJSON(json);
+
+      expect(restored.channelVisibility).toBe("external");
+    });
+
+    it("should default channelVisibility to unknown when missing from JSON", () => {
+      const json: SerializedThread = {
+        _type: "chat:Thread",
+        id: "slack:C123:1234.5678",
+        channelId: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      const thread = ThreadImpl.fromJSON(json);
+
+      expect(thread.channelVisibility).toBe("unknown");
     });
 
     it("should serialize currentMessage", () => {
@@ -321,6 +406,47 @@ describe("Serialization", () => {
       expect(json.isMention).toBe(true);
     });
 
+    it("should serialize links without fetchMessage", () => {
+      const message = createTestMessage("msg-1", "Check this out", {
+        links: [
+          {
+            url: "https://example.com",
+            title: "Example",
+            fetchMessage: async () => createTestMessage("linked", "linked"),
+          },
+          { url: "https://vercel.com", siteName: "Vercel" },
+        ],
+      });
+
+      const json = message.toJSON();
+
+      expect(json.links).toHaveLength(2);
+      expect(json.links?.[0]).toEqual({
+        url: "https://example.com",
+        title: "Example",
+        description: undefined,
+        imageUrl: undefined,
+        siteName: undefined,
+      });
+      expect(json.links?.[1]).toEqual({
+        url: "https://vercel.com",
+        title: undefined,
+        description: undefined,
+        imageUrl: undefined,
+        siteName: "Vercel",
+      });
+      // fetchMessage should NOT be in serialized output
+      expect("fetchMessage" in (json.links?.[0] ?? {})).toBe(false);
+    });
+
+    it("should omit links when empty", () => {
+      const message = createTestMessage("msg-1", "No links");
+
+      const json = message.toJSON();
+
+      expect(json.links).toBeUndefined();
+    });
+
     it("should produce JSON-serializable output", () => {
       const message = createTestMessage("msg-1", "Hello **world**");
 
@@ -461,6 +587,26 @@ describe("Serialization", () => {
           name: "file.pdf",
         },
       ]);
+    });
+
+    it("should round-trip links correctly", () => {
+      const original = createTestMessage("msg-1", "Links test", {
+        links: [
+          { url: "https://example.com", title: "Example" },
+          { url: "https://vercel.com", siteName: "Vercel" },
+        ],
+      });
+
+      const json = original.toJSON();
+      const restored = Message.fromJSON(json);
+
+      expect(restored.links).toHaveLength(2);
+      expect(restored.links[0]?.url).toBe("https://example.com");
+      expect(restored.links[0]?.title).toBe("Example");
+      expect(restored.links[1]?.url).toBe("https://vercel.com");
+      expect(restored.links[1]?.siteName).toBe("Vercel");
+      // fetchMessage is not preserved across serialization
+      expect(restored.links[0]?.fetchMessage).toBeUndefined();
     });
   });
 
@@ -669,6 +815,7 @@ describe("Serialization", () => {
           _type: "chat:Thread",
           id: "slack:C123:1234.5678",
           channelId: "C123",
+          channelVisibility: "unknown",
           currentMessage: undefined,
           isDM: false,
           adapterName: "slack",

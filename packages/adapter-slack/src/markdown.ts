@@ -78,18 +78,21 @@ export class SlackFormatConverter extends BaseFormatConverter {
     let markdown = mrkdwn;
 
     // User mentions: <@U123|name> -> @name or <@U123> -> @U123
-    markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^>]+)>/g, "@$2");
+    markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^<>]+)>/g, "@$2");
     markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
 
     // Channel mentions: <#C123|name> -> #name
-    markdown = markdown.replace(/<#[A-Z0-9_]+\|([^>]+)>/g, "#$1");
+    markdown = markdown.replace(/<#[A-Z0-9_]+\|([^<>]+)>/g, "#$1");
     markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
 
     // Links: <url|text> -> [text](url)
-    markdown = markdown.replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "[$2]($1)");
+    markdown = markdown.replace(
+      /<(https?:\/\/[^|<>]+)\|([^<>]+)>/g,
+      "[$2]($1)"
+    );
 
     // Bare links: <url> -> url
-    markdown = markdown.replace(/<(https?:\/\/[^>]+)>/g, "$1");
+    markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
 
     // Bold: *text* -> **text** (but be careful with emphasis)
     // This is tricky because Slack uses * for bold, not emphasis
@@ -251,7 +254,7 @@ function mdastTableToSlackBlock(
   for (const row of node.children) {
     const cells = getNodeChildren(row).map((cell) => ({
       type: "raw_text" as const,
-      text: getNodeChildren(cell).map(cellConverter).join(""),
+      text: getNodeChildren(cell).map(cellConverter).join("") || " ",
     }));
     rows.push(cells);
   }

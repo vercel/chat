@@ -4,6 +4,7 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
 import {
   Actions,
+  type AiMessage,
   Button,
   Card,
   CardLink,
@@ -41,7 +42,7 @@ const adapters = buildAdapters();
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
-  history?: { role: "user" | "assistant"; content: string }[];
+  history?: AiMessage[];
 }
 
 // Create the bot instance with typed thread state
@@ -67,10 +68,11 @@ bot.onNewMention(async (thread, message) => {
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    // Also respond to the initial message with AI
+    // Also respond to the initial message with AI (including any image attachments)
     await thread.startTyping("Thinking...");
     try {
-      const result = await agent.stream({ prompt: message.text });
+      const history = await toAiMessages([message]);
+      const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
     } catch (err) {
       console.error("Error in AI response:", err);
@@ -115,11 +117,14 @@ bot.onNewMention(async (thread, message) => {
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
         <Button id="choose_plan">Choose Plan</Button>
-        <Button id="feedback">Send Feedback</Button>
+        <Button id="preferences">Preferences</Button>
+        <Button actionType="modal" id="feedback">
+          Send Feedback
+        </Button>
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="show-table">Show Table</Button>
-        <Button id="report" value="bug">
+        <Button actionType="modal" id="report" value="bug">
           Report Bug
         </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
@@ -148,7 +153,7 @@ bot.onMemberJoinedChannel(async (event) => {
 // This fires on every DM, regardless of subscription status
 bot.onDirectMessage(async (_thread, message, channel) => {
   await channel.startTyping("Thinking...");
-  let history: { role: "user" | "assistant"; content: string }[];
+  let history: AiMessage[];
   try {
     const messages: (typeof message)[] = [];
     for await (const msg of channel.messages) {
@@ -158,9 +163,11 @@ bot.onDirectMessage(async (_thread, message, channel) => {
       }
     }
     history =
-      messages.length > 0 ? toAiMessages(messages) : toAiMessages([message]);
+      messages.length > 0
+        ? await toAiMessages(messages)
+        : await toAiMessages([message]);
   } catch {
-    history = toAiMessages([message]);
+    history = await toAiMessages([message]);
   }
   try {
     const result = await agent.stream({ prompt: history });
@@ -207,7 +214,7 @@ bot.onAction("ephemeral", async (event) => {
       </Text>
       <Text>Try opening a modal from this ephemeral:</Text>
       <Actions>
-        <Button id="ephemeral_modal" style="primary">
+        <Button actionType="modal" id="ephemeral_modal" style="primary">
           Open Modal
         </Button>
       </Actions>
@@ -233,7 +240,6 @@ bot.onAction("ephemeral_modal", async (event) => {
   );
 });
 
-// @ts-expect-error async void handler vs ModalSubmitHandler return type
 bot.onModalSubmit("ephemeral_modal_form", async (event) => {
   await event.relatedMessage?.edit(
     <Card title={`${emoji.check} Submitted!`}>
@@ -303,6 +309,43 @@ bot.onAction("plan_selected", (event) => {
       <Text>You chose plan *{event.value}*</Text>
     </Card>
   );
+});
+
+bot.onAction("preferences", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(
+    <Card title="Set Preferences">
+      <Text>Choose your theme and notification settings:</Text>
+      <Actions>
+        <Select id="theme_selected" label="Theme" placeholder="Pick a theme...">
+          <SelectOption label="Light" value="light" />
+          <SelectOption label="Dark" value="dark" />
+          <SelectOption label="System" value="system" />
+        </Select>
+        <RadioSelect id="notifications_selected" label="Notifications">
+          <SelectOption label="All notifications" value="all" />
+          <SelectOption label="Mentions only" value="mentions" />
+          <SelectOption label="None" value="none" />
+        </RadioSelect>
+      </Actions>
+    </Card>
+  );
+});
+
+bot.onAction("theme_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.sparkles} Theme set to **${event.value}**`);
+});
+
+bot.onAction("notifications_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.bell} Notifications set to **${event.value}**`);
 });
 
 // Handle card button actions
@@ -712,13 +755,13 @@ bot.onSubscribedMessage(async (thread, message) => {
   if (threadState?.aiMode) {
     // Build conversation history: try fetchMessages first, then fall back to
     // stored history in thread state (for platforms without message history API)
-    let history: { role: "user" | "assistant"; content: string }[];
+    let history: AiMessage[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
       if (result.messages.length > 0) {
-        history = toAiMessages(result.messages);
+        history = await toAiMessages(result.messages);
       } else {
         // No messages from API — use stored history + current message
         history = [

@@ -151,6 +151,8 @@ await thread.post(result.fullStream);
 
 Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams.
 
+For multi-turn conversations, use [`toAiMessages()`](/docs/api/to-ai-messages) to convert thread history into the `{ role, content }[]` format expected by AI SDKs.
+
 See the [Streaming](/docs/streaming) page for details on platform behavior and configuration.
 
 ## Attachments and files

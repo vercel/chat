@@ -9,6 +9,7 @@ import type { ChatInstance, Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
+  applyTelegramEntities,
   createTelegramAdapter,
   TelegramAdapter,
   type TelegramMessage,
@@ -943,6 +944,38 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.text).toBe("raw id message");
   });
 
+  it("sets parse_mode for markdown messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      markdown: "**bold** and _italic_",
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string };
+
+    expect(sendMessageBody.parse_mode).toBe("Markdown");
+  });
+
   it("posts cards with inline keyboard buttons", async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -1801,5 +1834,126 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.chat_id).toBe("-1001234");
     expect(sendMessageBody.message_thread_id).toBe(42);
     expect(sendMessageBody.text).toBe("forum topic message");
+  });
+});
+
+describe("applyTelegramEntities", () => {
+  it("returns text unchanged when no entities", () => {
+    expect(applyTelegramEntities("hello world", [])).toBe("hello world");
+  });
+
+  it("converts text_link entities to markdown links", () => {
+    const result = applyTelegramEntities("Visit our website for details", [
+      { type: "text_link", offset: 10, length: 7, url: "https://example.com" },
+    ]);
+    expect(result).toBe("Visit our [website](https://example.com) for details");
+  });
+
+  it("converts bold entities to markdown bold", () => {
+    const result = applyTelegramEntities("hello world", [
+      { type: "bold", offset: 6, length: 5 },
+    ]);
+    expect(result).toBe("hello **world**");
+  });
+
+  it("converts italic entities to markdown italic", () => {
+    const result = applyTelegramEntities("hello world", [
+      { type: "italic", offset: 0, length: 5 },
+    ]);
+    expect(result).toBe("*hello* world");
+  });
+
+  it("converts code entities to inline code", () => {
+    const result = applyTelegramEntities("use the console.log function", [
+      { type: "code", offset: 8, length: 11 },
+    ]);
+    expect(result).toBe("use the `console.log` function");
+  });
+
+  it("converts pre entities to code blocks", () => {
+    const result = applyTelegramEntities("const x = 1", [
+      { type: "pre", offset: 0, length: 11 },
+    ]);
+    expect(result).toBe("```\nconst x = 1\n```");
+  });
+
+  it("converts pre entities with language", () => {
+    const result = applyTelegramEntities("const x = 1", [
+      { type: "pre", offset: 0, length: 11, language: "typescript" },
+    ]);
+    expect(result).toBe("```typescript\nconst x = 1\n```");
+  });
+
+  it("converts strikethrough entities", () => {
+    const result = applyTelegramEntities("old text here", [
+      { type: "strikethrough", offset: 0, length: 8 },
+    ]);
+    expect(result).toBe("~~old text~~ here");
+  });
+
+  it("leaves url entities unchanged (already in text)", () => {
+    const result = applyTelegramEntities("check https://example.com out", [
+      { type: "url", offset: 6, length: 19 },
+    ]);
+    expect(result).toBe("check https://example.com out");
+  });
+
+  it("leaves mention entities unchanged", () => {
+    const result = applyTelegramEntities("hey @user check this", [
+      { type: "mention", offset: 4, length: 5 },
+    ]);
+    expect(result).toBe("hey @user check this");
+  });
+
+  it("handles multiple non-overlapping entities", () => {
+    const result = applyTelegramEntities("hello world foo", [
+      { type: "bold", offset: 0, length: 5 },
+      { type: "italic", offset: 6, length: 5 },
+    ]);
+    expect(result).toBe("**hello** *world* foo");
+  });
+
+  it("handles text_link with special markdown chars in text", () => {
+    const result = applyTelegramEntities("click [here]", [
+      { type: "text_link", offset: 6, length: 6, url: "https://example.com" },
+    ]);
+    expect(result).toBe("click [\\[here\\]](https://example.com)");
+  });
+
+  it("preserves parseMessage text with entities", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const messageWithLink = sampleMessage({
+      text: "Visit our website for details",
+      entities: [
+        {
+          type: "text_link",
+          offset: 10,
+          length: 7,
+          url: "https://example.com",
+        },
+      ],
+    });
+
+    const parsed = adapter.parseMessage(messageWithLink);
+    expect(parsed.text).toBe(
+      "Visit our [website](https://example.com) for details"
+    );
   });
 });
