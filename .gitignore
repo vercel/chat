@@ -42,3 +42,6 @@ next-env.d.ts
 .source
 
 packages/chat/docs
+
+# GSD planning (local-only, not committed)
+.planning/
