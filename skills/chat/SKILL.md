@@ -1,7 +1,5 @@
 ---
-
-## name: chat-sdk
-
+name: chat-sdk
 description: >
   Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
   (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot,
@@ -15,6 +13,7 @@ description: >
   "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
   "state adapter", "build adapter", "create-bot", "scaffold bot", and building bots that work
   across multiple chat platforms.
+---
 
 # Chat SDK
 
