@@ -33,12 +33,57 @@ When using `createZoomAdapter()` without arguments, credentials are auto-detecte
 
 ## Zoom Marketplace app setup
 
-1. Go to [marketplace.zoom.us](https://marketplace.zoom.us) → Build App → Account-level app (Server-to-Server OAuth + Chatbot)
-2. Under **App Credentials**, copy **Client ID**, **Client Secret**, and note your **Account ID**
-3. Under **Bot Endpoint URL**, set to `https://your-domain.com/api/webhooks/zoom` and copy the **Robot JID**
-4. Under **Feature** → **Event Subscriptions**, add endpoint `https://your-domain.com/api/webhooks/zoom` and subscribe to events: `bot_notification`, `team_chat.app_mention`
-5. Under **Feature** → **Event Subscriptions**, copy the **Secret Token** (this becomes `ZOOM_WEBHOOK_SECRET_TOKEN`)
-6. Add required OAuth scopes (see Scopes section below) and activate the app
+### Prerequisites
+
+- Zoom account with developer access
+- A deployed URL or ngrok tunnel for local testing (e.g. `https://your-domain.com`)
+
+### Steps
+
+1. **Create the app**
+   - Go to [marketplace.zoom.us](https://marketplace.zoom.us) → **Develop** → **Build App**
+   - Select **General App**
+   - In **Basic Information**, set management type to **Admin-managed**
+
+2. **Get core credentials** — from **Basic Information** → **App Credentials**
+   - Copy **Client ID** → `ZOOM_CLIENT_ID`
+   - Copy **Client Secret** → `ZOOM_CLIENT_SECRET`
+   - Copy **Account ID** → `ZOOM_ACCOUNT_ID`
+
+3. **Configure the bot endpoint and get Robot JID** — from **Surface** → **Team Chat Subscription**
+   - Enable **Team Chat Subscription**
+   - Set **Bot Endpoint URL** to `https://your-domain.com/api/webhooks/zoom`
+   - Copy the **Bot JID** that appears → `ZOOM_ROBOT_JID`
+
+4. **Get the webhook secret** — from **Features** → **Access** → **Token**
+   - Copy the **Secret Token** → `ZOOM_WEBHOOK_SECRET_TOKEN`
+
+5. **Add event subscriptions** — from **Features** → **Access** → **Event Subscription**
+   - Enable Event Subscription
+   - Set webhook URL to `https://your-domain.com/api/webhooks/zoom`
+   - Subscribe to: `bot_notification`, `team_chat.app_mention`
+
+6. **Add scopes** — from **Scopes** (see [Required scopes](#required-scopes) below)
+
+7. **Authorize the app** — from **Local Test** → **Add app now**
+   - Complete the OAuth flow to install the bot in your account
+
+### Environment variables checklist
+
+```bash
+ZOOM_CLIENT_ID=          # Basic Information → App Credentials
+ZOOM_CLIENT_SECRET=      # Basic Information → App Credentials
+ZOOM_ACCOUNT_ID=         # Basic Information → App Credentials
+ZOOM_ROBOT_JID=          # Surface → Team Chat Subscription → Bot JID
+ZOOM_WEBHOOK_SECRET_TOKEN= # Features → Access → Token → Secret Token
+```
+
+### Local testing with ngrok
+
+```bash
+ngrok http 3000
+# Use the https:// forwarding URL as your Bot Endpoint URL and event subscription URL
+```
 
 ## Required scopes
 
@@ -122,6 +167,27 @@ Examples:
 **DM thread replies (THRD-03):** Zoom does not fire `chat_message.replied` for 1:1 DM thread replies. The adapter cannot subscribe to or receive threaded replies in DMs. Channel thread replies via `bot_notification` with a reply context work normally.
 
 **Unicode HMAC verification bug (ZOOM-506645):** Zoom's servers may normalize Unicode characters (emoji, accented characters) differently before computing the HMAC. Payloads containing non-ASCII characters may fail signature verification. The adapter logs the raw body hex on verification failure to aid diagnosis. If this affects you, contact Zoom Support referencing ZOOM-506645.
+
+## Troubleshooting
+
+**Webhook signature verification fails**
+- Ensure you're reading the raw request body before any JSON parsing
+- Emoji or non-ASCII characters in payloads may fail HMAC verification due to a Zoom server-side Unicode normalization issue (ZOOM-506645) — check debug logs for raw body hex
+
+**Bot not receiving events**
+- Confirm the Bot Endpoint URL in **Surface → Team Chat Subscription** matches your deployment URL
+- Confirm the event subscription URL in **Features → Access → Event Subscription** matches too
+- Verify the app is installed via **Local Test → Add app now** (OAuth flow must complete)
+
+**Bot appears in Zoom but doesn't respond**
+- Check that `ZOOM_WEBHOOK_SECRET_TOKEN` matches the Secret Token in **Features → Access → Token**
+- Ensure the app is marked as **Admin-managed** in Basic Information
+
+**DM thread replies not received**
+- This is a confirmed Zoom platform limitation — `chat_message.replied` is not fired for 1:1 DM thread replies. See [Known limitations](#known-limitations).
+
+**`postMessage` returns 401**
+- The `/v2/im/chat/messages` endpoint requires a `client_credentials` token. Ensure you're not using `account_credentials` grant type.
 
 ## License
 
