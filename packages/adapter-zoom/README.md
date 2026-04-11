@@ -147,10 +147,11 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | DMs | Yes (via bot_notification) |
-| Channel mentions | Yes (via team_chat.app_mention) |
+| Channel slash commands | Yes (via bot_notification) |
+| Thread subscription (subscribe flow) | No (Zoom platform limitation — see Known Limitations) |
 | DM thread replies | No (Zoom platform limitation — see Known Limitations) |
 | Reactions | No (not implemented in v1) |
-| Typing indicator | No (not implemented in v1) |
+| Typing indicator | No (Zoom has no typing indicator API) |
 
 ## Thread ID format
 
@@ -164,7 +165,9 @@ Examples:
 
 ## Known limitations
 
-**DM thread replies (THRD-03):** Zoom does not fire `chat_message.replied` for 1:1 DM thread replies. The adapter cannot subscribe to or receive threaded replies in DMs. Channel thread replies via `bot_notification` with a reply context work normally.
+**Thread subscription (subscribe flow):** The `thread.subscribe()` pattern does not work for Zoom. Each `bot_notification` arrives with a unique thread ID based on `event_ts` — Zoom provides no `reply_to` or `parent_message_id` field to link replies to the original message. This is a confirmed Zoom platform limitation (verified against `@zoom/rivet` SDK, which also has no thread reply handler). Subsequent replies in a thread cannot be detected as part of the same conversation.
+
+**DM thread replies (THRD-03):** Zoom does not fire `chat_message.replied` for 1:1 DM thread replies. The adapter cannot subscribe to or receive threaded replies in DMs.
 
 **Unicode HMAC verification bug (ZOOM-506645):** Zoom's servers may normalize Unicode characters (emoji, accented characters) differently before computing the HMAC. Payloads containing non-ASCII characters may fail signature verification. The adapter logs the raw body hex on verification failure to aid diagnosis. If this affects you, contact Zoom Support referencing ZOOM-506645.
 
