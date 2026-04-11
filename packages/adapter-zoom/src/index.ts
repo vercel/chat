@@ -291,6 +291,8 @@ export class ZoomAdapter implements Adapter {
       threadId,
       text,
       formatted,
+      // team_chat.app_mention is an explicit @mention — always treat as mention
+      isMention: true,
       author: {
         userId: operatorId,
         userName: operator,
