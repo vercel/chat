@@ -243,6 +243,10 @@ export class ZoomAdapter implements Adapter {
       threadId,
       text,
       formatted,
+      // Zoom has no separate mention event — bot_notification fires for all
+      // bot interactions (DMs and slash commands). Mark as mention so
+      // onNewMention handlers fire consistently with other adapters.
+      isMention: true,
       author: {
         userId,
         userName,
