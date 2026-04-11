@@ -476,10 +476,7 @@ export class ZoomAdapter implements Adapter {
   }
 
   async startTyping(_threadId: string, _status?: string): Promise<void> {
-    throw new NotImplementedError(
-      "ZoomAdapter: startTyping not yet implemented",
-      "startTyping"
-    );
+    // Zoom Team Chat has no typing indicator API — silently no-op
   }
 
   channelIdFromThreadId(threadId: string): string {
