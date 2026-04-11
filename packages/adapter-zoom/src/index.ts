@@ -47,6 +47,10 @@ export class ZoomAdapter implements Adapter {
   private readonly formatConverter = new ZoomFormatConverter();
   private cachedToken: { value: string; expiresAt: number } | null = null;
   private chat: ChatInstance | null = null;
+  /** Maps threadId → userJid of the user who sent the triggering message.
+   * Populated during webhook handling so postMessage/editMessage/deleteMessage
+   * can include user_jid in Zoom API requests (required per Zoom chatbot API). */
+  private readonly threadUserJid = new Map<string, string>();
 
   constructor(config: ZoomAdapterInternalConfig) {
     this.config = config;
@@ -254,6 +258,9 @@ export class ZoomAdapter implements Adapter {
       raw: payload,
     });
 
+    // Store userJid so postMessage/editMessage/deleteMessage can include it
+    this.threadUserJid.set(threadId, userJid);
+
     await chat.processMessage(this, threadId, message, options);
   }
 
@@ -294,6 +301,9 @@ export class ZoomAdapter implements Adapter {
       attachments: [],
       raw: payload,
     });
+
+    // Store operatorId as userJid for outgoing message context
+    this.threadUserJid.set(threadId, operatorId);
 
     await chat.processMessage(this, threadId, msg, options);
   }
@@ -358,10 +368,12 @@ export class ZoomAdapter implements Adapter {
       );
     }
 
+    const userJid = this.threadUserJid.get(threadId);
     const body: Record<string, unknown> = {
       robot_jid: this.config.robotJid,
       to_jid: channelId,
       account_id: this.config.accountId,
+      ...(userJid ? { user_jid: userJid } : {}),
       content: {
         body: contentBody,
       },
@@ -392,6 +404,7 @@ export class ZoomAdapter implements Adapter {
     const markdown = this.formatConverter.renderPostable(message);
     const ast = this.formatConverter.toAst(markdown);
     const contentBody = this.formatConverter.toZoomContentBody(ast);
+    const editUserJid = this.threadUserJid.get(threadId);
     await this.zoomFetch(
       `https://api.zoom.us/v2/im/chat/messages/${messageId}`,
       {
@@ -399,6 +412,7 @@ export class ZoomAdapter implements Adapter {
         body: JSON.stringify({
           robot_jid: this.config.robotJid,
           account_id: this.config.accountId,
+          ...(editUserJid ? { user_jid: editUserJid } : {}),
           content: { body: contentBody },
         }),
       },
@@ -408,9 +422,15 @@ export class ZoomAdapter implements Adapter {
     return { id: messageId, threadId, raw: {} };
   }
 
-  async deleteMessage(_threadId: string, messageId: string): Promise<void> {
+  async deleteMessage(threadId: string, messageId: string): Promise<void> {
+    const deleteUserJid = this.threadUserJid.get(threadId);
+    const params = new URLSearchParams({
+      robot_jid: this.config.robotJid,
+      account_id: this.config.accountId,
+      ...(deleteUserJid ? { user_jid: deleteUserJid } : {}),
+    });
     await this.zoomFetch(
-      `https://api.zoom.us/v2/im/chat/messages/${messageId}?robot_jid=${encodeURIComponent(this.config.robotJid)}&account_id=${encodeURIComponent(this.config.accountId)}`,
+      `https://api.zoom.us/v2/im/chat/messages/${messageId}?${params.toString()}`,
       { method: "DELETE" },
       "deleteMessage"
     );
