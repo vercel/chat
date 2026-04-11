@@ -336,12 +336,17 @@ export class ZoomAdapter implements Adapter {
   ): Promise<RawMessage<unknown>> {
     const { channelId } = this.decodeThreadId(threadId);
     const isDM = !channelId.endsWith("@conference.xmpp.zoom.us");
-    const text = this.formatConverter.renderPostable(message);
+    // Render to markdown string first (handles all message variants),
+    // then re-parse to AST for styled content body conversion.
+    const markdown = this.formatConverter.renderPostable(message);
 
     // Zoom API rejects empty messages — skip silently
-    if (!text || text.trim() === "") {
+    if (!markdown || markdown.trim() === "") {
       return { id: String(Date.now()), threadId, raw: {} };
     }
+
+    const ast = this.formatConverter.toAst(markdown);
+    const contentBody = this.formatConverter.toZoomContentBody(ast);
 
     // MSG-02: threading — add reply_main_message_id if present
     // ZoomMessageWithReply is the Zoom-specific extension type for threaded replies
@@ -358,7 +363,7 @@ export class ZoomAdapter implements Adapter {
       to_jid: channelId,
       account_id: this.config.accountId,
       content: {
-        body: [{ type: "message", text }],
+        body: contentBody,
       },
       ...(replyTo ? { reply_main_message_id: replyTo } : {}),
     };
