@@ -8,6 +8,7 @@
  * All other tokens (**bold**, _italic_, `code`, # heading, * list) are standard.
  */
 
+import type { AdapterPostableMessage } from "chat";
 import {
   BaseFormatConverter,
   type Content,
@@ -17,15 +18,14 @@ import {
   stringifyMarkdown,
   walkAst,
 } from "chat";
-import type { AdapterPostableMessage } from "chat";
 import type { Heading, ListItem, PhrasingContent, Text } from "mdast";
 import type { UnderlineNode } from "./types.js";
 
 export interface ZoomContentBodyItem {
-  type: "message";
-  text: string;
-  style?: { bold?: boolean; italic?: boolean };
   is_markdown_support?: boolean;
+  style?: { bold?: boolean; italic?: boolean };
+  text: string;
+  type: "message";
 }
 
 export class ZoomFormatConverter extends BaseFormatConverter {
@@ -48,12 +48,18 @@ export class ZoomFormatConverter extends BaseFormatConverter {
     const extractText = (nodes: PhrasingContent[]): string =>
       nodes
         .map((node) => {
-          if (node.type === "text") return resolveText((node as Text).value);
-          if (node.type === "strong" || node.type === "emphasis")
+          if (node.type === "text") {
+            return resolveText((node as Text).value);
+          }
+          if (node.type === "strong" || node.type === "emphasis") {
             return extractText(node.children as PhrasingContent[]);
-          if (node.type === "inlineCode") return `\`${node.value}\``;
-          if (node.type === "html")
+          }
+          if (node.type === "inlineCode") {
+            return `\`${node.value}\``;
+          }
+          if (node.type === "html") {
             return resolveText((node as { type: "html"; value: string }).value);
+          }
           return "";
         })
         .join("");
@@ -70,24 +76,33 @@ export class ZoomFormatConverter extends BaseFormatConverter {
     for (const block of ast.children) {
       if (block.type === "paragraph") {
         const text = extractText(block.children).trim();
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
         const style = isAllBold(block.children) ? { bold: true } : undefined;
         segments.push({ type: "message", text, ...(style ? { style } : {}) });
       } else if (block.type === "heading") {
         const headingNode = block as Heading;
-        const text = extractText(headingNode.children as PhrasingContent[]).trim();
-        if (text) segments.push({ type: "message", text, style: { bold: true } });
+        const text = extractText(
+          headingNode.children as PhrasingContent[]
+        ).trim();
+        if (text) {
+          segments.push({ type: "message", text, style: { bold: true } });
+        }
       } else if (block.type === "list") {
         for (const item of block.children as ListItem[]) {
           for (const child of item.children) {
             if (child.type === "paragraph") {
-              const text = "• " + extractText(child.children).trim();
+              const text = `• ${extractText(child.children).trim()}`;
               segments.push({ type: "message", text });
             }
           }
         }
       } else if (block.type === "code") {
-        segments.push({ type: "message", text: `\`\`\`\n${block.value}\n\`\`\`` });
+        segments.push({
+          type: "message",
+          text: `\`\`\`\n${block.value}\n\`\`\``,
+        });
       }
     }
 

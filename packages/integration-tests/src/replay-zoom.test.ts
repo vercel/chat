@@ -17,8 +17,6 @@ import {
   ZOOM_CREDENTIALS,
 } from "./zoom-utils";
 
-const ALL_MESSAGES_PATTERN = /.*/;
-
 const mockLogger: Logger = {
   debug: () => {},
   info: () => {},
@@ -54,7 +52,8 @@ describe("Replay Tests - Zoom bot_notification", () => {
     capturedThread = null;
     capturedMessage = null;
 
-    chat.onNewMessage(ALL_MESSAGES_PATTERN, async (thread, message) => {
+    // bot_notification sets isMention=true — use onNewMention to capture
+    chat.onNewMention(async (thread, message) => {
       capturedThread = thread;
       capturedMessage = message;
     });
@@ -123,7 +122,8 @@ describe("Replay Tests - Zoom team_chat.app_mention", () => {
     capturedThread = null;
     capturedMessage = null;
 
-    chat.onNewMessage(ALL_MESSAGES_PATTERN, async (thread, message) => {
+    // team_chat.app_mention sets isMention=true — use onNewMention to capture
+    chat.onNewMention(async (thread, message) => {
       capturedThread = thread;
       capturedMessage = message;
     });
@@ -187,7 +187,8 @@ describe("Subscribe Flow - Zoom THRD-02", () => {
 
     capturedSubscribedMessage = null;
 
-    chat.onNewMessage(ALL_MESSAGES_PATTERN, async (thread) => {
+    // bot_notification sets isMention=true — subscribe via onNewMention
+    chat.onNewMention(async (thread) => {
       await thread.subscribe();
     });
 
