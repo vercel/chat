@@ -338,26 +338,33 @@ export class ZoomAdapter implements Adapter {
     const isDM = !channelId.endsWith("@conference.xmpp.zoom.us");
     const text = this.formatConverter.renderPostable(message);
 
-    const body: Record<string, unknown> = {
-      message: text,
-      to_jid: channelId,
-    };
+    // Zoom API rejects empty messages — skip silently
+    if (!text || text.trim() === "") {
+      return { id: String(Date.now()), threadId, raw: {} };
+    }
 
     // MSG-02: threading — add reply_main_message_id if present
     // ZoomMessageWithReply is the Zoom-specific extension type for threaded replies
     const zoomMsg = message as ZoomMessageWithReply;
     const replyTo = zoomMsg.metadata?.replyTo;
-    if (replyTo) {
-      if (isDM) {
-        this.config.logger.debug(
-          "Posting threaded reply to DM thread — Zoom does not fire chat_message.replied webhook for 1:1 DM thread replies (THRD-03)"
-        );
-      }
-      body.reply_main_message_id = replyTo;
+    if (replyTo && isDM) {
+      this.config.logger.debug(
+        "Posting threaded reply to DM thread — Zoom does not fire chat_message.replied webhook for 1:1 DM thread replies (THRD-03)"
+      );
     }
 
+    const body: Record<string, unknown> = {
+      robot_jid: this.config.robotJid,
+      to_jid: channelId,
+      account_id: this.config.accountId,
+      content: {
+        body: [{ type: "message", text }],
+      },
+      ...(replyTo ? { reply_main_message_id: replyTo } : {}),
+    };
+
     const response = await this.zoomFetch(
-      `https://api.zoom.us/v2/chat/users/${this.config.robotJid}/messages`,
+      "https://api.zoom.us/v2/im/chat/messages",
       { method: "POST", body: JSON.stringify(body) },
       "postMessage"
     );
@@ -446,6 +453,11 @@ export class ZoomAdapter implements Adapter {
     return `${parts[0]}:${parts[1]}`;
   }
 
+  isDM(threadId: string): boolean {
+    const { channelId } = this.decodeThreadId(threadId);
+    return !channelId.endsWith("@conference.xmpp.zoom.us");
+  }
+
   encodeThreadId(platformData: ZoomThreadId): string {
     return `zoom:${platformData.channelId}:${platformData.messageId}`;
   }
@@ -456,18 +468,16 @@ export class ZoomAdapter implements Adapter {
     }
     const withoutPrefix = threadId.slice(5); // remove "zoom:"
     const colonIndex = withoutPrefix.indexOf(":");
+    // Channel-level ID (no messageId) — used when posting a new message to a channel
     if (colonIndex === -1) {
-      throw new ValidationError(
-        "zoom",
-        `Invalid Zoom thread ID format (missing messageId): ${threadId}`
-      );
+      return { channelId: withoutPrefix, messageId: "" };
     }
     const channelId = withoutPrefix.slice(0, colonIndex);
     const messageId = withoutPrefix.slice(colonIndex + 1);
-    if (!(channelId && messageId)) {
+    if (!channelId) {
       throw new ValidationError(
         "zoom",
-        `Invalid Zoom thread ID format (empty component): ${threadId}`
+        `Invalid Zoom thread ID format (empty channelId): ${threadId}`
       );
     }
     return { channelId, messageId };

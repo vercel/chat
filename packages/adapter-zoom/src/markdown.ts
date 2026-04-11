@@ -11,15 +11,22 @@
 import {
   BaseFormatConverter,
   type Content,
+  convertEmojiPlaceholders,
   parseMarkdown,
   type Root,
   stringifyMarkdown,
   walkAst,
 } from "chat";
+import type { AdapterPostableMessage } from "chat";
 import type { PhrasingContent } from "mdast";
 import type { UnderlineNode } from "./types.js";
 
 export class ZoomFormatConverter extends BaseFormatConverter {
+  override renderPostable(message: AdapterPostableMessage): string {
+    const text = super.renderPostable(message);
+    return convertEmojiPlaceholders(text, "whatsapp"); // Unicode emoji, same as WhatsApp
+  }
+
   /**
    * Convert Zoom markdown to mdast.
    *
