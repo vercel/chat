@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Lock, QueueEntry, StateAdapter } from "chat";
 
 interface MemoryLock extends Lock {
@@ -305,7 +306,7 @@ export class MemoryStateAdapter implements StateAdapter {
 }
 
 function generateToken(): string {
-  return `mem_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  return `mem_${crypto.randomUUID()}`;
 }
 
 export function createMemoryState(): MemoryStateAdapter {
