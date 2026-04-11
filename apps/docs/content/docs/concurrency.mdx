@@ -218,6 +218,5 @@ All strategies emit structured log events at `info` level:
 ## Backward compatibility
 
 - The default strategy is `drop` — existing behavior is unchanged.
-- The deprecated `onLockConflict` option continues to work but should be replaced with `concurrency`.
 - Handler signatures are backward-compatible; the new `context` parameter is optional.
 - Deduplication always runs regardless of strategy.

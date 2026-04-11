@@ -199,7 +199,6 @@ export class Chat<
   private readonly _streamingUpdateIntervalMs: number;
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
-  private readonly _onLockConflict: ChatConfig["onLockConflict"];
   private readonly _messageHistory: MessageHistoryCache;
   private readonly _concurrencyStrategy: ConcurrencyStrategy;
   private readonly _concurrencyConfig: Required<
@@ -246,10 +245,9 @@ export class Chat<
         ? config.fallbackStreamingPlaceholderText
         : "...";
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
-    this._onLockConflict = config.onLockConflict;
     this._lockScope = config.lockScope;
 
-    // Parse concurrency config — new `concurrency` option takes precedence over deprecated `onLockConflict`
+    // Parse concurrency config
     const concurrency = config.concurrency;
     if (concurrency) {
       if (typeof concurrency === "string") {
@@ -1756,36 +1754,18 @@ export class Chat<
     lockKey: string,
     message: Message
   ): Promise<void> {
-    let lock = await this._stateAdapter.acquireLock(
+    const lock = await this._stateAdapter.acquireLock(
       lockKey,
       DEFAULT_LOCK_TTL_MS
     );
     if (!lock) {
-      // Legacy onLockConflict support
-      const resolution =
-        typeof this._onLockConflict === "function"
-          ? await this._onLockConflict(threadId, message)
-          : (this._onLockConflict ?? "drop");
-      if (resolution === "force") {
-        this.logger.info("Force-releasing lock on thread", {
-          threadId,
-          lockKey,
-        });
-        await this._stateAdapter.forceReleaseLock(lockKey);
-        lock = await this._stateAdapter.acquireLock(
-          lockKey,
-          DEFAULT_LOCK_TTL_MS
-        );
-      }
-      if (!lock) {
-        this.logger.warn("Could not acquire lock on thread", {
-          threadId,
-          lockKey,
-        });
-        throw new LockError(
-          `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
-        );
-      }
+      this.logger.warn("Could not acquire lock on thread", {
+        threadId,
+        lockKey,
+      });
+      throw new LockError(
+        `Could not acquire lock on thread ${threadId}. Another instance may be processing.`
+      );
     }
 
     this.logger.debug("Lock acquired", {

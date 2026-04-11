@@ -112,26 +112,6 @@ export interface ChatConfig<
     /** TTL for cached history in milliseconds (default: 7 days) */
     ttlMs?: number;
   };
-  /**
-   * @deprecated Use `concurrency` instead.
-   *
-   * Behavior when a thread lock cannot be acquired (another handler is processing).
-   * - `'drop'` (default) — throw `LockError`, preserving current behavior
-   * - `'force'` — force-release the existing lock and re-acquire
-   * - callback — custom logic receiving `(threadId, message)`, return `'force'` or `'drop'`
-   *
-   * When `'force'` is used, the previous handler continues executing — only the lock
-   * is released, not the handler itself. This means two handlers may run concurrently
-   * on the same thread. The old handler's `releaseLock()` call becomes a no-op since
-   * the token no longer matches.
-   */
-  onLockConflict?:
-    | "force"
-    | "drop"
-    | ((
-        threadId: string,
-        message: Message
-      ) => "force" | "drop" | Promise<"force" | "drop">);
   /** State adapter for subscriptions and locking */
   state: StateAdapter;
   /**
