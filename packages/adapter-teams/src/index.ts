@@ -1097,6 +1097,28 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return { id: messageId ?? "", threadId, raw: { text: accumulated } };
   }
 
+  /**
+   * Open a thread for a message.
+   * Returns a thread ID that can be used to post threaded replies.
+   *
+   * For Teams, this appends a ;messageid= suffix to the conversation ID.
+   * If already in a thread, returns the existing thread ID.
+   */
+  async openThread(scopeId: string, messageId: string): Promise<string> {
+    const { conversationId, serviceUrl } = this.decodeThreadId(scopeId);
+
+    // Already in a thread (has ;messageid= suffix) — return the existing ID
+    if (conversationId.includes(";messageid=")) {
+      return scopeId;
+    }
+
+    // Channel scope — encode with messageId as reply target
+    return this.encodeThreadId({
+      conversationId: `${conversationId};messageid=${messageId}`,
+      serviceUrl,
+    });
+  }
+
   async openDM(userId: string): Promise<string> {
     // Look up cached serviceUrl and tenantId for this user from state
     const cachedServiceUrl = await this.chat

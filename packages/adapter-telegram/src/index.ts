@@ -967,6 +967,28 @@ export class TelegramAdapter
     return `telegram:${chatId}`;
   }
 
+  /**
+   * Open a thread for a message.
+   * Returns a thread ID that can be used to post threaded replies.
+   *
+   * For Telegram, this encodes the message ID as a forum topic thread ID.
+   * If already in a topic thread, returns the existing thread ID.
+   */
+  async openThread(scopeId: string, messageId: string): Promise<string> {
+    const { chatId, messageThreadId } = this.decodeThreadId(scopeId);
+
+    // Already in a topic thread — return the existing ID
+    if (messageThreadId !== undefined) {
+      return scopeId;
+    }
+
+    // Channel/group scope — encode with messageId as topic thread ID
+    return this.encodeThreadId({
+      chatId,
+      messageThreadId: Number.parseInt(messageId, 10),
+    });
+  }
+
   async openDM(userId: string): Promise<string> {
     return this.encodeThreadId({ chatId: userId });
   }

@@ -1991,6 +1991,79 @@ describe("startTyping", () => {
 });
 
 // ============================================================================
+// openThread Tests
+// ============================================================================
+
+describe("openThread", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("creates a thread and returns encoded thread ID", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({ id: "new-thread-id", name: "Thread" }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const result = await adapter.openThread(
+      "discord:guild1:channel456",
+      "msg123"
+    );
+
+    expect(result).toBe("discord:guild1:channel456:new-thread-id");
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.objectContaining({ auto_archive_duration: 1440 })
+    );
+
+    spy.mockRestore();
+  });
+
+  it("returns existing thread ID when already in a thread", async () => {
+    const spy = vi.spyOn(adapter as any, "discordFetch");
+
+    const result = await adapter.openThread(
+      "discord:guild1:channel456:existing-thread",
+      "msg123"
+    );
+
+    expect(result).toBe("discord:guild1:channel456:existing-thread");
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+  });
+
+  it("recovers from 160004 (thread already exists) by reusing message ID", async () => {
+    const { NetworkError } = await import("@chat-adapter/shared");
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(
+        new NetworkError(
+          "discord",
+          JSON.stringify({ code: 160004, message: "A thread has already been created for this message" })
+        )
+      );
+
+    const result = await adapter.openThread(
+      "discord:guild1:channel456",
+      "msg123"
+    );
+
+    expect(result).toBe("discord:guild1:channel456:msg123");
+
+    spy.mockRestore();
+  });
+});
+
+// ============================================================================
 // openDM Tests
 // ============================================================================
 
@@ -3385,7 +3458,14 @@ describe("handleForwardedMessage - thread handling", () => {
     fetchSpy.mockRestore();
   });
 
-  it("creates thread when mentioned and not in a thread", async () => {
+  // Previously, the Discord adapter auto-created a thread when the bot was
+  // @mentioned in a channel. This was inconsistent with other adapters (Slack,
+  // Telegram, Teams, etc.) which all dispatch channel mentions with the channel
+  // thread ID (channelId === threadId). The SDK contract expects channel messages
+  // to have channelId === threadId — auto-creating a thread broke this, causing
+  // issues with subscribe() (subscribing to the channel instead of a thread) and
+  // handler routing. Thread creation is now explicit via thread.thread().
+  it("does not auto-create thread when mentioned in a channel", async () => {
     const adapter = createDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3401,14 +3481,7 @@ describe("handleForwardedMessage - thread handling", () => {
       processReaction: vi.fn(),
     } as unknown as ChatInstance);
 
-    const fetchSpy = vi
-      .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({ id: "new-thread-id", name: "New Thread" }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
-      );
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch");
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -3441,11 +3514,18 @@ describe("handleForwardedMessage - thread handling", () => {
 
     await adapter.handleWebhook(request);
 
-    // Should have created a thread
-    expect(fetchSpy).toHaveBeenCalledWith(
+    // Should NOT auto-create a thread — thread creation is now explicit via thread.thread()
+    expect(fetchSpy).not.toHaveBeenCalledWith(
       "/channels/channel456/messages/msg123/threads",
       "POST",
-      expect.objectContaining({ auto_archive_duration: 1440 })
+      expect.anything()
+    );
+
+    // Should dispatch with channel-scoped thread ID (no thread part)
+    expect(handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:guild1:channel456",
+      expect.anything()
     );
 
     fetchSpy.mockRestore();
@@ -3903,7 +3983,11 @@ describe("handleForwardedMessage - DM messages", () => {
 // ============================================================================
 
 describe("mentionRoleIds handling", () => {
-  it("detects mention via role ID", async () => {
+  // Same rationale as "does not auto-create thread when mentioned in a channel" above.
+  // Role mentions follow the same path — the adapter detects the mention and sets
+  // isMention on the message, but does not create a thread. Consumers use
+  // thread.thread() to explicitly create one when desired.
+  it("detects mention via role ID without auto-creating thread", async () => {
     const adapter = createDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3913,12 +3997,7 @@ describe("mentionRoleIds handling", () => {
     });
 
     const handleIncomingMessage = vi.fn();
-    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
-      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch");
 
     await adapter.initialize({
       handleIncomingMessage,
@@ -3958,10 +4037,17 @@ describe("mentionRoleIds handling", () => {
 
     await adapter.handleWebhook(request);
 
-    // Should create a thread because of role mention
-    expect(fetchSpy).toHaveBeenCalledWith(
+    // Should NOT auto-create a thread — thread creation is now explicit via thread.thread()
+    expect(fetchSpy).not.toHaveBeenCalledWith(
       "/channels/channel456/messages/msg123/threads",
       "POST",
+      expect.anything()
+    );
+
+    // Should still dispatch the message with mention detected
+    expect(handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:guild1:channel456",
       expect.anything()
     );
 

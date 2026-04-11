@@ -2886,6 +2886,43 @@ describe("startTyping", () => {
 });
 
 // ============================================================================
+// openThread Tests
+// ============================================================================
+
+describe("openThread", () => {
+  const secret = "test-signing-secret";
+
+  it("returns thread ID with messageId as threadTs from channel scope", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const result = await adapter.openThread("slack:C123:", "1234567890.123456");
+
+    // Slack threading is implicit — encoding the messageId as threadTs is sufficient
+    expect(result).toBe("slack:C123:1234567890.123456");
+  });
+
+  it("returns existing thread ID when already in a thread", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const result = await adapter.openThread(
+      "slack:C123:9999999999.000000",
+      "1234567890.123456"
+    );
+
+    // Already in a thread — return the existing scope, ignore messageId
+    expect(result).toBe("slack:C123:9999999999.000000");
+  });
+});
+
+// ============================================================================
 // openDM Tests
 // ============================================================================
 

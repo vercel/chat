@@ -1692,6 +1692,25 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }
 
   /**
+   * Open a thread for a message.
+   * Returns a thread ID that can be used to post threaded replies.
+   *
+   * For Google Chat, this encodes the message ID as the thread name.
+   * If already in a thread, returns the existing thread ID.
+   */
+  async openThread(scopeId: string, messageId: string): Promise<string> {
+    const { spaceName, threadName, isDM } = this.decodeThreadId(scopeId);
+
+    // Already in a thread — return the existing ID
+    if (threadName) {
+      return scopeId;
+    }
+
+    // Space scope — encode with messageId as threadName
+    return this.encodeThreadId({ spaceName, threadName: messageId, isDM });
+  }
+
+  /**
    * Open a direct message conversation with a user.
    * Returns a thread ID that can be used to post messages.
    *
