@@ -389,19 +389,28 @@ export class ZoomAdapter implements Adapter {
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const text = this.formatConverter.renderPostable(message);
-    const response = await this.zoomFetch(
-      `https://api.zoom.us/v2/chat/messages/${messageId}`,
-      { method: "PATCH", body: JSON.stringify({ message: text }) },
+    const markdown = this.formatConverter.renderPostable(message);
+    const ast = this.formatConverter.toAst(markdown);
+    const contentBody = this.formatConverter.toZoomContentBody(ast);
+    await this.zoomFetch(
+      `https://api.zoom.us/v2/im/chat/messages/${messageId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          robot_jid: this.config.robotJid,
+          account_id: this.config.accountId,
+          content: { body: contentBody },
+        }),
+      },
       "editMessage"
     );
-    const data = (await response.json()) as Record<string, unknown>;
-    return { id: messageId, threadId, raw: data };
+    // Zoom returns 204 No Content on success — no body to parse
+    return { id: messageId, threadId, raw: {} };
   }
 
   async deleteMessage(_threadId: string, messageId: string): Promise<void> {
     await this.zoomFetch(
-      `https://api.zoom.us/v2/chat/messages/${messageId}`,
+      `https://api.zoom.us/v2/im/chat/messages/${messageId}?robot_jid=${encodeURIComponent(this.config.robotJid)}&account_id=${encodeURIComponent(this.config.accountId)}`,
       { method: "DELETE" },
       "deleteMessage"
     );

@@ -254,10 +254,11 @@ describe("ZoomAdapter — Thread ID (THRD-01)", () => {
     );
   });
 
-  it("THRD-01: decodeThreadId throws ValidationError on missing messageId", () => {
-    expect(() => adapter.decodeThreadId("zoom:only-one-part")).toThrow(
-      ValidationError
-    );
+  it("THRD-01: decodeThreadId returns channel-level ID when no messageId present", () => {
+    expect(adapter.decodeThreadId("zoom:only-one-part")).toEqual({
+      channelId: "only-one-part",
+      messageId: "",
+    });
   });
 
   it("THRD-01: decodeThreadId throws ValidationError on empty channel component", () => {
@@ -400,7 +401,7 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("MSG-01-a: postMessage to channel JID calls POST to correct URL with Bearer token and to_jid", async () => {
+  it("MSG-01-a: postMessage to channel JID calls POST to chatbot IM API with Bearer token and to_jid", async () => {
     const fetchMock = mockFetch(200, { message_id: "msg-uuid-123" });
     vi.stubGlobal("fetch", fetchMock);
     const adapter = createZoomAdapter(TEST_CREDENTIALS);
@@ -410,18 +411,23 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
     await adapter.postMessage(threadId, "Hello channel");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.zoom.us/v2/chat/users/test-robot-jid/messages",
+      "https://api.zoom.us/v2/im/chat/messages",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
           Authorization: "Bearer test-token",
         }),
-        body: JSON.stringify({
-          message: "Hello channel",
-          to_jid: "chan@conference.xmpp.zoom.us",
-        }),
       })
     );
+    const callBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>;
+    expect(callBody).toMatchObject({
+      robot_jid: TEST_CREDENTIALS.robotJid,
+      to_jid: "chan@conference.xmpp.zoom.us",
+      account_id: TEST_CREDENTIALS.accountId,
+    });
+    expect(callBody).toHaveProperty("content.body");
   });
 
   it("MSG-01-b: postMessage to DM JID calls POST with correct body (no reply_main_message_id)", async () => {
@@ -433,18 +439,14 @@ describe("ZoomAdapter — postMessage (MSG-01, MSG-02)", () => {
     const threadId = "zoom:user@xmpp.zoom.us:msg-002";
     await adapter.postMessage(threadId, "Hello DM");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: JSON.stringify({
-          message: "Hello DM",
-          to_jid: "user@xmpp.zoom.us",
-        }),
-      })
-    );
     const callBody = JSON.parse(
       (fetchMock.mock.calls[0][1] as { body: string }).body
     ) as Record<string, unknown>;
+    expect(callBody).toMatchObject({
+      robot_jid: TEST_CREDENTIALS.robotJid,
+      to_jid: "user@xmpp.zoom.us",
+      account_id: TEST_CREDENTIALS.accountId,
+    });
     expect(callBody).not.toHaveProperty("reply_main_message_id");
   });
 
@@ -544,8 +546,8 @@ describe("ZoomAdapter — editMessage (MSG-03)", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("MSG-03-a: editMessage calls PATCH to correct URL with Bearer token and body", async () => {
-    const fetchMock = mockFetch(200, { id: "msg-to-edit" });
+  it("MSG-03-a: editMessage calls PUT to chatbot IM API with Bearer token and content body", async () => {
+    const fetchMock = mockFetch(204, {});
     vi.stubGlobal("fetch", fetchMock);
     const adapter = createZoomAdapter(TEST_CREDENTIALS);
     vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
@@ -557,20 +559,26 @@ describe("ZoomAdapter — editMessage (MSG-03)", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.zoom.us/v2/chat/messages/msg-to-edit",
+      "https://api.zoom.us/v2/im/chat/messages/msg-to-edit",
       expect.objectContaining({
-        method: "PATCH",
+        method: "PUT",
         headers: expect.objectContaining({
           Authorization: "Bearer test-token",
         }),
-        body: JSON.stringify({ message: "Updated text" }),
       })
     );
+    const callBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as { body: string }).body
+    ) as Record<string, unknown>;
+    expect(callBody).toMatchObject({
+      robot_jid: TEST_CREDENTIALS.robotJid,
+      account_id: TEST_CREDENTIALS.accountId,
+    });
+    expect(callBody).toHaveProperty("content.body");
   });
 
-  it("MSG-03-b: editMessage returns RawMessage with id, threadId, and raw", async () => {
-    const responseBody = { id: "msg-to-edit", updated: true };
-    const fetchMock = mockFetch(200, responseBody);
+  it("MSG-03-b: editMessage returns RawMessage with id and threadId (204 No Content)", async () => {
+    const fetchMock = mockFetch(204, {});
     vi.stubGlobal("fetch", fetchMock);
     const adapter = createZoomAdapter(TEST_CREDENTIALS);
     vi.spyOn(adapter, "getAccessToken").mockResolvedValue("test-token");
@@ -584,7 +592,7 @@ describe("ZoomAdapter — editMessage (MSG-03)", () => {
 
     expect(result.id).toBe("msg-to-edit");
     expect(result.threadId).toBe(threadId);
-    expect(result.raw).toEqual(responseBody);
+    expect(result.raw).toEqual({});
   });
 
   it("MSG-03-error: editMessage throws Error with operation name and status on non-2xx response", async () => {
@@ -627,7 +635,7 @@ describe("ZoomAdapter — deleteMessage (MSG-04)", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.zoom.us/v2/chat/messages/msg-to-delete",
+      expect.stringContaining("https://api.zoom.us/v2/im/chat/messages/msg-to-delete"),
       expect.objectContaining({
         method: "DELETE",
         headers: expect.objectContaining({
