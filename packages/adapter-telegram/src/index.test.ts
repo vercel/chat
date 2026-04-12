@@ -976,6 +976,90 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.parse_mode).toBe("Markdown");
   });
 
+  it("honors parseMode config option for markdown messages", async () => {
+    for (const mode of ["MarkdownV2", "HTML"] as const) {
+      mockFetch
+        .mockResolvedValueOnce(
+          telegramOk({
+            id: 999,
+            is_bot: true,
+            first_name: "Bot",
+            username: "mybot",
+          })
+        )
+        .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+      const adapter = createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+        parseMode: mode,
+      });
+
+      await adapter.initialize(createMockChat());
+
+      await adapter.postMessage("telegram:123", {
+        markdown: "**bold**",
+      });
+
+      const sendMessageBody = JSON.parse(
+        String(
+          (mockFetch.mock.calls[mockFetch.mock.calls.length - 1]?.[1] as RequestInit).body
+        )
+      ) as { parse_mode?: string };
+
+      expect(sendMessageBody.parse_mode).toBe(mode);
+      mockFetch.mockClear();
+    }
+  });
+
+  it("omits parse_mode when parseMode is 'none'", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+      parseMode: "none",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      markdown: "**bold**",
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string };
+
+    expect(sendMessageBody.parse_mode).toBeUndefined();
+  });
+
+  it("rejects invalid parseMode values", () => {
+    expect(() =>
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+        // @ts-expect-error testing runtime validation
+        parseMode: "Bogus",
+      })
+    ).toThrow(/Invalid parseMode/);
+  });
+
   it("posts cards with inline keyboard buttons", async () => {
     mockFetch
       .mockResolvedValueOnce(
