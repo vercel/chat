@@ -1824,6 +1824,7 @@ export type {
   TelegramLongPollingConfig,
   TelegramMessage,
   TelegramMessageReactionUpdated,
+  TelegramParseMode,
   TelegramRawMessage,
   TelegramThreadId,
   TelegramUpdate,
