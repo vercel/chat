@@ -120,6 +120,8 @@ export interface SlackAdapterConfig {
   signingSecret?: string;
   /** Override bot username (optional) */
   userName?: string;
+  /** Override the Slack API base URL (e.g. 'https://slack-gov.com/api/' for GovSlack) */
+  slackApiUrl?: "https://slack.com/api/" | "https://slack-gov.com/api/";
 }
 
 export interface SlackOAuthCallbackOptions {
@@ -436,7 +438,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botToken =
       config.botToken ?? (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined);
 
-    this.client = new WebClient(botToken);
+    this.client = new WebClient(botToken, { slackApiUrl: config.slackApiUrl });
     this.signingSecret = signingSecret;
     this.defaultBotToken = botToken;
     this.logger = config.logger ?? new ConsoleLogger("info").child("slack");
