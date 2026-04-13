@@ -6,48 +6,67 @@ const TABLE_PIPE_PATTERN = /\|.*Name.*\|/;
 describe("TelegramFormatConverter", () => {
   const converter = new TelegramFormatConverter();
 
-  describe("fromAst (AST -> markdown string)", () => {
+  describe("fromAst (AST -> MarkdownV2 string)", () => {
     it("should convert a plain text paragraph", () => {
       const ast = converter.toAst("Hello world");
       const result = converter.fromAst(ast);
-      expect(result).toContain("Hello world");
+      expect(result).toBe("Hello world");
     });
 
-    it("should convert bold", () => {
+    it("should escape reserved characters in plain text", () => {
+      const ast = converter.toAst("Hello (world). Path: src/foo.ts!");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("Hello \\(world\\)\\. Path: src/foo\\.ts\\!");
+    });
+
+    it("should escape dashes at the start of a sentence", () => {
+      const ast = converter.toAst("- first\n- second");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("\\- first");
+      expect(result).toContain("\\- second");
+    });
+
+    it("should convert bold using MarkdownV2 single asterisks", () => {
       const ast = converter.toAst("**bold text**");
       const result = converter.fromAst(ast);
-      expect(result).toContain("**bold text**");
+      expect(result).toBe("*bold text*");
     });
 
-    it("should convert italic", () => {
+    it("should convert italic using MarkdownV2 underscores", () => {
       const ast = converter.toAst("*italic text*");
       const result = converter.fromAst(ast);
-      expect(result).toContain("*italic text*");
+      expect(result).toBe("_italic text_");
     });
 
-    it("should convert strikethrough", () => {
+    it("should convert strikethrough using a single tilde", () => {
       const ast = converter.toAst("~~strikethrough~~");
       const result = converter.fromAst(ast);
-      expect(result).toContain("~~strikethrough~~");
+      expect(result).toBe("~strikethrough~");
     });
 
-    it("should convert links", () => {
-      const ast = converter.toAst("[link text](https://example.com)");
+    it("should convert links and escape reserved URL chars", () => {
+      const ast = converter.toAst("[link text](https://example.com/a(b))");
       const result = converter.fromAst(ast);
-      expect(result).toContain("[link text](https://example.com)");
+      expect(result).toBe("[link text](https://example.com/a(b\\))");
     });
 
-    it("should preserve inline code", () => {
+    it("should preserve and escape inline code", () => {
       const ast = converter.toAst("Use `const x = 1`");
       const result = converter.fromAst(ast);
       expect(result).toContain("`const x = 1`");
     });
 
-    it("should handle code blocks", () => {
+    it("should escape backticks and backslashes inside inline code", () => {
+      const ast = converter.toAst("Run `echo \\`hi\\``");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("\\`");
+    });
+
+    it("should handle fenced code blocks", () => {
       const input = "```js\nconst x = 1;\n```";
       const ast = converter.toAst(input);
       const output = converter.fromAst(ast);
-      expect(output).toContain("```");
+      expect(output).toContain("```js");
       expect(output).toContain("const x = 1;");
     });
 
@@ -60,6 +79,18 @@ describe("TelegramFormatConverter", () => {
       expect(result).toContain("Name");
       expect(result).toContain("Alice");
       expect(result).not.toMatch(TABLE_PIPE_PATTERN);
+    });
+
+    it("should render headings as bold", () => {
+      const ast = converter.toAst("# Title");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("*Title*");
+    });
+
+    it("should handle blockquotes with line prefixes", () => {
+      const ast = converter.toAst("> quoted line");
+      const result = converter.fromAst(ast);
+      expect(result).toBe(">quoted line");
     });
   });
 
@@ -90,9 +121,9 @@ describe("TelegramFormatConverter", () => {
   });
 
   describe("renderPostable", () => {
-    it("should return a plain string as-is", () => {
-      const result = converter.renderPostable("Hello world");
-      expect(result).toBe("Hello world");
+    it("should escape reserved chars in plain strings", () => {
+      const result = converter.renderPostable("Hello (world).");
+      expect(result).toBe("Hello \\(world\\)\\.");
     });
 
     it("should return an empty string unchanged", () => {
@@ -100,28 +131,28 @@ describe("TelegramFormatConverter", () => {
       expect(result).toBe("");
     });
 
-    it("should render a raw message directly", () => {
-      const result = converter.renderPostable({ raw: "raw content" });
-      expect(result).toBe("raw content");
+    it("should render a raw message directly without escaping", () => {
+      const result = converter.renderPostable({ raw: "raw (content)." });
+      expect(result).toBe("raw (content).");
     });
 
     it("should render a markdown message", () => {
       const result = converter.renderPostable({ markdown: "**bold** text" });
-      expect(result).toContain("bold");
+      expect(result).toContain("*bold*");
     });
 
     it("should render an AST message", () => {
       const ast = converter.toAst("Hello from AST");
       const result = converter.renderPostable({ ast });
-      expect(result).toContain("Hello from AST");
+      expect(result).toBe("Hello from AST");
     });
 
     it("should render markdown with bold and italic", () => {
       const result = converter.renderPostable({
         markdown: "**bold** and *italic*",
       });
-      expect(result).toContain("**bold**");
-      expect(result).toContain("*italic*");
+      expect(result).toContain("*bold*");
+      expect(result).toContain("_italic_");
     });
 
     it("should render markdown table as code block", () => {
@@ -185,37 +216,17 @@ describe("TelegramFormatConverter", () => {
     });
   });
 
-  describe("roundtrip", () => {
-    it("should preserve plain text through toAst -> fromAst", () => {
-      const input = "Hello world";
-      const result = converter.fromAst(converter.toAst(input));
-      expect(result).toContain("Hello world");
-    });
-
-    it("should preserve bold through toAst -> fromAst", () => {
-      const input = "**bold text**";
-      const result = converter.fromAst(converter.toAst(input));
-      expect(result).toContain("**bold text**");
-    });
-
-    it("should preserve links through toAst -> fromAst", () => {
-      const input = "[click here](https://example.com)";
-      const result = converter.fromAst(converter.toAst(input));
-      expect(result).toContain("[click here](https://example.com)");
-    });
-
-    it("should preserve code blocks through toAst -> fromAst", () => {
-      const input = "```\nconst x = 1;\n```";
-      const result = converter.fromAst(converter.toAst(input));
-      expect(result).toContain("const x = 1;");
-    });
-
-    it("should convert table to code block on roundtrip", () => {
-      const input = "| Col1 | Col2 |\n|------|------|\n| A | B |";
-      const result = converter.fromAst(converter.toAst(input));
-      expect(result).toContain("```");
-      expect(result).toContain("Col1");
-      expect(result).toContain("A");
+  describe("MarkdownV2 escape coverage", () => {
+    it("should escape every reserved character in regular text", () => {
+      // `[` and `]` are consumed by the markdown parser as link syntax, so
+      // they never reach the text converter unescaped. The remaining 18
+      // reserved characters must all be escaped.
+      const reserved = "_*()~`>#+-=|{}.!";
+      const ast = converter.toAst(`word ${reserved} word`);
+      const result = converter.fromAst(ast);
+      for (const char of reserved) {
+        expect(result).toContain(`\\${char}`);
+      }
     });
   });
 });

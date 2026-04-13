@@ -973,7 +973,7 @@ describe("TelegramAdapter", () => {
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as { parse_mode?: string };
 
-    expect(sendMessageBody.parse_mode).toBe("Markdown");
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
   });
 
   it("posts cards with inline keyboard buttons", async () => {
@@ -1023,6 +1023,7 @@ describe("TelegramAdapter", () => {
     const sendMessageBody = JSON.parse(
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as {
+      parse_mode?: string;
       reply_markup?: {
         inline_keyboard: Array<
           Array<{ text: string; callback_data?: string; url?: string }>
@@ -1032,7 +1033,7 @@ describe("TelegramAdapter", () => {
 
     const row = sendMessageBody.reply_markup?.inline_keyboard[0];
     expect(row).toBeDefined();
-    expect(sendMessageBody.parse_mode).toBe("Markdown");
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
     expect(row?.[0]).toEqual({
       text: "Approve",
       callback_data: encodeTelegramCallbackData("approve", "request-123"),

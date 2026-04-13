@@ -154,6 +154,7 @@ export interface TelegramMessage {
   video?: TelegramFile & {
     width?: number;
     height?: number;
+    duration?: number;
     mime_type?: string;
     file_name?: string;
   };

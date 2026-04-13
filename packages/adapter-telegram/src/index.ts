@@ -64,7 +64,7 @@ const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
-const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
+const TELEGRAM_MARKDOWN_PARSE_MODE = "MarkdownV2";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -1813,6 +1813,7 @@ export type {
   TelegramMessage,
   TelegramMessageReactionUpdated,
   TelegramRawMessage,
+  TelegramReactionType,
   TelegramThreadId,
   TelegramUpdate,
   TelegramUser,
