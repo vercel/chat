@@ -118,10 +118,10 @@ export interface SlackAdapterConfig {
   logger?: Logger;
   /** Signing secret for webhook verification. Defaults to SLACK_SIGNING_SECRET env var. */
   signingSecret?: string;
-  /** Override bot username (optional) */
-  userName?: string;
   /** Override the Slack API base URL (e.g. 'https://slack-gov.com/api/' for GovSlack) */
   slackApiUrl?: "https://slack.com/api/" | "https://slack-gov.com/api/";
+  /** Override bot username (optional) */
+  userName?: string;
 }
 
 export interface SlackOAuthCallbackOptions {
