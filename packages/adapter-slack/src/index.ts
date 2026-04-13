@@ -3132,6 +3132,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
+    // chatStream requires a thread context (it's Slack's Assistant API).
+    // For channel-scope messages, accumulate and post as a single message.
+    if (!threadTs) {
+      this.logger.debug(
+        "Slack: channel-scope stream, accumulating for postMessage",
+        { channel }
+      );
+      let accumulated = "";
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") {
+          accumulated += chunk;
+        } else if (chunk.type === "markdown_text") {
+          accumulated += chunk.text;
+        }
+      }
+      return this.postMessage(threadId, { markdown: accumulated });
+    }
+
     const token = this.getToken();
     const streamer = this.client.chatStream({
       channel,
@@ -3553,7 +3571,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   encodeThreadId(platformData: SlackThreadId): string {
-    return `slack:${platformData.channel}:${platformData.threadTs}`;
+    if (platformData.threadTs) {
+      return `slack:${platformData.channel}:${platformData.threadTs}`;
+    }
+    return `slack:${platformData.channel}`;
   }
 
   /**

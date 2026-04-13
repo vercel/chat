@@ -178,7 +178,8 @@ describe("encodeThreadId", () => {
       channel: "C12345",
       threadTs: "",
     });
-    expect(threadId).toBe("slack:C12345:");
+    // Channel-scoped: no trailing colon when threadTs is empty
+    expect(threadId).toBe("slack:C12345");
   });
 });
 
@@ -1712,7 +1713,7 @@ describe("DM message handling", () => {
 
     expect(chatInstance.processMessage).toHaveBeenCalledWith(
       adapter,
-      "slack:D_DM_CHAN:",
+      "slack:D_DM_CHAN",
       expect.any(Function),
       undefined
     );
@@ -2208,6 +2209,7 @@ describe("handleWebhook - slash commands", () => {
 // ============================================================================
 
 interface MockableClient {
+  chatStream: ReturnType<typeof vi.fn>;
   assistant: {
     threads: {
       setStatus: ReturnType<typeof vi.fn>;
@@ -2923,6 +2925,94 @@ describe("openThread", () => {
 });
 
 // ============================================================================
+// stream Tests
+// ============================================================================
+
+describe("stream", () => {
+  const secret = "test-signing-secret";
+
+  it("accumulates and posts via postMessage for channel-scope messages", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const chatPostMessage = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.999999" });
+    mockClientMethod(adapter, "chat.postMessage", chatPostMessage);
+
+    const client = getClient(adapter);
+    client.chatStream = vi.fn();
+
+    async function* textStream() {
+      yield "Hello ";
+      yield "world";
+    }
+
+    const result = await adapter.stream("slack:C123", textStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    // chatStream should NOT be called for channel-scope messages
+    expect(client.chatStream).not.toHaveBeenCalled();
+
+    // Should accumulate and delegate to postMessage
+    expect(chatPostMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        text: "Hello world",
+      })
+    );
+    expect(result.id).toBe("1234567890.999999");
+  });
+
+  it("uses chatStream for thread-scope messages", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const mockStreamer = {
+      append: vi.fn().mockResolvedValue(null),
+      stop: vi.fn().mockResolvedValue({
+        ok: true,
+        ts: "1234567890.999999",
+        message: { ts: "1234567890.999999" },
+      }),
+    };
+
+    const client = getClient(adapter);
+    client.chatStream = vi.fn().mockReturnValue(mockStreamer);
+
+    async function* textStream() {
+      yield "Hello";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1700000001.123456",
+      textStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    // chatStream SHOULD be called for thread-scope messages
+    expect(client.chatStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        thread_ts: "1700000001.123456",
+      })
+    );
+    expect(result.id).toBe("1234567890.999999");
+  });
+});
+
+// ============================================================================
 // openDM Tests
 // ============================================================================
 
@@ -2947,7 +3037,7 @@ describe("openDM", () => {
 
     const threadId = await adapter.openDM("U_TARGET_USER");
 
-    expect(threadId).toBe("slack:D_DM_CHANNEL:");
+    expect(threadId).toBe("slack:D_DM_CHANNEL");
 
     const client = getClient(adapter);
     expect(client.conversations.open).toHaveBeenCalledWith(
@@ -4510,7 +4600,7 @@ describe("handleWebhook - assistant events", () => {
     expect(chatInstance.processMemberJoinedChannel).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "U_JOINED_USER",
-        channelId: "slack:C_TARGET_CHAN:",
+        channelId: "slack:C_TARGET_CHAN",
         inviterId: "U_INVITER",
         adapter,
       }),
