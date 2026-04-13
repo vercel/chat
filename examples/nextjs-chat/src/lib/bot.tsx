@@ -117,6 +117,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
         <Button id="choose_plan">Choose Plan</Button>
+        <Button id="preferences">Preferences</Button>
         <Button actionType="modal" id="feedback">
           Send Feedback
         </Button>
@@ -308,6 +309,43 @@ bot.onAction("plan_selected", (event) => {
       <Text>You chose plan *{event.value}*</Text>
     </Card>
   );
+});
+
+bot.onAction("preferences", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(
+    <Card title="Set Preferences">
+      <Text>Choose your theme and notification settings:</Text>
+      <Actions>
+        <Select id="theme_selected" label="Theme" placeholder="Pick a theme...">
+          <SelectOption label="Light" value="light" />
+          <SelectOption label="Dark" value="dark" />
+          <SelectOption label="System" value="system" />
+        </Select>
+        <RadioSelect id="notifications_selected" label="Notifications">
+          <SelectOption label="All notifications" value="all" />
+          <SelectOption label="Mentions only" value="mentions" />
+          <SelectOption label="None" value="none" />
+        </RadioSelect>
+      </Actions>
+    </Card>
+  );
+});
+
+bot.onAction("theme_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.sparkles} Theme set to **${event.value}**`);
+});
+
+bot.onAction("notifications_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.bell} Notifications set to **${event.value}**`);
 });
 
 // Handle card button actions

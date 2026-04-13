@@ -27,6 +27,23 @@ export {
   type MessageHistoryConfig,
 } from "./message-history";
 export { reviver } from "./reviver";
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+export { Plan } from "./plan";
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
+export { isPostableObject } from "./postable-object";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
@@ -256,7 +273,7 @@ export type {
   TextInputElement,
   TextInputOptions,
 } from "./modals";
-// Types
+// Types (Plan types are exported from ./plan, PostableObject types from ./postable-object)
 export type {
   ActionEvent,
   ActionHandler,

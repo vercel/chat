@@ -30,6 +30,8 @@ import type {
   Logger,
   ModalElement,
   ModalResponse,
+  PlanContent,
+  PlanModel,
   RawMessage,
   ReactionEvent,
   Root,
@@ -50,6 +52,7 @@ import {
   parseMarkdown,
   StreamingMarkdownRenderer,
   toModalElement,
+  toPlainText,
 } from "chat";
 import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
@@ -2808,6 +2811,176 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
+  // ===========================================================================
+  // PostableObject (Plan, etc.) support
+  // ===========================================================================
+
+  async postObject(
+    threadId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<unknown>> {
+    if (kind !== "plan") {
+      // Unsupported kind — post as plain text fallback
+      return this.postMessage(threadId, `[${kind}]`);
+    }
+
+    const plan = data as PlanModel;
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const text = this.renderPlanFallbackText(plan);
+    const blocks = this.planToBlockKit(plan);
+
+    try {
+      this.logger.debug("Slack API: chat.postMessage (plan)", {
+        channel,
+        threadTs,
+        blockCount: blocks.length,
+      });
+      const result = await this.client.chat.postMessage(
+        this.withToken({
+          channel,
+          thread_ts: threadTs,
+          text,
+          // biome-ignore lint/suspicious/noExplicitAny: Block Kit blocks are platform-specific
+          blocks: blocks as any[],
+          unfurl_links: false,
+          unfurl_media: false,
+        })
+      );
+      return { id: result.ts as string, threadId, raw: result };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  async editObject(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<unknown>> {
+    if (kind !== "plan") {
+      // Unsupported kind — edit as plain text fallback
+      return this.editMessage(threadId, messageId, `[${kind}]`);
+    }
+
+    const plan = data as PlanModel;
+    const { channel } = this.decodeThreadId(threadId);
+    const text = this.renderPlanFallbackText(plan);
+    const blocks = this.planToBlockKit(plan);
+
+    try {
+      this.logger.debug("Slack API: chat.update (plan)", {
+        channel,
+        messageId,
+        blockCount: blocks.length,
+      });
+      const result = await this.client.chat.update(
+        this.withToken({
+          channel,
+          ts: messageId,
+          text,
+          // biome-ignore lint/suspicious/noExplicitAny: Block Kit blocks are platform-specific
+          blocks: blocks as any[],
+        })
+      );
+
+      return { id: result.ts as string, threadId, raw: result };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  private renderPlanFallbackText(plan: PlanModel): string {
+    const lines: string[] = [];
+    lines.push(plan.title || "Plan");
+    for (const task of plan.tasks) {
+      lines.push(`- (${task.status}) ${task.title}`);
+    }
+    return lines.join("\n");
+  }
+
+  private planToBlockKit(plan: PlanModel): unknown[] {
+    const tasks = plan.tasks.map((task: PlanModel["tasks"][number]) => {
+      const details = this.planContentToRichText(task.details);
+      const output = this.planContentToRichText(task.output);
+      return {
+        type: "task_card",
+        task_id: task.id,
+        title: task.title,
+        status: task.status,
+        ...(details ? { details } : null),
+        ...(output ? { output } : null),
+      };
+    });
+    return [
+      {
+        type: "plan",
+        title: plan.title || "Plan",
+        tasks,
+      },
+    ];
+  }
+
+  private planContentToPlainText(content: PlanContent | undefined): string {
+    if (!content) {
+      return "";
+    }
+    if (Array.isArray(content)) {
+      return content.join("\n");
+    }
+    if (typeof content === "string") {
+      return content;
+    }
+    if ("markdown" in content) {
+      return toPlainText(parseMarkdown(content.markdown));
+    }
+    if ("ast" in content) {
+      return toPlainText(content.ast);
+    }
+    return "";
+  }
+
+  private planContentToRichText(
+    content: PlanContent | undefined
+  ): { type: "rich_text"; elements: unknown[] } | undefined {
+    if (!content) {
+      return undefined;
+    }
+    if (Array.isArray(content)) {
+      return {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_list",
+            style: "bullet",
+            elements: content.map((item) => ({
+              type: "rich_text_section",
+              elements: [{ type: "text", text: String(item) }],
+            })),
+          },
+        ],
+      };
+    }
+    const text = this.planContentToPlainText(content);
+    if (!text) {
+      return undefined;
+    }
+    return {
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text }],
+        },
+      ],
+    };
+  }
+
+  // ===========================================================================
+  // Message deletion and reactions
+  // ===========================================================================
+
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
     const ephemeral = this.decodeEphemeralMessageId(messageId);
     if (ephemeral) {
@@ -2975,7 +3148,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     let first = true;
     let lastAppended = "";
-    const renderer = new StreamingMarkdownRenderer();
+    const renderer = new StreamingMarkdownRenderer({
+      wrapTablesForAppend: false,
+    });
 
     /**
      * Helper to flush markdown text delta to the stream.

@@ -1,5 +1,15 @@
 # @chat-adapter/slack
 
+## 4.25.0
+
+### Patch Changes
+
+- 1856198: Fix Slack OAuth callbacks by allowing `redirectUri` to be passed explicitly during the token exchange while preserving the callback query param as a backward-compatible fallback.
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
 ## 4.24.0
 
 ### Patch Changes

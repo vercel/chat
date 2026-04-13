@@ -9,6 +9,7 @@ import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
+import type { PostableObject } from "./postable-object";
 import type { SerializedThread } from "./thread";
 
 // =============================================================================
@@ -218,6 +219,22 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     message: AdapterPostableMessage
   ): Promise<RawMessage<TRawMessage>>;
 
+  /**
+   * Edit a previously posted object (Plan, Poll, etc.).
+   * If not implemented, object updates will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread containing the message
+   * @param messageId - The message ID to edit
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  editObject?(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<TRawMessage>>;
+
   /** Encode platform-specific data into a thread ID string */
   encodeThreadId(platformData: TThreadId): string;
 
@@ -405,6 +422,20 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   postMessage(
     threadId: string,
     message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Post a special object (Plan, Poll, etc.) as a single message.
+   * If not implemented, posting such objects will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread to post to
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  postObject?(
+    threadId: string,
+    kind: string,
+    data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
   /** Remove a reaction from a message */
@@ -814,6 +845,7 @@ export interface Postable<
   /**
    * Post a message.
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -1035,8 +1067,15 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
+   *
+   * // Plan with live updates
+   * const plan = new Plan({ initialMessage: "Working..." });
+   * await thread.post(plan);
+   * await plan.addTask({ title: "Step 1" });
+   * await plan.complete({ completeMessage: "Done!" });
    * ```
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -1122,6 +1161,28 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    */
   unsubscribe(): Promise<void>;
 }
+
+// =============================================================================
+// Postable Objects
+// =============================================================================
+
+// Re-export Plan types from plan.ts for backwards compatibility
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+// Re-export PostableObject types from plan.ts for backwards compatibility
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
 
 export interface ThreadInfo {
   channelId: string;
@@ -1354,7 +1415,8 @@ export type AdapterPostableMessage =
  */
 export type PostableMessage =
   | AdapterPostableMessage
-  | AsyncIterable<string | StreamChunk | StreamEvent>;
+  | AsyncIterable<string | StreamChunk | StreamEvent>
+  | PostableObject;
 
 /**
  * Duck-typed stream event compatible with AI SDK's `fullStream`.

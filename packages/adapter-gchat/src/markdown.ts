@@ -106,16 +106,14 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isLinkNode(node)) {
-      // Google Chat auto-detects links, so we just output the URL
+      // Google Chat supports custom link labels using <url|text> syntax.
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToGChat(child))
         .join("");
-      // If link text matches URL, just output URL
       if (linkText === node.url) {
         return node.url;
       }
-      // Otherwise output "text (url)"
-      return `${linkText} (${node.url})`;
+      return `<${node.url}|${linkText}>`;
     }
 
     if (isBlockquoteNode(node)) {
