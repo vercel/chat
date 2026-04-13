@@ -95,6 +95,11 @@ Button({ id: "delete", label: "Delete", style: "danger", value: "item-123" })
       description: 'Optional payload sent with the action callback.',
       type: 'string',
     },
+    actionType: {
+      description: 'Hints to adapters like Teams that this button will open a modal via event.openModal().',
+      type: '"action" | "modal"',
+      default: '"action"',
+    },
   }}
 />
 
