@@ -26,7 +26,6 @@ export {
   MessageHistoryCache,
   type MessageHistoryConfig,
 } from "./message-history";
-export { reviver } from "./reviver";
 export type {
   AddTaskOptions,
   CompletePlanOptions,
@@ -44,6 +43,7 @@ export type {
   PostableObjectContext,
 } from "./postable-object";
 export { isPostableObject } from "./postable-object";
+export { reviver } from "./reviver";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
