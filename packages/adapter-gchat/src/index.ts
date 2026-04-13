@@ -1565,9 +1565,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       const response = await this.chatApi.spaces.messages.update({
         name: messageId,
-        updateMask: "text",
+        updateMask: "text,cardsV2",
         requestBody: {
           text,
+          cardsV2: [],
         },
       });
 

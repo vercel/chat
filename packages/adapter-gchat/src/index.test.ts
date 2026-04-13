@@ -1384,7 +1384,7 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("editMessage", () => {
-    it("should call chatApi.spaces.messages.update for text", async () => {
+    it("should update text and clear cards when editing to text", async () => {
       const { adapter } = await createInitializedAdapter();
       const threadId = adapter.encodeThreadId({
         spaceName: "spaces/ABC123",
@@ -1406,9 +1406,10 @@ describe("GoogleChatAdapter", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "spaces/ABC123/messages/msg1",
-          updateMask: "text",
+          updateMask: "text,cardsV2",
           requestBody: expect.objectContaining({
             text: expect.any(String),
+            cardsV2: [],
           }),
         })
       );
