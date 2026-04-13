@@ -415,7 +415,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return {
       _type: "chat:Channel",
       id: this.id,
-      adapterName: this.adapter.name,
+      adapterName: this._adapterName ?? this.adapter.name,
       channelVisibility: this.channelVisibility,
       isDM: this.isDM,
     };

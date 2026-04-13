@@ -98,14 +98,14 @@ export type ChatTurnPayload = {
 
 ## Create the durable session workflow
 
-The workflow receives the serialized thread and first message, restores them with `bot.reviver()`, and then keeps waiting for more turns through the hook.
+The workflow receives the serialized thread and first message, restores them with `reviver`, and then keeps waiting for more turns through the hook.
 
 The important detail is that the workflow only orchestrates. Chat SDK side effects such as `post()`, `unsubscribe()`, and `setState()` stay inside step helpers:
 
 ```typescript title="workflows/durable-chat-session.ts" lineNumbers
-import { Message, type Thread } from "chat";
+import { Message, reviver, type Thread } from "chat";
 import { createHook, getWorkflowMetadata } from "workflow";
-import { bot, type ThreadState } from "@/lib/bot";
+import type { ThreadState } from "@/lib/bot";
 import type { ChatTurnPayload } from "@/workflows/chat-turn-hook";
 
 async function postAssistantMessage(
@@ -114,6 +114,7 @@ async function postAssistantMessage(
 ) {
   "use step";
 
+  const { bot } = await import("@/lib/bot");
   await bot.initialize();
   await thread.post(text);
 }
@@ -121,6 +122,7 @@ async function postAssistantMessage(
 async function closeSession(thread: Thread<ThreadState>) {
   "use step";
 
+  const { bot } = await import("@/lib/bot");
   await bot.initialize();
   await thread.post("Session closed.");
   await thread.unsubscribe();
@@ -154,7 +156,7 @@ export async function durableChatSession(payload: string) {
   "use workflow";
 
   const { workflowRunId } = getWorkflowMetadata();
-  const { thread, message } = JSON.parse(payload, bot.reviver()) as {
+  const { thread, message } = JSON.parse(payload, reviver) as {
     thread: Thread<ThreadState>;
     message: Message;
   };
@@ -186,11 +188,15 @@ export async function durableChatSession(payload: string) {
   The `using` keyword requires TypeScript 5.2+ with `"lib": ["esnext.disposable"]` in your `tsconfig.json`. If you are on an older version, call `hook.dispose()` manually when the session ends.
 </Callout>
 
+<Callout type="warn">
+  Do not import `bot` at the top level of a workflow file. Adapter packages depend on Node.js modules that are not available in the workflow sandbox. Use the standalone `reviver` for deserialization and import `bot` dynamically inside `"use step"` functions where Node.js modules are available.
+</Callout>
+
 This is the core integration:
 
 - `thread.toJSON()` and `message.toJSON()` cross the workflow boundary safely
-- `bot.reviver()` restores real Chat SDK objects inside the workflow
-- `bot.registerSingleton()` lets Workflow deserialize `Thread` objects again inside step functions
+- `reviver` restores real Chat SDK objects inside the workflow without pulling in adapter dependencies
+- `registerSingleton()` is called in `lib/bot.ts` and the singleton is available inside step functions when `bot` is dynamically imported
 - `createHook<ChatTurnPayload>({ token: workflowRunId })` makes the workflow run itself the session identifier
 - `runTurn()`, `postAssistantMessage()`, and `closeSession()` are steps, so adapter and state side effects stay outside the workflow sandbox
 
@@ -328,4 +334,4 @@ From here you can add:
 - [Handling Events](/docs/handling-events) — Mentions, subscribed messages, and routing behavior
 - [Streaming](/docs/streaming) — Stream AI SDK responses directly to chat platforms
 - [Thread API](/docs/api/thread) — `thread.toJSON()`, `thread.setState()`, and other thread primitives
-- [Chat API](/docs/api/chat) — `bot.reviver()`, initialization, and webhook access
+- [Chat API](/docs/api/chat) — `reviver`, initialization, and webhook access
