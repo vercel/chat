@@ -96,6 +96,8 @@ const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
 export interface SlackAdapterConfig {
+  /** Override the Slack API base URL (e.g. "https://slack-gov.com/api/" for GovSlack). Defaults to SLACK_API_URL env var. */
+  apiUrl?: string;
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
   botToken?: string;
   /** Bot user ID (will be fetched if not provided) */
@@ -436,7 +438,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botToken =
       config.botToken ?? (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined);
 
-    this.client = new WebClient(botToken);
+    const slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.client = new WebClient(botToken, {
+      ...(slackApiUrl ? { slackApiUrl } : {}),
+    });
     this.signingSecret = signingSecret;
     this.defaultBotToken = botToken;
     this.logger = config.logger ?? new ConsoleLogger("info").child("slack");
@@ -3148,7 +3153,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     let first = true;
     let lastAppended = "";
-    const renderer = new StreamingMarkdownRenderer();
+    const renderer = new StreamingMarkdownRenderer({
+      wrapTablesForAppend: false,
+    });
 
     /**
      * Helper to flush markdown text delta to the stream.

@@ -1,5 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ChannelImpl, type SerializedChannel } from "./channel";
 import { Chat } from "./chat";
 import { clearChatSingleton } from "./chat-singleton";
 import { Message, type SerializedMessage } from "./message";
@@ -8,6 +9,7 @@ import {
   createMockState,
   createTestMessage,
 } from "./mock-adapter";
+import { reviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 
 describe("Serialization", () => {
@@ -761,6 +763,192 @@ describe("Serialization", () => {
       const parsed = JSON.parse(payload, chat.reviver());
 
       expect(parsed.data.messages[0].metadata.dateSent).toBeInstanceOf(Date);
+    });
+  });
+
+  describe("standalone reviver()", () => {
+    beforeEach(() => {
+      const mockState = createMockState();
+      const chat = new Chat({
+        userName: "test-bot",
+        adapters: {
+          slack: createMockAdapter("slack"),
+          teams: createMockAdapter("teams"),
+        },
+        state: mockState,
+        logger: "silent",
+      });
+      chat.registerSingleton();
+    });
+
+    afterEach(() => {
+      clearChatSingleton();
+    });
+
+    it("should revive chat:Thread objects", () => {
+      const json: SerializedThread = {
+        _type: "chat:Thread",
+        id: "slack:C123:1234.5678",
+        channelId: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      const payload = JSON.stringify({ thread: json });
+      const parsed = JSON.parse(payload, reviver);
+
+      expect(parsed.thread).toBeInstanceOf(ThreadImpl);
+      expect(parsed.thread.id).toBe("slack:C123:1234.5678");
+    });
+
+    it("should revive chat:Message objects", () => {
+      const json: SerializedMessage = {
+        _type: "chat:Message",
+        id: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        text: "Hello",
+        formatted: { type: "root", children: [] },
+        raw: {},
+        author: {
+          userId: "U123",
+          userName: "testuser",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        metadata: {
+          dateSent: "2024-01-15T10:30:00.000Z",
+          edited: false,
+        },
+        attachments: [],
+      };
+
+      const payload = JSON.stringify({ message: json });
+      const parsed = JSON.parse(payload, reviver);
+
+      expect(parsed.message.id).toBe("msg-1");
+      expect(parsed.message.metadata.dateSent).toBeInstanceOf(Date);
+    });
+
+    it("should revive both Thread and Message in same payload", () => {
+      const threadJson: SerializedThread = {
+        _type: "chat:Thread",
+        id: "slack:C123:1234.5678",
+        channelId: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      const messageJson: SerializedMessage = {
+        _type: "chat:Message",
+        id: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        text: "Hello",
+        formatted: { type: "root", children: [] },
+        raw: {},
+        author: {
+          userId: "U123",
+          userName: "testuser",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        metadata: {
+          dateSent: "2024-01-15T10:30:00.000Z",
+          edited: false,
+        },
+        attachments: [],
+      };
+
+      const payload = JSON.stringify({
+        thread: threadJson,
+        message: messageJson,
+      });
+      const parsed = JSON.parse(payload, reviver);
+
+      expect(parsed.thread).toBeInstanceOf(ThreadImpl);
+      expect(parsed.message.metadata.dateSent).toBeInstanceOf(Date);
+    });
+
+    it("should leave non-chat objects unchanged", () => {
+      const payload = JSON.stringify({
+        name: "test",
+        count: 42,
+        nested: { _type: "other:Type", value: "unchanged" },
+      });
+
+      const parsed = JSON.parse(payload, reviver);
+
+      expect(parsed.name).toBe("test");
+      expect(parsed.count).toBe(42);
+      expect(parsed.nested._type).toBe("other:Type");
+    });
+
+    it("should be usable directly as JSON.parse second argument", () => {
+      const json: SerializedMessage = {
+        _type: "chat:Message",
+        id: "msg-direct",
+        threadId: "slack:C123:1234.5678",
+        text: "Direct usage",
+        formatted: { type: "root", children: [] },
+        raw: {},
+        author: {
+          userId: "U123",
+          userName: "testuser",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        metadata: {
+          dateSent: "2024-01-15T10:30:00.000Z",
+          edited: false,
+        },
+        attachments: [],
+      };
+
+      // This is the key use case: passing reviver directly without wrapping
+      const parsed = JSON.parse(JSON.stringify(json), reviver);
+
+      expect(parsed.id).toBe("msg-direct");
+      expect(parsed.text).toBe("Direct usage");
+      expect(parsed.metadata.dateSent).toBeInstanceOf(Date);
+    });
+
+    it("should allow re-serialization of a revived Thread without singleton", () => {
+      const json: SerializedThread = {
+        _type: "chat:Thread",
+        id: "slack:C123:1234.5678",
+        channelId: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      clearChatSingleton();
+
+      const thread = ThreadImpl.fromJSON(json);
+      const reserialized = thread.toJSON();
+
+      expect(reserialized._type).toBe("chat:Thread");
+      expect(reserialized.adapterName).toBe("slack");
+      expect(reserialized.id).toBe("slack:C123:1234.5678");
+    });
+
+    it("should allow re-serialization of a revived Channel without singleton", () => {
+      const json: SerializedChannel = {
+        _type: "chat:Channel",
+        id: "C123",
+        isDM: false,
+        adapterName: "slack",
+      };
+
+      clearChatSingleton();
+
+      const channel = ChannelImpl.fromJSON(json);
+      const reserialized = channel.toJSON();
+
+      expect(reserialized._type).toBe("chat:Channel");
+      expect(reserialized.adapterName).toBe("slack");
+      expect(reserialized.id).toBe("C123");
     });
   });
 

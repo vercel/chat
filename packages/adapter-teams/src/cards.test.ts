@@ -9,7 +9,10 @@ import {
   Fields,
   Image,
   LinkButton,
+  RadioSelect,
   Section,
+  Select,
+  SelectOption,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToAdaptiveCard, cardToFallbackText } from "./cards";
@@ -319,6 +322,115 @@ describe("cardToAdaptiveCard with modal buttons", () => {
         actionId: "open-dialog",
         msteams: { type: "task/fetch" },
       },
+    });
+  });
+});
+
+describe("cardToAdaptiveCard with select and radio_select in Actions", () => {
+  it("converts Select to compact ChoiceSetInput in body", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Select({
+            id: "color",
+            label: "Pick a color",
+            options: [
+              SelectOption({ label: "Red", value: "red" }),
+              SelectOption({ label: "Blue", value: "blue" }),
+            ],
+            placeholder: "Choose...",
+          }),
+        ]),
+      ],
+    });
+    const adaptive = cardToAdaptiveCard(card);
+
+    expect(adaptive.body).toHaveLength(1);
+    expect(adaptive.body[0]).toMatchObject({
+      type: "Input.ChoiceSet",
+      id: "color",
+      label: "Pick a color",
+      style: "compact",
+      isRequired: true,
+      placeholder: "Choose...",
+    });
+    const choiceSet = adaptive.body[0] as {
+      choices: { title: string; value: string }[];
+    };
+    expect(choiceSet.choices).toHaveLength(2);
+    expect(choiceSet.choices[0]).toMatchObject({
+      title: "Red",
+      value: "red",
+    });
+
+    // Auto-injects submit button since there are no explicit buttons
+    expect(adaptive.actions).toHaveLength(1);
+    expect(adaptive.actions?.[0]).toMatchObject({
+      type: "Action.Submit",
+      title: "Submit",
+      data: { actionId: "__auto_submit" },
+    });
+  });
+
+  it("converts RadioSelect to expanded ChoiceSetInput in body", () => {
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "plan",
+            label: "Choose Plan",
+            options: [
+              SelectOption({ label: "Free", value: "free" }),
+              SelectOption({ label: "Pro", value: "pro" }),
+            ],
+          }),
+        ]),
+      ],
+    });
+    const adaptive = cardToAdaptiveCard(card);
+
+    expect(adaptive.body).toHaveLength(1);
+    expect(adaptive.body[0]).toMatchObject({
+      type: "Input.ChoiceSet",
+      id: "plan",
+      label: "Choose Plan",
+      style: "expanded",
+      isRequired: true,
+    });
+
+    // Auto-injects submit button
+    expect(adaptive.actions).toHaveLength(1);
+    expect(adaptive.actions?.[0]).toMatchObject({
+      type: "Action.Submit",
+      data: { actionId: "__auto_submit" },
+    });
+  });
+
+  it("does NOT auto-inject submit when buttons are present", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Select({
+            id: "color",
+            label: "Color",
+            options: [SelectOption({ label: "Red", value: "red" })],
+          }),
+          Button({ id: "submit", label: "Submit", style: "primary" }),
+        ]),
+      ],
+    });
+    const adaptive = cardToAdaptiveCard(card);
+
+    // Select goes to body, button goes to actions
+    expect(adaptive.body).toHaveLength(1);
+    expect(adaptive.body[0]).toMatchObject({
+      type: "Input.ChoiceSet",
+      id: "color",
+    });
+    expect(adaptive.actions).toHaveLength(1);
+    expect(adaptive.actions?.[0]).toMatchObject({
+      type: "Action.Submit",
+      title: "Submit",
     });
   });
 });

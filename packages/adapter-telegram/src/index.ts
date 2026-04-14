@@ -242,7 +242,8 @@ export class TelegramAdapter
 
     this.botToken = botToken;
     this.apiBaseUrl = trimTrailingSlashes(
-      config.apiBaseUrl ??
+      config.apiUrl ??
+        config.apiBaseUrl ??
         process.env.TELEGRAM_API_BASE_URL ??
         TELEGRAM_API_BASE
     );

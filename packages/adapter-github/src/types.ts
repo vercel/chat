@@ -12,6 +12,8 @@ import type { Logger } from "chat";
  * Base configuration options shared by all auth methods.
  */
 interface GitHubAdapterBaseConfig {
+  /** Override the GitHub API base URL (e.g. "https://github.example.com/api/v3" for GitHub Enterprise). Defaults to GITHUB_API_URL env var. */
+  apiUrl?: string;
   /**
    * Bot's GitHub user ID (numeric).
    * Used for self-message detection. If not provided, will be fetched on first API call.

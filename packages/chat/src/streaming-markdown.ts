@@ -1,5 +1,13 @@
 import remend from "remend";
 
+interface StreamingMarkdownRendererOptions {
+  /**
+   * Wrap confirmed table blocks in code fences for append-only consumers that
+   * cannot render markdown tables while a stream is in flight.
+   */
+  wrapTablesForAppend?: boolean;
+}
+
 /**
  * A streaming markdown renderer that buffers potential table headers
  * until confirmed by a separator line, preventing tables from flashing
@@ -17,6 +25,13 @@ export class StreamingMarkdownRenderer {
   private fenceToggles = 0;
   /** Incomplete trailing line buffer for incremental fence tracking. */
   private incompleteLine = "";
+  private readonly options: Required<StreamingMarkdownRendererOptions>;
+
+  constructor(options: StreamingMarkdownRendererOptions = {}) {
+    this.options = {
+      wrapTablesForAppend: options.wrapTablesForAppend ?? true,
+    };
+  }
 
   /** Append a chunk from the LLM stream. */
   push(chunk: string): void {
@@ -79,15 +94,16 @@ export class StreamingMarkdownRenderer {
    * Get text safe for append-only streaming (e.g. Slack native streaming).
    *
    * - Holds back unconfirmed table headers until separator arrives.
-   * - Wraps confirmed tables in code fences so pipes render as literal
-   *   text (not broken mrkdwn). The code fence is left OPEN while
-   *   the table is still streaming, keeping output monotonic for deltas.
+   * - Optionally wraps confirmed tables in code fences so pipes render as
+   *   literal text on append-only surfaces that lack native table support.
+   *   The code fence is left OPEN while the table is still streaming,
+   *   keeping output monotonic for deltas.
    * - Holds back unclosed inline markers (**, *, ~~, `, [).
    * - The final editMessage replaces everything with properly formatted text.
    */
   getCommittableText(): string {
     if (this.finished) {
-      return wrapTablesForAppend(this.accumulated, true);
+      return this.formatAppendOnlyText(this.accumulated, true);
     }
 
     // Strip incomplete last line (no trailing newline) to prevent committing
@@ -102,22 +118,23 @@ export class StreamingMarkdownRenderer {
       // If stripping puts us inside a code fence, keep the incomplete line
       // (it's likely the closing fence being typed — content is literal).
       if (isInsideCodeFence(withoutIncompleteLine)) {
-        // Still wrap preceding tables for consistent coordinate space.
-        return wrapTablesForAppend(text);
+        // Still apply any configured table transformation to preserve
+        // append-only coordinate space for delta calculation.
+        return this.formatAppendOnlyText(text);
       }
 
       text = withoutIncompleteLine;
     }
 
     // Inside a user code fence: skip table holding and inline marker buffering
-    // (pipes and markers are literal inside fences), but still wrap preceding
-    // confirmed tables for consistent coordinate space.
+    // (pipes and markers are literal inside fences), but still apply any
+    // configured table transformation to preserve coordinate space.
     if (isInsideCodeFence(text)) {
-      return wrapTablesForAppend(text);
+      return this.formatAppendOnlyText(text);
     }
 
     const committed = getCommittablePrefix(text);
-    const wrapped = wrapTablesForAppend(committed);
+    const wrapped = this.formatAppendOnlyText(committed);
 
     // If text ends inside an open table code fence,
     // skip inline marker buffering — markers in code blocks are literal
@@ -138,6 +155,13 @@ export class StreamingMarkdownRenderer {
     this.finished = true;
     this.dirty = true;
     return this.render();
+  }
+
+  private formatAppendOnlyText(text: string, closeFences = false): string {
+    if (!this.options.wrapTablesForAppend) {
+      return text;
+    }
+    return wrapTablesForAppend(text, closeFences);
   }
 }
 
@@ -276,8 +300,9 @@ function getCommittablePrefix(text: string): string {
 /**
  * Wraps confirmed GFM table blocks in code fences for append-only streaming.
  *
- * Append-only APIs (e.g. Slack streaming) can't render GFM tables natively.
- * Wrapping in a code fence makes pipes display as readable literal text.
+ * Some append-only APIs cannot render GFM tables natively while a stream is
+ * in flight. Wrapping in a code fence makes pipes display as readable literal
+ * text until a later full-message render can replace them.
  *
  * The code fence is left OPEN if the table is ongoing (no closing ```)
  * so that output remains monotonic — each new row just extends the block.

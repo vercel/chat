@@ -389,6 +389,21 @@ describe("GoogleChatAdapter", () => {
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
+
+    it("should resolve apiUrl from GOOGLE_CHAT_API_URL env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_API_URL = "https://custom-chat.googleapis.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        apiUrl: "https://custom-chat.googleapis.com",
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
   });
 
   describe("isDM", () => {

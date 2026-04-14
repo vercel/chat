@@ -152,6 +152,22 @@ describe("constructor env var resolution", () => {
     });
     expect(adapter).toBeInstanceOf(SlackAdapter);
   });
+
+  it("should resolve apiUrl from SLACK_API_URL env var", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_API_URL = "https://slack-gov.com/api/";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should accept apiUrl config value", () => {
+    const adapter = new SlackAdapter({
+      signingSecret: "test-secret",
+      apiUrl: "https://slack-gov.com/api/",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
 });
 
 // ============================================================================

@@ -181,6 +181,33 @@ describe("constructor env var resolution", () => {
     });
     expect(adapter.userName).toBe("mybot");
   });
+
+  it("should resolve apiUrl from DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://custom-discord.example.com/api/v10";
+    const adapter = new DiscordAdapter();
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://custom-discord.example.com/api/v10"
+    );
+  });
+
+  it("should prefer apiUrl config over DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://env-url.example.com/api/v10";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      apiUrl: "https://config-url.example.com/api/v10",
+    });
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://config-url.example.com/api/v10"
+    );
+  });
 });
 
 // ============================================================================

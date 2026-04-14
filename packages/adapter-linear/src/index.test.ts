@@ -3668,4 +3668,40 @@ describe("createLinearAdapter", () => {
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
   });
+
+  it("should accept apiUrl config", () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_123",
+      webhookSecret: "secret",
+      apiUrl: "https://custom-linear.example.com",
+    });
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://custom-linear.example.com"
+    );
+  });
+
+  it("should resolve apiUrl from LINEAR_API_URL env var", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_API_KEY = "env-key";
+    process.env.LINEAR_API_URL = "https://custom-linear.example.com";
+    const adapter = createLinearAdapter();
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://custom-linear.example.com"
+    );
+  });
+
+  it("should prefer apiUrl config over LINEAR_API_URL env var", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_API_KEY = "env-key";
+    process.env.LINEAR_API_URL = "https://env-linear.example.com";
+    const adapter = createLinearAdapter({
+      apiKey: "key",
+      apiUrl: "https://config-linear.example.com",
+    });
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://config-linear.example.com"
+    );
+  });
 });
