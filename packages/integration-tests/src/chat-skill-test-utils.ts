@@ -7,7 +7,7 @@ import {
   rmSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import {
   ADAPTERS_JSON_PATH,
   CHAT_SKILL_PATH,
@@ -40,32 +40,6 @@ function hasPackageName(
   entry: AdapterCatalogEntry
 ): entry is AdapterCatalogEntry & { packageName: string } {
   return typeof entry.packageName === "string" && entry.packageName.length > 0;
-}
-
-export function isCommunityEntry(
-  entry: AdapterCatalogEntry
-): entry is AdapterCatalogEntry & { packageName: string } {
-  return entry.community === true && hasPackageName(entry);
-}
-
-export function isOfficialPlatformEntry(
-  entry: AdapterCatalogEntry
-): entry is AdapterCatalogEntry & { packageName: string } {
-  return (
-    entry.type === "platform" &&
-    !(entry.community || entry.comingSoon) &&
-    hasPackageName(entry)
-  );
-}
-
-export function isOfficialStateEntry(
-  entry: AdapterCatalogEntry
-): entry is AdapterCatalogEntry & { packageName: string } {
-  return (
-    entry.type === "state" &&
-    !(entry.community || entry.comingSoon) &&
-    hasPackageName(entry)
-  );
 }
 
 export function isOfficialCatalogEntry(
@@ -120,51 +94,6 @@ export const CHAT_SKILL = readFileSync(CHAT_SKILL_PATH, "utf-8");
 
 export function cleanupPackArtifacts(): void {
   rmSync(PACK_DEST_ROOT, { recursive: true, force: true });
-}
-
-export function extractSection(markdown: string, heading: string): string {
-  const lines = markdown.split("\n");
-  const headingLine = `### ${heading}`;
-  const startIndex = lines.findIndex((line) => line.trim() === headingLine);
-
-  invariant(startIndex !== -1, `Missing section "${heading}" in SKILL.md`);
-
-  const sectionLines: string[] = [];
-  for (let i = startIndex + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith("### ") || line.startsWith("## ")) {
-      break;
-    }
-    sectionLines.push(line);
-  }
-
-  return sectionLines.join("\n").trim();
-}
-
-export function extractMarkdownTableRows(section: string): string[][] {
-  const tableLines = section
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("|"));
-
-  if (tableLines.length < 3) {
-    return [];
-  }
-
-  return tableLines.slice(2).map((line) =>
-    line
-      .split("|")
-      .slice(1, -1)
-      .map((cell) => cell.trim().replace(/^`|`$/g, ""))
-  );
-}
-
-export function extractBulletItems(section: string): string[] {
-  return section
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim().replace(/^`|`$/g, ""));
 }
 
 export function extractPublishedPaths(markdown: string): string[] {
@@ -267,37 +196,4 @@ export function getPackedTarballEntries(packageName: string): string[] {
 
   PACKED_TARBALL_ENTRIES.set(packageName, entries);
   return entries;
-}
-
-export function extractFactoryName(packageName: string): string {
-  const packageDir = PACKAGE_DIRS_BY_NAME.get(packageName);
-  invariant(packageDir, `Missing local package for ${packageName}`);
-
-  const sourcePath = join(packageDir, "src/index.ts");
-  invariant(
-    existsSync(sourcePath),
-    `Expected ${packageName} to have ${relative(REPO_ROOT, sourcePath)}`
-  );
-
-  const source = readFileSync(sourcePath, "utf-8");
-  const factoryNames = [
-    ...new Set(
-      [...source.matchAll(/export function (create[A-Za-z0-9_]+)\(/g)].map(
-        (match) => match[1]
-      )
-    ),
-  ];
-
-  invariant(
-    factoryNames.length === 1,
-    `${packageName} should export exactly one create* factory`
-  );
-
-  const [factoryName] = factoryNames;
-  invariant(
-    factoryName,
-    `${packageName} should export exactly one create* factory`
-  );
-
-  return factoryName;
 }

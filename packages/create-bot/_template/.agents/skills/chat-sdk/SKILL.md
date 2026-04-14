@@ -186,7 +186,7 @@ await thread.post(
 
 ## Adapter inventory
 
-For the full list of official, vendor-official, and community adapters (platform and state), see [https://chat-sdk.dev/adapters](https://chat-sdk.dev/adapters).
+For the full list of official, vendor-official, and community adapters (platform and state), see https://chat-sdk.dev/adapters.
 
 ## Building a custom adapter
 

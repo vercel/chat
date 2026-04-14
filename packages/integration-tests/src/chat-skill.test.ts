@@ -3,17 +3,10 @@ import {
   ADAPTER_CATALOG,
   CHAT_SKILL,
   cleanupPackArtifacts,
-  extractBulletItems,
-  extractFactoryName,
-  extractMarkdownTableRows,
   extractPublishedPaths,
-  extractSection,
   getPackedTarballEntries,
   invariant,
-  isCommunityEntry,
   isOfficialCatalogEntry,
-  isOfficialPlatformEntry,
-  isOfficialStateEntry,
   parsePublishedPath,
 } from "./chat-skill-test-utils";
 
@@ -87,65 +80,7 @@ describe("skills/chat/SKILL.md", () => {
     }
   });
 
-  it("should list all official platform adapters with correct factories", () => {
-    const section = extractSection(CHAT_SKILL, "Official platform adapters");
-    const actualRows = extractMarkdownTableRows(section).map(
-      ([name, packageName, factory]) => ({
-        name,
-        packageName,
-        factory,
-      })
-    );
-
-    const expectedRows = ADAPTER_CATALOG.filter(isOfficialPlatformEntry).map(
-      (entry) => ({
-        name: entry.name,
-        packageName: entry.packageName,
-        factory: extractFactoryName(entry.packageName),
-      })
-    );
-
-    expect(actualRows).toEqual(expectedRows);
-  });
-
-  it("should list all official state adapters with correct factories", () => {
-    const section = extractSection(CHAT_SKILL, "Official state adapters");
-    const actualRows = extractMarkdownTableRows(section).map(
-      ([name, packageName, factory]) => ({
-        name,
-        packageName,
-        factory,
-      })
-    );
-
-    const expectedRows = ADAPTER_CATALOG.filter(isOfficialStateEntry).map(
-      (entry) => ({
-        name: entry.name,
-        packageName: entry.packageName,
-        factory: extractFactoryName(entry.packageName),
-      })
-    );
-
-    expect(actualRows).toEqual(expectedRows);
-  });
-
-  it("should list all community adapters", () => {
-    const section = extractSection(CHAT_SKILL, "Community adapters");
-    const actualItems = extractBulletItems(section);
-    const expectedItems = ADAPTER_CATALOG.filter(isCommunityEntry).map(
-      (entry) => entry.packageName
-    );
-
-    expect(actualItems).toEqual(expectedItems);
-  });
-
-  it("should list all coming-soon platform entries", () => {
-    const section = extractSection(CHAT_SKILL, "Coming-soon platform entries");
-    const actualItems = extractBulletItems(section);
-    const expectedItems = ADAPTER_CATALOG.filter(
-      (entry) => entry.type === "platform" && entry.comingSoon
-    ).map((entry) => entry.name);
-
-    expect(actualItems).toEqual(expectedItems);
+  it("should link to the adapters page instead of listing them inline", () => {
+    expect(CHAT_SKILL).toContain("https://chat-sdk.dev/adapters");
   });
 });

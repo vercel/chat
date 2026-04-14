@@ -38,9 +38,11 @@ pnpm --filter chat build
 pnpm --filter @chat-adapter/slack build
 pnpm --filter @chat-adapter/gchat build
 pnpm --filter @chat-adapter/teams build
+pnpm --filter create-bot build
 
 # Run tests for a specific package
 pnpm --filter chat test
+pnpm --filter create-bot test
 pnpm --filter @chat-adapter/integration-tests test
 
 # Run a single test file
@@ -65,6 +67,7 @@ This is a **pnpm monorepo** using **Turborepo** for build orchestration. All pac
 - **`packages/state-memory`** - In-memory state adapter (for development/testing)
 - **`packages/state-redis`** - Redis state adapter (for production)
 - **`packages/adapter-whatsapp`** - WhatsApp adapter using Meta Cloud API
+- **`packages/create-bot`** - `create-bot` CLI for scaffolding new Chat SDK bot projects
 - **`packages/integration-tests`** - Integration tests against real platform APIs
 - **`examples/nextjs-chat`** - Example Next.js app showing how to use the SDK
 
