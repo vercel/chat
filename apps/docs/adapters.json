@@ -225,6 +225,16 @@
     "readme": "https://github.com/buiducnhat/chat-adapter-zalo"
   },
   {
+    "name": "Mattermost",
+    "slug": "mattermost",
+    "type": "platform",
+    "community": true,
+    "description": "Mattermost adapter for Chat SDK with support for posts, reactions, and slash commands.",
+    "packageName": "chat-adapter-mattermost",
+    "author": "thiagoferolla",
+    "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost"
+  },
+  {
     "name": "Instagram",
     "slug": "instagram",
     "type": "platform",
