@@ -1576,6 +1576,40 @@ export class Chat<
   }
 
   /**
+   * Get a Thread handle by its thread ID.
+   *
+   * The adapter is automatically inferred from the thread ID prefix.
+   *
+   * @param threadId - Full thread ID (e.g., "slack:C123ABC:1234567890.123456")
+   * @returns A Thread that can be used to post messages, subscribe, etc.
+   *
+   * @example
+   * ```typescript
+   * const thread = chat.thread("slack:C123ABC:1234567890.123456");
+   * await thread.post("Hello from outside a webhook!");
+   * ```
+   */
+  thread(threadId: string): Thread<TState> {
+    const adapterName = threadId.split(":")[0];
+    if (!adapterName) {
+      throw new ChatError(
+        `Invalid thread ID: ${threadId}`,
+        "INVALID_THREAD_ID"
+      );
+    }
+
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${adapterName}" not found for thread ID "${threadId}"`,
+        "ADAPTER_NOT_FOUND"
+      );
+    }
+
+    return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
    * Infer which adapter to use based on the userId format.
    */
   private inferAdapterFromUserId(userId: string): Adapter {

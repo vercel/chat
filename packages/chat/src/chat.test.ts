@@ -1423,6 +1423,33 @@ describe("Chat", () => {
     });
   });
 
+  describe("thread", () => {
+    it("should return a Thread handle for a valid thread ID", () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+      expect(thread).toBeDefined();
+      expect(thread.id).toBe("slack:C123:1234.5678");
+    });
+
+    it("should allow posting to a thread handle", async () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+      await thread.post("Hello from outside a webhook!");
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "Hello from outside a webhook!"
+      );
+    });
+
+    it("should throw for an invalid thread ID", () => {
+      expect(() => chat.thread("")).toThrow("Invalid thread ID");
+    });
+
+    it("should throw for an unknown adapter prefix", () => {
+      expect(() => chat.thread("unknown:C123:1234.5678")).toThrow(
+        'Adapter "unknown" not found'
+      );
+    });
+  });
+
   describe("isDM", () => {
     it("should return true for DM threads", async () => {
       const thread = await chat.openDM("U123456");
