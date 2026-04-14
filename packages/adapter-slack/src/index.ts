@@ -1360,11 +1360,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs: top-level messages use empty threadTs (matches openDM subscriptions),
-    // thread replies use thread_ts for per-conversation isolation.
-    // For channels: always use thread_ts or ts for per-thread IDs.
-    const isDM = event.channel_type === "im";
-    const threadTs = isDM ? event.thread_ts || "" : event.thread_ts || event.ts;
+    // Use thread_ts when present (thread reply), empty string otherwise (channel message).
+    const threadTs = event.thread_ts || "";
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -3180,6 +3177,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
+    // chatStream requires a thread context (it's Slack's Assistant API).
+    // For channel-scope messages, accumulate and post as a single message.
+    if (!threadTs) {
+      this.logger.debug(
+        "Slack: channel-scope stream, accumulating for postMessage",
+        { channel }
+      );
+      let accumulated = "";
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") {
+          accumulated += chunk;
+        } else if (chunk.type === "markdown_text") {
+          accumulated += chunk.text;
+        }
+      }
+      return this.postMessage(threadId, { markdown: accumulated });
+    }
+
     const token = this.getToken();
     const streamer = this.client.chatStream({
       channel,
@@ -3299,6 +3314,25 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       threadId,
       raw: result,
     };
+  }
+
+  /**
+   * Open a thread for a message.
+   * Returns a thread ID that can be used to post threaded replies.
+   *
+   * For Slack, threading is implicit — posting with a thread_ts creates the thread.
+   * If already in a thread, returns the existing thread ID.
+   */
+  async openThread(scopeId: string, messageId: string): Promise<string> {
+    const { channel, threadTs } = this.decodeThreadId(scopeId);
+
+    // Already in a thread — return the existing ID
+    if (threadTs) {
+      return scopeId;
+    }
+
+    // Channel scope — encode with messageId as threadTs
+    return this.encodeThreadId({ channel, threadTs: messageId });
   }
 
   /**
@@ -3582,7 +3616,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   encodeThreadId(platformData: SlackThreadId): string {
-    return `slack:${platformData.channel}:${platformData.threadTs}`;
+    if (platformData.threadTs) {
+      return `slack:${platformData.channel}:${platformData.threadTs}`;
+    }
+    return `slack:${platformData.channel}`;
   }
 
   /**
@@ -3639,7 +3676,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   parseMessage(raw: SlackEvent): Message<unknown> {
     const event = raw;
-    const threadTs = event.thread_ts || event.ts || "";
+    const threadTs = event.thread_ts || "";
     const threadId = this.encodeThreadId({
       channel: event.channel || "",
       threadTs,

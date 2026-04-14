@@ -356,6 +356,39 @@ export class ThreadImpl<TState = Record<string, unknown>>
     };
   }
 
+  /**
+   * Get or create a thread from this scope. If already a thread, returns itself. 
+   * If a channel, returns a new/existing thread anchored to the (optionally latest) message.
+   */
+  async thread(messageId?: string): Promise<Thread<TState>> {
+    // Already in a thread, or adapter doesn't support threading
+    if (this.id !== this.channelId || !this.adapter.openThread) {
+      return this;
+    }
+
+    const anchorMessageId = messageId ?? this._currentMessage?.id;
+    if (!anchorMessageId) {
+      return this;
+    }
+
+    const threadId = await this.adapter.openThread(this.id, anchorMessageId);
+
+    return new ThreadImpl({
+      id: threadId,
+      adapter: this.adapter,
+      channelId: this.channelId,
+      stateAdapter: this._stateAdapter,
+      isDM: this.adapter.isDM?.(threadId) ?? false,
+      channelVisibility: this.adapter.getChannelVisibility?.(threadId) ?? this.channelVisibility,
+      isSubscribedContext: false,
+      currentMessage: this._currentMessage,
+      logger: this._logger,
+      streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
+      fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
+      messageHistory: this._messageHistory,
+    });
+  }
+
   async isSubscribed(): Promise<boolean> {
     // Short-circuit if we know we're in a subscribed context
     if (this._isSubscribedContext) {

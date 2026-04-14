@@ -637,24 +637,6 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     const isMentioned = isUserMentioned || isRoleMentioned;
 
-    // If mentioned and not in a thread, create one
-    if (!discordThreadId && isMentioned) {
-      try {
-        const newThread = await this.createDiscordThread(channelId, data.id);
-        discordThreadId = newThread.id;
-        this.logger.debug("Created Discord thread for forwarded mention", {
-          channelId,
-          messageId: data.id,
-          threadId: newThread.id,
-        });
-      } catch (error) {
-        this.logger.error("Failed to create Discord thread for mention", {
-          error: String(error),
-          messageId: data.id,
-        });
-      }
-    }
-
     const threadId = this.encodeThreadId({
       guildId,
       channelId: parentChannelId,
@@ -1428,6 +1410,47 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   /**
+   * Open a thread for a message.
+   * Returns a thread ID that can be used to post threaded replies.
+   *
+   * For Discord, this creates a thread via the API if one doesn't exist.
+   * If the message already has a thread, returns the existing thread ID.
+   */
+  async openThread(scopeId: string, messageId: string): Promise<string> {
+    const { guildId, channelId, threadId } = this.decodeThreadId(scopeId);
+
+    // Already in a thread — return the existing ID
+    if (threadId) {
+      this.logger.debug("openThread: already in a thread", {
+        scopeId,
+        threadId,
+      });
+      return scopeId;
+    }
+
+    // Channel scope — create or get a thread anchored to the message
+    this.logger.debug("openThread: creating thread", {
+      channelId,
+      messageId,
+    });
+
+    const thread = await this.createDiscordThread(channelId, messageId);
+
+    const newThreadId = this.encodeThreadId({
+      guildId,
+      channelId,
+      threadId: thread.id,
+    });
+
+    this.logger.debug("openThread: thread ready", {
+      threadId: thread.id,
+      encodedThreadId: newThreadId,
+    });
+
+    return newThreadId;
+  }
+
+  /**
    * Open a DM with a user.
    */
   async openDM(userId: string): Promise<string> {
@@ -1960,26 +1983,6 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       // Message is in a thread - use the thread channel ID
       discordThreadId = channelId;
       parentChannelId = message.channel.parentId;
-    }
-
-    // If not in a thread and bot is mentioned, create a thread immediately
-    // This ensures the Thread object has the correct ID from the start
-    if (!discordThreadId && isMentioned) {
-      try {
-        const newThread = await this.createDiscordThread(channelId, message.id);
-        discordThreadId = newThread.id;
-        this.logger.debug("Created Discord thread for incoming mention", {
-          channelId,
-          messageId: message.id,
-          threadId: newThread.id,
-        });
-      } catch (error) {
-        this.logger.error("Failed to create Discord thread for mention", {
-          error: String(error),
-          messageId: message.id,
-        });
-        // Continue without thread - will use channel
-      }
     }
 
     const threadId = this.encodeThreadId({

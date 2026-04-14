@@ -1761,6 +1761,109 @@ describe("ThreadImpl", () => {
     });
   });
 
+  describe("thread()", () => {
+    it("returns self when already in a thread (id !== channelId)", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "slack:C123",
+        stateAdapter: mockState,
+        currentMessage: createTestMessage("msg1", "hello"),
+      });
+
+      const result = await thread.thread();
+      expect(result).toBe(thread);
+    });
+
+    it("returns self when adapter lacks openThread", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      // Channel-scoped (id === channelId) but no openThread on adapter
+      const thread = new ThreadImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        channelId: "slack:C123",
+        stateAdapter: mockState,
+        currentMessage: createTestMessage("msg1", "hello"),
+      });
+
+      const result = await thread.thread();
+      expect(result).toBe(thread);
+    });
+
+    it("calls adapter.openThread and returns new ThreadImpl when on a channel", async () => {
+      const mockAdapter = createMockAdapter();
+      mockAdapter.openThread = vi
+        .fn()
+        .mockResolvedValue("slack:C123:1234.5678");
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        channelId: "slack:C123",
+        stateAdapter: mockState,
+        currentMessage: createTestMessage("msg-ts-1", "hello"),
+      });
+
+      const result = await thread.thread();
+
+      expect(result).not.toBe(thread);
+      expect(result.id).toBe("slack:C123:1234.5678");
+      expect(result.channelId).toBe("slack:C123");
+      expect(mockAdapter.openThread).toHaveBeenCalledWith(
+        "slack:C123",
+        "msg-ts-1"
+      );
+    });
+
+    it("uses explicit messageId when provided", async () => {
+      const mockAdapter = createMockAdapter();
+      mockAdapter.openThread = vi
+        .fn()
+        .mockResolvedValue("slack:C123:9999.0000");
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        channelId: "slack:C123",
+        stateAdapter: mockState,
+        currentMessage: createTestMessage("msg-ts-1", "hello"),
+      });
+
+      const result = await thread.thread("earlier-msg-id");
+
+      expect(result.id).toBe("slack:C123:9999.0000");
+      expect(mockAdapter.openThread).toHaveBeenCalledWith(
+        "slack:C123",
+        "earlier-msg-id"
+      );
+    });
+
+    it("returns self when no messageId and no currentMessage", async () => {
+      const mockAdapter = createMockAdapter();
+      mockAdapter.openThread = vi.fn();
+      const mockState = createMockState();
+
+      const thread = new ThreadImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        channelId: "slack:C123",
+        stateAdapter: mockState,
+        // no currentMessage
+      });
+
+      const result = await thread.thread();
+      expect(result).toBe(thread);
+      expect(mockAdapter.openThread).not.toHaveBeenCalled();
+    });
+  });
+
   describe("subscribe and unsubscribe", () => {
     let thread: ThreadImpl;
     let mockAdapter: Adapter;

@@ -357,6 +357,24 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   onThreadSubscribe?(threadId: string): Promise<void>;
 
   /**
+   * Open a thread for a message.
+   * If the message is already in a thread, returns that thread's ID.
+   * If the message is at channel root, creates or retrieves a thread
+   * anchored to it and returns the thread ID.
+   *
+   * @param scopeId - The scope (channel or thread) containing the message
+   * @param messageId - The message to open a thread for
+   * @returns The thread ID
+   *
+   * @example
+   * ```typescript
+   * const threadId = await adapter.openThread(scopeId, messageId);
+   * await adapter.postMessage(threadId, "Threaded reply");
+   * ```
+   */
+  openThread?(scopeId: string, messageId: string): Promise<string>;
+
+  /**
    * Open a direct message conversation with a user.
    *
    * @param userId - The platform-specific user ID
@@ -1138,6 +1156,37 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Optional status (e.g. "Typing...", "Searching documents...") is shown where supported.
    */
   startTyping(status?: string): Promise<void>;
+
+  /**
+   * Get or create a thread from this scope.
+   *
+   * If already in a thread, returns this thread.
+   * If on a channel, creates or retrieves a thread anchored to the specified
+   * message (or the current message if none is specified).
+   * If the platform doesn't support threading, returns this thread.
+   *
+   * @param messageId - Optional message ID to anchor the thread to. Defaults to
+   *   the current message. Use this when the triggering message is not the one
+   *   you want to thread from (e.g., threading from an earlier message).
+   * @returns A thread guaranteed to be a real thread (not a channel)
+   *
+   * @example
+   * ```typescript
+   * // Thread from the current message
+   * chat.onNewMention(async (thread, message) => {
+   *   const t = await thread.thread();
+   *   await t.subscribe();
+   *   await t.post("Let's continue in a thread.");
+   * });
+   *
+   * // Thread from a specific message
+   * chat.onNewMention(async (thread, message) => {
+   *   const t = await thread.thread(someEarlierMessage.id);
+   *   await t.post("Replying to that earlier message.");
+   * });
+   * ```
+   */
+  thread(messageId?: string): Promise<Thread<TState, TRawMessage>>;
 
   /**
    * Subscribe to future messages in this thread.
