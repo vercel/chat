@@ -1069,6 +1069,105 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
+    it("should read selection values from formInputs when parameters.value is missing", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["option-1"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "option-1",
+        }),
+        undefined
+      );
+    });
+
+    it("should prefer parameters.value when both parameters and formInputs are present", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+            value: "button-value",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["dropdown-value"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "button-value",
+        }),
+        undefined
+      );
+    });
+
     it("should ignore card click when space is missing", async () => {
       const { adapter, mockChat } = await createInitializedAdapter();
       const event: GoogleChatEvent = {
