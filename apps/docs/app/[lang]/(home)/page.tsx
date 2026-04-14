@@ -132,8 +132,29 @@ const textGridSection = [
   },
 ];
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  name: "Chat SDK",
+  description: textDescription,
+  url: "https://chat-sdk.dev",
+  codeRepository: "https://github.com/vercel/chat",
+  programmingLanguage: "TypeScript",
+  runtimePlatform: "Node.js",
+  license: "https://opensource.org/licenses/Apache-2.0",
+  author: {
+    "@type": "Organization",
+    name: "Vercel",
+    url: "https://vercel.com",
+  },
+};
+
 const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+    />
     <Hero
       badge="Chat SDK is now open source and in beta"
       description={heroDescription}
