@@ -5130,4 +5130,63 @@ describe("reverse user lookup", () => {
       expect(cached).toBeNull();
     });
   });
+
+  describe("rehydrateAttachment", () => {
+    it("should resolve token from installation when teamId is present", async () => {
+      const state = createMockState();
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        logger: mockLogger,
+      });
+      await adapter.initialize(createMockChatInstance(state));
+
+      await adapter.setInstallation("T_MULTI_1", {
+        botToken: "xoxb-multi-workspace-token",
+        botUserId: "U_BOT_MULTI",
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: {
+          url: "https://files.slack.com/img.png",
+          teamId: "T_MULTI_1",
+        },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should fall back to getToken when no teamId in fetchMetadata", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-single",
+        logger: mockLogger,
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: { url: "https://files.slack.com/img.png" },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should return attachment unchanged when no url", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-test",
+        logger: mockLogger,
+      });
+
+      const attachment = { type: "file" as const, name: "test.bin" };
+      const rehydrated = adapter.rehydrateAttachment(attachment);
+
+      expect(rehydrated.fetchData).toBeUndefined();
+      expect(rehydrated).toBe(attachment);
+    });
+  });
 });
