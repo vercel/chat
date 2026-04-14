@@ -59,6 +59,7 @@ The top-level container for the form.
 | `submitLabel` | `string` (optional) | Submit button text (defaults to "Submit") |
 | `closeLabel` | `string` (optional) | Cancel button text (defaults to "Cancel") |
 | `notifyOnClose` | `boolean` (optional) | Fire `onModalClose` when user cancels |
+| `callbackUrl` | `string` (optional) | URL to POST form values to on submit |
 | `privateMetadata` | `string` (optional) | Custom context passed through to handlers |
 
 ### TextInput
@@ -174,6 +175,37 @@ bot.onModalClose("feedback_form", async (event) => {
     await event.relatedThread.post("No worries, let us know if you change your mind!");
   }
 });
+```
+
+## Callback URLs
+
+Like buttons, modals accept a `callbackUrl`. When the modal is submitted, the form values are POSTed to the URL:
+
+```tsx title="lib/bot.tsx" lineNumbers
+import { createWebhook } from "workflow";
+
+const webhook = createWebhook();
+
+await event.openModal(
+  <Modal callbackUrl={webhook.url} callbackId="intake" title="Request Access" submitLabel="Submit">
+    <TextInput id="reason" label="Reason" multiline />
+  </Modal>
+);
+
+const request = await webhook;
+const body = await request.json();
+// body.values.reason contains the submitted text
+```
+
+The POST body for modal submissions:
+
+```json
+{
+  "type": "modal_submit",
+  "callbackId": "intake",
+  "values": { "reason": "Need access to production logs" },
+  "user": { "id": "U123", "name": "alice" }
+}
 ```
 
 ## Pass context with privateMetadata

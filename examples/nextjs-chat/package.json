@@ -18,15 +18,16 @@
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
-    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
+    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/whatsapp": "workspace:*",
     "ai": "^6.0.5",
     "chat": "workspace:*",
     "next": "^16.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "redis": "^5.11.0"
+    "redis": "^5.11.0",
+    "workflow": "4.2.0-beta.71"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

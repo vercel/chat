@@ -1,3 +1,8 @@
+import {
+  decodeCallbackValue,
+  postToCallbackUrl,
+  resolveCallbackUrl,
+} from "./callback-url";
 import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
   getChatSingleton,
@@ -71,6 +76,7 @@ const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
 interface StoredModalContext {
+  callbackUrl?: string;
   channel?: SerializedChannel;
   message?: SerializedMessage;
   thread?: SerializedThread;
@@ -879,8 +885,23 @@ export class Chat<
     contextId?: string,
     _options?: WebhookOptions
   ): Promise<ModalResponse | undefined> {
-    const { relatedThread, relatedMessage, relatedChannel } =
+    const { callbackUrl, relatedThread, relatedMessage, relatedChannel } =
       await this.retrieveModalContext(event.adapter.name, contextId);
+
+    if (callbackUrl) {
+      const { error } = await postToCallbackUrl(callbackUrl, {
+        type: "modal_submit",
+        callbackId: event.callbackId,
+        values: event.values,
+        user: { id: event.user.userId, name: event.user.userName },
+      });
+      if (error) {
+        this.logger.error("Modal callbackUrl POST failed", {
+          callbackUrl,
+          error,
+        });
+      }
+    }
 
     const fullEvent: ModalSubmitEvent = {
       ...event,
@@ -916,6 +937,7 @@ export class Chat<
   ): void {
     const task = (async () => {
       const { relatedThread, relatedMessage, relatedChannel } =
+        // callbackUrl intentionally unused for close — only fires on submit
         await this.retrieveModalContext(event.adapter.name, contextId);
 
       const fullEvent: ModalCloseEvent = {
@@ -1106,7 +1128,8 @@ export class Chat<
           contextId,
           undefined,
           undefined,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1151,13 +1174,15 @@ export class Chat<
     contextId: string,
     thread?: ThreadImpl<TState>,
     message?: Message,
-    channel?: ChannelImpl<TState>
+    channel?: ChannelImpl<TState>,
+    callbackUrl?: string
   ): Promise<void> {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
       thread: thread?.toJSON(),
       message: message?.toJSON(),
       channel: channel?.toJSON(),
+      callbackUrl,
     };
     try {
       await this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS);
@@ -1177,12 +1202,14 @@ export class Chat<
     adapterName: string,
     contextId?: string
   ): Promise<{
+    callbackUrl: string | undefined;
     relatedThread: Thread | undefined;
     relatedMessage: SentMessage | undefined;
     relatedChannel: Channel | undefined;
   }> {
     if (!contextId) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1194,6 +1221,7 @@ export class Chat<
 
     if (!stored) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1226,16 +1254,30 @@ export class Chat<
       relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
     }
 
-    return { relatedThread, relatedMessage, relatedChannel };
+    return {
+      callbackUrl: stored.callbackUrl,
+      relatedThread,
+      relatedMessage,
+      relatedChannel,
+    };
   }
 
   /**
    * Handle an action event internally.
    */
   private async handleActionEvent(
-    event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
+    rawEvent: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
     options: WebhookOptions | undefined
   ): Promise<void> {
+    // Decode callback token from the value field (if present) and restore
+    // the original value so handlers see it unmodified.
+    const { callbackToken, originalValue } = decodeCallbackValue(
+      rawEvent.value
+    );
+    const event = callbackToken
+      ? { ...rawEvent, value: originalValue }
+      : rawEvent;
+
     this.logger.debug("Incoming action", {
       adapter: event.adapter.name,
       actionId: event.actionId,
@@ -1251,6 +1293,37 @@ export class Chat<
         actionId: event.actionId,
       });
       return;
+    }
+
+    // Resolve and POST to callbackUrl (fire-and-forget alongside handler execution)
+    let callbackUrlPromise: Promise<void> | undefined;
+    if (callbackToken) {
+      callbackUrlPromise = (async () => {
+        const callbackUrl = await resolveCallbackUrl(
+          callbackToken,
+          this._stateAdapter
+        );
+        if (!callbackUrl) {
+          this.logger.warn("callbackUrl token expired or not found", {
+            callbackToken,
+          });
+          return;
+        }
+        const { error } = await postToCallbackUrl(callbackUrl, {
+          type: "action",
+          actionId: event.actionId,
+          value: event.value,
+          user: { id: event.user.userId, name: event.user.userName },
+          threadId: event.threadId,
+          messageId: event.messageId,
+        });
+        if (error) {
+          this.logger.error("callbackUrl POST failed", {
+            callbackUrl,
+            error,
+          });
+        }
+      })();
     }
 
     const isSubscribed = false;
@@ -1336,7 +1409,8 @@ export class Chat<
           contextId,
           thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1375,6 +1449,12 @@ export class Chat<
         });
         await handler(fullEvent);
       }
+    }
+
+    // Ensure the callbackUrl POST completes before the handler returns
+    // (important for serverless waitUntil semantics).
+    if (callbackUrlPromise) {
+      await callbackUrlPromise;
     }
   }
 

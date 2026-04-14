@@ -54,6 +54,10 @@ bot.onAction("open-form", async (event) => {
       type: 'boolean',
       default: 'false',
     },
+    callbackUrl: {
+      description: 'URL to POST form values to when the modal is submitted.',
+      type: 'string',
+    },
     privateMetadata: {
       description: 'Arbitrary string passed through the modal lifecycle (e.g., JSON context).',
       type: 'string',

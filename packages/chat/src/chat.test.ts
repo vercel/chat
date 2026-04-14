@@ -1380,6 +1380,143 @@ describe("Chat", () => {
         thread: undefined,
       });
     });
+
+    it("should decode callbackUrl token and POST to it", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction("approve", handler);
+
+      // Pre-store a callback URL token in the state adapter
+      (mockState as import("./mock-adapter").MockStateAdapter).cache.set(
+        "chat:callback:testtoken123",
+        "https://example.com/webhook/hook1"
+      );
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "approve",
+        value: "__cb:testtoken123|order-789",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Handler should receive the decoded original value
+      expect(handler).toHaveBeenCalled();
+      const receivedEvent = handler.mock.calls[0][0] as ActionEvent;
+      expect(receivedEvent.value).toBe("order-789");
+
+      // Callback URL should have been POSTed to
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://example.com/webhook/hook1",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body).toMatchObject({
+        type: "action",
+        actionId: "approve",
+        value: "order-789",
+        threadId: "slack:C123:1234.5678",
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it("should decode callbackUrl token with no original value", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction(handler);
+
+      (mockState as import("./mock-adapter").MockStateAdapter).cache.set(
+        "chat:callback:tok999",
+        "https://example.com/webhook/hook2"
+      );
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "deny",
+        value: "__cb:tok999",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const receivedEvent = handler.mock.calls[0][0] as ActionEvent;
+      expect(receivedEvent.value).toBeUndefined();
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.value).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("should still fire onAction handlers when callbackUrl is present", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      const catchAllHandler = vi.fn().mockResolvedValue(undefined);
+      const specificHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction(catchAllHandler);
+      chat.onAction("approve", specificHandler);
+
+      (mockState as import("./mock-adapter").MockStateAdapter).cache.set(
+        "chat:callback:tok555",
+        "https://example.com/webhook/hook3"
+      );
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "approve",
+        value: "__cb:tok555",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      chat.processAction(event);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(catchAllHandler).toHaveBeenCalled();
+      expect(specificHandler).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalled();
+
+      vi.unstubAllGlobals();
+    });
   });
 
   describe("openDM", () => {
@@ -2122,6 +2259,84 @@ describe("Chat", () => {
       expect(modalSubmitEvent?.relatedChannel?.id).toBe("slack:C789");
       expect(modalSubmitEvent?.relatedThread).toBeDefined();
       expect(modalSubmitEvent?.relatedThread?.id).toBe("slack:C789:1234.5678");
+    });
+
+    it("should POST to modal callbackUrl on submit", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      let capturedActionEvent: ActionEvent | undefined;
+      chat.onAction("open_form", async (event: ActionEvent) => {
+        capturedActionEvent = event;
+      });
+
+      const actionEvent: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "open_form",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+        triggerId: "trigger-123",
+      };
+
+      chat.processAction(actionEvent);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const modal: ModalElement = {
+        type: "modal",
+        callbackId: "feedback_modal",
+        title: "Feedback",
+        callbackUrl: "https://example.com/webhook/modal-hook",
+        children: [],
+      };
+      await capturedActionEvent?.openModal(modal);
+
+      const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[2];
+
+      const modalHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onModalSubmit("feedback_modal", modalHandler);
+
+      await chat.processModalSubmit(
+        {
+          callbackId: "feedback_modal",
+          viewId: "V789",
+          values: { message: "Great!" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          adapter: mockAdapter,
+          raw: {},
+        },
+        contextId
+      );
+
+      // Both callbackUrl POST and onModalSubmit handler should fire
+      expect(modalHandler).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://example.com/webhook/modal-hook",
+        expect.objectContaining({ method: "POST" })
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body).toMatchObject({
+        type: "modal_submit",
+        callbackId: "feedback_modal",
+        values: { message: "Great!" },
+      });
+
+      vi.unstubAllGlobals();
     });
   });
 

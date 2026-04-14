@@ -45,6 +45,10 @@ export default function Home() {
           <strong>DM Support</strong> - Say &quot;DM me&quot; to get a direct
           message
         </li>
+        <li>
+          <strong>Callback URLs</strong> - Buttons can POST action data to
+          external workflow URLs when clicked (see Deploy example)
+        </li>
       </ul>
 
       <h2>Configuration</h2>

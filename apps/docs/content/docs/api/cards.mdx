@@ -100,6 +100,10 @@ Button({ id: "delete", label: "Delete", style: "danger", value: "item-123" })
       type: '"action" | "modal"',
       default: '"action"',
     },
+    callbackUrl: {
+      description: 'URL to POST action data to when this button is clicked.',
+      type: 'string',
+    },
   }}
 />
 

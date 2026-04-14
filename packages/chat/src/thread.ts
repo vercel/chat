@@ -1,5 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
+import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
@@ -410,6 +411,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = card;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     const rawMessage = await this.adapter.postMessage(this.id, postable);
 
     // Create a SentMessage with edit/delete capabilities
@@ -458,6 +461,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     // Try native ephemeral if adapter supports it
     if (this.adapter.postEphemeral) {
       return this.adapter.postEphemeral(this.id, userId, postable);
@@ -482,6 +487,37 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // No DM support either - return null
     return null;
+  }
+
+  /**
+   * If the message contains a card with callbackUrl buttons, encode the
+   * callback URLs as tokens in the button values and store the mappings
+   * in the StateAdapter. Returns the (possibly modified) message.
+   */
+  private async processCallbackUrls(
+    postable: string | AdapterPostableMessage
+  ): Promise<string | AdapterPostableMessage> {
+    if (typeof postable === "string") {
+      return postable;
+    }
+
+    // Direct CardElement
+    if ("type" in postable && postable.type === "card") {
+      return processCardCallbackUrls(postable, this._stateAdapter);
+    }
+
+    // PostableCard wrapper
+    if ("card" in postable) {
+      const processed = await processCardCallbackUrls(
+        postable.card,
+        this._stateAdapter
+      );
+      if (processed !== postable.card) {
+        return { ...postable, card: processed };
+      }
+    }
+
+    return postable;
   }
 
   async schedule(

@@ -41,18 +41,18 @@ bot.onAction(async (event) => {
 
 The `event` object passed to action handlers:
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `actionId` | `string` | The `id` from the Button or Select component |
-| `value` | `string` (optional) | The `value` from the Button or selected option |
-| `user` | `Author` | The user who clicked |
-| `thread` | `Thread \| null` | The thread containing the card (null for view-based actions like home tab buttons) |
-| `messageId` | `string` | The message containing the card |
-| `threadId` | `string` | Thread ID |
-| `adapter` | `Adapter` | The platform adapter |
-| `triggerId` | `string` (optional) | Platform trigger ID (used for opening modals) |
-| `openModal` | `(modal) => Promise<void>` | Open a modal dialog |
-| `raw` | `unknown` | Platform-specific event payload |
+| Property    | Type                       | Description                                                                        |
+| ----------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| `actionId`  | `string`                   | The `id` from the Button or Select component                                       |
+| `value`     | `string` (optional)        | The `value` from the Button or selected option                                     |
+| `user`      | `Author`                   | The user who clicked                                                               |
+| `thread`    | `Thread \| null`           | The thread containing the card (null for view-based actions like home tab buttons) |
+| `messageId` | `string`                   | The message containing the card                                                    |
+| `threadId`  | `string`                   | Thread ID                                                                          |
+| `adapter`   | `Adapter`                  | The platform adapter                                                               |
+| `triggerId` | `string` (optional)        | Platform trigger ID (used for opening modals)                                      |
+| `openModal` | `(modal) => Promise<void>` | Open a modal dialog                                                                |
+| `raw`       | `unknown`                  | Platform-specific event payload                                                    |
 
 ## Pass data with buttons
 
@@ -94,5 +94,58 @@ bot.onAction("feedback", async (event) => {
 ```
 
 <Callout type="info">
-Modals are currently supported on Slack. Other platforms will receive a no-op or fallback behavior.
+  Modals are currently supported on Slack. Other platforms will receive a no-op
+  or fallback behavior.
 </Callout>
+
+## Callback URLs
+
+Buttons accept a `callbackUrl` prop. When clicked, the action data is POSTed to that URL in addition to firing any `onAction` handler. This pairs naturally with [Workflow](https://useworkflow.dev) webhooks to build approval flows without any `onAction` handler at all:
+
+```tsx title="lib/bot.tsx" lineNumbers
+import { createWebhook } from "workflow";
+
+bot.onNewMention(async (thread) => {
+  const approve = createWebhook();
+  const deny = createWebhook();
+
+  await thread.post(
+    <Card title="Deploy v2.4.1?">
+      <Actions>
+        <Button callbackUrl={approve.url} id="approve" style="primary">
+          Approve
+        </Button>
+        <Button callbackUrl={deny.url} id="deny" style="danger">
+          Deny
+        </Button>
+      </Actions>
+    </Card>
+  );
+
+  const accepted = await Promise.race([
+    approve.then(() => true),
+    deny.then(() => false),
+  ]);
+
+  await thread.post(accepted ? "Deploying!" : "Cancelled.");
+});
+```
+
+The workflow suspends at `Promise.race` until someone clicks a button. No `onAction` registration needed -- the webhook URL handles it.
+
+### Callback payload
+
+The POST body sent to the `callbackUrl`:
+
+```json
+{
+  "type": "action",
+  "actionId": "approve",
+  "value": "v2.4.1",
+  "user": { "id": "U123", "name": "alice" },
+  "threadId": "slack:C123:1234567890.123",
+  "messageId": "1234567890.456"
+}
+```
+
+For modals, see [callbackUrl on modals](/docs/modals#callback-urls).
