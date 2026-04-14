@@ -1449,9 +1449,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }): Attachment {
     const url = att.downloadUri || undefined;
     const resourceName = att.attachmentDataRef?.resourceName || undefined;
-    const chatApi = this.chatApi;
 
-    // Determine type based on contentType
     let type: Attachment["type"] = "file";
     if (att.contentType?.startsWith("image/")) {
       type = "image";
@@ -1461,59 +1459,82 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       type = "audio";
     }
 
-    // Capture auth client for use in fetchData closure (used for URL fallback)
-    const auth = this.authClient;
+    const fetchMeta: Record<string, string> = {};
+    if (resourceName) {
+      fetchMeta.resourceName = resourceName;
+    }
+    if (url) {
+      fetchMeta.url = url;
+    }
 
     return {
       type,
       url,
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData:
         resourceName || url
-          ? async () => {
-              // Prefer media.download API (correct method for chat apps)
-              if (resourceName) {
-                const res = await chatApi.media.download(
-                  { resourceName },
-                  { responseType: "arraybuffer" }
-                );
-                return Buffer.from(res.data as ArrayBuffer);
-              }
-
-              // Fallback to direct URL fetch (downloadUri)
-              if (typeof auth === "string" || !auth) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Cannot fetch file: no auth client configured"
-                );
-              }
-              const tokenResult = await auth.getAccessToken();
-              const token =
-                typeof tokenResult === "string"
-                  ? tokenResult
-                  : tokenResult?.token;
-              if (!token) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Failed to get access token"
-                );
-              }
-              const response = await fetch(url as string, {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              });
-              if (!response.ok) {
-                throw new NetworkError(
-                  "gchat",
-                  `Failed to fetch file: ${response.status} ${response.statusText}`
-                );
-              }
-              const arrayBuffer = await response.arrayBuffer();
-              return Buffer.from(arrayBuffer);
-            }
+          ? () => this.fetchAttachmentData(resourceName, url)
           : undefined,
+    };
+  }
+
+  private async fetchAttachmentData(
+    resourceName?: string,
+    url?: string
+  ): Promise<Buffer> {
+    // Prefer media.download API (correct method for chat apps)
+    if (resourceName) {
+      const res = await this.chatApi.media.download(
+        { resourceName },
+        { responseType: "arraybuffer" }
+      );
+      return Buffer.from(res.data as ArrayBuffer);
+    }
+
+    // Fallback to direct URL fetch (downloadUri)
+    if (!url) {
+      throw new NetworkError("gchat", "No URL or resourceName available");
+    }
+
+    const auth = this.authClient;
+    if (typeof auth === "string" || !auth) {
+      throw new AuthenticationError(
+        "gchat",
+        "Cannot fetch file: no auth client configured"
+      );
+    }
+    const tokenResult = await auth.getAccessToken();
+    const token =
+      typeof tokenResult === "string" ? tokenResult : tokenResult?.token;
+    if (!token) {
+      throw new AuthenticationError("gchat", "Failed to get access token");
+    }
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "gchat",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const resourceName = attachment.fetchMetadata?.resourceName;
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!(resourceName || url)) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: () => this.fetchAttachmentData(resourceName, url),
     };
   }
 

@@ -53,6 +53,7 @@ export interface SerializedMessage {
     size?: number;
     width?: number;
     height?: number;
+    fetchMetadata?: Record<string, string>;
   }>;
   author: {
     userId: string;
@@ -195,6 +196,7 @@ export class Message<TRawMessage = unknown> {
         size: att.size,
         width: att.width,
         height: att.height,
+        fetchMetadata: att.fetchMetadata,
       })),
       isMention: this.isMention,
       links:

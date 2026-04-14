@@ -778,20 +778,31 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       url,
       name: att.name,
       mimeType: att.contentType,
-      fetchData: url
-        ? async () => {
-            const response = await fetch(url);
-            if (!response.ok) {
-              throw new NetworkError(
-                "teams",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          }
-        : undefined,
+      fetchMetadata: url ? { url } : undefined,
+      fetchData: url ? this.createFetchDataFn(url) : undefined,
     };
+  }
+
+  private createFetchDataFn(url: string): () => Promise<Buffer> {
+    return async () => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new NetworkError(
+          "teams",
+          `Failed to fetch file: ${response.status} ${response.statusText}`
+        );
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!url) {
+      return attachment;
+    }
+    return { ...attachment, fetchData: this.createFetchDataFn(url) };
   }
 
   private normalizeMentions(text: string): string {

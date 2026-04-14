@@ -1963,7 +1963,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });
@@ -1973,15 +1973,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Create an Attachment object from a Slack file.
    * Includes a fetchData method that uses the bot token for auth.
    */
-  private createAttachment(file: {
-    id?: string;
-    mimetype?: string;
-    url_private?: string;
-    name?: string;
-    size?: number;
-    original_w?: number;
-    original_h?: number;
-  }): Attachment {
+  private createAttachment(
+    file: {
+      id?: string;
+      mimetype?: string;
+      url_private?: string;
+      name?: string;
+      size?: number;
+      original_w?: number;
+      original_h?: number;
+    },
+    teamId?: string
+  ): Attachment {
     const url = file.url_private;
     // Capture token at attachment creation time (during webhook processing context)
     const botToken = this.getToken();
@@ -1996,6 +1999,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       type = "audio";
     }
 
+    const fetchMeta: Record<string, string> = {};
+    if (url) {
+      fetchMeta.url = url;
+    }
+    if (teamId) {
+      fetchMeta.teamId = teamId;
+    }
+
     return {
       type,
       url,
@@ -2004,32 +2015,58 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       size: file.size,
       width: file.original_w,
       height: file.original_h,
-      fetchData: url
-        ? async () => {
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${botToken}`,
-              },
-            });
-            if (!response.ok) {
-              throw new NetworkError(
-                "slack",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const contentType = response.headers.get("content-type") ?? "";
-            if (contentType.includes("text/html")) {
-              throw new NetworkError(
-                "slack",
-                "Failed to download file from Slack: received HTML login page instead of file data. " +
-                  `Ensure your Slack app has the "files:read" OAuth scope. ` +
-                  `URL: ${url}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
+      fetchData: url ? () => this.fetchSlackFile(url, botToken) : undefined,
+    };
+  }
+
+  private async fetchSlackFile(url: string, token: string): Promise<Buffer> {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "slack",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      throw new NetworkError(
+        "slack",
+        "Failed to download file from Slack: received HTML login page instead of file data. " +
+          `Ensure your Slack app has the "files:read" OAuth scope. ` +
+          `URL: ${url}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    const teamId = attachment.fetchMetadata?.teamId;
+    if (!url) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: async () => {
+        let token: string;
+        if (teamId) {
+          const installation = await this.getInstallation(teamId);
+          if (!installation) {
+            throw new AuthenticationError(
+              "slack",
+              `Installation not found for team ${teamId}`
+            );
           }
-        : undefined,
+          token = installation.botToken;
+        } else {
+          token = this.getToken();
+        }
+        return this.fetchSlackFile(url, token);
+      },
     };
   }
 
@@ -3647,7 +3684,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });

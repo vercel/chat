@@ -438,6 +438,13 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
+  /**
+   * Reconstruct fetchData on an attachment after deserialization.
+   * Called during message rehydration for queue/debounce strategies.
+   * Uses fetchMetadata and adapter auth context to rebuild the download closure.
+   */
+  rehydrateAttachment?(attachment: Attachment): Attachment;
+
   /** Remove a reaction from a message */
   removeReaction(
     threadId: string,
@@ -1474,6 +1481,12 @@ export interface Attachment {
    * this method handles the auth automatically.
    */
   fetchData?: () => Promise<Buffer>;
+  /**
+   * Platform-specific metadata needed to reconstruct fetchData after serialization.
+   * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that
+   * fetchData can be rebuilt when a message is rehydrated from the queue.
+   */
+  fetchMetadata?: Record<string, string>;
   /** Image/video height (if applicable) */
   height?: number;
   /** MIME type */
