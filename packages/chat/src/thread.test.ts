@@ -711,6 +711,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installing dependencies",
           status: "in_progress",
         };
         yield "world";
@@ -718,6 +719,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installed dependencies",
           status: "complete",
           output: "Done",
         };
@@ -732,11 +734,20 @@ describe("ThreadImpl", () => {
       expect(capturedChunks).toHaveLength(4);
       expect(capturedChunks[0]).toBe("Hello ");
       expect(capturedChunks[1]).toEqual(
-        expect.objectContaining({ type: "task_update", status: "in_progress" })
+        expect.objectContaining({
+          type: "task_update",
+          details: "Installing dependencies",
+          status: "in_progress",
+        })
       );
       expect(capturedChunks[2]).toBe("world");
       expect(capturedChunks[3]).toEqual(
-        expect.objectContaining({ type: "task_update", status: "complete" })
+        expect.objectContaining({
+          type: "task_update",
+          details: "Installed dependencies",
+          output: "Done",
+          status: "complete",
+        })
       );
 
       // Accumulated text should only include strings, not task_update chunks
@@ -785,6 +796,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installing dependencies",
           status: "in_progress",
         };
         yield " World";

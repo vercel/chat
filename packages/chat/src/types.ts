@@ -518,6 +518,7 @@ export interface MarkdownTextChunk {
 }
 
 export interface TaskUpdateChunk {
+  details?: string;
   id: string;
   output?: string;
   status: "pending" | "in_progress" | "complete" | "error";
@@ -1186,10 +1187,7 @@ export type {
   UpdateTaskInput,
 } from "./plan";
 // Re-export PostableObject types from plan.ts for backwards compatibility
-export type {
-  PostableObject,
-  PostableObjectContext,
-} from "./postable-object";
+export type { PostableObject, PostableObjectContext } from "./postable-object";
 
 export interface ThreadInfo {
   channelId: string;

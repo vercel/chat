@@ -118,6 +118,7 @@ const stream = (async function* () {
     type: "task_update",
     id: "search-1",
     title: "Searching documents",
+    details: "Querying internal docs and ranking the best matches",
     status: "in_progress",
   } satisfies StreamChunk;
 
@@ -127,6 +128,7 @@ const stream = (async function* () {
     type: "task_update",
     id: "search-1",
     title: "Searching documents",
+    details: "Ranked 3 relevant results",
     status: "complete",
     output: "Found 3 results",
   } satisfies StreamChunk;
@@ -142,7 +144,7 @@ await thread.post(stream);
 | Type | Fields | Description |
 |------|--------|-------------|
 | `markdown_text` | `text` | Streamed text content |
-| `task_update` | `id`, `title`, `status`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) |
+| `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
 | `plan_update` | `title` | Plan title updates |
 
 ### Task display mode
