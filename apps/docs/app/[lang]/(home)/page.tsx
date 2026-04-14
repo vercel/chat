@@ -1,7 +1,10 @@
 import DynamicLink from "fumadocs-core/dynamic-link";
 import type { Metadata } from "next";
+import type { ComponentProps } from "react";
 import { Installer } from "@/components/geistdocs/installer";
 import { Button } from "@/components/ui/button";
+import { discord, gchat, slack, teams } from "@/lib/logos";
+import { AdaptersSection } from "./components/adapters-section";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
@@ -11,13 +14,44 @@ import { Templates } from "./components/templates";
 import { TextGridSection } from "./components/text-grid-section";
 import { Usage } from "./components/usage";
 
+const LogoChip = ({
+  icon: Icon,
+  name,
+  suffix,
+}: {
+  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
+  name: string;
+  suffix?: string;
+}) => (
+  <span className="ml-[2px] whitespace-nowrap">
+    <span className="relative inline-block h-0 w-[1em] align-middle">
+      <Icon className="absolute top-1/2 left-0 size-[1em] -translate-y-1/2" />
+    </span>
+    <span className="ml-[calc(0.25em+2px)]">{name}</span>
+    {suffix}
+  </span>
+);
+
 const title = "Chat SDK";
-const description =
+const textDescription =
   "A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more. Write your bot logic once, deploy everywhere.";
+const heroDescription = (
+  <>
+    A unified TypeScript SDK for building chat bots across{" "}
+    <LogoChip icon={slack} name="Slack" suffix="," />{" "}
+    <LogoChip icon={teams} name="Microsoft Teams" suffix="," />{" "}
+    <LogoChip icon={gchat} name="Google Chat" suffix="," />{" "}
+    <LogoChip icon={discord} name="Discord" suffix="," />{" "}
+    <a className="underline" href="/adapters">
+      and more
+    </a>
+    . Write your bot logic once, deploy everywhere.
+  </>
+);
 
 export const metadata: Metadata = {
   title,
-  description,
+  description: textDescription,
   twitter: {
     card: "summary_large_image",
   },
@@ -102,7 +136,7 @@ const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
     <Hero
       badge="Chat SDK is now open source and in beta"
-      description={description}
+      description={heroDescription}
       title={title}
     >
       <div className="mx-auto inline-flex w-fit items-center gap-3">
@@ -111,7 +145,7 @@ const HomePage = () => (
             Get Started
           </DynamicLink>
         </Button>
-        <Installer className="w-40 sm:w-32" command="pnpm add chat" />
+        <Installer className="w-28" command="npm i chat" />
       </div>
     </Hero>
     <div className="grid divide-y border-y sm:border-x">
@@ -123,7 +157,15 @@ const HomePage = () => (
       </CenteredSection>
       <TextGridSection data={textGridSection} />
       <OneTwoSection
-        description="Install the SDK and pair it with your favorite chat providers and state management solutions."
+        description={
+          <>
+            Install the SDK and pair it with your favorite{" "}
+            <a className="underline" href="/adapters">
+              adapters
+            </a>{" "}
+            and state management solutions.
+          </>
+        }
         title="Usage"
       >
         <Usage />
@@ -132,6 +174,17 @@ const HomePage = () => (
         data={templates}
         description="Step-by-step guides to help you build common patterns with the Chat SDK."
         title="Guides"
+      />
+      <AdaptersSection
+        description={
+          <>
+            Connect to any platform with official and community-built adapters.{" "}
+            <a className="underline" href="/adapters">
+              Browse all adapters →
+            </a>
+          </>
+        }
+        title="Adapters"
       />
       <CTA
         cta="Get started"

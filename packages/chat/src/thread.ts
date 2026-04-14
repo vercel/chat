@@ -16,6 +16,7 @@ import {
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
 import type { MessageHistoryCache } from "./message-history";
+import { isPostableObject, postPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type {
   Adapter,
@@ -23,8 +24,10 @@ import type {
   Attachment,
   Author,
   Channel,
+  ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
+  PostableObject,
   PostEphemeralOptions,
   ScheduledMessage,
   SentMessage,
@@ -43,6 +46,7 @@ export interface SerializedThread {
   _type: "chat:Thread";
   adapterName: string;
   channelId: string;
+  channelVisibility?: ChannelVisibility;
   currentMessage?: SerializedMessage;
   id: string;
   isDM: boolean;
@@ -54,6 +58,7 @@ export interface SerializedThread {
 interface ThreadImplConfigWithAdapter {
   adapter: Adapter;
   channelId: string;
+  channelVisibility?: ChannelVisibility;
   currentMessage?: Message;
   fallbackStreamingPlaceholderText?: string | null;
   id: string;
@@ -73,6 +78,7 @@ interface ThreadImplConfigWithAdapter {
 interface ThreadImplConfigLazy {
   adapterName: string;
   channelId: string;
+  channelVisibility?: ChannelVisibility;
   currentMessage?: Message;
   fallbackStreamingPlaceholderText?: string | null;
   id: string;
@@ -111,6 +117,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   readonly id: string;
   readonly channelId: string;
   readonly isDM: boolean;
+  readonly channelVisibility: ChannelVisibility;
 
   /** Direct adapter instance (if provided) */
   private _adapter?: Adapter;
@@ -136,6 +143,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this.id = config.id;
     this.channelId = config.channelId;
     this.isDM = config.isDM ?? false;
+    this.channelVisibility = config.channelVisibility ?? "unknown";
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._logger = config.logger;
@@ -253,6 +261,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         adapter: this.adapter,
         stateAdapter: this._stateAdapter,
         isDM: this.isDM,
+        channelVisibility: this.channelVisibility,
         messageHistory: this._messageHistory,
       });
     }
@@ -368,9 +377,22 @@ export class ThreadImpl<TState = Record<string, unknown>>
     await this._stateAdapter.unsubscribe(this.id);
   }
 
+  async post<T extends PostableObject>(message: T): Promise<T>;
+  async post(
+    message:
+      | string
+      | AdapterPostableMessage
+      | AsyncIterable<string>
+      | ChatElement
+  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage> {
+  ): Promise<SentMessage | PostableObject> {
+    if (isPostableObject(message)) {
+      await this.handlePostableObject(message);
+      return message;
+    }
+
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
       return this.handleStream(message);
@@ -406,6 +428,16 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     return result;
+  }
+
+  private async handlePostableObject(obj: PostableObject): Promise<void> {
+    await postPostableObject(
+      obj,
+      this.adapter,
+      this.id,
+      (threadId, message) => this.adapter.postMessage(threadId, message),
+      this._logger
+    );
   }
 
   async postEphemeral(
@@ -649,7 +681,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       }
 
       const content = renderer.render();
-      if (content !== lastEditContent) {
+      if (content.trim() && content !== lastEditContent) {
         try {
           await this.adapter.editMessage(threadIdForEdits, msg.id, {
             markdown: content,
@@ -675,12 +707,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
         renderer.push(chunk);
         if (!msg) {
           const content = renderer.render();
-          msg = await this.adapter.postMessage(this.id, {
-            markdown: content,
-          });
-          threadIdForEdits = msg.threadId || this.id;
-          lastEditContent = content;
-          scheduleNextEdit();
+          if (content.trim()) {
+            msg = await this.adapter.postMessage(this.id, {
+              markdown: content,
+            });
+            threadIdForEdits = msg.threadId || this.id;
+            lastEditContent = content;
+            scheduleNextEdit();
+          }
         }
       }
     } finally {
@@ -701,13 +735,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     if (!msg) {
       msg = await this.adapter.postMessage(this.id, {
-        markdown: accumulated,
+        markdown: accumulated.trim() ? accumulated : " ",
       });
       threadIdForEdits = msg.threadId || this.id;
       lastEditContent = accumulated;
     }
 
-    if (finalContent !== lastEditContent) {
+    if (finalContent.trim() && finalContent !== lastEditContent) {
       await this.adapter.editMessage(threadIdForEdits, msg.id, {
         markdown: accumulated,
       });
@@ -763,9 +797,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
       _type: "chat:Thread",
       id: this.id,
       channelId: this.channelId,
+      channelVisibility: this.channelVisibility,
       currentMessage: this._currentMessage?.toJSON(),
       isDM: this.isDM,
-      adapterName: this.adapter.name,
+      adapterName: this._adapterName ?? this.adapter.name,
     };
   }
 
@@ -791,6 +826,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       id: json.id,
       adapterName: json.adapterName,
       channelId: json.channelId,
+      channelVisibility: json.channelVisibility,
       currentMessage: json.currentMessage
         ? Message.fromJSON(json.currentMessage)
         : undefined,

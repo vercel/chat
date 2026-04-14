@@ -260,13 +260,13 @@ describe("Replay Tests", () => {
         isMe: false,
       });
 
-      expectSentMessage(ctx.mockBotAdapter, "Thanks for mentioning me!");
+      expectSentMessage(ctx.mockTeamsApp, "Thanks for mentioning me!");
     });
 
     it("should replay follow-up with correct message properties", async () => {
       // First send mention to subscribe
       await ctx.sendWebhook(teamsFixtures.mention);
-      ctx.mockBotAdapter.clearMocks();
+      ctx.mockTeamsApp.clearMocks();
 
       // Send follow-up
       await ctx.sendWebhook(teamsFixtures.followUp);
@@ -281,8 +281,8 @@ describe("Replay Tests", () => {
         isMe: false,
       });
 
-      expectSentMessage(ctx.mockBotAdapter, "Processing...");
-      expectUpdatedMessage(ctx.mockBotAdapter, "Thanks for your message");
+      expectSentMessage(ctx.mockTeamsApp, "Processing...");
+      expectUpdatedMessage(ctx.mockTeamsApp, "Thanks for your message");
     });
 
     it("should correctly identify bot messages as isMe", async () => {

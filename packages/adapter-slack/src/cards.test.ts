@@ -797,4 +797,31 @@ describe("cardToBlockKit with CardLink", () => {
     expect(blocks[1].type).toBe("section");
     expect(blocks[1].text.text).toContain("```");
   });
+
+  it("replaces empty table cells with a space to satisfy Slack API", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["Kind", ""],
+          rows: [
+            ["FORM", "Form Submission"],
+            ["and more...", ""],
+          ],
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    const tableBlock = blocks[0];
+    expect(tableBlock.type).toBe("table");
+    // Every cell must have non-empty text (Slack rejects empty strings)
+    for (const row of tableBlock.rows) {
+      for (const cell of row) {
+        expect(cell.text.length).toBeGreaterThan(0);
+      }
+    }
+    // Empty cells become a space
+    expect(tableBlock.rows[0][1].text).toBe(" "); // empty header
+    expect(tableBlock.rows[2][1].text).toBe(" "); // empty data cell
+  });
 });

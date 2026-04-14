@@ -173,6 +173,17 @@
     "vendorOfficial": true
   },
   {
+    "name": "Zernio",
+    "slug": "zernio",
+    "type": "platform",
+    "community": true,
+    "description": "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
+    "packageName": "@zernio/chat-sdk-adapter",
+    "author": "Zernio",
+    "readme": "https://github.com/zernio-dev/chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
     "name": "Baileys WhatsApp",
     "slug": "baileys",
     "type": "platform",
@@ -181,6 +192,37 @@
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
     "readme": "https://github.com/rama-adi/chat-adapter-baileys"
+  },
+  {
+    "name": "Liveblocks",
+    "slug": "liveblocks",
+    "type": "platform",
+    "community": true,
+    "description": "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
+    "packageName": "@liveblocks/chat-sdk-adapter",
+    "author": "Liveblocks",
+    "readme": "https://github.com/liveblocks/liveblocks/tree/main/packages/liveblocks-chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Sendblue iMessage",
+    "slug": "sendblue",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK using Sendblue for building your own iMessage bots.",
+    "packageName": "chat-adapter-sendblue",
+    "author": "midday-ai",
+    "readme": "https://github.com/midday-ai/chat-adapter-sendblue"
+  },
+  {
+    "name": "Zalo",
+    "slug": "zalo",
+    "type": "platform",
+    "community": true,
+    "description": "Zalo adapter for Chat SDK using Zalo for building your own Zalo bots.",
+    "packageName": "chat-adapter-zalo",
+    "author": "buiducnhat",
+    "readme": "https://github.com/buiducnhat/chat-adapter-zalo"
   },
   {
     "name": "Instagram",

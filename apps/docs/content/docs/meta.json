@@ -12,6 +12,7 @@
     "adapters",
     "state",
     "---Features---",
+    "concurrency",
     "...",
     "error-handling",
     "---Guides---",

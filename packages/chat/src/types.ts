@@ -9,7 +9,26 @@ import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
 import type { ModalElement } from "./modals";
+import type { PostableObject } from "./postable-object";
 import type { SerializedThread } from "./thread";
+
+// =============================================================================
+// Channel Visibility
+// =============================================================================
+
+/**
+ * Represents the visibility scope of a channel.
+ *
+ * - `private`: Channel is only visible to invited members (e.g., private Slack channels)
+ * - `workspace`: Channel is visible to all workspace members (e.g., public Slack channels)
+ * - `external`: Channel is shared with external organizations (e.g., Slack Connect)
+ * - `unknown`: Visibility cannot be determined
+ */
+export type ChannelVisibility =
+  | "private"
+  | "workspace"
+  | "external"
+  | "unknown";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -38,6 +57,20 @@ export interface ChatConfig<
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
   /**
+   * How to handle messages that arrive while a handler is already
+   * processing on the same thread.
+   *
+   * - `'drop'` (default) — discard the message (throw `LockError`)
+   * - `'queue'` — queue the message; when the current handler finishes,
+   *   process only the latest queued message with `context.skipped` containing
+   *   all intermediate messages
+   * - `'debounce'` — all messages start/reset a debounce timer; only the
+   *   final message in a burst is processed
+   * - `'concurrent'` — no locking; all messages processed in parallel
+   * - `ConcurrencyConfig` — fine-grained control over strategy and parameters
+   */
+  concurrency?: ConcurrencyStrategy | ConcurrencyConfig;
+  /**
    * TTL for message deduplication entries in milliseconds.
    * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
    * cause platform retries that arrive after the default TTL expires.
@@ -51,6 +84,19 @@ export interface ChatConfig<
    * wait until some real text has been streamed before creating the message.
    */
   fallbackStreamingPlaceholderText?: string | null;
+  /**
+   * Lock scope determines which messages contend for the same lock.
+   *
+   * - `'thread'`: lock per threadId (default for most adapters)
+   * - `'channel'`: lock per channelId (default for WhatsApp, Telegram)
+   * - function: resolve scope dynamically per message (async supported)
+   *
+   * When not set, falls back to the adapter's `lockScope` property,
+   * then to `'thread'`.
+   */
+  lockScope?:
+    | LockScope
+    | ((context: LockScopeContext) => LockScope | Promise<LockScope>);
   /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
@@ -67,6 +113,8 @@ export interface ChatConfig<
     ttlMs?: number;
   };
   /**
+   * @deprecated Use `concurrency` instead.
+   *
    * Behavior when a thread lock cannot be acquired (another handler is processing).
    * - `'drop'` (default) — throw `LockError`, preserving current behavior
    * - `'force'` — force-release the existing lock and re-acquire
@@ -99,6 +147,19 @@ export interface ChatConfig<
  * Options for webhook handling.
  */
 export interface WebhookOptions {
+  /**
+   * Override the default modal-opening behavior to handle it inline
+   * within the current webhook response cycle.
+   * When provided, called instead of adapter.openModal().
+   * Used by Teams to return modal content in the HTTP invoke response.
+   *
+   * The returned `viewId` is platform-specific (e.g. Slack's view ID).
+   * Adapters that don't produce a view ID may return void.
+   */
+  onOpenModal?: (
+    modal: ModalElement,
+    contextId: string
+  ) => Promise<{ viewId: string } | undefined>;
   /**
    * Function to run message handling in the background.
    * Use this to ensure fast webhook responses while processing continues.
@@ -156,6 +217,22 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     threadId: string,
     messageId: string,
     message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Edit a previously posted object (Plan, Poll, etc.).
+   * If not implemented, object updates will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread containing the message
+   * @param messageId - The message ID to edit
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  editObject?(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
   /** Encode platform-specific data into a thread ID string */
@@ -228,6 +305,17 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
 
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * This distinguishes between private channels, workspace-visible channels,
+   * and externally shared channels (e.g., Slack Connect).
+   *
+   * @param threadId - The thread ID to check
+   * @returns The channel visibility scope
+   */
+  getChannelVisibility?(threadId: string): ChannelVisibility;
+
   /** Handle incoming webhook request */
   handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
 
@@ -249,6 +337,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     channelId: string,
     options?: ListThreadsOptions
   ): Promise<ListThreadsResult<TRawMessage>>;
+
+  /**
+   * Default lock scope for this adapter.
+   * - `'thread'` (default): lock per threadId
+   * - `'channel'`: lock per channelId (for channel-based platforms like WhatsApp, Telegram)
+   *
+   * Can be overridden by `ChatConfig.lockScope`.
+   */
+  readonly lockScope?: LockScope;
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -325,6 +422,20 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   postMessage(
     threadId: string,
     message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Post a special object (Plan, Poll, etc.) as a single message.
+   * If not implemented, posting such objects will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread to post to
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  postObject?(
+    threadId: string,
+    kind: string,
+    data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
   /** Remove a reaction from a message */
@@ -459,8 +570,8 @@ export interface ChatInstance {
    */
   processAction(
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
-    options?: WebhookOptions
-  ): void;
+    options: WebhookOptions | undefined
+  ): Promise<void>;
 
   processAppHomeOpened(
     event: AppHomeOpenedEvent,
@@ -553,8 +664,69 @@ export interface ChatInstance {
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions
+    options: WebhookOptions | undefined
   ): void;
+}
+
+// =============================================================================
+// Concurrency
+// =============================================================================
+
+/** Lock scope determines which messages contend for the same lock. */
+export type LockScope = "thread" | "channel";
+
+/** Context provided to the lockScope resolver function. */
+export interface LockScopeContext {
+  adapter: Adapter;
+  channelId: string;
+  isDM: boolean;
+  threadId: string;
+}
+
+/** Concurrency strategy for overlapping messages on the same thread. */
+export type ConcurrencyStrategy = "drop" | "queue" | "debounce" | "concurrent";
+
+/** Fine-grained concurrency configuration. */
+export interface ConcurrencyConfig {
+  /** Debounce window in milliseconds (debounce strategy). Default: 1500. */
+  debounceMs?: number;
+  /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
+  maxConcurrent?: number;
+  /** Max queued messages per thread (queue/debounce strategy). Default: 10. */
+  maxQueueSize?: number;
+  /** What to do when queue is full. Default: 'drop-oldest'. */
+  onQueueFull?: "drop-oldest" | "drop-newest";
+  /** TTL for queued entries in milliseconds. Default: 90000 (90s). */
+  queueEntryTtlMs?: number;
+  /** The concurrency strategy to use. */
+  strategy: ConcurrencyStrategy;
+}
+
+/**
+ * An entry in the per-thread message queue.
+ * Used by the `queue` and `debounce` concurrency strategies.
+ */
+export interface QueueEntry {
+  /** When this entry was enqueued (Unix ms). */
+  enqueuedAt: number;
+  /** When this entry expires (Unix ms). Stale entries are discarded on dequeue. */
+  expiresAt: number;
+  /** The queued message. */
+  message: Message;
+}
+
+/**
+ * Context provided to message handlers when messages were queued
+ * while a previous handler was running.
+ */
+export interface MessageContext {
+  /**
+   * Messages that arrived while the previous handler was running,
+   * in chronological order, excluding the current message (which is the latest).
+   */
+  skipped: Message[];
+  /** Total messages received since last handler ran (skipped.length + 1). */
+  totalSinceLastHandler: number;
 }
 
 // =============================================================================
@@ -578,8 +750,18 @@ export interface StateAdapter {
   /** Delete a cached value */
   delete(key: string): Promise<void>;
 
+  /** Pop the next message from the thread's queue. Returns null if empty. */
+  dequeue(threadId: string): Promise<QueueEntry | null>;
+
   /** Disconnect from the state backend */
   disconnect(): Promise<void>;
+
+  /** Atomically append a message to the thread's pending queue. Returns new queue depth. */
+  enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number>;
 
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
@@ -599,6 +781,9 @@ export interface StateAdapter {
 
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
+
+  /** Get the current queue depth for a thread. */
+  queueDepth(threadId: string): Promise<number>;
 
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;
@@ -639,6 +824,8 @@ export interface Postable<
 > {
   /** The adapter this entity belongs to */
   readonly adapter: Adapter;
+  /** The visibility scope of this channel */
+  readonly channelVisibility: ChannelVisibility;
   /** Unique ID */
   readonly id: string;
   /** Whether this is a direct message conversation */
@@ -658,6 +845,7 @@ export interface Postable<
   /**
    * Post a message.
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -766,6 +954,8 @@ export interface ThreadSummary<TRawMessage = unknown> {
  * Channel metadata returned by fetchInfo().
  */
 export interface ChannelInfo {
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
   memberCount?: number;
@@ -877,8 +1067,15 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
+   *
+   * // Plan with live updates
+   * const plan = new Plan({ initialMessage: "Working..." });
+   * await thread.post(plan);
+   * await plan.addTask({ title: "Step 1" });
+   * await plan.complete({ completeMessage: "Done!" });
    * ```
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -965,9 +1162,33 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   unsubscribe(): Promise<void>;
 }
 
+// =============================================================================
+// Postable Objects
+// =============================================================================
+
+// Re-export Plan types from plan.ts for backwards compatibility
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+// Re-export PostableObject types from plan.ts for backwards compatibility
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
+
 export interface ThreadInfo {
   channelId: string;
   channelName?: string;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
@@ -1194,7 +1415,8 @@ export type AdapterPostableMessage =
  */
 export type PostableMessage =
   | AdapterPostableMessage
-  | AsyncIterable<string | StreamChunk | StreamEvent>;
+  | AsyncIterable<string | StreamChunk | StreamEvent>
+  | PostableObject;
 
 /**
  * Duck-typed stream event compatible with AI SDK's `fullStream`.
@@ -1334,7 +1556,8 @@ export interface FileUpload {
  */
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1348,7 +1571,8 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 export type DirectMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message,
-  channel: Channel<TState>
+  channel: Channel<TState>,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1359,7 +1583,8 @@ export type DirectMessageHandler<TState = Record<string, unknown>> = (
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1387,7 +1612,8 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  */
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 // =============================================================================
@@ -1806,7 +2032,7 @@ export type ModalResponse =
 export type ModalSubmitHandler = (
   event: ModalSubmitEvent
   // biome-ignore lint/suspicious/noConfusingVoidType: void is needed for sync handlers that return nothing
-) => void | Promise<ModalResponse | undefined>;
+) => void | Promise<ModalResponse | void | undefined>;
 
 export type ModalCloseHandler = (
   event: ModalCloseEvent

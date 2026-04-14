@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.20.2",
-  "description": "GitHub adapter for chat - PR comment threads",
+  "version": "4.26.0",
+  "description": "GitHub adapter for chat - PR and issue comment threads",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -26,9 +26,7 @@
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
     "@octokit/auth-app": "^8.2.0",
-    "@octokit/rest": "^22.0.1"
-  },
-  "peerDependencies": {
+    "@octokit/rest": "^22.0.1",
     "chat": "workspace:*"
   },
   "devDependencies": {
@@ -55,6 +53,7 @@
     "bot",
     "adapter",
     "pull-request",
+    "issue",
     "code-review"
   ],
   "license": "MIT"

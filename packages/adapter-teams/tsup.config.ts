@@ -5,7 +5,7 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
-  sourcemap: true,
+  sourcemap: false,
   external: ["botbuilder"],
   noExternal: ["@microsoft/microsoft-graph-client"],
 });

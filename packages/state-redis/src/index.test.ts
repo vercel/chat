@@ -1,4 +1,6 @@
+import { EventEmitter } from "node:events";
 import type { Logger } from "chat";
+import type { RedisClientType } from "redis";
 import { describe, expect, it, vi } from "vitest";
 import { createRedisState, RedisStateAdapter } from "./index";
 
@@ -22,6 +24,167 @@ describe("RedisStateAdapter", () => {
     expect(adapter).toBeInstanceOf(RedisStateAdapter);
   });
 
+  it("should create an adapter with url and default logger", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+    });
+
+    expect(adapter).toBeInstanceOf(RedisStateAdapter);
+  });
+
+  it("should accept an existing redis client", () => {
+    const client = {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: true,
+      on: vi.fn(),
+    } as unknown as RedisClientType;
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    expect(adapter).toBeInstanceOf(RedisStateAdapter);
+    expect(adapter.getClient()).toBe(client);
+  });
+
+  it("should wait for an injected open client to become ready", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: false,
+    }) as unknown as RedisClientType & {
+      isReady: boolean;
+    };
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    let resolved = false;
+    const connectPromise = adapter.connect().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isReady = true;
+    emitter.emit("ready");
+
+    await connectPromise;
+    expect(resolved).toBe(true);
+  });
+
+  it("should ignore transient errors while waiting for an injected client to recover", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: false,
+    }) as unknown as RedisClientType & {
+      isOpen: boolean;
+      isReady: boolean;
+    };
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    let resolved = false;
+    const connectPromise = adapter.connect().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    emitter.emit("error", new Error("Socket closed unexpectedly"));
+    client.isOpen = false;
+    emitter.emit("reconnecting");
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    client.isOpen = true;
+    client.isReady = true;
+    emitter.emit("ready");
+
+    await connectPromise;
+    expect(resolved).toBe(true);
+    expect(client.connect).not.toHaveBeenCalled();
+  });
+
+  it("should wait for an injected client to become ready again after reconnecting", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: true,
+    }) as unknown as RedisClientType & {
+      isOpen: boolean;
+      isReady: boolean;
+    };
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    await adapter.connect();
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isReady = false;
+    client.isOpen = false;
+    emitter.emit("reconnecting");
+
+    let resolved = false;
+    const reconnectPromise = adapter.connect().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(client.connect).not.toHaveBeenCalled();
+
+    client.isOpen = true;
+    client.isReady = true;
+    emitter.emit("ready");
+
+    await reconnectPromise;
+    expect(resolved).toBe(true);
+  });
+
+  it("should reject when an injected client ends before becoming ready", async () => {
+    const emitter = new EventEmitter();
+    const client = Object.assign(emitter, {
+      close: vi.fn(),
+      connect: vi.fn(),
+      isOpen: true,
+      isReady: false,
+    }) as unknown as RedisClientType;
+
+    const adapter = createRedisState({
+      client,
+      logger: mockLogger,
+    });
+
+    const connectPromise = adapter.connect();
+    const error = new Error("Socket closed unexpectedly");
+
+    emitter.emit("error", error);
+    emitter.emit("end");
+
+    await expect(connectPromise).rejects.toBe(error);
+  });
+
   it("should have appendToList method", () => {
     const adapter = createRedisState({
       url: "redis://localhost:6379",
@@ -36,6 +199,30 @@ describe("RedisStateAdapter", () => {
       logger: mockLogger,
     });
     expect(typeof adapter.getList).toBe("function");
+  });
+
+  it("should have enqueue method", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.enqueue).toBe("function");
+  });
+
+  it("should have dequeue method", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.dequeue).toBe("function");
+  });
+
+  it("should have queueDepth method", () => {
+    const adapter = createRedisState({
+      url: "redis://localhost:6379",
+      logger: mockLogger,
+    });
+    expect(typeof adapter.queueDepth).toBe("function");
   });
 
   // Note: Integration tests with a real Redis instance would go here

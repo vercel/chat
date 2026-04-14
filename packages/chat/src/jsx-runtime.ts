@@ -105,8 +105,10 @@ export interface TextProps {
 
 /** Props for Button component in JSX */
 export interface ButtonProps {
+  actionType?: "action" | "modal";
   callbackUrl?: string;
   children?: string | number | (string | number | undefined)[];
+  disabled?: boolean;
   id: string;
   label?: string;
   style?: ButtonStyle;
@@ -591,7 +593,9 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       label,
       style: props.style,
       value: props.value,
+      actionType: props.actionType,
       callbackUrl: props.callbackUrl,
+      disabled: props.disabled,
     });
   }
 

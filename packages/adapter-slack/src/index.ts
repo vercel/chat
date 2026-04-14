@@ -16,6 +16,7 @@ import type {
   AdapterPostableMessage,
   Attachment,
   ChannelInfo,
+  ChannelVisibility,
   ChatInstance,
   EmojiValue,
   EphemeralMessage,
@@ -29,6 +30,8 @@ import type {
   Logger,
   ModalElement,
   ModalResponse,
+  PlanContent,
+  PlanModel,
   RawMessage,
   ReactionEvent,
   Root,
@@ -49,6 +52,7 @@ import {
   parseMarkdown,
   StreamingMarkdownRenderer,
   toModalElement,
+  toPlainText,
 } from "chat";
 import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
@@ -92,6 +96,8 @@ const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
 export interface SlackAdapterConfig {
+  /** Override the Slack API base URL (e.g. "https://slack-gov.com/api/" for GovSlack). Defaults to SLACK_API_URL env var. */
+  apiUrl?: string;
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
   botToken?: string;
   /** Bot user ID (will be fetched if not provided) */
@@ -116,6 +122,11 @@ export interface SlackAdapterConfig {
   signingSecret?: string;
   /** Override bot username (optional) */
   userName?: string;
+}
+
+export interface SlackOAuthCallbackOptions {
+  /** Redirect URI to send to Slack during the OAuth code exchange. */
+  redirectUri?: string;
 }
 
 /** Data stored per Slack workspace installation */
@@ -269,6 +280,8 @@ interface SlackWebhookPayload {
     | SlackUserChangeEvent;
   event_id?: string;
   event_time?: number;
+  /** Whether this event occurred in an externally shared channel (Slack Connect) */
+  is_ext_shared_channel?: boolean;
   team_id?: string;
   type: string;
 }
@@ -375,6 +388,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private static CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   private static REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
 
+  /**
+   * Cache of channel IDs known to be external/shared (Slack Connect).
+   * Populated from `is_ext_shared_channel` in incoming webhook payloads.
+   */
+  private readonly _externalChannels = new Set<string>();
+
   // Multi-workspace support
   private readonly clientId: string | undefined;
   private readonly clientSecret: string | undefined;
@@ -383,6 +402,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
+    isExtSharedChannel?: boolean;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -418,7 +438,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botToken =
       config.botToken ?? (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined);
 
-    this.client = new WebClient(botToken);
+    const slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.client = new WebClient(botToken, {
+      ...(slackApiUrl ? { slackApiUrl } : {}),
+    });
     this.signingSecret = signingSecret;
     this.defaultBotToken = botToken;
     this.logger = config.logger ?? new ConsoleLogger("info").child("slack");
@@ -578,7 +601,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * exchanges it for tokens, and saves the installation.
    */
   async handleOAuthCallback(
-    request: Request
+    request: Request,
+    options?: SlackOAuthCallbackOptions
   ): Promise<{ teamId: string; installation: SlackInstallation }> {
     if (!(this.clientId && this.clientSecret)) {
       throw new ValidationError(
@@ -596,13 +620,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       );
     }
 
-    const redirectUri = url.searchParams.get("redirect_uri") ?? undefined;
+    const redirectUri =
+      options?.redirectUri ?? url.searchParams.get("redirect_uri") ?? undefined;
 
     const result = await this.client.oauth.v2.access({
       client_id: this.clientId,
       client_secret: this.clientSecret,
       code,
-      redirect_uri: redirectUri,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
     if (!(result.ok && result.access_token && result.team?.id)) {
@@ -897,6 +922,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): void {
     if (payload.type === "event_callback" && payload.event) {
       const event = payload.event;
+
+      // Track external/shared channel status from payload-level flag
+      if (payload.is_ext_shared_channel) {
+        let channelId: string | undefined;
+        if ("channel" in event) {
+          channelId = (event as SlackEvent).channel;
+        } else if ("item" in event) {
+          channelId = (event as SlackReactionEvent).item.channel;
+        }
+        if (channelId) {
+          this._externalChannels.add(channelId);
+        }
+      }
 
       if (event.type === "message" || event.type === "app_mention") {
         const slackEvent = event as SlackEvent;
@@ -2778,6 +2816,176 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
+  // ===========================================================================
+  // PostableObject (Plan, etc.) support
+  // ===========================================================================
+
+  async postObject(
+    threadId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<unknown>> {
+    if (kind !== "plan") {
+      // Unsupported kind — post as plain text fallback
+      return this.postMessage(threadId, `[${kind}]`);
+    }
+
+    const plan = data as PlanModel;
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const text = this.renderPlanFallbackText(plan);
+    const blocks = this.planToBlockKit(plan);
+
+    try {
+      this.logger.debug("Slack API: chat.postMessage (plan)", {
+        channel,
+        threadTs,
+        blockCount: blocks.length,
+      });
+      const result = await this.client.chat.postMessage(
+        this.withToken({
+          channel,
+          thread_ts: threadTs,
+          text,
+          // biome-ignore lint/suspicious/noExplicitAny: Block Kit blocks are platform-specific
+          blocks: blocks as any[],
+          unfurl_links: false,
+          unfurl_media: false,
+        })
+      );
+      return { id: result.ts as string, threadId, raw: result };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  async editObject(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<unknown>> {
+    if (kind !== "plan") {
+      // Unsupported kind — edit as plain text fallback
+      return this.editMessage(threadId, messageId, `[${kind}]`);
+    }
+
+    const plan = data as PlanModel;
+    const { channel } = this.decodeThreadId(threadId);
+    const text = this.renderPlanFallbackText(plan);
+    const blocks = this.planToBlockKit(plan);
+
+    try {
+      this.logger.debug("Slack API: chat.update (plan)", {
+        channel,
+        messageId,
+        blockCount: blocks.length,
+      });
+      const result = await this.client.chat.update(
+        this.withToken({
+          channel,
+          ts: messageId,
+          text,
+          // biome-ignore lint/suspicious/noExplicitAny: Block Kit blocks are platform-specific
+          blocks: blocks as any[],
+        })
+      );
+
+      return { id: result.ts as string, threadId, raw: result };
+    } catch (error) {
+      this.handleSlackError(error);
+    }
+  }
+
+  private renderPlanFallbackText(plan: PlanModel): string {
+    const lines: string[] = [];
+    lines.push(plan.title || "Plan");
+    for (const task of plan.tasks) {
+      lines.push(`- (${task.status}) ${task.title}`);
+    }
+    return lines.join("\n");
+  }
+
+  private planToBlockKit(plan: PlanModel): unknown[] {
+    const tasks = plan.tasks.map((task: PlanModel["tasks"][number]) => {
+      const details = this.planContentToRichText(task.details);
+      const output = this.planContentToRichText(task.output);
+      return {
+        type: "task_card",
+        task_id: task.id,
+        title: task.title,
+        status: task.status,
+        ...(details ? { details } : null),
+        ...(output ? { output } : null),
+      };
+    });
+    return [
+      {
+        type: "plan",
+        title: plan.title || "Plan",
+        tasks,
+      },
+    ];
+  }
+
+  private planContentToPlainText(content: PlanContent | undefined): string {
+    if (!content) {
+      return "";
+    }
+    if (Array.isArray(content)) {
+      return content.join("\n");
+    }
+    if (typeof content === "string") {
+      return content;
+    }
+    if ("markdown" in content) {
+      return toPlainText(parseMarkdown(content.markdown));
+    }
+    if ("ast" in content) {
+      return toPlainText(content.ast);
+    }
+    return "";
+  }
+
+  private planContentToRichText(
+    content: PlanContent | undefined
+  ): { type: "rich_text"; elements: unknown[] } | undefined {
+    if (!content) {
+      return undefined;
+    }
+    if (Array.isArray(content)) {
+      return {
+        type: "rich_text",
+        elements: [
+          {
+            type: "rich_text_list",
+            style: "bullet",
+            elements: content.map((item) => ({
+              type: "rich_text_section",
+              elements: [{ type: "text", text: String(item) }],
+            })),
+          },
+        ],
+      };
+    }
+    const text = this.planContentToPlainText(content);
+    if (!text) {
+      return undefined;
+    }
+    return {
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text }],
+        },
+      ],
+    };
+  }
+
+  // ===========================================================================
+  // Message deletion and reactions
+  // ===========================================================================
+
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
     const ephemeral = this.decodeEphemeralMessageId(messageId);
     if (ephemeral) {
@@ -2945,7 +3153,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     let first = true;
     let lastAppended = "";
-    const renderer = new StreamingMarkdownRenderer();
+    const renderer = new StreamingMarkdownRenderer({
+      wrapTablesForAppend: false,
+    });
 
     /**
      * Helper to flush markdown text delta to the stream.
@@ -3256,17 +3466,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.conversations.info(
         this.withToken({ channel })
       );
-      const channelInfo = result.channel as { name?: string } | undefined;
+      const channelInfo = result.channel as
+        | {
+            name?: string;
+            is_ext_shared?: boolean;
+            is_private?: boolean;
+          }
+        | undefined;
+
+      // Update external channel cache from API response
+      if (channelInfo?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
 
       this.logger.debug("Slack API: conversations.info response", {
         channelName: channelInfo?.name,
         ok: result.ok,
       });
 
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (channelInfo?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (channelInfo?.is_private || channel.startsWith("D")) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: threadId,
         channelId: channel,
         channelName: channelInfo?.name,
+        channelVisibility,
         metadata: {
           threadTs,
           channel: result.channel,
@@ -3320,6 +3552,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   isDM(threadId: string): boolean {
     const { channel } = this.decodeThreadId(threadId);
     return channel.startsWith("D");
+  }
+
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * - `external`: Slack Connect channel shared with external organizations
+   * - `private`: Private channel (starts with G) or DM (starts with D)
+   * - `workspace`: Public channel visible to all workspace members
+   * - `unknown`: Visibility cannot be determined (not yet cached)
+   */
+  getChannelVisibility(threadId: string): ChannelVisibility {
+    const { channel } = this.decodeThreadId(threadId);
+
+    // Check for external channel first (Slack Connect)
+    if (this._externalChannels.has(channel)) {
+      return "external";
+    }
+
+    // Private channels start with G, DMs start with D
+    if (channel.startsWith("G") || channel.startsWith("D")) {
+      return "private";
+    }
+
+    // Public channels start with C
+    if (channel.startsWith("C")) {
+      return "workspace";
+    }
+
+    return "unknown";
   }
 
   decodeThreadId(threadId: string): SlackThreadId {
@@ -3634,15 +3895,38 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         name?: string;
         is_im?: boolean;
         is_mpim?: boolean;
+        is_private?: boolean;
+        is_ext_shared?: boolean;
         num_members?: number;
         purpose?: { value?: string };
         topic?: { value?: string };
       };
 
+      // Update external channel cache from API response
+      if (info?.is_ext_shared) {
+        this._externalChannels.add(channel);
+      }
+
+      // Determine channel visibility
+      let channelVisibility: ChannelVisibility = "unknown";
+      if (info?.is_ext_shared) {
+        channelVisibility = "external";
+      } else if (
+        info?.is_im ||
+        info?.is_mpim ||
+        info?.is_private ||
+        channel.startsWith("D")
+      ) {
+        channelVisibility = "private";
+      } else if (channel.startsWith("C")) {
+        channelVisibility = "workspace";
+      }
+
       return {
         id: channelId,
         name: info?.name ? `#${info.name}` : undefined,
         isDM: Boolean(info?.is_im || info?.is_mpim),
+        channelVisibility,
         memberCount: info?.num_members,
         metadata: {
           purpose: info?.purpose?.value,

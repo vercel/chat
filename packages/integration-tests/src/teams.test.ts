@@ -3,13 +3,13 @@ import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import { Chat, type Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createMockBotAdapter,
+  createMockTeamsApp,
   createTeamsActivity,
   createTeamsWebhookRequest,
   DEFAULT_TEAMS_SERVICE_URL,
   getTeamsThreadId,
-  injectMockBotAdapter,
-  type MockBotAdapter,
+  injectMockTeamsApp,
+  type MockTeamsApp,
   TEAMS_APP_ID,
   TEAMS_APP_PASSWORD,
   TEAMS_BOT_ID,
@@ -17,8 +17,8 @@ import {
 } from "./teams-utils";
 import { createWaitUntilTracker } from "./test-scenarios";
 
-const ANY_CHAR_REGEX = /./;
 const HELP_REGEX = /help/i;
+const ANY_CHAR_REGEX = /./;
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -32,7 +32,7 @@ describe("Teams Integration", () => {
   let chat: Chat<{ teams: TeamsAdapter }>;
   let state: ReturnType<typeof createMemoryState>;
   let teamsAdapter: TeamsAdapter;
-  let mockBotAdapter: MockBotAdapter;
+  let mockTeamsApp: MockTeamsApp;
   let tracker: ReturnType<typeof createWaitUntilTracker>;
 
   const TEST_CONVERSATION_ID = "19:meeting_123@thread.v2";
@@ -52,8 +52,8 @@ describe("Teams Integration", () => {
       logger: mockLogger,
     });
 
-    mockBotAdapter = createMockBotAdapter();
-    injectMockBotAdapter(teamsAdapter, mockBotAdapter);
+    mockTeamsApp = createMockTeamsApp();
+    injectMockTeamsApp(teamsAdapter, mockTeamsApp);
 
     chat = new Chat({
       userName: TEAMS_BOT_NAME,
@@ -100,14 +100,13 @@ describe("Teams Integration", () => {
 
       await tracker.waitForAll();
 
-      // Mentions are normalized to @name format
       expect(handlerMock).toHaveBeenCalledWith(
         TEST_THREAD_ID,
         `@${TEAMS_BOT_NAME} hello bot!`
       );
 
-      expect(mockBotAdapter.sentActivities.length).toBeGreaterThan(0);
-      const sentActivity = mockBotAdapter.sentActivities[0] as { text: string };
+      expect(mockTeamsApp.sentActivities.length).toBeGreaterThan(0);
+      const sentActivity = mockTeamsApp.sentActivities[0] as { text: string };
       expect(sentActivity.text).toBe("Hello from Teams!");
     });
 
@@ -144,11 +143,11 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({ text: "I'm now listening!" })
       );
 
-      mockBotAdapter.clearMocks();
+      mockTeamsApp.clearMocks();
 
       // Follow-up message in same thread
       const followUpActivity = createTeamsActivity({
@@ -169,7 +168,7 @@ describe("Teams Integration", () => {
         "This is a follow-up message"
       );
 
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: "You said: This is a follow-up message",
         })
@@ -197,7 +196,7 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       expect(patternHandler).toHaveBeenCalledWith("I need help with something");
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({ text: "Here is some help!" })
       );
     });
@@ -277,7 +276,7 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      expect(mockBotAdapter.updatedActivities).toContainEqual(
+      expect(mockTeamsApp.updatedActivities).toContainEqual(
         expect.objectContaining({ text: "Edited message" })
       );
     });
@@ -350,11 +349,16 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      // Teams uses standard markdown
-      const sentActivity = mockBotAdapter.sentActivities[0] as { text: string };
-      expect(sentActivity.text).toContain("**Bold**");
-      expect(sentActivity.text).toContain("_italic_");
-      expect(sentActivity.text).toContain("`code`");
+      // Check that sent activities contain markdown
+      const sentWithText = mockTeamsApp.sentActivities.find(
+        (act: unknown) =>
+          typeof act === "object" && act !== null && "text" in act
+      );
+      expect(sentWithText).toBeDefined();
+      const text = (sentWithText as { text: string }).text;
+      expect(text).toContain("**Bold**");
+      expect(text).toContain("_italic_");
+      expect(text).toContain("`code`");
     });
 
     it("should convert @mentions to Teams format in posted messages", async () => {
@@ -382,8 +386,7 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      // @mentions should be converted to Teams' <at>mention</at> format
-      const sentActivity = mockBotAdapter.sentActivities[0] as { text: string };
+      const sentActivity = mockTeamsApp.sentActivities[0] as { text: string };
       expect(sentActivity.text).toBe("Hey <at>john</at>, check this out!");
     });
   });
@@ -441,13 +444,13 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       expect(conversationLog).toContain(`mention: @${TEAMS_BOT_NAME} hey bot!`);
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: "Hi! I'm now listening to this thread. How can I help?",
         })
       );
 
-      mockBotAdapter.clearMocks();
+      mockTeamsApp.clearMocks();
 
       // Message 2: Weather query
       const weatherActivity = createTeamsActivity({
@@ -464,16 +467,16 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       expect(conversationLog).toContain("subscribed: What's the weather like?");
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: "Let me check the weather for you...",
         })
       );
-      expect(mockBotAdapter.updatedActivities).toContainEqual(
+      expect(mockTeamsApp.updatedActivities).toContainEqual(
         expect.objectContaining({ text: "The weather today is sunny, 72°F!" })
       );
 
-      mockBotAdapter.clearMocks();
+      mockTeamsApp.clearMocks();
 
       // Message 3: Follow-up
       const followUpActivity = createTeamsActivity({
@@ -491,7 +494,7 @@ describe("Teams Integration", () => {
 
       expect(conversationLog).toContain("subscribed: That sounds nice!");
 
-      mockBotAdapter.clearMocks();
+      mockTeamsApp.clearMocks();
 
       // Message 4: Thanks
       const thanksActivity = createTeamsActivity({
@@ -508,7 +511,7 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       expect(conversationLog).toContain("subscribed: thanks for your help!");
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: "You're welcome! Let me know if you need anything else.",
         })
@@ -598,7 +601,7 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      mockBotAdapter.clearMocks();
+      mockTeamsApp.clearMocks();
 
       // Follow-up to thread 1
       const thread1FollowUp = createTeamsActivity({
@@ -628,7 +631,6 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      // Verify thread isolation (mentions are normalized to @name format)
       expect(threadResponses[thread1Id]).toEqual([
         `@${TEAMS_BOT_NAME} Thread 1 start`,
         "Thread 1 message",
@@ -676,8 +678,7 @@ describe("Teams Integration", () => {
       });
       await tracker.waitForAll();
 
-      // Verify sentActivities contains the message with attachments
-      const sentWithAttachments = mockBotAdapter.sentActivities.find(
+      const sentWithAttachments = mockTeamsApp.sentActivities.find(
         (act: unknown) =>
           typeof act === "object" &&
           act !== null &&

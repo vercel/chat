@@ -70,7 +70,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
@@ -91,7 +91,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         added: true,
         userId: "U00FAKEUSER1",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         messageId: "1767326126.896109",
         isDM: false,
       });
@@ -110,7 +110,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
@@ -129,7 +129,7 @@ describe("Replay Tests - Actions & Reactions", () => {
         userId: "U00FAKEUSER1",
         userName: "testuser",
         adapterName: "slack",
-        channelId: "C00FAKECHAN1",
+        channelId: "slack:C00FAKECHAN1",
         isDM: false,
       });
 
@@ -173,7 +173,7 @@ describe("Replay Tests - Actions & Reactions", () => {
     it("should handle adaptive card action submit", async () => {
       // First subscribe via mention
       await ctx.sendWebhook(teamsFixtures.mention);
-      ctx.mockBotAdapter.clearMocks();
+      ctx.mockTeamsApp.clearMocks();
 
       // Send action payload
       await ctx.sendWebhook(teamsFixtures.action);
@@ -188,13 +188,13 @@ describe("Replay Tests - Actions & Reactions", () => {
       // Teams user ID format
       expect(capturedAction?.user.userId).toContain("29:");
 
-      expectSentMessage(ctx.mockBotAdapter, "Action received: info");
+      expectSentMessage(ctx.mockTeamsApp, "Action received: info");
     });
 
     it("should handle messageReaction event", async () => {
       // First subscribe via mention
       await ctx.sendWebhook(teamsFixtures.mention);
-      ctx.mockBotAdapter.clearMocks();
+      ctx.mockTeamsApp.clearMocks();
 
       // Send reaction event
       await ctx.sendWebhook(teamsFixtures.reaction);
@@ -210,7 +210,7 @@ describe("Replay Tests - Actions & Reactions", () => {
       // Teams user ID format
       expect(capturedReaction?.user.userId).toContain("29:");
 
-      expectSentMessage(ctx.mockBotAdapter, "Thanks for the");
+      expectSentMessage(ctx.mockTeamsApp, "Thanks for the");
     });
   });
 

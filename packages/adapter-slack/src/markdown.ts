@@ -252,10 +252,15 @@ function mdastTableToSlackBlock(
   const rows: Array<Array<{ type: "raw_text"; text: string }>> = [];
 
   for (const row of node.children) {
-    const cells = getNodeChildren(row).map((cell) => ({
-      type: "raw_text" as const,
-      text: getNodeChildren(cell).map(cellConverter).join(""),
-    }));
+    const cells = getNodeChildren(row).map((cell) => {
+      // Convert cell children to text, defaulting to space if empty.
+      // Slack API requires text to be at least 1 character.
+      // Use explicit length check rather than falsy check to be defensive
+      // against edge cases (e.g., unusual whitespace or encoding issues).
+      const rawText = getNodeChildren(cell).map(cellConverter).join("");
+      const text = rawText.length > 0 ? rawText : " ";
+      return { type: "raw_text" as const, text };
+    });
     rows.push(cells);
   }
 

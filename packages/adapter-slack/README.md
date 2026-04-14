@@ -61,10 +61,14 @@ The adapter handles the full Slack OAuth V2 exchange. Point your OAuth redirect 
 import { slackAdapter } from "@/lib/bot";
 
 export async function GET(request: Request) {
-  const { teamId } = await slackAdapter.handleOAuthCallback(request);
+  const { teamId } = await slackAdapter.handleOAuthCallback(request, {
+    redirectUri: process.env.SLACK_REDIRECT_URI,
+  });
   return new Response(`Installed for team ${teamId}!`);
 }
 ```
+
+If your install flow uses a specific redirect URI, pass the same value here that you used during the authorize step. This is especially useful when one app supports multiple redirect URLs. When no option is provided, the adapter still falls back to `redirect_uri` on the callback request URL.
 
 ### Using the adapter outside webhooks
 

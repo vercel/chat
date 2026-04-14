@@ -1,12 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SiGithub } from "@icons-pack/react-simple-icons";
+import { ArrowLeftIcon } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import adapters from "@/adapters.json";
 import { ReadmeContent } from "../components/readme-content";
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
+const GITHUB_SUBPATH_PATTERN =
+  /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/;
 const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
 
 const getAdapter = (slug: string) => adapters.find((a) => a.slug === slug);
@@ -20,6 +24,19 @@ const getReadme = async (repoUrl: string): Promise<string | undefined> => {
       return await readFile(filePath, "utf-8");
     } catch {
       return undefined;
+    }
+  }
+
+  const subpathMatch = repoUrl.match(GITHUB_SUBPATH_PATTERN);
+  if (subpathMatch) {
+    const [, owner, repo, ref, path] = subpathMatch;
+    const url = `https://api.github.com/repos/${owner}/${repo}/readme/${path}?ref=${ref}`;
+    const response = await fetch(url, {
+      headers: { Accept: "application/vnd.github.raw+json" },
+      next: { revalidate: 3600 },
+    });
+    if (response.ok) {
+      return response.text();
     }
   }
 
@@ -55,19 +72,35 @@ const AdapterPage = async ({
     <div className="container mx-auto max-w-3xl">
       {readme ? (
         <article className="relative max-w-none px-4 py-16">
-          <a
-            aria-label="View on GitHub"
-            className="absolute top-18 right-4"
-            href={adapter.readme}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <SiGithub className="size-6" />
-          </a>
+          <div className="mb-6 flex items-center justify-between">
+            <Link
+              className="inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
+              href="/adapters"
+            >
+              <ArrowLeftIcon className="size-4" />
+              All Adapters
+            </Link>
+            <a
+              aria-label="View on GitHub"
+              className="text-muted-foreground hover:text-foreground"
+              href={adapter.readme}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <SiGithub className="size-6" />
+            </a>
+          </div>
           <ReadmeContent>{readme}</ReadmeContent>
         </article>
       ) : (
         <div className="px-4 py-16">
+          <Link
+            className="mb-6 inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
+            href="/adapters"
+          >
+            <ArrowLeftIcon className="size-4" />
+            All Adapters
+          </Link>
           <h1 className="mb-4 font-bold text-2xl">{adapter.name}</h1>
           <p className="text-muted-foreground">
             README not available. Visit the{" "}

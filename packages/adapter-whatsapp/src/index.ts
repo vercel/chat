@@ -116,6 +116,7 @@ export class WhatsAppAdapter
   implements Adapter<WhatsAppThreadId, WhatsAppRawMessage>
 {
   readonly name = "whatsapp";
+  readonly lockScope = "channel" as const;
   readonly persistMessageHistory = true;
   readonly userName: string;
 
@@ -142,7 +143,8 @@ export class WhatsAppAdapter
     this.logger = config.logger;
     this.userName = config.userName;
     const apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
-    this.graphApiUrl = `https://graph.facebook.com/${apiVersion}`;
+    const baseUrl = config.apiUrl ?? "https://graph.facebook.com";
+    this.graphApiUrl = `${baseUrl}/${apiVersion}`;
   }
 
   /**
@@ -1176,6 +1178,7 @@ export class WhatsAppAdapter
  */
 export function createWhatsAppAdapter(config?: {
   accessToken?: string;
+  apiUrl?: string;
   apiVersion?: string;
   appSecret?: string;
   logger?: Logger;
@@ -1223,6 +1226,7 @@ export function createWhatsAppAdapter(config?: {
 
   return new WhatsAppAdapter({
     accessToken,
+    apiUrl: config?.apiUrl ?? process.env.WHATSAPP_API_URL,
     apiVersion: config?.apiVersion,
     appSecret,
     phoneNumberId,

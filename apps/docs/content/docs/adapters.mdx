@@ -34,7 +34,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Tables | ✅ Block Kit | ✅ GFM | ⚠️ ASCII | ✅ GFM | ⚠️ ASCII | ✅ GFM | ✅ GFM | ❌ |
 | Fields | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ Template variables |
 | Images in cards | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
-| Modals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Modals | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### Conversations
 
@@ -75,7 +75,7 @@ Each adapter implements a standard interface that the `Chat` class uses to route
 
 ## Using multiple adapters
 
-Register multiple adapters and your event handlers work across all of them:
+Register multiple [adapters](/adapters) and your event handlers work across all of them:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";

@@ -161,6 +161,8 @@ All options are auto-detected from environment variables when not provided.
 | `credentials` | No* | Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS` |
 | `useApplicationDefaultCredentials` | No | Use Application Default Credentials. Auto-detected from `GOOGLE_CHAT_USE_ADC` |
 | `pubsubTopic` | No | Pub/Sub topic for Workspace Events. Auto-detected from `GOOGLE_CHAT_PUBSUB_TOPIC` |
+| `pubsubAudience` | No | Expected JWT audience for Pub/Sub webhook verification. Auto-detected from `GOOGLE_CHAT_PUBSUB_AUDIENCE` |
+| `googleChatProjectNumber` | No | GCP project number for direct webhook JWT verification. Auto-detected from `GOOGLE_CHAT_PROJECT_NUMBER` |
 | `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
 | `auth` | No | Custom auth object (advanced) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
@@ -175,7 +177,48 @@ GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}
 # Optional: for receiving all messages
 GOOGLE_CHAT_PUBSUB_TOPIC=projects/your-project/topics/chat-events
 GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
+
+# Optional: webhook verification (recommended for production)
+GOOGLE_CHAT_PROJECT_NUMBER=123456789          # For direct webhook JWT verification
+GOOGLE_CHAT_PUBSUB_AUDIENCE=https://your-domain.com/api/webhooks/gchat  # For Pub/Sub JWT verification
 ```
+
+## Webhook verification
+
+The adapter supports JWT verification for both webhook types. When configured, the adapter validates the `Authorization: Bearer <JWT>` header on incoming requests using Google's public keys. Requests with missing or invalid tokens are rejected with HTTP 401.
+
+Verification is opt-in — when the config options are not set, webhooks are accepted without signature checks (for backward compatibility and development).
+
+### Direct webhooks (Google Chat API)
+
+Google Chat sends a signed JWT with every webhook request. The JWT audience (`aud` claim) is your GCP project number.
+
+```typescript
+createGoogleChatAdapter({
+  googleChatProjectNumber: "123456789",
+});
+```
+
+Find your project number in the [GCP Console dashboard](https://console.cloud.google.com/home/dashboard) (it's different from the project ID).
+
+### Pub/Sub push messages
+
+Google Cloud Pub/Sub sends a signed OIDC JWT with push deliveries. The JWT audience is whatever you configured on the push subscription.
+
+```typescript
+createGoogleChatAdapter({
+  pubsubAudience: "https://your-domain.com/api/webhooks/gchat",
+});
+```
+
+To enable authenticated push on your Pub/Sub subscription:
+
+1. Go to **Pub/Sub** then **Subscriptions**
+2. Edit your push subscription
+3. Enable **Authentication**
+4. Select a service account with the **Service Account Token Creator** role
+5. Set the **Audience** to your webhook URL
+6. Use the same URL as `GOOGLE_CHAT_PUBSUB_AUDIENCE`
 
 ## Features
 
@@ -236,6 +279,13 @@ GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
 Fetching message history requires domain-wide delegation with the `impersonateUser` config option set. The impersonated user must have access to the spaces you want to read from. See the [Pub/Sub setup](#4-enable-domain-wide-delegation) above for configuring delegation and OAuth scopes.
 
 ## Troubleshooting
+
+### 401 Unauthorized on webhooks
+
+- For direct webhooks: verify `GOOGLE_CHAT_PROJECT_NUMBER` matches your GCP project number (not project ID)
+- For Pub/Sub: verify `GOOGLE_CHAT_PUBSUB_AUDIENCE` matches the audience configured on your push subscription
+- Check that authentication is enabled on your Pub/Sub push subscription
+- Ensure the service account used for push authentication has the **Service Account Token Creator** role
 
 ### No webhook received
 

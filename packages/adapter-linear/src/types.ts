@@ -15,6 +15,8 @@ import type { Logger } from "chat";
  * Base configuration options shared by all auth methods.
  */
 interface LinearAdapterBaseConfig {
+  /** Override the Linear API base URL. Defaults to LINEAR_API_URL env var. */
+  apiUrl?: string;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /**

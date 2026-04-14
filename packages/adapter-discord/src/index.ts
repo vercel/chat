@@ -85,6 +85,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
+  private readonly apiBaseUrl: string;
   private readonly botToken: string;
   private readonly publicKey: string;
   private readonly applicationId: string;
@@ -124,6 +125,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
+    this.apiBaseUrl =
+      config.apiUrl ?? process.env.DISCORD_API_URL ?? DISCORD_API_BASE;
     this.botToken = botToken;
     this.publicKey = publicKey.trim().toLowerCase();
     this.applicationId = applicationId;
@@ -959,23 +962,41 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       threadName,
     });
 
-    const response = await this.discordFetch(
-      `/channels/${channelId}/messages/${messageId}/threads`,
-      "POST",
-      {
-        name: threadName,
-        auto_archive_duration: 1440, // 24 hours
+    try {
+      const response = await this.discordFetch(
+        `/channels/${channelId}/messages/${messageId}/threads`,
+        "POST",
+        {
+          name: threadName,
+          auto_archive_duration: 1440, // 24 hours
+        }
+      );
+
+      const result = (await response.json()) as { id: string; name: string };
+
+      this.logger.debug("Discord API: POST thread response", {
+        threadId: result.id,
+        threadName: result.name,
+      });
+
+      return result;
+    } catch (error) {
+      // Discord error 160004: "A thread has already been created for this message"
+      // Recover by using the existing thread (its ID equals the parent message ID).
+      if (
+        error instanceof NetworkError &&
+        typeof error.message === "string" &&
+        error.message.includes('"code"') &&
+        error.message.includes("160004")
+      ) {
+        this.logger.debug(
+          "Thread already exists for message, reusing existing thread",
+          { channelId, messageId }
+        );
+        return { id: messageId, name: threadName };
       }
-    );
-
-    const result = (await response.json()) as { id: string; name: string };
-
-    this.logger.debug("Discord API: POST thread response", {
-      threadId: result.id,
-      threadName: result.name,
-    });
-
-    return result;
+      throw error;
+    }
   }
 
   /**
@@ -1564,7 +1585,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     method: string,
     body?: unknown
   ): Promise<Response> {
-    const url = `${DISCORD_API_BASE}${path}`;
+    const url = `${this.apiBaseUrl}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bot ${this.botToken}`,
     };

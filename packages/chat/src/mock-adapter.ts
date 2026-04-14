@@ -9,6 +9,7 @@ import type {
   FormattedContent,
   Lock,
   Logger,
+  QueueEntry,
   StateAdapter,
 } from "./types";
 
@@ -69,6 +70,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     isDM: vi
       .fn()
       .mockImplementation((threadId: string) => threadId.includes(":D")),
+    getChannelVisibility: vi.fn().mockReturnValue("unknown"),
     openModal: vi.fn().mockResolvedValue({ viewId: "V123" }),
     channelIdFromThreadId: vi
       .fn()
@@ -111,6 +113,7 @@ export function createMockState(): MockStateAdapter {
   const subscriptions = new Set<string>();
   const locks = new Map<string, Lock>();
   const cache = new Map<string, unknown>();
+  const queues = new Map<string, QueueEntry[]>();
 
   return {
     cache,
@@ -180,6 +183,36 @@ export function createMockState(): MockStateAdapter {
           cache.set(key, list);
         }
       ),
+    enqueue: vi
+      .fn()
+      .mockImplementation(
+        async (threadId: string, entry: QueueEntry, maxSize: number) => {
+          let queue = queues.get(threadId);
+          if (!queue) {
+            queue = [];
+            queues.set(threadId, queue);
+          }
+          queue.push(entry);
+          if (queue.length > maxSize) {
+            queue.splice(0, queue.length - maxSize);
+          }
+          return queue.length;
+        }
+      ),
+    dequeue: vi.fn().mockImplementation(async (threadId: string) => {
+      const queue = queues.get(threadId);
+      if (!queue || queue.length === 0) {
+        return null;
+      }
+      const entry = queue.shift();
+      if (queue.length === 0) {
+        queues.delete(threadId);
+      }
+      return entry ?? null;
+    }),
+    queueDepth: vi.fn().mockImplementation(async (threadId: string) => {
+      return queues.get(threadId)?.length ?? 0;
+    }),
     getList: vi.fn().mockImplementation(async (key: string) => {
       return (cache.get(key) as unknown[]) ?? [];
     }),

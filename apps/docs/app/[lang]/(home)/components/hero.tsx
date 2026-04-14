@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 interface HeroProps {
   badge: string;
   children: ReactNode;
-  description: string;
+  description: ReactNode;
   title: string;
 }
 
@@ -18,7 +18,7 @@ export const Hero = ({ badge, title, description, children }: HeroProps) => (
       <h1 className="text-balance text-center font-semibold text-[40px]! leading-[1.1] tracking-tight sm:text-5xl! lg:font-semibold xl:text-6xl!">
         {title}
       </h1>
-      <p className="mx-auto max-w-3xl text-balance text-muted-foreground leading-relaxed sm:text-xl">
+      <p className="mx-auto max-w-3xl text-balance text-muted-foreground leading-relaxed sm:max-w-[52rem] sm:text-xl">
         {description}
       </p>
     </div>
