@@ -1,5 +1,26 @@
 # @chat-adapter/github
 
+## 4.26.0
+
+### Patch Changes
+
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Minor Changes
+
+- 21498a4: Add support for GitHub issue comments. The adapter now handles `issue_comment` webhooks on plain issues in addition to PRs. Issue threads use the format `github:owner/repo:issue:42`. All existing PR thread IDs remain backward compatible.
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
 ## 4.24.0
 
 ### Minor Changes

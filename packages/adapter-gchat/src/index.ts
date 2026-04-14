@@ -70,6 +70,8 @@ export interface ServiceAccountCredentials {
 
 /** Base config options shared by all auth methods */
 export interface GoogleChatAdapterBaseConfig {
+  /** Override the Google Chat API root URL. Defaults to GOOGLE_CHAT_API_URL env var. */
+  apiUrl?: string;
   /**
    * HTTP endpoint URL for button click actions.
    * Required for HTTP endpoint apps - button clicks will be routed to this URL.
@@ -319,6 +321,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       config.googleChatProjectNumber ?? process.env.GOOGLE_CHAT_PROJECT_NUMBER;
     this.pubsubAudience =
       config.pubsubAudience ?? process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE;
+    const apiRootUrl = config.apiUrl ?? process.env.GOOGLE_CHAT_API_URL;
 
     let authClient: Parameters<typeof chat>[0]["auth"];
 
@@ -377,7 +380,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     this.authClient = authClient;
-    this.chatApi = chat({ version: "v1", auth: authClient });
+    this.chatApi = chat({
+      version: "v1",
+      auth: authClient,
+      ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
+    });
 
     // Create impersonated Chat API for user-context operations (DMs)
     // Domain-wide delegation requires setting the `subject` claim to the impersonated user
@@ -396,6 +403,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       } else if (this.useADC) {
         // ADC with impersonation (requires clientOptions.subject support)
@@ -412,6 +420,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       }
     }
@@ -1565,9 +1574,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       const response = await this.chatApi.spaces.messages.update({
         name: messageId,
-        updateMask: "text",
+        updateMask: "text,cardsV2",
         requestBody: {
           text,
+          cardsV2: [],
         },
       });
 

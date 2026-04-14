@@ -53,6 +53,8 @@ export interface AddTaskOptions {
 export type UpdateTaskInput =
   | PlanContent
   | {
+      /** Task ID to update. If omitted, updates the last in_progress task. */
+      id?: string;
       /** Task output/results. */
       output?: PlanContent;
       /** Optional status override. */
@@ -224,13 +226,22 @@ export class Plan implements PostableObject<PlanModel> {
       return null;
     }
     let current: PlanModelTask | undefined;
-    for (let i = this._model.tasks.length - 1; i >= 0; i--) {
-      if (this._model.tasks[i].status === "in_progress") {
-        current = this._model.tasks[i];
-        break;
+    if (
+      typeof update === "object" &&
+      update !== null &&
+      "id" in update &&
+      update.id
+    ) {
+      current = this._model.tasks.find((t) => t.id === update.id);
+    } else {
+      for (let i = this._model.tasks.length - 1; i >= 0; i--) {
+        if (this._model.tasks[i].status === "in_progress") {
+          current = this._model.tasks[i];
+          break;
+        }
       }
+      current ??= this._model.tasks.at(-1);
     }
-    current ??= this._model.tasks.at(-1);
 
     if (!current) {
       return null;

@@ -389,6 +389,21 @@ describe("GoogleChatAdapter", () => {
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
+
+    it("should resolve apiUrl from GOOGLE_CHAT_API_URL env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_API_URL = "https://custom-chat.googleapis.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        apiUrl: "https://custom-chat.googleapis.com",
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
   });
 
   describe("isDM", () => {
@@ -1384,7 +1399,7 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("editMessage", () => {
-    it("should call chatApi.spaces.messages.update for text", async () => {
+    it("should update text and clear cards when editing to text", async () => {
       const { adapter } = await createInitializedAdapter();
       const threadId = adapter.encodeThreadId({
         spaceName: "spaces/ABC123",
@@ -1406,9 +1421,10 @@ describe("GoogleChatAdapter", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "spaces/ABC123/messages/msg1",
-          updateMask: "text",
+          updateMask: "text,cardsV2",
           requestBody: expect.objectContaining({
             text: expect.any(String),
+            cardsV2: [],
           }),
         })
       );

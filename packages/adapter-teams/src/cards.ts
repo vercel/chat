@@ -14,10 +14,13 @@ import type {
   ActionArray,
   ActionStyle,
   CardElementArray,
+  ChoiceSetInputOptions,
 } from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
   Image as AdaptiveImage,
+  Choice,
+  ChoiceSetInput,
   Column,
   ColumnSet,
   Container,
@@ -36,7 +39,9 @@ import type {
   FieldsElement,
   ImageElement,
   LinkButtonElement,
+  RadioSelectElement,
   SectionElement,
+  SelectElement,
   TableElement,
   TextElement,
 } from "chat";
@@ -50,6 +55,12 @@ const convertEmoji = createEmojiConverter("teams");
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
 const ADAPTIVE_CARD_VERSION = "1.4" as const;
+
+/**
+ * Sentinel action ID for auto-injected submit buttons.
+ * Used when a card has select/radio_select inputs but no submit button.
+ */
+export const AUTO_SUBMIT_ACTION_ID = "__auto_submit";
 
 /**
  * Convert a CardElement to a Teams Adaptive Card.
@@ -176,17 +187,80 @@ function convertDividerToElement(_element: DividerElement): Container {
 }
 
 function convertActionsToElements(element: ActionsElement): ConvertResult {
-  // In Adaptive Cards, actions go at the card level, not inline
-  const actions: ActionArray = element.children
-    .filter((child) => child.type === "button" || child.type === "link-button")
-    .map((button) => {
-      if (button.type === "link-button") {
-        return convertLinkButtonToAction(button);
-      }
-      return convertButtonToAction(button);
-    });
+  const actions: ActionArray = [];
+  const elements: CardElementArray = [];
+  let hasButtons = false;
+  let hasInputs = false;
 
-  return { elements: [], actions };
+  for (const child of element.children) {
+    switch (child.type) {
+      case "button":
+        hasButtons = true;
+        actions.push(convertButtonToAction(child));
+        break;
+      case "link-button":
+        actions.push(convertLinkButtonToAction(child));
+        break;
+      case "select":
+        hasInputs = true;
+        elements.push(convertSelectToElement(child));
+        break;
+      case "radio_select":
+        hasInputs = true;
+        elements.push(convertRadioSelectToElement(child));
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Auto-inject a submit button when there are inputs but no buttons.
+  // Teams inputs don't auto-submit like Slack — they need an Action.Submit.
+  if (hasInputs && !hasButtons) {
+    actions.push(
+      new SubmitAction({
+        title: "Submit",
+        data: { actionId: AUTO_SUBMIT_ACTION_ID },
+      })
+    );
+  }
+
+  return { elements, actions };
+}
+
+function convertSelectToElement(select: SelectElement): ChoiceSetInput {
+  const choices = select.options.map(
+    (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
+  );
+
+  const options: ChoiceSetInputOptions = {
+    id: select.id,
+    label: convertEmoji(select.label),
+    style: "compact",
+    isRequired: !(select.optional ?? false),
+    placeholder: select.placeholder,
+    value: select.initialOption,
+  };
+
+  return new ChoiceSetInput(...choices).withOptions(options);
+}
+
+function convertRadioSelectToElement(
+  radioSelect: RadioSelectElement
+): ChoiceSetInput {
+  const choices = radioSelect.options.map(
+    (opt) => new Choice({ title: convertEmoji(opt.label), value: opt.value })
+  );
+
+  const options: ChoiceSetInputOptions = {
+    id: radioSelect.id,
+    label: convertEmoji(radioSelect.label),
+    style: "expanded",
+    isRequired: !(radioSelect.optional ?? false),
+    value: radioSelect.initialOption,
+  };
+
+  return new ChoiceSetInput(...choices).withOptions(options);
 }
 
 function convertButtonToAction(button: ButtonElement): SubmitAction {

@@ -115,6 +115,8 @@ export class GitHubAdapter
   private readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
+  // Custom API base URL (e.g. for GitHub Enterprise)
+  private readonly apiUrl?: string;
 
   private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
@@ -146,6 +148,7 @@ export class GitHubAdapter
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
+    this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
     let fixedInstallationId: number | null = null;
 
     // Create Octokit instance based on auth method.
@@ -159,7 +162,10 @@ export class GitHubAdapter
 
     if ("token" in config && config.token) {
       // PAT mode - single Octokit instance
-      this.octokit = new Octokit({ auth: config.token });
+      this.octokit = new Octokit({
+        auth: config.token,
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+      });
     } else if (
       "appId" in config &&
       config.appId &&
@@ -176,6 +182,7 @@ export class GitHubAdapter
             privateKey: config.privateKey,
             installationId: config.installationId,
           },
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
         });
       } else {
         // Multi-tenant app mode - create clients per installation
@@ -197,7 +204,10 @@ export class GitHubAdapter
       // Auto-detect from env vars
       const token = process.env.GITHUB_TOKEN;
       if (token) {
-        this.octokit = new Octokit({ auth: token });
+        this.octokit = new Octokit({
+          auth: token,
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+        });
       } else {
         const appId = process.env.GITHUB_APP_ID;
         const privateKey = process.env.GITHUB_PRIVATE_KEY;
@@ -210,6 +220,7 @@ export class GitHubAdapter
             this.octokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
+              ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
             });
           } else {
             this.appCredentials = { appId, privateKey };
@@ -265,6 +276,7 @@ export class GitHubAdapter
           privateKey: this.appCredentials.privateKey,
           installationId,
         },
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
       });
       this.installationClients.set(installationId, client);
       this.logger.debug("Created Octokit client for installation", {

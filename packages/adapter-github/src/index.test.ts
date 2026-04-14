@@ -2230,6 +2230,7 @@ describe("createGitHubAdapter", () => {
       "GITHUB_PRIVATE_KEY",
       "GITHUB_INSTALLATION_ID",
       "GITHUB_BOT_USERNAME",
+      "GITHUB_API_URL",
     ]) {
       delete process.env[key];
     }
@@ -2336,5 +2337,42 @@ describe("createGitHubAdapter", () => {
       botUserId: 42,
     });
     expect(a.botUserId).toBe("42");
+  });
+
+  it("should accept apiUrl config for GitHub Enterprise", () => {
+    const a = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+      apiUrl: "https://github.example.com/api/v3",
+    });
+    expect(a).toBeInstanceOf(GitHubAdapter);
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://github.example.com/api/v3"
+    );
+  });
+
+  it("should resolve apiUrl from GITHUB_API_URL env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_API_URL = "https://github.example.com/api/v3";
+    const a = createGitHubAdapter();
+    expect(a).toBeInstanceOf(GitHubAdapter);
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://github.example.com/api/v3"
+    );
+  });
+
+  it("should prefer apiUrl config over GITHUB_API_URL env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_API_URL = "https://env-github.example.com/api/v3";
+    const a = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+      apiUrl: "https://config-github.example.com/api/v3",
+    });
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://config-github.example.com/api/v3"
+    );
   });
 });

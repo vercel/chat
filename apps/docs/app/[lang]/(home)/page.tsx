@@ -145,7 +145,7 @@ const HomePage = () => (
             Get Started
           </DynamicLink>
         </Button>
-        <Installer className="w-40 sm:w-32" command="pnpm add chat" />
+        <Installer className="w-28" command="npm i chat" />
       </div>
     </Hero>
     <div className="grid divide-y border-y sm:border-x">

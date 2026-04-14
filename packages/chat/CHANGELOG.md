@@ -1,5 +1,21 @@
 # chat
 
+## 4.26.0
+
+### Minor Changes
+
+- 2235c16: export standalone reviver for workflow-safe deserialization without adapter dependencies
+
+### Patch Changes
+
+- ddb084b: guard fallback streaming against empty post and edit calls
+
+## 4.25.0
+
+### Minor Changes
+
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+
 ## 4.24.0
 
 ### Minor Changes

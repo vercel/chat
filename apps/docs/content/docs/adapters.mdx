@@ -34,7 +34,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Tables | ✅ Block Kit | ✅ GFM | ⚠️ ASCII | ✅ GFM | ⚠️ ASCII | ✅ GFM | ✅ GFM | ❌ |
 | Fields | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ Template variables |
 | Images in cards | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
-| Modals | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Modals | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### Conversations
 
@@ -64,7 +64,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 ⚠️ indicates partial support — the feature works with limitations. See individual adapter pages for details.
 </Callout>
 
-## How [adapters](/adapters) work
+## How adapters work
 
 Each adapter implements a standard interface that the `Chat` class uses to route events and send messages. When a webhook arrives:
 
@@ -73,7 +73,7 @@ Each adapter implements a standard interface that the `Chat` class uses to route
 3. Routes to your handlers via the `Chat` class
 4. Converts outgoing messages from markdown/AST/cards to the platform's native format
 
-## Using multiple [adapters](/adapters)
+## Using multiple adapters
 
 Register multiple [adapters](/adapters) and your event handlers work across all of them:
 

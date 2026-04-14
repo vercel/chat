@@ -160,6 +160,8 @@ export class LinearAdapter
     scopes: string[];
   } | null = null;
   private accessTokenExpiry: number | null = null;
+  // Custom API base URL
+  private readonly apiUrl?: string;
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
     const webhookSecret =
@@ -175,15 +177,20 @@ export class LinearAdapter
     this.mode = config.mode ?? "comments";
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+    this.apiUrl = config.apiUrl ?? process.env.LINEAR_API_URL;
 
     if ("apiKey" in config && config.apiKey) {
-      this.defaultClient = new LinearClient({ apiKey: config.apiKey });
+      this.defaultClient = new LinearClient({
+        apiKey: config.apiKey,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+      });
       return;
     }
 
     if ("accessToken" in config && config.accessToken) {
       this.defaultClient = new LinearClient({
         accessToken: config.accessToken,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
       });
       return;
     }
@@ -213,13 +220,19 @@ export class LinearAdapter
 
     const apiKey = process.env.LINEAR_API_KEY;
     if (apiKey) {
-      this.defaultClient = new LinearClient({ apiKey });
+      this.defaultClient = new LinearClient({
+        apiKey,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+      });
       return;
     }
 
     const accessToken = process.env.LINEAR_ACCESS_TOKEN;
     if (accessToken) {
-      this.defaultClient = new LinearClient({ accessToken });
+      this.defaultClient = new LinearClient({
+        accessToken,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+      });
       return;
     }
 
@@ -484,7 +497,10 @@ export class LinearAdapter
       "Failed to exchange Linear OAuth code"
     );
 
-    const client = new LinearClient({ accessToken: token.access_token });
+    const client = new LinearClient({
+      accessToken: token.access_token,
+      ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+    });
     const identity = await this.fetchClientIdentity(client);
     const installation: LinearInstallation = {
       accessToken: token.access_token,
@@ -517,7 +533,10 @@ export class LinearAdapter
         : await this.refreshInstallation(organizationId);
     const context: LinearRequestContext = {
       installation,
-      client: new LinearClient({ accessToken: installation.accessToken }),
+      client: new LinearClient({
+        accessToken: installation.accessToken,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+      }),
     };
 
     return await this.requestContext.run(context, async () => await fn());
@@ -681,7 +700,10 @@ export class LinearAdapter
       "Failed to fetch Linear client credentials token"
     );
 
-    this.defaultClient = new LinearClient({ accessToken: data.access_token });
+    this.defaultClient = new LinearClient({
+      accessToken: data.access_token,
+      ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+    });
 
     // Track expiry so we can proactively refresh (with 1 hour buffer)
     this.accessTokenExpiry =

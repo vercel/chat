@@ -49,7 +49,7 @@ import {
   NotImplementedError,
 } from "chat";
 import { BridgeHttpAdapter } from "./bridge-adapter";
-import { cardToAdaptiveCard } from "./cards";
+import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
@@ -337,6 +337,16 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       serviceUrl: activity.serviceUrl || "",
     });
 
+    // Auto-submit fan-out: fire onAction for each input value
+    if (actionValue.actionId === AUTO_SUBMIT_ACTION_ID) {
+      this.fanOutAutoSubmit(
+        actionValue as unknown as Record<string, unknown>,
+        activity,
+        threadId
+      );
+      return;
+    }
+
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: TeamsAdapter;
     } = {
@@ -393,6 +403,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       serviceUrl: activity.serviceUrl || "",
     });
 
+    // Auto-submit fan-out: fire onAction for each input value
+    if (actionData.actionId === AUTO_SUBMIT_ACTION_ID) {
+      const rawPayload = activity.value.action.data as Record<string, unknown>;
+      this.fanOutAutoSubmit(rawPayload, activity, threadId);
+      return;
+    }
+
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: TeamsAdapter;
     } = {
@@ -422,6 +439,56 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       actionEvent,
       this.bridgeAdapter.getWebhookOptions(activity.id)
     );
+  }
+
+  /**
+   * Fan out an auto-submit payload into individual onAction calls.
+   * Called when the sentinel __auto_submit action ID is detected.
+   * Each input key/value pair is dispatched as a separate action in parallel.
+   */
+  private fanOutAutoSubmit(
+    payload: Record<string, unknown>,
+    activity: Activity,
+    threadId: string
+  ): void {
+    if (!this.chat) {
+      return;
+    }
+
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const entries = Object.entries(payload).filter(
+      ([key]) => key !== "actionId" && key !== "msteams"
+    );
+
+    this.logger.debug("Auto-submit fan-out", {
+      inputCount: entries.length,
+      keys: entries.map(([k]) => k),
+    });
+
+    const baseEvent = {
+      user: {
+        userId: activity.from?.id || "unknown",
+        userName: activity.from?.name || "unknown",
+        fullName: activity.from?.name || "unknown",
+        isBot: false,
+        isMe: false,
+      },
+      messageId: activity.replyToId || activity.id || "",
+      threadId,
+      adapter: this as TeamsAdapter,
+      raw: activity,
+    };
+
+    for (const [key, val] of entries) {
+      this.chat.processAction(
+        {
+          ...baseEvent,
+          actionId: key,
+          value: typeof val === "string" ? val : undefined,
+        },
+        webhookOptions
+      );
+    }
   }
 
   /**
