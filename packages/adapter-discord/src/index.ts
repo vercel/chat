@@ -85,6 +85,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
+  private readonly apiBaseUrl: string;
   private readonly botToken: string;
   private readonly publicKey: string;
   private readonly applicationId: string;
@@ -124,6 +125,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
+    this.apiBaseUrl =
+      config.apiUrl ?? process.env.DISCORD_API_URL ?? DISCORD_API_BASE;
     this.botToken = botToken;
     this.publicKey = publicKey.trim().toLowerCase();
     this.applicationId = applicationId;
@@ -1582,7 +1585,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     method: string,
     body?: unknown
   ): Promise<Response> {
-    const url = `${DISCORD_API_BASE}${path}`;
+    const url = `${this.apiBaseUrl}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bot ${this.botToken}`,
     };

@@ -111,6 +111,8 @@ export class LinearAdapter
     clientSecret: string;
   } | null = null;
   private accessTokenExpiry: number | null = null;
+  // Custom API base URL
+  private readonly apiUrl?: string;
 
   /** Bot user ID used for self-message detection */
   get botUserId(): string | undefined {
@@ -130,14 +132,19 @@ export class LinearAdapter
     this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
+    this.apiUrl = config.apiUrl ?? process.env.LINEAR_API_URL;
 
     // Create LinearClient based on auth method
     // @see https://linear.app/developers/sdk
     if ("apiKey" in config && config.apiKey) {
-      this.linearClient = new LinearClient({ apiKey: config.apiKey });
+      this.linearClient = new LinearClient({
+        apiKey: config.apiKey,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+      });
     } else if ("accessToken" in config && config.accessToken) {
       this.linearClient = new LinearClient({
         accessToken: config.accessToken,
+        ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
       });
     } else if ("clientId" in config && config.clientId) {
       // Client credentials mode - token will be fetched during initialize()
@@ -149,11 +156,17 @@ export class LinearAdapter
       // Auto-detect from env vars
       const apiKey = process.env.LINEAR_API_KEY;
       if (apiKey) {
-        this.linearClient = new LinearClient({ apiKey });
+        this.linearClient = new LinearClient({
+          apiKey,
+          ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+        });
       } else {
         const accessToken = process.env.LINEAR_ACCESS_TOKEN;
         if (accessToken) {
-          this.linearClient = new LinearClient({ accessToken });
+          this.linearClient = new LinearClient({
+            accessToken,
+            ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+          });
         } else {
           const clientId = process.env.LINEAR_CLIENT_ID;
           const clientSecret = process.env.LINEAR_CLIENT_SECRET;
@@ -233,6 +246,7 @@ export class LinearAdapter
 
     this.linearClient = new LinearClient({
       accessToken: data.access_token,
+      ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
     });
 
     // Track expiry so we can proactively refresh (with 1 hour buffer)
