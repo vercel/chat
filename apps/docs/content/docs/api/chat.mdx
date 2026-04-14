@@ -443,6 +443,15 @@ await dm.post("Hello via DM!");
 const dm = await bot.openDM(message.author);
 ```
 
+### thread
+
+Get a Thread handle by its thread ID. Useful for posting to threads outside of webhook contexts (e.g. cron jobs, external triggers).
+
+```typescript
+const thread = bot.thread("slack:C123ABC:1234567890.123456");
+await thread.post("Hello from a cron job!");
+```
+
 ### channel
 
 Get a Channel by its channel ID.
