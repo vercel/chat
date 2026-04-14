@@ -152,8 +152,9 @@ const jsonLd = {
 const HomePage = () => (
   <div className="container mx-auto max-w-5xl">
     <script
-      type="application/ld+json"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
       dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      type="application/ld+json"
     />
     <Hero
       badge="Chat SDK is now open source and in beta"
