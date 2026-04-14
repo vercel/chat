@@ -1963,7 +1963,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });
@@ -1973,15 +1973,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Create an Attachment object from a Slack file.
    * Includes a fetchData method that uses the bot token for auth.
    */
-  private createAttachment(file: {
-    id?: string;
-    mimetype?: string;
-    url_private?: string;
-    name?: string;
-    size?: number;
-    original_w?: number;
-    original_h?: number;
-  }): Attachment {
+  private createAttachment(
+    file: {
+      id?: string;
+      mimetype?: string;
+      url_private?: string;
+      name?: string;
+      size?: number;
+      original_w?: number;
+      original_h?: number;
+    },
+    teamId?: string
+  ): Attachment {
     const url = file.url_private;
     // Capture token at attachment creation time (during webhook processing context)
     const botToken = this.getToken();
@@ -1996,6 +1999,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       type = "audio";
     }
 
+    const fetchMeta: Record<string, string> = {};
+    if (url) {
+      fetchMeta.url = url;
+    }
+    if (teamId) {
+      fetchMeta.teamId = teamId;
+    }
+
     return {
       type,
       url,
@@ -2004,7 +2015,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       size: file.size,
       width: file.original_w,
       height: file.original_h,
-      fetchMetadata: url ? { url } : undefined,
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData: url ? () => this.fetchSlackFile(url, botToken) : undefined,
     };
   }
@@ -2034,12 +2045,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   rehydrateAttachment(attachment: Attachment): Attachment {
     const url = attachment.fetchMetadata?.url ?? attachment.url;
+    const teamId = attachment.fetchMetadata?.teamId;
     if (!url) {
       return attachment;
     }
     return {
       ...attachment,
-      fetchData: () => this.fetchSlackFile(url, this.getToken()),
+      fetchData: async () => {
+        let token: string;
+        if (teamId) {
+          const installation = await this.getInstallation(teamId);
+          if (!installation) {
+            throw new AuthenticationError(
+              "slack",
+              `Installation not found for team ${teamId}`
+            );
+          }
+          token = installation.botToken;
+        } else {
+          token = this.getToken();
+        }
+        return this.fetchSlackFile(url, token);
+      },
     };
   }
 
@@ -3657,7 +3684,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });
