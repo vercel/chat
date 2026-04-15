@@ -2776,7 +2776,7 @@ describe("ThreadImpl", () => {
           isMe: false,
         },
       });
-      const botMsg = createTestMessage("2", "Hi there!", {
+      const selfBotMsg = createTestMessage("2", "Hi there!", {
         author: {
           userId: "B1",
           userName: "bot",
@@ -2785,10 +2785,20 @@ describe("ThreadImpl", () => {
           isMe: true,
         },
       });
+      const thirdPartyBotMsg = createTestMessage("3", "Notification", {
+        author: {
+          userId: "B2",
+          userName: "jira-bot",
+          fullName: "Jira Bot",
+          isBot: true,
+          isMe: false,
+        },
+      });
 
-      mockAdapter.fetchMessages = vi
-        .fn()
-        .mockResolvedValue({ messages: [humanMsg, botMsg], nextCursor: null });
+      mockAdapter.fetchMessages = vi.fn().mockResolvedValue({
+        messages: [humanMsg, selfBotMsg, thirdPartyBotMsg],
+        nextCursor: null,
+      });
 
       const thread = new ThreadImpl({
         id: "slack:C123:1234.5678",

@@ -360,13 +360,21 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const seen = new Map<string, Author>();
 
     // Include the current message author if available
-    if (this._currentMessage && !this._currentMessage.author.isMe) {
+    if (
+      this._currentMessage &&
+      !this._currentMessage.author.isMe &&
+      !this._currentMessage.author.isBot
+    ) {
       seen.set(this._currentMessage.author.userId, this._currentMessage.author);
     }
 
-    // Scan all messages for unique non-bot authors
+    // Scan all messages for unique human authors
     for await (const message of this.allMessages) {
-      if (message.author.isMe || seen.has(message.author.userId)) {
+      if (
+        message.author.isMe ||
+        message.author.isBot ||
+        seen.has(message.author.userId)
+      ) {
         continue;
       }
       seen.set(message.author.userId, message.author);
