@@ -44,6 +44,11 @@ export type {
 } from "./postable-object";
 export { isPostableObject } from "./postable-object";
 export { reviver } from "./reviver";
+export {
+  StreamMessage,
+  type StreamMessageData,
+  type StreamMessageOptions,
+} from "./stream-message";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
 export { type SerializedThread, ThreadImpl } from "./thread";
 

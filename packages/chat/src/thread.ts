@@ -394,6 +394,28 @@ export class ThreadImpl<TState = Record<string, unknown>>
     options?: PostStreamOptions
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
+      // StreamMessage PostableObject - route to streaming with options
+      if (message.kind === "stream") {
+        const data = message.getPostData() as {
+          stream: AsyncIterable<string | StreamChunk | StreamEvent>;
+          options: {
+            groupTasks?: "plan" | "timeline";
+            endWith?: unknown[];
+            updateIntervalMs?: number;
+          };
+        };
+        return this.handleStream(data.stream, {
+          ...(data.options.updateIntervalMs
+            ? { updateIntervalMs: data.options.updateIntervalMs }
+            : {}),
+          slack: {
+            ...(data.options.groupTasks
+              ? { groupTasks: data.options.groupTasks }
+              : {}),
+            ...(data.options.endWith ? { endWith: data.options.endWith } : {}),
+          },
+        });
+      }
       await this.handlePostableObject(message);
       return message;
     }

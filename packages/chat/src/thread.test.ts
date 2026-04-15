@@ -7,6 +7,7 @@ import {
   mockLogger,
 } from "./mock-adapter";
 import { Plan } from "./plan";
+import { StreamMessage } from "./stream-message";
 import { ThreadImpl } from "./thread";
 import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
 import { NotImplementedError } from "./types";
@@ -728,6 +729,31 @@ describe("ThreadImpl", () => {
       });
 
       expect(mockAdapter.postMessage).toHaveBeenCalled();
+    });
+
+    it("should pass StreamMessage PostableObject options to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      const streamMsg = new StreamMessage(textStream, {
+        groupTasks: "plan",
+        endWith: [{ type: "actions" }],
+      });
+      await thread.post(streamMsg);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "plan",
+          stopBlocks: [{ type: "actions" }],
+        })
+      );
     });
 
     it("should still work without options (backward compat)", async () => {
