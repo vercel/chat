@@ -100,7 +100,7 @@ Read `node_modules/chat/docs/handling-events.mdx`, `node_modules/chat/docs/actio
 
 ## Streaming
 
-Pass any `AsyncIterable<string>` to `thread.post()` or `thread.stream()`. For AI SDK, prefer `result.fullStream` over `result.textStream` when available so step boundaries are preserved.
+Pass any `AsyncIterable<string>` to `thread.post()`. For AI SDK, prefer `result.fullStream` over `result.textStream` when available so step boundaries are preserved.
 
 ```typescript
 import { ToolLoopAgent } from "ai";
