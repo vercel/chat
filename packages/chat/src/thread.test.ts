@@ -638,6 +638,31 @@ describe("ThreadImpl", () => {
         })
       );
     });
+
+    it("should pass PostStreamOptions through to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(textStream, {
+        slack: { groupTasks: "plan", endWith: [{ type: "actions" }] },
+        updateIntervalMs: 1000,
+      });
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "plan",
+          stopBlocks: [{ type: "actions" }],
+          updateIntervalMs: 1000,
+        })
+      );
+    });
   });
 
   describe("fallback streaming error logging", () => {

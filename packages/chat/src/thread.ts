@@ -28,6 +28,7 @@ import type {
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
+  PostStreamOptions,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
@@ -378,6 +379,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   async post<T extends PostableObject>(message: T): Promise<T>;
   async post(
+    message: AsyncIterable<string | StreamChunk | StreamEvent>,
+    options: PostStreamOptions
+  ): Promise<SentMessage>;
+  async post(
     message:
       | string
       | AdapterPostableMessage
@@ -385,7 +390,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       | ChatElement
   ): Promise<SentMessage>;
   async post(
-    message: string | PostableMessage | ChatElement
+    message: string | PostableMessage | ChatElement,
+    options?: PostStreamOptions
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
       await this.handlePostableObject(message);
@@ -394,7 +400,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
-      return this.handleStream(message);
+      return this.handleStream(message, options);
     }
 
     // After filtering out streams, we have an AdapterPostableMessage
@@ -516,12 +522,23 @@ export class ThreadImpl<TState = Record<string, unknown>>
    * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    postOptions?: PostStreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
-    // Build streaming options from current message context
-    const options: StreamOptions = {};
+    // Build streaming options from current message context + caller options
+    const options: StreamOptions = {
+      ...(postOptions?.updateIntervalMs
+        ? { updateIntervalMs: postOptions.updateIntervalMs }
+        : {}),
+      ...(postOptions?.slack?.groupTasks
+        ? { taskDisplayMode: postOptions.slack.groupTasks }
+        : {}),
+      ...(postOptions?.slack?.endWith
+        ? { stopBlocks: postOptions.slack.endWith }
+        : {}),
+    };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload
