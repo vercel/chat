@@ -114,6 +114,28 @@ await scheduled.cancel();
 Streaming and file uploads are not supported in scheduled messages.
 </Callout>
 
+## getParticipants
+
+Get the unique human participants in a thread. Returns deduplicated authors, excluding all bots. Useful for subscribing only to 1:1 conversations and unsubscribing when others join.
+
+```typescript
+const participants = await thread.getParticipants();
+
+// Subscribe only when one person is talking to the bot
+if (participants.length === 1) {
+  await thread.subscribe();
+}
+
+// Unsubscribe when the thread becomes a group conversation
+if (participants.length > 1) {
+  await thread.unsubscribe();
+}
+```
+
+<Callout type="warn">
+  Each call fetches the full message history to find all participants. On threads with long history this makes multiple API calls to the platform. Consider checking `message.author` against a known set before calling `getParticipants()` on every incoming message.
+</Callout>
+
 ## subscribe / unsubscribe
 
 Manage thread subscriptions. Subscribed threads route all messages to `onSubscribedMessage` handlers.
