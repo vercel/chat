@@ -2711,4 +2711,156 @@ describe("ThreadImpl", () => {
       expect(cancel2).not.toHaveBeenCalled();
     });
   });
+
+  describe("getParticipants", () => {
+    it("should return unique non-bot authors from messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const msg1 = createTestMessage("1", "Hello", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const msg2 = createTestMessage("2", "Hi", {
+        author: {
+          userId: "U2",
+          userName: "bob",
+          fullName: "Bob",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const msg3 = createTestMessage("3", "Hello again", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi
+        .fn()
+        .mockResolvedValue({ messages: [msg1, msg2, msg3], nextCursor: null });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(2);
+      expect(participants.map((p) => p.userId)).toEqual(
+        expect.arrayContaining(["U1", "U2"])
+      );
+    });
+
+    it("should exclude bot messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const humanMsg = createTestMessage("1", "Hello", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const botMsg = createTestMessage("2", "Hi there!", {
+        author: {
+          userId: "B1",
+          userName: "bot",
+          fullName: "Bot",
+          isBot: true,
+          isMe: true,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi
+        .fn()
+        .mockResolvedValue({ messages: [humanMsg, botMsg], nextCursor: null });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(1);
+      expect(participants[0].userId).toBe("U1");
+    });
+
+    it("should return empty array for thread with only bot messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      mockAdapter.fetchMessages = vi.fn().mockResolvedValue({
+        messages: [
+          createTestMessage("1", "Bot message", {
+            author: {
+              userId: "B1",
+              userName: "bot",
+              fullName: "Bot",
+              isBot: true,
+              isMe: true,
+            },
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(0);
+    });
+
+    it("should include currentMessage author", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const currentMsg = createTestMessage("1", "Hey bot", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi
+        .fn()
+        .mockResolvedValue({ messages: [], nextCursor: null });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage: currentMsg,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(1);
+      expect(participants[0].userId).toBe("U1");
+    });
+  });
 });

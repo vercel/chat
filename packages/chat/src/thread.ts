@@ -356,6 +356,25 @@ export class ThreadImpl<TState = Record<string, unknown>>
     };
   }
 
+  async getParticipants(): Promise<Author[]> {
+    const seen = new Map<string, Author>();
+
+    // Include the current message author if available
+    if (this._currentMessage && !this._currentMessage.author.isMe) {
+      seen.set(this._currentMessage.author.userId, this._currentMessage.author);
+    }
+
+    // Scan all messages for unique non-bot authors
+    for await (const message of this.allMessages) {
+      if (message.author.isMe || seen.has(message.author.userId)) {
+        continue;
+      }
+      seen.set(message.author.userId, message.author);
+    }
+
+    return [...seen.values()];
+  }
+
   async isSubscribed(): Promise<boolean> {
     // Short-circuit if we know we're in a subscribed context
     if (this._isSubscribedContext) {
