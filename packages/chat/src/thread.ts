@@ -28,7 +28,6 @@ import type {
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
-  PostStreamOptions,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
@@ -379,10 +378,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   async post<T extends PostableObject>(message: T): Promise<T>;
   async post(
-    message: AsyncIterable<string | StreamChunk | StreamEvent>,
-    options: PostStreamOptions
-  ): Promise<SentMessage>;
-  async post(
     message:
       | string
       | AdapterPostableMessage
@@ -390,8 +385,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       | ChatElement
   ): Promise<SentMessage>;
   async post(
-    message: string | PostableMessage | ChatElement,
-    options?: PostStreamOptions
+    message: string | PostableMessage | ChatElement
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
       // StreamMessage PostableObject - route to streaming with options
@@ -404,17 +398,16 @@ export class ThreadImpl<TState = Record<string, unknown>>
             updateIntervalMs?: number;
           };
         };
-        return this.handleStream(data.stream, {
+        const streamOptions: StreamOptions = {
           ...(data.options.updateIntervalMs
             ? { updateIntervalMs: data.options.updateIntervalMs }
             : {}),
-          slack: {
-            ...(data.options.groupTasks
-              ? { groupTasks: data.options.groupTasks }
-              : {}),
-            ...(data.options.endWith ? { endWith: data.options.endWith } : {}),
-          },
-        });
+          ...(data.options.groupTasks
+            ? { taskDisplayMode: data.options.groupTasks }
+            : {}),
+          ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
+        };
+        return this.handleStream(data.stream, streamOptions);
       }
       await this.handlePostableObject(message);
       return message;
@@ -422,7 +415,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // Handle AsyncIterable (streaming)
     if (isAsyncIterable(message)) {
-      return this.handleStream(message, options);
+      return this.handleStream(message);
     }
 
     // After filtering out streams, we have an AdapterPostableMessage
@@ -545,22 +538,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
    */
   private async handleStream(
     rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
-    postOptions?: PostStreamOptions
+    callerOptions?: StreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context + caller options
-    const options: StreamOptions = {
-      ...(postOptions?.updateIntervalMs
-        ? { updateIntervalMs: postOptions.updateIntervalMs }
-        : {}),
-      ...(postOptions?.slack?.groupTasks
-        ? { taskDisplayMode: postOptions.slack.groupTasks }
-        : {}),
-      ...(postOptions?.slack?.endWith
-        ? { stopBlocks: postOptions.slack.endWith }
-        : {}),
-    };
+    const options: StreamOptions = { ...callerOptions };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload

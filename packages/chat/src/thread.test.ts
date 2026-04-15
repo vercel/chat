@@ -640,7 +640,7 @@ describe("ThreadImpl", () => {
       );
     });
 
-    it("should pass PostStreamOptions through to adapter.stream", async () => {
+    it("should pass StreamMessage PostableObject options to adapter.stream", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -649,10 +649,12 @@ describe("ThreadImpl", () => {
       mockAdapter.stream = mockStream;
 
       const textStream = createTextStream(["Hello"]);
-      await thread.post(textStream, {
-        slack: { groupTasks: "plan", endWith: [{ type: "actions" }] },
+      const streamMsg = new StreamMessage(textStream, {
+        groupTasks: "plan",
+        endWith: [{ type: "actions" }],
         updateIntervalMs: 1000,
       });
+      await thread.post(streamMsg);
 
       expect(mockStream).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
@@ -665,7 +667,7 @@ describe("ThreadImpl", () => {
       );
     });
 
-    it("should pass only groupTasks without endWith", async () => {
+    it("should pass StreamMessage with only groupTasks", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -674,9 +676,9 @@ describe("ThreadImpl", () => {
       mockAdapter.stream = mockStream;
 
       const textStream = createTextStream(["Hello"]);
-      await thread.post(textStream, {
-        slack: { groupTasks: "timeline" },
-      });
+      await thread.post(
+        new StreamMessage(textStream, { groupTasks: "timeline" })
+      );
 
       expect(mockStream).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
@@ -689,7 +691,7 @@ describe("ThreadImpl", () => {
       expect(options.stopBlocks).toBeUndefined();
     });
 
-    it("should pass only endWith without groupTasks", async () => {
+    it("should pass StreamMessage with only endWith", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -698,9 +700,9 @@ describe("ThreadImpl", () => {
       mockAdapter.stream = mockStream;
 
       const textStream = createTextStream(["Hello"]);
-      await thread.post(textStream, {
-        slack: { endWith: [{ type: "actions" }] },
-      });
+      await thread.post(
+        new StreamMessage(textStream, { endWith: [{ type: "actions" }] })
+      );
 
       expect(mockStream).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
@@ -711,24 +713,6 @@ describe("ThreadImpl", () => {
       );
       const options = mockStream.mock.calls[0][2];
       expect(options.taskDisplayMode).toBeUndefined();
-    });
-
-    it("should pass updateIntervalMs to fallback streaming", async () => {
-      mockAdapter.stream = undefined;
-
-      const threadWithInterval = new ThreadImpl({
-        id: "slack:C123:1234.5678",
-        adapter: mockAdapter,
-        channelId: "C123",
-        stateAdapter: mockState,
-      });
-
-      const textStream = createTextStream(["Hello", " ", "World"]);
-      await threadWithInterval.post(textStream, {
-        updateIntervalMs: 2000,
-      });
-
-      expect(mockAdapter.postMessage).toHaveBeenCalled();
     });
 
     it("should pass StreamMessage PostableObject options to adapter.stream", async () => {

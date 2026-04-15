@@ -552,34 +552,6 @@ export interface StreamOptions {
   updateIntervalMs?: number;
 }
 
-/**
- * Slack-specific streaming options.
- */
-export interface SlackStreamPostOptions {
-  /**
-   * Block Kit elements to attach when the stream stops.
-   * Useful for adding feedback buttons after a streamed response.
-   */
-  endWith?: unknown[];
-  /**
-   * Controls how task_update chunks are displayed.
-   * - `"plan"` - all tasks grouped into a single plan block
-   * - `"timeline"` - individual task cards shown inline with text (default)
-   */
-  groupTasks?: "plan" | "timeline";
-}
-
-/**
- * Options for streaming via `thread.post(stream, options)`.
- * Platform-specific options are namespaced under the adapter name.
- */
-export interface PostStreamOptions {
-  /** Slack-specific streaming options */
-  slack?: SlackStreamPostOptions;
-  /** Minimum interval between updates in ms (default: 500). Used for fallback mode. */
-  updateIntervalMs?: number;
-}
-
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
   /** Get the configured logger, optionally with a child prefix */
@@ -1105,9 +1077,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * await thread.post(result.textStream);
    *
    * // Stream with platform-specific options
-   * await thread.post(result.fullStream, {
-   *   slack: { groupTasks: "plan", endWith: [feedbackBlocks] },
+   * // Stream with options via StreamMessage PostableObject
+   * const stream = new StreamMessage(result.fullStream, {
+   *   groupTasks: "plan",
+   *   endWith: [feedbackBlocks],
    * });
+   * await thread.post(stream);
    *
    * // Plan with live updates
    * const plan = new Plan({ initialMessage: "Working..." });
@@ -1117,10 +1092,6 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * ```
    */
   post<T extends PostableObject>(message: T): Promise<T>;
-  post(
-    message: AsyncIterable<string | StreamChunk | StreamEvent>,
-    options: PostStreamOptions
-  ): Promise<SentMessage<TRawMessage>>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
