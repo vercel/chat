@@ -1077,8 +1077,8 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * await thread.post(result.textStream);
    *
    * // Stream with platform-specific options
-   * // Stream with options via StreamMessage PostableObject
-   * const stream = new StreamMessage(result.fullStream, {
+   * // Stream with options via StreamingPlan PostableObject
+   * const stream = new StreamingPlan(result.fullStream, {
    *   groupTasks: "plan",
    *   endWith: [feedbackBlocks],
    * });

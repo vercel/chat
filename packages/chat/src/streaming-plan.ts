@@ -5,7 +5,7 @@ import {
 } from "./postable-object";
 import type { Adapter, StreamChunk, StreamEvent } from "./types";
 
-export interface StreamMessageOptions {
+export interface StreamingPlanOptions {
   /**
    * Block Kit elements to attach when the stream stops (Slack only).
    * Useful for adding feedback buttons after a streamed response.
@@ -24,13 +24,13 @@ export interface StreamMessageOptions {
   updateIntervalMs?: number;
 }
 
-export interface StreamMessageData {
-  options: StreamMessageOptions;
+export interface StreamingPlanData {
+  options: StreamingPlanOptions;
   stream: AsyncIterable<string | StreamChunk | StreamEvent>;
 }
 
 /**
- * A StreamMessage wraps an async iterable with platform-specific streaming options.
+ * A StreamingPlan wraps an async iterable with platform-specific streaming options.
  *
  * Use this when you need to pass options like task grouping or stop blocks
  * to the streaming API. For simple streaming without options, pass the
@@ -38,23 +38,23 @@ export interface StreamMessageData {
  *
  * @example
  * ```typescript
- * const stream = new StreamMessage(result.fullStream, {
+ * const stream = new StreamingPlan(result.fullStream, {
  *   groupTasks: "plan",
  *   endWith: [feedbackBlock],
  * });
  * await thread.post(stream);
  * ```
  */
-export class StreamMessage implements PostableObject<StreamMessageData> {
+export class StreamingPlan implements PostableObject<StreamingPlanData> {
   readonly $$typeof = POSTABLE_OBJECT;
   readonly kind = "stream";
 
   private readonly _stream: AsyncIterable<string | StreamChunk | StreamEvent>;
-  private readonly _options: StreamMessageOptions;
+  private readonly _options: StreamingPlanOptions;
 
   constructor(
     stream: AsyncIterable<string | StreamChunk | StreamEvent>,
-    options: StreamMessageOptions = {}
+    options: StreamingPlanOptions = {}
   ) {
     this._stream = stream;
     this._options = options;
@@ -64,7 +64,7 @@ export class StreamMessage implements PostableObject<StreamMessageData> {
     return this._stream;
   }
 
-  get options(): StreamMessageOptions {
+  get options(): StreamingPlanOptions {
     return this._options;
   }
 
@@ -72,7 +72,7 @@ export class StreamMessage implements PostableObject<StreamMessageData> {
     return "";
   }
 
-  getPostData(): StreamMessageData {
+  getPostData(): StreamingPlanData {
     return {
       stream: this._stream,
       options: this._options,

@@ -388,7 +388,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
-      // StreamMessage PostableObject - route to streaming with options
+      // StreamingPlan PostableObject - route to streaming with options
       if (message.kind === "stream") {
         const data = message.getPostData() as {
           stream: AsyncIterable<string | StreamChunk | StreamEvent>;
@@ -407,7 +407,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
             : {}),
           ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
         };
-        return this.handleStream(data.stream, streamOptions);
+        await this.handleStream(data.stream, streamOptions);
+        return message;
       }
       await this.handlePostableObject(message);
       return message;

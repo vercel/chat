@@ -7,7 +7,7 @@ import {
   mockLogger,
 } from "./mock-adapter";
 import { Plan } from "./plan";
-import { StreamMessage } from "./stream-message";
+import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
 import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
 import { NotImplementedError } from "./types";
@@ -640,7 +640,7 @@ describe("ThreadImpl", () => {
       );
     });
 
-    it("should pass StreamMessage PostableObject options to adapter.stream", async () => {
+    it("should pass StreamingPlan PostableObject options to adapter.stream", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -649,7 +649,7 @@ describe("ThreadImpl", () => {
       mockAdapter.stream = mockStream;
 
       const textStream = createTextStream(["Hello"]);
-      const streamMsg = new StreamMessage(textStream, {
+      const streamMsg = new StreamingPlan(textStream, {
         groupTasks: "plan",
         endWith: [{ type: "actions" }],
         updateIntervalMs: 1000,
@@ -667,7 +667,7 @@ describe("ThreadImpl", () => {
       );
     });
 
-    it("should pass StreamMessage with only groupTasks", async () => {
+    it("should pass StreamingPlan with only groupTasks", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -677,7 +677,7 @@ describe("ThreadImpl", () => {
 
       const textStream = createTextStream(["Hello"]);
       await thread.post(
-        new StreamMessage(textStream, { groupTasks: "timeline" })
+        new StreamingPlan(textStream, { groupTasks: "timeline" })
       );
 
       expect(mockStream).toHaveBeenCalledWith(
@@ -691,7 +691,7 @@ describe("ThreadImpl", () => {
       expect(options.stopBlocks).toBeUndefined();
     });
 
-    it("should pass StreamMessage with only endWith", async () => {
+    it("should pass StreamingPlan with only endWith", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -701,7 +701,7 @@ describe("ThreadImpl", () => {
 
       const textStream = createTextStream(["Hello"]);
       await thread.post(
-        new StreamMessage(textStream, { endWith: [{ type: "actions" }] })
+        new StreamingPlan(textStream, { endWith: [{ type: "actions" }] })
       );
 
       expect(mockStream).toHaveBeenCalledWith(
@@ -715,7 +715,7 @@ describe("ThreadImpl", () => {
       expect(options.taskDisplayMode).toBeUndefined();
     });
 
-    it("should pass StreamMessage PostableObject options to adapter.stream", async () => {
+    it("should pass StreamingPlan PostableObject options to adapter.stream", async () => {
       const mockStream = vi.fn().mockResolvedValue({
         id: "msg-stream",
         threadId: "t1",
@@ -724,7 +724,7 @@ describe("ThreadImpl", () => {
       mockAdapter.stream = mockStream;
 
       const textStream = createTextStream(["Hello"]);
-      const streamMsg = new StreamMessage(textStream, {
+      const streamMsg = new StreamingPlan(textStream, {
         groupTasks: "plan",
         endWith: [{ type: "actions" }],
       });
