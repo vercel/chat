@@ -1,5 +1,5 @@
 ---
-"@chat-adapter/linear": major
+"@chat-adapter/linear": minor
 ---
 
 Add multi-tenant support in the Linear adapter using `clientId` / `clientSecret`.
