@@ -21,6 +21,10 @@ export const nav = [
     href: "/adapters",
   },
   {
+    label: "Resources",
+    href: "/resources",
+  },
+  {
     label: "Guides",
     href: "/docs/guides/slack-nextjs",
   },
