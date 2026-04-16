@@ -20,6 +20,7 @@ import type {
   StreamOptions,
   Thread,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
@@ -376,6 +377,26 @@ export class GitHubAdapter
     }
 
     return this.getStoredInstallationId(owner, repo);
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const { data: user } = await this.getOctokit().request(
+        "GET /user/{account_id}",
+        { account_id: Number(userId) }
+      );
+      return {
+        avatarUrl: user.avatar_url,
+        email: user.email ?? undefined,
+        fullName: user.name || user.login,
+        isBot: user.type === "Bot",
+        userId: String(user.id),
+        userName: user.login,
+      };
+    } catch (error) {
+      this.logger.debug("Failed to fetch user", { userId, error });
+      return null;
+    }
   }
 
   /**

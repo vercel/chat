@@ -53,6 +53,7 @@ import type {
   StateAdapter,
   SubscribedMessageHandler,
   Thread,
+  UserInfo,
   WebhookOptions,
 } from "./types";
 import { ChatError, ConsoleLogger, LockError } from "./types";
@@ -1523,6 +1524,35 @@ export class Chat<
 
     const threadId = await adapter.openDM(userId);
     return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
+   * Look up user information by user ID.
+   *
+   * The adapter is automatically inferred from the user ID format.
+   * Returns user details including email (where available — requires
+   * appropriate scopes on some platforms, e.g. `users:read.email` on Slack).
+   *
+   * @param user - Platform-specific user ID string, or an Author object
+   * @returns User info, or null if user not found
+   *
+   * @example
+   * ```typescript
+   * const user = await chat.getUser("U123456");
+   * console.log(user?.email); // "alice@company.com"
+   * ```
+   */
+  async getUser(user: string | Author): Promise<UserInfo | null> {
+    const userId = typeof user === "string" ? user : user.userId;
+    const adapter = this.inferAdapterFromUserId(userId);
+    if (!adapter.getUser) {
+      throw new ChatError(
+        `Adapter "${adapter.name}" does not support getUser`,
+        "NOT_SUPPORTED"
+      );
+    }
+
+    return adapter.getUser(userId);
   }
 
   /**

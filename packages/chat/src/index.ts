@@ -354,6 +354,7 @@ export type {
   Thread,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
   WellKnownEmoji,
 } from "./types";

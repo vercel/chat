@@ -124,6 +124,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="messages">Fetch Messages</Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="show-table">Show Table</Button>
+        <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
           Report Bug
         </Button>
@@ -376,6 +377,36 @@ bot.onAction("info", async (event) => {
       </Fields>
     </Card>
   );
+});
+
+bot.onAction("who-am-i", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  try {
+    const user = await bot.getUser(event.user);
+    if (!user) {
+      await event.thread.post(
+        `${emoji.warning} Could not find your user profile.`
+      );
+      return;
+    }
+    await event.thread.post(
+      <Card title={`${emoji.eyes} Who Am I`}>
+        <Fields>
+          <Field label="Name" value={user.fullName} />
+          <Field label="Username" value={user.userName} />
+          <Field label="User ID" value={user.userId} />
+          <Field label="Email" value={user.email ?? "Not available"} />
+          <Field label="Bot" value={user.isBot ? "Yes" : "No"} />
+        </Fields>
+      </Card>
+    );
+  } catch {
+    await event.thread.post(
+      `${emoji.warning} User lookup is not supported on this platform.`
+    );
+  }
 });
 
 bot.onAction("goodbye", async (event) => {

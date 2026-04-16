@@ -2602,7 +2602,7 @@ describe("GoogleChatAdapter", () => {
       // Verify user info was cached
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
-        { displayName: "John Doe", email: "john@example.com" },
+        { displayName: "John Doe", email: "john@example.com", isBot: false },
         expect.any(Number)
       );
     });
@@ -3006,6 +3006,67 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe("getUser", () => {
+    it("should return cached user info", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      // Pre-populate the userInfoCache via state adapter
+      mockState.storage.set("gchat:user:users/123456", {
+        displayName: "Alice Smith",
+        email: "alice@example.com",
+      });
+
+      const user = await adapter.getUser("users/123456");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Alice Smith");
+      expect(user?.userName).toBe("Alice Smith");
+      expect(user?.email).toBe("alice@example.com");
+      expect(user?.isBot).toBe(false);
+    });
+
+    it("should return null when user not in cache", async () => {
+      const { adapter } = await createInitializedAdapter();
+
+      const user = await adapter.getUser("users/unknown");
+      expect(user).toBeNull();
+    });
+
+    it("should return null when state throws an error", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.get = vi.fn().mockRejectedValue(new Error("State error"));
+
+      const user = await adapter.getUser("users/error");
+      expect(user).toBeNull();
+    });
+
+    it("should return undefined email when user has no email", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/noemail", {
+        displayName: "No Email User",
+      });
+
+      const user = await adapter.getUser("users/noemail");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("No Email User");
+      expect(user?.email).toBeUndefined();
+    });
+
+    it("should return isBot true for cached bot users", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/bot123", {
+        displayName: "Bot User",
+        isBot: true,
+      });
+
+      const user = await adapter.getUser("users/bot123");
+      expect(user).not.toBeNull();
+      expect(user?.isBot).toBe(true);
     });
   });
 });

@@ -27,6 +27,7 @@ import type {
   StateAdapter,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -705,6 +706,24 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
   }
 
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const cached = await this.userInfoCache.get(userId);
+      if (!cached) {
+        return null;
+      }
+      return {
+        email: cached.email,
+        fullName: cached.displayName,
+        isBot: cached.isBot ?? false,
+        userId,
+        userName: cached.displayName,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async handleWebhook(
     request: Request,
     options?: WebhookOptions
@@ -1235,7 +1254,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     const displayName = message.sender?.displayName || "unknown";
     if (userId !== "unknown" && displayName !== "unknown") {
       this.userInfoCache
-        .set(userId, displayName, message.sender?.email)
+        .set(
+          userId,
+          displayName,
+          message.sender?.email,
+          message.sender?.type === "BOT"
+        )
         .catch((error) => {
           this.logger.error("Failed to cache user info", { userId, error });
         });

@@ -171,6 +171,13 @@ interface Author {
 }
 ```
 
+For richer user info (email, avatar), use [`chat.getUser()`](/docs/api/chat#getuser):
+
+```typescript title="lib/bot.ts"
+const user = await bot.getUser(message.author);
+console.log(user?.email); // "alice@company.com"
+```
+
 ### Sent messages
 
 When you post a message, you get back a `SentMessage` with methods to edit, delete, and react:

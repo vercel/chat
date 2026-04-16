@@ -40,6 +40,7 @@ import type {
   StreamOptions,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 
@@ -363,7 +364,10 @@ type SlackInteractivePayload =
 
 /** Cached user info */
 interface CachedUser {
+  avatarUrl?: string;
   displayName: string;
+  email?: string;
+  isBot?: boolean;
   realName: string;
 }
 
@@ -723,16 +727,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Look up user info from Slack API with caching via state adapter.
    * Returns display name and real name, or falls back to user ID.
    */
-  private async lookupUser(
-    userId: string
-  ): Promise<{ displayName: string; realName: string }> {
+  private async lookupUser(userId: string): Promise<CachedUser> {
     const cacheKey = `slack:user:${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
       const cached = await this.chat.getState().get<CachedUser>(cacheKey);
       if (cached) {
-        return { displayName: cached.displayName, realName: cached.realName };
+        return cached;
       }
     }
 
@@ -741,9 +743,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         this.withToken({ user: userId })
       );
       const user = result.user as {
+        is_bot?: boolean;
         name?: string;
+        profile?: {
+          display_name?: string;
+          email?: string;
+          image_72?: string;
+          real_name?: string;
+        };
         real_name?: string;
-        profile?: { display_name?: string; real_name?: string };
       };
 
       // Slack user naming: profile.display_name > profile.real_name > real_name > name > userId
@@ -756,15 +764,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const realName =
         user?.real_name || user?.profile?.real_name || displayName;
 
+      const cached: CachedUser = {
+        avatarUrl: user?.profile?.image_72,
+        displayName,
+        email: user?.profile?.email,
+        isBot: user?.is_bot,
+        realName,
+      };
+
       // Cache the result via state adapter
       if (this.chat) {
         await this.chat
           .getState()
-          .set<CachedUser>(
-            cacheKey,
-            { displayName, realName },
-            SlackAdapter.USER_CACHE_TTL_MS
-          );
+          .set<CachedUser>(cacheKey, cached, SlackAdapter.USER_CACHE_TTL_MS);
 
         // Build reverse index: display name → user IDs (skip if already present)
         const normalizedName = displayName.toLowerCase();
@@ -783,7 +795,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         displayName,
         realName,
       });
-      return { displayName, realName };
+      return cached;
     } catch (error) {
       this.logger.warn("Could not fetch user info", { userId, error });
       // Fall back to user ID
@@ -830,6 +842,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.warn("Could not fetch channel info", { channelId, error });
       // Fall back to channel ID
       return channelId;
+    }
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const cached = await this.lookupUser(userId);
+      // lookupUser returns a fallback with only displayName/realName when the API fails.
+      // Detect this by checking isBot — it's always defined for successful lookups.
+      if (cached.isBot === undefined) {
+        return null;
+      }
+      return {
+        avatarUrl: cached.avatarUrl,
+        email: cached.email,
+        fullName: cached.realName,
+        isBot: cached.isBot ?? false,
+        userId,
+        userName: cached.displayName,
+      };
+    } catch {
+      return null;
     }
   }
 

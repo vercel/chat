@@ -25,6 +25,7 @@ import type {
   StreamChunk,
   StreamOptions,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import { ConsoleLogger, Message, StreamingMarkdownRenderer } from "chat";
@@ -443,6 +444,23 @@ export class LinearAdapter
 
     await this.chat.getState().delete(this.installationKey(organizationId));
     this.logger.info("Linear installation deleted", { organizationId });
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      await this.ensureValidToken();
+      const user = await this.getClient().user(userId);
+      return {
+        avatarUrl: user.avatarUrl ?? undefined,
+        email: user.email ?? undefined,
+        fullName: user.name,
+        isBot: false,
+        userId: user.id,
+        userName: user.displayName,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
