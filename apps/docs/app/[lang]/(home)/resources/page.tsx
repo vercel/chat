@@ -15,7 +15,11 @@ const getResources = async (): Promise<Resource[]> => {
   if (process.env.NODE_ENV === "development") {
     return localData.resources as Resource[];
   }
-  return (await get<Resource[]>("resources")) ?? [];
+  try {
+    return (await get<Resource[]>("resources")) ?? [];
+  } catch {
+    return [];
+  }
 };
 
 const ResourcesPage = async () => {
