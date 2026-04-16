@@ -9,6 +9,14 @@ export const metadata: Metadata = {
   title: "Resources",
   description:
     "Guides, templates, and examples to help you build with Chat SDK.",
+  keywords: [
+    "chat sdk",
+    "guides",
+    "templates",
+    "slack bot",
+    "ai agent",
+    "vercel",
+  ],
 };
 
 const getResources = async (): Promise<Resource[]> => {
