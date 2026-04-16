@@ -17,6 +17,9 @@ export const metadata: Metadata = {
     "ai agent",
     "vercel",
   ],
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 const getResources = async (): Promise<Resource[]> => {
