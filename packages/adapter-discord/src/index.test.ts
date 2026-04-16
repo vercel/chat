@@ -4210,3 +4210,168 @@ describe("createDiscordThread 160004 recovery", () => {
     spy.mockRestore();
   });
 });
+
+describe("getUser", () => {
+  it("should return user info from Discord API", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "123456",
+          username: "alice",
+          global_name: "Alice Smith",
+          avatar: "abc123",
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("123456");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.avatarUrl).toBe(
+      "https://cdn.discordapp.com/avatars/123456/abc123.png"
+    );
+    expect(user?.isBot).toBe(false);
+    expect(user?.email).toBeUndefined();
+
+    spy.mockRestore();
+  });
+
+  it("should return null on error", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(new Error("Not found"));
+
+    const user = await adapter.getUser("999999");
+    expect(user).toBeNull();
+
+    spy.mockRestore();
+  });
+
+  it("should return undefined avatarUrl when avatar is null", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "111222",
+          username: "noavatar",
+          global_name: "No Avatar User",
+          avatar: null,
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("111222");
+    expect(user).not.toBeNull();
+    expect(user?.avatarUrl).toBeUndefined();
+
+    spy.mockRestore();
+  });
+
+  it("should fall back to username when global_name is null", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "333444",
+          username: "fallbackuser",
+          global_name: null,
+          avatar: "def456",
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("333444");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("fallbackuser");
+
+    spy.mockRestore();
+  });
+
+  it("should return isBot true for bot users", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "555666",
+          username: "botuser",
+          global_name: "Bot User",
+          avatar: "ghi789",
+          bot: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("555666");
+    expect(user).not.toBeNull();
+    expect(user?.isBot).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("should call Discord API with correct endpoint and method", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "777888",
+          username: "verifyuser",
+          global_name: "Verify User",
+          avatar: null,
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await adapter.getUser("777888");
+    expect(spy).toHaveBeenCalledWith("/users/777888", "GET");
+
+    spy.mockRestore();
+  });
+});

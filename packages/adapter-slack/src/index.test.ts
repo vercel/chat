@@ -6655,3 +6655,181 @@ describe("scheduleMessage with empty threadTs", () => {
     );
   });
 });
+describe("getUser", () => {
+  it("should return user info with email and avatar", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          is_bot: false,
+          name: "alice",
+          real_name: "Alice Smith",
+          profile: {
+            display_name: "Alice",
+            real_name: "Alice Smith",
+            email: "alice@example.com",
+            image_72: "https://example.com/alice.png",
+          },
+        },
+      })
+    );
+
+    const user = await adapter.getUser("U123456");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("Alice");
+    expect(user?.email).toBe("alice@example.com");
+    expect(user?.avatarUrl).toBe("https://example.com/alice.png");
+    expect(user?.isBot).toBe(false);
+    expect(user?.userId).toBe("U123456");
+  });
+
+  it("should fall back to userId when API fails", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockRejectedValue(new Error("API error"))
+    );
+
+    const user = await adapter.getUser("U_UNKNOWN");
+    expect(user).toBeNull();
+  });
+
+  it("should return null when API fails (user not found)", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockRejectedValue(new Error("user_not_found"))
+    );
+
+    const user = await adapter.getUser("U_NOTFOUND");
+    expect(user).toBeNull();
+  });
+
+  it("should return isBot true for bot users", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          is_bot: true,
+          name: "mybot",
+          real_name: "My Bot",
+          profile: {
+            display_name: "Bot",
+            real_name: "My Bot",
+            image_72: "https://example.com/bot.png",
+          },
+        },
+      })
+    );
+
+    const user = await adapter.getUser("UBOT123");
+    expect(user).not.toBeNull();
+    expect(user?.isBot).toBe(true);
+  });
+
+  it("should fall through to real_name when display_name is empty", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: {
+          is_bot: false,
+          name: "alice",
+          real_name: "Alice Smith",
+          profile: {
+            display_name: "",
+            real_name: "Alice Smith",
+            email: "alice@example.com",
+            image_72: "https://example.com/alice.png",
+          },
+        },
+      })
+    );
+
+    const user = await adapter.getUser("U_PARTIAL");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("Alice Smith");
+  });
+
+  it("should call users.info with correct user ID", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        is_bot: false,
+        name: "alice",
+        real_name: "Alice",
+        profile: {
+          display_name: "Alice",
+          real_name: "Alice",
+        },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    await adapter.getUser("U_VERIFY");
+    expect(usersInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "U_VERIFY" })
+    );
+  });
+});

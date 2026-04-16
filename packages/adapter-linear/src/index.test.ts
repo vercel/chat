@@ -3706,3 +3706,86 @@ describe("createLinearAdapter", () => {
     );
   });
 });
+
+describe("getUser", () => {
+  it("should return user info from Linear API", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-123",
+        name: "Alice Smith",
+        displayName: "alice",
+        email: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    };
+
+    const user = await adapter.getUser("user-123");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.email).toBe("alice@example.com");
+    expect(user?.avatarUrl).toBe("https://example.com/alice.png");
+    expect(user?.isBot).toBe(false);
+  });
+
+  it("should return null on error", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockRejectedValue(new Error("Not found")),
+    };
+
+    const user = await adapter.getUser("unknown");
+    expect(user).toBeNull();
+  });
+
+  it("should include userId in the response", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-123",
+        name: "Alice Smith",
+        displayName: "alice",
+        email: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    };
+
+    const user = await adapter.getUser("user-123");
+    expect(user).not.toBeNull();
+    expect(user?.userId).toBe("user-123");
+  });
+
+  it("should call Linear SDK with the correct user ID", async () => {
+    const adapter = createWebhookAdapter();
+    const userMock = vi.fn().mockResolvedValue({
+      id: "user-123",
+      name: "Alice Smith",
+      displayName: "alice",
+      email: "alice@example.com",
+      avatarUrl: "https://example.com/alice.png",
+    });
+    (adapter as any).defaultClient = { user: userMock };
+
+    await adapter.getUser("user-123");
+    expect(userMock).toHaveBeenCalledWith("user-123");
+  });
+
+  it("should return undefined for null optional fields", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-456",
+        name: "Bob",
+        displayName: "bob",
+        email: null,
+        avatarUrl: null,
+      }),
+    };
+
+    const user = await adapter.getUser("user-456");
+    expect(user).not.toBeNull();
+    expect(user?.email).toBeUndefined();
+    expect(user?.avatarUrl).toBeUndefined();
+  });
+});

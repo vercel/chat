@@ -23,6 +23,7 @@ import type {
   Logger,
   RawMessage,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -316,6 +317,32 @@ export class TelegramAdapter
       } else {
         await this.startPolling(pollingConfig);
       }
+    }
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const chat = await this.telegramFetch<TelegramChat>("getChat", {
+        chat_id: userId,
+      });
+      // Only private chats represent users — groups/channels are not user lookups
+      if (chat.type !== "private") {
+        return null;
+      }
+      const fullName = [chat.first_name, chat.last_name]
+        .filter(Boolean)
+        .join(" ");
+      return {
+        email: undefined,
+        fullName: fullName || String(chat.id),
+        // Telegram's getChat API doesn't expose is_bot (only available on TelegramUser).
+        // Always returns false — callers needing bot detection should use message.author.isBot instead.
+        isBot: false,
+        userId: String(chat.id),
+        userName: chat.username || chat.first_name || String(chat.id),
+      };
+    } catch {
+      return null;
     }
   }
 

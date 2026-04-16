@@ -2355,3 +2355,164 @@ describe("applyTelegramEntities", () => {
     );
   });
 });
+
+describe("getUser", () => {
+  it("should return user info from Telegram getChat", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    // getMe for initialize
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    await adapter.initialize(createMockChat());
+
+    // getChat for getUser
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 456,
+        first_name: "Alice",
+        last_name: "Smith",
+        username: "alicesmith",
+        type: "private",
+      })
+    );
+
+    const user = await adapter.getUser("456");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alicesmith");
+    expect(user?.userId).toBe("456");
+    expect(user?.isBot).toBe(false);
+    expect(user?.email).toBeUndefined();
+  });
+
+  it("should return null on error", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(telegramError(400, 400, "Bad Request"));
+
+    const user = await adapter.getUser("unknown");
+    expect(user).toBeNull();
+  });
+
+  it("should return null for group/channel chat IDs", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: -100123,
+        type: "group",
+        title: "Test Group",
+      })
+    );
+
+    const user = await adapter.getUser("-100123");
+    expect(user).toBeNull();
+  });
+
+  it("should handle first-name only user (no last_name or username)", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 789,
+        first_name: "Charlie",
+        type: "private",
+      })
+    );
+
+    const user = await adapter.getUser("789");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Charlie");
+    expect(user?.userName).toBe("Charlie");
+  });
+
+  it("should call Telegram API with correct method and params", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    await adapter.initialize(createMockChat());
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 456,
+        first_name: "Alice",
+        username: "alice",
+        type: "private",
+      })
+    );
+
+    await adapter.getUser("456");
+
+    // The second fetch call (index 1) is the getChat call
+    const getChatUrl = String(mockFetch.mock.calls[1]?.[0]);
+    expect(getChatUrl).toContain("/getChat");
+
+    const getChatBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { chat_id: string };
+    expect(getChatBody.chat_id).toBe("456");
+  });
+});

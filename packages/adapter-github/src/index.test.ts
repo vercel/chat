@@ -28,6 +28,7 @@ const mockReactionsDeleteForIssueComment = vi.fn();
 const mockReactionsDeleteForPullRequestComment = vi.fn();
 const mockUsersGetAuthenticated = vi.fn();
 const mockReposGet = vi.fn();
+const mockRequest = vi.fn();
 
 vi.mock("@octokit/rest", () => {
   class MockOctokit {
@@ -62,6 +63,7 @@ vi.mock("@octokit/rest", () => {
     repos = {
       get: mockReposGet,
     };
+    request = mockRequest;
   }
   return { Octokit: MockOctokit };
 });
@@ -2374,5 +2376,136 @@ describe("createGitHubAdapter", () => {
     expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
       "https://config-github.example.com/api/v3"
     );
+  });
+});
+
+describe("getUser", () => {
+  it("should return user info from GitHub API", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: "alice@example.com",
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("12345");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.email).toBe("alice@example.com");
+    expect(user?.avatarUrl).toBe(
+      "https://avatars.githubusercontent.com/u/12345"
+    );
+    expect(user?.isBot).toBe(false);
+  });
+
+  it("should return null on error", async () => {
+    mockRequest.mockRejectedValue(new Error("Not found"));
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("999999");
+    expect(user).toBeNull();
+  });
+
+  it("should call GitHub API with correct endpoint and params", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    await adapter.getUser("12345");
+    expect(mockRequest).toHaveBeenCalledWith("GET /user/{account_id}", {
+      account_id: Number("12345"),
+    });
+  });
+
+  it("should return isBot true for Bot type users", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 99999,
+        login: "dependabot[bot]",
+        name: "Dependabot",
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/99999",
+        type: "Bot",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("99999");
+    expect(user).not.toBeNull();
+    expect(user?.isBot).toBe(true);
+  });
+
+  it("should fall back to login when name is null", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 55555,
+        login: "noname-user",
+        name: null,
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/55555",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("55555");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("noname-user");
+  });
+
+  it("should include userId in the response", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: "alice@example.com",
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("12345");
+    expect(user).not.toBeNull();
+    expect(user?.userId).toBe("12345");
   });
 });

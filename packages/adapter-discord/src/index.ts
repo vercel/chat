@@ -29,6 +29,7 @@ import type {
   RawMessage,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -72,6 +73,7 @@ import {
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
   type DiscordThreadId,
+  type DiscordUser,
   InteractionResponseType,
 } from "./types";
 
@@ -151,6 +153,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
     this.logger.info("Discord adapter initialized");
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const response = await this.discordFetch(`/users/${userId}`, "GET");
+      const user = (await response.json()) as DiscordUser;
+      return {
+        avatarUrl: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+          : undefined,
+        email: undefined,
+        fullName: user.global_name || user.username,
+        isBot: user.bot ?? false,
+        userId: user.id,
+        userName: user.username,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**

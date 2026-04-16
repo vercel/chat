@@ -444,6 +444,68 @@ await dm.post("Hello via DM!");
 const dm = await bot.openDM(message.author);
 ```
 
+### getUser
+
+Look up user information by user ID. Returns a `UserInfo` object with name, email, avatar, and bot status. Supported on Slack, Discord, Google Chat, GitHub, Linear, and Telegram. Other official adapters will throw `NOT_SUPPORTED`.
+
+```typescript
+const user = await bot.getUser("U123456");
+console.log(user?.email);    // "alice@company.com"
+console.log(user?.fullName); // "Alice Smith"
+```
+
+```typescript
+// Or with an Author object from an event
+const author = await bot.getUser(event.user);
+```
+
+<TypeTable
+  type={{
+    userId: {
+      description: 'Platform-specific user ID.',
+      type: 'string',
+    },
+    userName: {
+      description: 'Username/handle.',
+      type: 'string',
+    },
+    fullName: {
+      description: 'Display name / full name.',
+      type: 'string',
+    },
+    isBot: {
+      description: 'Whether the user is a bot.',
+      type: 'boolean',
+    },
+    email: {
+      description: 'Email address (requires scopes on some platforms).',
+      type: 'string | undefined',
+    },
+    avatarUrl: {
+      description: 'Profile image URL.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+<Callout type="info">
+  Email availability varies by platform. On Slack it requires the `users:read.email` scope. Discord and Telegram don't expose email to bots. Fields that aren't available return `undefined`.
+</Callout>
+
+Adapters that don't support user lookups will throw a `ChatError` with code `NOT_SUPPORTED`. Wrap calls in try-catch if your bot runs on multiple platforms:
+
+```typescript
+import { ChatError } from "chat";
+
+try {
+  const user = await bot.getUser(userId);
+} catch (error) {
+  if (error instanceof ChatError && error.code === "NOT_SUPPORTED") {
+    // This adapter doesn't support user lookups
+  }
+}
+```
+
 ### thread
 
 Get a Thread handle by its thread ID. Useful for posting to threads outside of webhook contexts (e.g. cron jobs, external triggers).

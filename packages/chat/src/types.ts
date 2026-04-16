@@ -316,6 +316,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    */
   getChannelVisibility?(threadId: string): ChannelVisibility;
 
+  /**
+   * Look up user information by user ID.
+   * Optional — not all platforms support this.
+   *
+   * @param userId - Platform-specific user ID
+   * @returns User info, or null if user not found
+   */
+  getUser?(userId: string): Promise<UserInfo | null>;
+
   /** Handle incoming webhook request */
   handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
 
@@ -1354,6 +1363,22 @@ export interface Author {
   /** Unique user ID */
   userId: string;
   /** Username/handle for @-mentions */
+  userName: string;
+}
+
+/** User information returned by adapter.getUser() */
+export interface UserInfo {
+  /** URL to the user's avatar/profile image */
+  avatarUrl?: string;
+  /** User's email address (requires appropriate scopes on some platforms) */
+  email?: string;
+  /** User's display name / full name */
+  fullName: string;
+  /** Whether the user is a bot */
+  isBot: boolean;
+  /** Platform-specific user ID */
+  userId: string;
+  /** Username/handle */
   userName: string;
 }
 

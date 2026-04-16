@@ -1599,6 +1599,63 @@ describe("Chat", () => {
     });
   });
 
+  describe("getUser", () => {
+    it("should return user info from adapter", async () => {
+      mockAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "U123456",
+        userName: "alice",
+        fullName: "Alice Smith",
+        email: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+        isBot: false,
+      });
+
+      const user = await chat.getUser("U123456");
+      expect(user).not.toBeNull();
+      expect(user?.email).toBe("alice@example.com");
+      expect(user?.fullName).toBe("Alice Smith");
+      expect(mockAdapter.getUser).toHaveBeenCalledWith("U123456");
+    });
+
+    it("should accept Author object", async () => {
+      mockAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "U789",
+        userName: "bob",
+        fullName: "Bob Jones",
+        isBot: false,
+      });
+
+      const user = await chat.getUser({
+        userId: "U789",
+        userName: "bob",
+        fullName: "Bob Jones",
+        isBot: false,
+        isMe: false,
+      });
+      expect(mockAdapter.getUser).toHaveBeenCalledWith("U789");
+      expect(user?.fullName).toBe("Bob Jones");
+    });
+
+    it("should throw when adapter does not support getUser", async () => {
+      await expect(chat.getUser("U123456")).rejects.toThrow(
+        "does not support getUser"
+      );
+    });
+
+    it("should return null when user is not found", async () => {
+      mockAdapter.getUser = vi.fn().mockResolvedValue(null);
+      const user = await chat.getUser("U999999");
+      expect(user).toBeNull();
+    });
+
+    it("should throw error for unknown userId format", async () => {
+      mockAdapter.getUser = vi.fn().mockResolvedValue(null);
+      await expect(chat.getUser("invalid-user-id")).rejects.toThrow(
+        'Cannot infer adapter from userId "invalid-user-id"'
+      );
+    });
+  });
+
   describe("isDM", () => {
     it("should return true for DM threads", async () => {
       const thread = await chat.openDM("U123456");
