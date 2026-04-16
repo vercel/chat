@@ -22,6 +22,9 @@ import type {
   FormattedContent,
   Logger,
   RawMessage,
+  StreamChunk,
+  StreamOptions,
+  StreamResult,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -31,7 +34,10 @@ import {
   defaultEmojiResolver,
   getEmoji,
   Message,
+  markdownToPlainText,
   NotImplementedError,
+  StreamingMarkdownRenderer,
+  toPlainText,
 } from "chat";
 import {
   cardToTelegramInlineKeyboard,
@@ -79,6 +85,12 @@ const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
 const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
+const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
+// Keep streaming segments below Telegram's 4096-character hard limit to leave
+// room for Markdown parsing and avoid truncating the final sent message.
+const TELEGRAM_STREAM_SEGMENT_LIMIT = 3500;
+const TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN =
+  /can't parse (?:caption )?entities/i;
 const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
@@ -214,6 +226,7 @@ export class TelegramAdapter
   private pollingAbortController: AbortController | null = null;
   private pollingTask: Promise<void> | null = null;
   private pollingActive = false;
+  private nextDraftId = Math.max(1, Date.now() % 2_147_483_647);
 
   get botUserId(): string | undefined {
     return this._botUserId;
@@ -661,6 +674,12 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
+    const plainText = this.truncateMessage(
+      convertEmojiPlaceholders(
+        this.renderPlainTextMessage(message, card),
+        "gchat"
+      )
+    );
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
@@ -689,6 +708,7 @@ export class TelegramAdapter
         parsedThread,
         file,
         text,
+        plainText,
         replyMarkup,
         parseMode
       );
@@ -697,13 +717,23 @@ export class TelegramAdapter
         throw new ValidationError("telegram", "Message text cannot be empty");
       }
 
-      rawMessage = await this.telegramFetch<TelegramMessage>("sendMessage", {
-        chat_id: parsedThread.chatId,
-        message_thread_id: parsedThread.messageThreadId,
-        text,
-        reply_markup: replyMarkup,
-        parse_mode: parseMode,
-      });
+      rawMessage = await this.withTelegramMarkdownFallback(
+        parseMode,
+        (resolvedParseMode, resolvedText) =>
+          this.telegramFetch<TelegramMessage>("sendMessage", {
+            chat_id: parsedThread.chatId,
+            message_thread_id: parsedThread.messageThreadId,
+            text: resolvedText,
+            reply_markup: replyMarkup,
+            parse_mode: resolvedParseMode,
+          }),
+        {
+          initialText: text,
+          fallbackText: plainText,
+          method: "sendMessage",
+          threadId,
+        }
+      );
     }
 
     const resultingThreadId = this.encodeThreadId({
@@ -747,6 +777,12 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
+    const plainText = this.truncateMessage(
+      convertEmojiPlaceholders(
+        this.renderPlainTextMessage(message, card),
+        "gchat"
+      )
+    );
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
@@ -760,14 +796,22 @@ export class TelegramAdapter
       throw new ValidationError("telegram", "Message text cannot be empty");
     }
 
-    const result = await this.telegramFetch<TelegramMessage | true>(
-      "editMessageText",
+    const result = await this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramMessage | true>("editMessageText", {
+          chat_id: chatId,
+          message_id: telegramMessageId,
+          text: resolvedText,
+          reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
+          parse_mode: resolvedParseMode,
+        }),
       {
-        chat_id: chatId,
-        message_id: telegramMessageId,
-        text,
-        reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
-        parse_mode: parseMode,
+        initialText: text,
+        fallbackText: plainText,
+        messageId,
+        method: "editMessageText",
+        threadId,
       }
     );
 
@@ -870,6 +914,218 @@ export class TelegramAdapter
       message_thread_id: parsedThread.messageThreadId,
       action: "typing",
     });
+  }
+
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions
+  ): Promise<
+    RawMessage<TelegramRawMessage> | StreamResult<TelegramRawMessage> | null
+  > {
+    if (!this.isDM(threadId)) {
+      return null;
+    }
+
+    const parsedThread = this.resolveThreadId(threadId);
+    const updateIntervalMs = this.clampInteger(
+      options?.updateIntervalMs,
+      TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS,
+      0,
+      Number.MAX_SAFE_INTEGER
+    );
+
+    let renderer = new StreamingMarkdownRenderer();
+    let segmentText = "";
+    let draftId = this.createDraftId();
+    let lastDraftText = "";
+    let lastFlushAt = 0;
+    let draftStreamingEnabled = true;
+    let streamUsesMarkdown = true;
+    let segmentUsesMarkdown = true;
+    const postedSegments: StreamResult<TelegramRawMessage>["messages"] = [];
+
+    const renderPlainText = (text: string): string =>
+      this.truncateMessage(
+        this.resolveTelegramFallbackText(text, markdownToPlainText(text))
+      );
+
+    const resetSegment = (nextText = ""): void => {
+      renderer = new StreamingMarkdownRenderer();
+      segmentText = "";
+      draftId = this.createDraftId();
+      lastDraftText = "";
+      lastFlushAt = 0;
+      segmentUsesMarkdown = streamUsesMarkdown;
+
+      if (nextText) {
+        renderer.push(nextText);
+        segmentText = nextText;
+      }
+    };
+
+    const postSegment = async (
+      text: string,
+      useMarkdown: boolean
+    ): Promise<void> => {
+      if (!text.trim()) {
+        return;
+      }
+
+      const postable: AdapterPostableMessage = useMarkdown
+        ? { markdown: text }
+        : this.resolveTelegramFallbackText(text, markdownToPlainText(text));
+      const message = await this.postMessage(threadId, postable);
+
+      postedSegments.push({
+        message,
+        postable,
+      });
+    };
+
+    const flushDraft = async (sourceText = segmentText): Promise<void> => {
+      if (!draftStreamingEnabled) {
+        return;
+      }
+
+      const draftText = segmentUsesMarkdown
+        ? this.truncateMessage(
+            sourceText === segmentText ? renderer.render() : sourceText
+          )
+        : renderPlainText(sourceText);
+      if (!draftText.trim() || draftText === lastDraftText) {
+        return;
+      }
+
+      try {
+        if (segmentUsesMarkdown) {
+          await this.telegramFetch<boolean>("sendMessageDraft", {
+            chat_id: parsedThread.chatId,
+            message_thread_id: parsedThread.messageThreadId,
+            draft_id: draftId,
+            text: draftText,
+            parse_mode: TELEGRAM_MARKDOWN_PARSE_MODE,
+          });
+        } else {
+          await this.telegramFetch<boolean>("sendMessageDraft", {
+            chat_id: parsedThread.chatId,
+            message_thread_id: parsedThread.messageThreadId,
+            draft_id: draftId,
+            text: draftText,
+          });
+        }
+        lastDraftText = draftText;
+        lastFlushAt = Date.now();
+      } catch (error) {
+        if (segmentUsesMarkdown && this.isTelegramMarkdownParseError(error)) {
+          streamUsesMarkdown = false;
+          segmentUsesMarkdown = false;
+
+          const plainDraftText = renderPlainText(sourceText);
+          if (!plainDraftText.trim()) {
+            draftStreamingEnabled = false;
+            return;
+          }
+
+          try {
+            await this.telegramFetch<boolean>("sendMessageDraft", {
+              chat_id: parsedThread.chatId,
+              message_thread_id: parsedThread.messageThreadId,
+              draft_id: draftId,
+              text: plainDraftText,
+            });
+            lastDraftText = plainDraftText;
+            lastFlushAt = Date.now();
+          } catch (retryError) {
+            draftStreamingEnabled = false;
+            this.logger.warn("Telegram draft streaming update failed", {
+              error: String(retryError),
+              threadId,
+            });
+          }
+          return;
+        }
+
+        draftStreamingEnabled = false;
+        this.logger.warn("Telegram draft streaming update failed", {
+          error: String(error),
+          threadId,
+        });
+      }
+    };
+
+    const appendText = async (text: string): Promise<void> => {
+      let remaining = text;
+
+      while (remaining.length > 0) {
+        const available =
+          TELEGRAM_STREAM_SEGMENT_LIMIT - segmentText.length || 0;
+        const nextSlice = available > 0 ? remaining.slice(0, available) : "";
+
+        if (!nextSlice) {
+          await flushDraft();
+          await postSegment(segmentText, segmentUsesMarkdown);
+          resetSegment();
+          continue;
+        }
+
+        renderer.push(nextSlice);
+        segmentText += nextSlice;
+        remaining = remaining.slice(nextSlice.length);
+
+        if (Date.now() - lastFlushAt >= updateIntervalMs) {
+          await flushDraft();
+        }
+
+        if (segmentText.length >= TELEGRAM_STREAM_SEGMENT_LIMIT) {
+          const committedPrefix = segmentUsesMarkdown
+            ? renderer.getCommittedMarkdownPrefix()
+            : "";
+
+          if (segmentUsesMarkdown && committedPrefix.trim()) {
+            const overflow = segmentText.slice(committedPrefix.length);
+            await flushDraft(committedPrefix);
+            await postSegment(committedPrefix, true);
+            resetSegment(overflow);
+            continue;
+          }
+
+          if (segmentUsesMarkdown) {
+            streamUsesMarkdown = false;
+            segmentUsesMarkdown = false;
+          }
+
+          await flushDraft();
+          await postSegment(segmentText, segmentUsesMarkdown);
+          resetSegment();
+        }
+      }
+    };
+
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        await appendText(chunk);
+      } else if (chunk.type === "markdown_text") {
+        await appendText(chunk.text);
+      }
+    }
+
+    await flushDraft();
+
+    if (segmentText.trim()) {
+      await postSegment(segmentText, segmentUsesMarkdown);
+    }
+
+    if (postedSegments.length === 0) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram streaming requires text content"
+      );
+    }
+
+    return postedSegments.length === 1
+      ? postedSegments[0].message
+      : { messages: postedSegments };
   }
 
   async fetchMessages(
@@ -1215,11 +1471,46 @@ export class TelegramAdapter
       mimeType?: string;
     },
     text: string,
+    plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
     parseMode?: string
   ): Promise<TelegramMessage> {
     const buffer = await this.toTelegramBuffer(file.data);
 
+    return this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramMessage>(
+          "sendDocument",
+          this.createTelegramDocumentFormData(
+            thread,
+            file,
+            buffer,
+            resolvedText,
+            replyMarkup,
+            resolvedParseMode
+          )
+        ),
+      {
+        initialText: text,
+        fallbackText: plainText,
+        method: "sendDocument",
+        threadId: this.encodeThreadId(thread),
+      }
+    );
+  }
+
+  private createTelegramDocumentFormData(
+    thread: TelegramThreadId,
+    file: {
+      filename: string;
+      mimeType?: string;
+    },
+    buffer: Buffer,
+    text: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+    parseMode?: string
+  ): FormData {
     const formData = new FormData();
     formData.append("chat_id", thread.chatId);
     if (typeof thread.messageThreadId === "number") {
@@ -1241,7 +1532,7 @@ export class TelegramAdapter
       formData.append("reply_markup", JSON.stringify(replyMarkup));
     }
 
-    return this.telegramFetch<TelegramMessage>("sendDocument", formData);
+    return formData;
   }
 
   private async toTelegramBuffer(
@@ -1355,6 +1646,12 @@ export class TelegramAdapter
   private messageSequence(messageId: string): number {
     const match = messageId.match(MESSAGE_SEQUENCE_PATTERN);
     return match ? Number.parseInt(match[1], 10) : 0;
+  }
+
+  private createDraftId(): number {
+    this.nextDraftId =
+      this.nextDraftId >= 2_147_483_647 ? 1 : this.nextDraftId + 1;
+    return this.nextDraftId;
   }
 
   private resolveThreadId(value: string): TelegramThreadId {
@@ -1517,6 +1814,38 @@ export class TelegramAdapter
     const hasMarkdown =
       typeof message === "object" && message !== null && "markdown" in message;
     return card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+  }
+
+  private renderPlainTextMessage(
+    message: AdapterPostableMessage,
+    card: ReturnType<typeof extractCard>
+  ): string {
+    if (card) {
+      return cardToFallbackText(card);
+    }
+    if (typeof message === "string") {
+      return message;
+    }
+    if ("raw" in message) {
+      return message.raw;
+    }
+    if ("markdown" in message) {
+      return this.resolveTelegramFallbackText(
+        message.markdown,
+        markdownToPlainText(message.markdown)
+      );
+    }
+    if ("ast" in message) {
+      return toPlainText(message.ast);
+    }
+    return this.formatConverter.renderPostable(message);
+  }
+
+  private resolveTelegramFallbackText(
+    originalText: string,
+    fallbackText: string
+  ): string {
+    return fallbackText.trim() ? fallbackText : originalText;
   }
 
   private truncateMessage(text: string): string {
@@ -1806,6 +2135,56 @@ export class TelegramAdapter
     throw new NetworkError(
       "telegram",
       `${description} (status ${status}, error ${errorCode})`
+    );
+  }
+
+  private async withTelegramMarkdownFallback<TResult>(
+    parseMode: string | undefined,
+    operation: (
+      parseMode: string | undefined,
+      text: string
+    ) => Promise<TResult>,
+    context: {
+      initialText: string;
+      fallbackText: string;
+      method: string;
+      messageId?: string;
+      threadId?: string;
+    }
+  ): Promise<TResult> {
+    try {
+      return await operation(parseMode, context.initialText);
+    } catch (error) {
+      if (
+        parseMode !== TELEGRAM_MARKDOWN_PARSE_MODE ||
+        !this.isTelegramMarkdownParseError(error)
+      ) {
+        throw error;
+      }
+
+      this.logger.warn(
+        "Telegram markdown parse failed; retrying without parse mode",
+        {
+          error: String(error),
+          ...context,
+        }
+      );
+
+      return operation(
+        undefined,
+        this.resolveTelegramFallbackText(
+          context.initialText,
+          context.fallbackText
+        )
+      );
+    }
+  }
+
+  private isTelegramMarkdownParseError(error: unknown): boolean {
+    return (
+      error instanceof ValidationError &&
+      error.adapter === "telegram" &&
+      TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN.test(error.message)
     );
   }
 }

@@ -480,6 +480,8 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    *
    * The adapter consumes the async iterable and handles the entire streaming lifecycle.
    * Only available on platforms with native streaming support (e.g., Slack).
+   * Adapters may return `null` before consuming any chunks to delegate back to
+   * Chat SDK's built-in post+edit fallback for the current thread.
    *
    * The stream can yield plain strings (text chunks) or {@link StreamChunk} objects
    * for rich content like task progress cards. Adapters that don't support structured
@@ -488,13 +490,14 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @param threadId - The thread to stream to
    * @param textStream - Async iterable of text chunks or structured StreamChunk objects
    * @param options - Platform-specific streaming options
-   * @returns The raw message after streaming completes
+   * @returns The raw message after streaming completes, a segmented stream result,
+   *          or `null` to use core fallback
    */
   stream?(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<TRawMessage>>;
+  ): Promise<RawMessage<TRawMessage> | StreamResult<TRawMessage> | null>;
   /** Bot username (can override global userName) */
   readonly userName: string;
 }
@@ -1328,6 +1331,26 @@ export interface RawMessage<TRawMessage = unknown> {
   threadId: string;
 }
 
+/**
+ * One persisted message emitted by a native streaming adapter.
+ *
+ * Adapters can return multiple of these when a single logical stream must be
+ * split into more than one platform message (for example, Telegram's 4096-char
+ * message limit in DM draft streaming).
+ */
+export interface StreamSegment<TRawMessage = unknown> {
+  message: RawMessage<TRawMessage>;
+  postable: AdapterPostableMessage;
+}
+
+/**
+ * Result of a native streaming operation that finalized into multiple
+ * persisted platform messages.
+ */
+export interface StreamResult<TRawMessage = unknown> {
+  messages: StreamSegment<TRawMessage>[];
+}
+
 export interface Author {
   /** Display name */
   fullName: string;
@@ -1366,6 +1389,12 @@ export interface SentMessage<TRawMessage = unknown>
   ): Promise<SentMessage<TRawMessage>>;
   /** Remove a reaction from this message */
   removeReaction(emoji: EmojiValue | string): Promise<void>;
+  /**
+   * Actual persisted messages emitted by a segmented native stream, in
+   * chronological order. Present only when a single `thread.post(stream)`
+   * finalized into multiple platform messages.
+   */
+  segments?: SentMessage<TRawMessage>[];
 }
 
 // =============================================================================

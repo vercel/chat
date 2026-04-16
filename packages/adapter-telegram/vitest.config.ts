@@ -1,6 +1,12 @@
+import { resolve } from "node:path";
 import { defineProject } from "vitest/config";
 
 export default defineProject({
+  resolve: {
+    alias: {
+      chat: resolve(import.meta.dirname, "../chat/src/index.ts"),
+    },
+  },
   test: {
     globals: true,
     environment: "node",

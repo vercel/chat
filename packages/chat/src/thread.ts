@@ -28,12 +28,14 @@ import type {
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
+  RawMessage,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
   StreamChunk,
   StreamEvent,
   StreamOptions,
+  StreamResult,
   Thread,
 } from "./types";
 import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
@@ -108,6 +110,12 @@ function isAsyncIterable(
   return (
     value !== null && typeof value === "object" && Symbol.asyncIterator in value
   );
+}
+
+function isStreamResult<TRawMessage>(
+  value: RawMessage<TRawMessage> | StreamResult<TRawMessage> | null
+): value is StreamResult<TRawMessage> {
+  return value !== null && typeof value === "object" && "messages" in value;
 }
 
 export class ThreadImpl<TState = Record<string, unknown>>
@@ -548,7 +556,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context
-    const options: StreamOptions = {};
+    const options: StreamOptions = {
+      updateIntervalMs: this._streamingUpdateIntervalMs,
+    };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload
@@ -586,17 +596,43 @@ export class ThreadImpl<TState = Record<string, unknown>>
       };
 
       const raw = await this.adapter.stream(this.id, wrappedStream, options);
-      const sent = this.createSentMessage(
-        raw.id,
-        { markdown: accumulated },
-        raw.threadId
-      );
+      if (raw) {
+        if (isStreamResult(raw)) {
+          const sentSegments = raw.messages.map((segment) =>
+            this.createSentMessage(
+              segment.message.id,
+              segment.postable,
+              segment.message.threadId
+            )
+          );
 
-      if (this._messageHistory) {
-        await this._messageHistory.append(this.id, new Message(sent));
+          if (this._messageHistory) {
+            for (const segment of sentSegments) {
+              await this._messageHistory.append(this.id, new Message(segment));
+            }
+          }
+
+          const lastSent = sentSegments.at(-1);
+          if (!lastSent) {
+            throw new Error("Segmented stream completed without messages");
+          }
+
+          lastSent.segments = sentSegments;
+          return lastSent;
+        }
+
+        const sent = this.createSentMessage(
+          raw.id,
+          { markdown: accumulated },
+          raw.threadId
+        );
+
+        if (this._messageHistory) {
+          await this._messageHistory.append(this.id, new Message(sent));
+        }
+
+        return sent;
       }
-
-      return sent;
     }
 
     // Fallback: post + edit with throttling.
