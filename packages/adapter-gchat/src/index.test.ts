@@ -2703,7 +2703,12 @@ describe("GoogleChatAdapter", () => {
       // Verify user info was cached
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
-        { avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg", displayName: "John Doe", email: "john@example.com", isBot: false },
+        {
+          avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
+          displayName: "John Doe",
+          email: "john@example.com",
+          isBot: false,
+        },
         expect.any(Number)
       );
     });
@@ -3126,7 +3131,9 @@ describe("GoogleChatAdapter", () => {
       expect(user?.fullName).toBe("Alice Smith");
       expect(user?.userName).toBe("Alice Smith");
       expect(user?.email).toBe("alice@example.com");
-      expect(user?.avatarUrl).toBe("https://lh3.googleusercontent.com/a/alice.jpg");
+      expect(user?.avatarUrl).toBe(
+        "https://lh3.googleusercontent.com/a/alice.jpg"
+      );
       expect(user?.isBot).toBe(false);
     });
 
