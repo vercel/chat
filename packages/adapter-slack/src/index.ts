@@ -857,9 +857,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   /**
    * Look up user info from Slack API with caching via state adapter.
-   * Returns display name and real name, or falls back to user ID.
+   * Returns null when the API call fails.
    */
-  private async lookupUser(userId: string): Promise<CachedUser> {
+  private async lookupUser(userId: string): Promise<CachedUser | null> {
     const cacheKey = `slack:user:${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
@@ -880,7 +880,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         profile?: {
           display_name?: string;
           email?: string;
-          image_72?: string;
+          image_192?: string;
           real_name?: string;
         };
         real_name?: string;
@@ -897,7 +897,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         user?.real_name || user?.profile?.real_name || displayName;
 
       const cached: CachedUser = {
-        avatarUrl: user?.profile?.image_72,
+        avatarUrl: user?.profile?.image_192,
         displayName,
         email: user?.profile?.email,
         isBot: user?.is_bot,
@@ -930,8 +930,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return cached;
     } catch (error) {
       this.logger.warn("Could not fetch user info", { userId, error });
-      // Fall back to user ID
-      return { displayName: userId, realName: userId };
+      return null;
     }
   }
 
@@ -980,9 +979,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   async getUser(userId: string): Promise<UserInfo | null> {
     try {
       const cached = await this.lookupUser(userId);
-      // lookupUser returns a fallback with only displayName/realName when the API fails.
-      // Detect this by checking isBot — it's always defined for successful lookups.
-      if (cached.isBot === undefined) {
+      if (!cached) {
         return null;
       }
       return {
@@ -1281,8 +1278,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       text,
       user: {
         userId,
-        userName: userInfo.displayName,
-        fullName: userInfo.realName,
+        userName: userInfo?.displayName ?? userId,
+        fullName: userInfo?.realName ?? userId,
         isBot: false,
         isMe: false,
       },
@@ -2417,7 +2414,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       Promise.all(
         [...userIds].map(async (uid) => {
           const info = await this.lookupUser(uid);
-          return [uid, info.displayName] as const;
+          return [uid, info?.displayName ?? uid] as const;
         })
       ),
       Promise.all(
@@ -2557,8 +2554,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // If we have a user ID but no username, look up the user info
     if (event.user && !event.username) {
       const userInfo = await this.lookupUser(event.user);
-      userName = userInfo.displayName;
-      fullName = userInfo.realName;
+      userName = userInfo?.displayName ?? event.user;
+      fullName = userInfo?.realName ?? userName;
     }
 
     // Track thread participants for outgoing mention resolution (skip dupes)

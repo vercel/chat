@@ -6679,7 +6679,7 @@ describe("getUser", () => {
             display_name: "Alice",
             real_name: "Alice Smith",
             email: "alice@example.com",
-            image_72: "https://example.com/alice.png",
+            image_192: "https://example.com/alice.png",
           },
         },
       })
@@ -6695,7 +6695,7 @@ describe("getUser", () => {
     expect(user?.userId).toBe("U123456");
   });
 
-  it("should fall back to userId when API fails", async () => {
+  it("should return null when API fails", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);
     const adapter = createSlackAdapter({
@@ -6715,7 +6715,7 @@ describe("getUser", () => {
     expect(user).toBeNull();
   });
 
-  it("should return null when API fails (user not found)", async () => {
+  it("should return null when user not found", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);
     const adapter = createSlackAdapter({
@@ -6757,7 +6757,7 @@ describe("getUser", () => {
           profile: {
             display_name: "Bot",
             real_name: "My Bot",
-            image_72: "https://example.com/bot.png",
+            image_192: "https://example.com/bot.png",
           },
         },
       })
@@ -6791,7 +6791,7 @@ describe("getUser", () => {
             display_name: "",
             real_name: "Alice Smith",
             email: "alice@example.com",
-            image_72: "https://example.com/alice.png",
+            image_192: "https://example.com/alice.png",
           },
         },
       })
@@ -6831,5 +6831,34 @@ describe("getUser", () => {
     expect(usersInfoMock).toHaveBeenCalledWith(
       expect.objectContaining({ user: "U_VERIFY" })
     );
+  });
+
+  it("should return cached user without hitting API", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    state.cache.set("slack:user:U_CACHED", {
+      avatarUrl: "https://example.com/cached.png",
+      displayName: "Cached User",
+      email: "cached@example.com",
+      isBot: false,
+      realName: "Cached User Full",
+    });
+
+    const usersInfoMock = vi.fn();
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const user = await adapter.getUser("U_CACHED");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Cached User Full");
+    expect(user?.userName).toBe("Cached User");
+    expect(user?.email).toBe("cached@example.com");
+    expect(usersInfoMock).not.toHaveBeenCalled();
   });
 });
