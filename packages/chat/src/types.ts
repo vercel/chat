@@ -1076,7 +1076,6 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
    *
-   * // Stream with platform-specific options
    * // Stream with options via StreamingPlan PostableObject
    * const stream = new StreamingPlan(result.fullStream, {
    *   groupTasks: "plan",
