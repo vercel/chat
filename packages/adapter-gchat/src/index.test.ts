@@ -2585,6 +2585,7 @@ describe("GoogleChatAdapter", () => {
             message: {
               name: "spaces/ABC123/messages/msg1",
               sender: {
+                avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
                 name: "users/123456789",
                 displayName: "John Doe",
                 type: "HUMAN",
@@ -2602,7 +2603,7 @@ describe("GoogleChatAdapter", () => {
       // Verify user info was cached
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
-        { displayName: "John Doe", email: "john@example.com", isBot: false },
+        { avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg", displayName: "John Doe", email: "john@example.com", isBot: false },
         expect.any(Number)
       );
     });
@@ -3013,10 +3014,11 @@ describe("GoogleChatAdapter", () => {
     it("should return cached user info", async () => {
       const { adapter, mockState } = await createInitializedAdapter();
 
-      // Pre-populate the userInfoCache via state adapter
       mockState.storage.set("gchat:user:users/123456", {
+        avatarUrl: "https://lh3.googleusercontent.com/a/alice.jpg",
         displayName: "Alice Smith",
         email: "alice@example.com",
+        isBot: false,
       });
 
       const user = await adapter.getUser("users/123456");
@@ -3024,6 +3026,7 @@ describe("GoogleChatAdapter", () => {
       expect(user?.fullName).toBe("Alice Smith");
       expect(user?.userName).toBe("Alice Smith");
       expect(user?.email).toBe("alice@example.com");
+      expect(user?.avatarUrl).toBe("https://lh3.googleusercontent.com/a/alice.jpg");
       expect(user?.isBot).toBe(false);
     });
 
@@ -3048,6 +3051,7 @@ describe("GoogleChatAdapter", () => {
 
       mockState.storage.set("gchat:user:users/noemail", {
         displayName: "No Email User",
+        isBot: false,
       });
 
       const user = await adapter.getUser("users/noemail");
@@ -3067,6 +3071,20 @@ describe("GoogleChatAdapter", () => {
       const user = await adapter.getUser("users/bot123");
       expect(user).not.toBeNull();
       expect(user?.isBot).toBe(true);
+    });
+
+    it("should return undefined avatarUrl when not cached", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/avatar-test", {
+        displayName: "Avatar Test",
+        email: "test@example.com",
+        isBot: false,
+      });
+
+      const user = await adapter.getUser("users/avatar-test");
+      expect(user).not.toBeNull();
+      expect(user?.avatarUrl).toBeUndefined();
     });
   });
 });

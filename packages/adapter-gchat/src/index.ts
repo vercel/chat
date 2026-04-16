@@ -188,6 +188,7 @@ export interface GoogleChatMessage {
   formattedText?: string;
   name: string;
   sender: {
+    avatarUrl?: string;
     name: string;
     displayName: string;
     type: string;
@@ -713,6 +714,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         return null;
       }
       return {
+        avatarUrl: cached.avatarUrl,
         email: cached.email,
         fullName: cached.displayName,
         isBot: cached.isBot ?? false,
@@ -1258,7 +1260,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
           userId,
           displayName,
           message.sender?.email,
-          message.sender?.type === "BOT"
+          message.sender?.type === "BOT",
+          message.sender?.avatarUrl
         )
         .catch((error) => {
           this.logger.error("Failed to cache user info", { userId, error });
