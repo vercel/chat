@@ -87,6 +87,57 @@ A dropdown for selecting a single option.
 | `initialOption` | `string` (optional) | Pre-selected value |
 | `optional` | `boolean` (optional) | Allow empty submission |
 
+### ExternalSelect
+
+A dropdown that loads its options dynamically from a handler as the user types. Useful for large or remote-backed option sets (people, tickets, records) where a static `<Select>` would be impractical. Slack-only.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier (key in `event.values`) |
+| `label` | `string` | Field label |
+| `placeholder` | `string` (optional) | Placeholder text |
+| `minQueryLength` | `number` (optional) | Minimum characters before the loader fires (Slack default: 3) |
+| `optional` | `boolean` (optional) | Allow empty submission |
+
+Register the loader with `onOptionsLoad`:
+
+```tsx title="lib/bot.tsx" lineNumbers
+import { ExternalSelect, Modal } from "chat";
+
+bot.onAction("assign", async (event) => {
+  await event.openModal(
+    <Modal callbackId="assign_form" title="Assign to…">
+      <ExternalSelect
+        id="assignee"
+        label="Assignee"
+        placeholder="Search people"
+        minQueryLength={1}
+      />
+    </Modal>
+  );
+});
+
+bot.onOptionsLoad("assignee", async (event) => {
+  const people = await peopleService.search(event.query);
+  return people.map((p) => ({ label: p.fullName, value: p.id }));
+});
+
+bot.onModalSubmit("assign_form", async (event) => {
+  const assigneeId = event.values.assignee;
+  // …
+});
+```
+
+The selected value arrives in `event.values` on submit just like a static `<Select>`.
+
+<Callout type="warn">
+Slack requires a response within 3 seconds for options requests. The adapter caps the loader at ~2.5s and returns an empty result on timeout — keep your loader fast (cache, prefetch, or narrow the query server-side).
+</Callout>
+
+<Callout type="info">
+**Slack setup:** `ExternalSelect` uses Slack's `block_suggestion` payload, which is dispatched to the **Options Load URL**. In your [Slack app settings](https://api.slack.com/apps) go to **Interactivity & Shortcuts** → **Select Menus** and set the **Options Load URL** to the same endpoint as your Interactivity Request URL (e.g. `https://your-domain.com/api/webhooks/slack`). Without this, typing into an external select will silently return no results.
+</Callout>
+
 ### RadioSelect
 
 A radio button group for mutually exclusive options.
