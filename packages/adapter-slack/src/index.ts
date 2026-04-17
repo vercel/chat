@@ -102,6 +102,7 @@ function findNextMention(text: string): number {
  * The timestamp in the URL has no dot (e.g., p1234567890123456).
  * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
  */
+const TRAILING_SLASH_PATTERN = /\/$/;
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
@@ -2565,7 +2566,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     return [...urls].map((url) => {
       const preview = this.createLinkPreview(url);
-      const unfurl = unfurls.get(url);
+      const unfurl =
+        unfurls.get(url) ||
+        unfurls.get(url.replace(TRAILING_SLASH_PATTERN, "")) ||
+        unfurls.get(`${url}/`);
       if (unfurl) {
         return { ...preview, ...unfurl };
       }
