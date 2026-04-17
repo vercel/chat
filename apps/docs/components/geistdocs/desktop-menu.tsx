@@ -1,7 +1,8 @@
 "use client";
 
 import DynamicLink from "fumadocs-core/dynamic-link";
-import { ExternalLinkIcon } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { IconArrowUpRightSmall } from "@/components/geistcn-fallbacks/geistcn-assets/icons/icon-arrow-up-right-small";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -16,36 +17,64 @@ interface DesktopMenuProps {
   items: { label: string; href: string }[];
 }
 
+// Nav hrefs can be deep links (e.g. `/docs/guides/slack-nextjs`), but the
+// tab represents the whole section. Use the first three path segments as
+// the matching prefix.
+const getSectionPrefix = (href: string) =>
+  href.split("/").slice(0, 3).join("/");
+
 export const DesktopMenu = ({ items, className }: DesktopMenuProps) => {
   const isMobile = useIsMobile();
+  const pathname = usePathname();
+
+  // Pick the single longest-matching section (so `Docs` doesn't stay
+  // active when a more specific section like `API` also matches).
+  const activeHref = items.reduce<string | null>((winner, item) => {
+    if (item.href.startsWith("http")) return winner;
+    const prefix = getSectionPrefix(item.href);
+    const matches =
+      pathname.endsWith(prefix) || pathname.includes(`${prefix}/`);
+    if (!matches) return winner;
+    if (!winner) return item.href;
+    return getSectionPrefix(item.href).length >
+      getSectionPrefix(winner).length
+      ? item.href
+      : winner;
+  }, null);
 
   return (
     <NavigationMenu viewport={isMobile}>
-      <NavigationMenuList className={cn("gap-px", className)}>
-        {items.map((item) => (
-          <NavigationMenuItem key={item.href}>
-            <NavigationMenuLink
-              asChild
-              className="rounded-md px-3 font-medium text-sm"
-            >
-              {item.href.startsWith("http") ? (
-                <a
-                  className="flex flex-row items-center gap-2"
-                  href={item.href}
-                  rel="noopener"
-                  target="_blank"
-                >
-                  {item.label}
-                  <ExternalLinkIcon className="size-3.5" />
-                </a>
-              ) : (
-                <DynamicLink href={`/[lang]${item.href}`}>
-                  {item.label}
-                </DynamicLink>
-              )}
-            </NavigationMenuLink>
-          </NavigationMenuItem>
-        ))}
+      <NavigationMenuList className={cn("h-14 gap-4", className)}>
+        {items.map((item) => {
+          const isExternal = item.href.startsWith("http");
+          const isActive = !isExternal && item.href === activeHref;
+
+          return (
+            <NavigationMenuItem key={item.href}>
+              <NavigationMenuLink
+                active={isActive}
+                asChild
+                className="flex items-center text-gray-900 text-sm transition-colors duration-100 hover:text-gray-1000 data-[active]:text-gray-1000"
+              >
+                {isExternal ? (
+                  <a
+                    className="flex flex-row items-center gap-1"
+                    href={item.href}
+                    rel="noopener"
+                    target="_blank"
+                  >
+                    {item.label}
+                    <IconArrowUpRightSmall aria-hidden="true" size={12} />
+                  </a>
+                ) : (
+                  <DynamicLink href={`/[lang]${item.href}`}>
+                    {item.label}
+                  </DynamicLink>
+                )}
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+          );
+        })}
       </NavigationMenuList>
     </NavigationMenu>
   );

@@ -15,6 +15,7 @@ import {
   CodeBlockTabsList,
   CodeBlockTabsTrigger,
 } from "./code-block-tabs";
+import { Check, Cross, Warn } from "@/components/custom/status-icons";
 import { Mermaid } from "./mermaid";
 import { Video } from "./video";
 
@@ -55,6 +56,10 @@ export const getMDXComponents = (
   Mermaid,
 
   Video,
+
+  Check,
+  Cross,
+  Warn,
 
   // User components last to allow overwriting defaults
   ...components,
