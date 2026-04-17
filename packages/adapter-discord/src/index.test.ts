@@ -1572,6 +1572,41 @@ describe("postMessage", () => {
 
     spy.mockRestore();
   });
+
+  it("uses card over text when message has both", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg006",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const mixedMessage = {
+      raw: "Some text that should be ignored",
+      card: Card({
+        title: "Card Wins",
+        children: [Actions([Button({ id: "btn1", label: "Click" })])],
+      }),
+    };
+
+    await adapter.postMessage("discord:guild1:channel456", mixedMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeDefined();
+
+    spy.mockRestore();
+  });
 });
 
 // ============================================================================
@@ -1715,6 +1750,37 @@ describe("editMessage", () => {
     expect(calledPayload.content).toBe("");
     expect(calledPayload.embeds).toBeDefined();
     expect(calledPayload.components).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("restores content when editing from card back to text", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: "New text message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.editMessage("discord:guild1:channel456", "msg004", {
+      raw: "Updated to plain text",
+    });
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBe("Updated to plain text");
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.components).toBeUndefined();
 
     spy.mockRestore();
   });
