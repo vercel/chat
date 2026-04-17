@@ -5354,6 +5354,60 @@ describe("link unfurl enrichment", () => {
     expect(msg.links[0].title).toBeUndefined();
   });
 
+  it("should match unfurl metadata with trailing slash differences", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C123",
+        ts: "1234567890.123456",
+        text: "<https://example.com>",
+        user: "U_USER",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [{ type: "link", url: "https://example.com" }],
+              },
+            ],
+          },
+        ],
+        attachments: [
+          {
+            from_url: "https://example.com/",
+            title: "Example",
+            text: "Welcome",
+          },
+        ],
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2] as () => Promise<{
+      links: Array<{ url: string; title?: string }>;
+    }>;
+    const msg = await factory();
+
+    const mainLink = msg.links.find(
+      (l: { url: string }) => l.url === "https://example.com"
+    );
+    expect(mainLink?.title).toBe("Example");
+  });
+
   it("should not re-dispatch message_changed as a new message", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance(state);
