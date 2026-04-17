@@ -172,7 +172,7 @@ const HomePage = () => (
       description={heroDescription}
       title={title}
     >
-      <CommandPromptRoot className="mt-6" defaultValue="agents">
+      <CommandPromptRoot className="mt-6" defaultValue="humans">
         <CommandPromptList>
           <CommandPromptTrigger className="min-w-[90px]" value="humans">
             For humans
