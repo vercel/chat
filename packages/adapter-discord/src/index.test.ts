@@ -3301,6 +3301,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: processMessage,
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction: vi.fn(),
     } as unknown as ChatInstance);
 
@@ -3343,6 +3344,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 
@@ -3389,6 +3391,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 

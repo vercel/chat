@@ -621,6 +621,95 @@ describe("handleWebhook - interactive payloads", () => {
     expect(response.status).toBe(200);
   });
 
+  it("handles block_suggestion payloads and returns options JSON", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    (
+      chatInstance.processOptionsLoad as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([{ label: "Maria Garcia", value: "person_123" }]);
+    await adapter.initialize(chatInstance);
+
+    const payload = JSON.stringify({
+      type: "block_suggestion",
+      team: { id: "T123" },
+      user: {
+        id: "U123",
+        username: "testuser",
+        name: "Test User",
+      },
+      action_id: "person_select",
+      block_id: "person_block",
+      value: "mar",
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(chatInstance.processOptionsLoad).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "person_select",
+        query: "mar",
+        user: expect.objectContaining({ userId: "U123" }),
+      }),
+      undefined
+    );
+    await expect(response.json()).resolves.toEqual({
+      options: [
+        {
+          text: { type: "plain_text", text: "Maria Garcia" },
+          value: "person_123",
+        },
+      ],
+    });
+  });
+
+  it("returns empty options when block_suggestion handler exceeds 2.5s budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = createMockState();
+      const chatInstance = createMockChatInstance(state);
+      (
+        chatInstance.processOptionsLoad as ReturnType<typeof vi.fn>
+      ).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () => resolve([{ label: "Too late", value: "late" }]),
+              5000
+            );
+          })
+      );
+      await adapter.initialize(chatInstance);
+
+      const payload = JSON.stringify({
+        type: "block_suggestion",
+        team: { id: "T123" },
+        user: { id: "U123", username: "testuser", name: "Test User" },
+        action_id: "person_select",
+        block_id: "person_block",
+        value: "mar",
+      });
+      const body = `payload=${encodeURIComponent(payload)}`;
+      const request = createWebhookRequest(body, secret, {
+        contentType: "application/x-www-form-urlencoded",
+      });
+
+      const responsePromise = adapter.handleWebhook(request);
+      await vi.advanceTimersByTimeAsync(2500);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ options: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handles view_closed payload", async () => {
     const payload = JSON.stringify({
       type: "view_closed",
@@ -1218,6 +1307,7 @@ function createMockChatInstance(state: StateAdapter): ChatInstance {
     handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
     processReaction: vi.fn(),
     processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processSlashCommand: vi.fn(),
@@ -1373,6 +1463,60 @@ describe("multi-workspace mode", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+
+  it("handleWebhook resolves token for block_suggestion payloads", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.setInstallation("T_INTER_2", {
+      botToken: "xoxb-inter-token-2",
+    });
+
+    (
+      chatInstance.processOptionsLoad as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([{ label: "Maria Garcia", value: "person_123" }]);
+
+    const payload = JSON.stringify({
+      type: "block_suggestion",
+      team: { id: "T_INTER_2" },
+      user: {
+        id: "U123",
+        username: "testuser",
+        name: "Test User",
+      },
+      action_id: "person_select",
+      block_id: "person_block",
+      value: "mar",
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chatInstance.processOptionsLoad).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "person_select",
+        query: "mar",
+      }),
+      undefined
+    );
+    await expect(response.json()).resolves.toEqual({
+      options: [
+        {
+          text: { type: "plain_text", text: "Maria Garcia" },
+          value: "person_123",
+        },
+      ],
+    });
   });
 
   it("URL verification works without token", async () => {

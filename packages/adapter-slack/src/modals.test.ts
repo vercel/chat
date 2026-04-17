@@ -1,4 +1,11 @@
-import { Modal, RadioSelect, Select, SelectOption, TextInput } from "chat";
+import {
+  ExternalSelect,
+  Modal,
+  RadioSelect,
+  Select,
+  SelectOption,
+  TextInput,
+} from "chat";
 import { describe, expect, it } from "vitest";
 import {
   decodeModalMetadata,
@@ -212,6 +219,35 @@ describe("modalToSlackView", () => {
     expect(view.blocks[0]).toMatchObject({
       element: {
         placeholder: { type: "plain_text", text: "Select a category" },
+      },
+    });
+  });
+
+  it("converts external select with placeholder and min query length", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        ExternalSelect({
+          id: "person",
+          label: "Person",
+          placeholder: "Search people",
+          minQueryLength: 1,
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toMatchObject({
+      type: "input",
+      block_id: "person",
+      label: { type: "plain_text", text: "Person" },
+      element: {
+        type: "external_select",
+        action_id: "person",
+        placeholder: { type: "plain_text", text: "Search people" },
+        min_query_length: 1,
       },
     });
   });

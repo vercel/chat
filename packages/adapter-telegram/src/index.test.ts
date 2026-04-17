@@ -92,6 +92,7 @@ function createMockChat(options?: { userName?: unknown }): ChatInstance {
     processMessage: vi.fn(),
     processReaction: vi.fn(),
     processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processSlashCommand: vi.fn(),
