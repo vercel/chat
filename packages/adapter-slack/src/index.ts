@@ -144,6 +144,19 @@ export interface SlackThreadId {
 
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
+  /** Legacy attachments (unfurl previews, app unfurls, etc.) */
+  attachments?: Array<{
+    from_url?: string;
+    image_url?: string;
+    is_msg_unfurl?: boolean;
+    original_url?: string;
+    service_icon?: string;
+    service_name?: string;
+    text?: string;
+    thumb_url?: string;
+    title?: string;
+    title_link?: string;
+  }>;
   /** Rich text blocks containing structured elements (links, mentions, etc.) */
   blocks?: Array<{
     type: string;
@@ -170,8 +183,12 @@ export interface SlackEvent {
     original_w?: number;
     original_h?: number;
   }>;
+  /** Hidden flag on message_changed events (true for unfurl-only updates) */
+  hidden?: boolean;
   /** Timestamp of the latest reply (present on thread parent messages) */
   latest_reply?: string;
+  /** Inner message on message_changed events */
+  message?: SlackEvent;
   /** Number of replies in the thread (present on thread parent messages) */
   reply_count?: number;
   subtype?: string;
@@ -1324,7 +1341,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Allow through: bot_message, file_share, thread_broadcast, me_message, and
     // any other content-carrying subtypes. Chat class handles isMe filtering.
     const ignoredSubtypes = new Set([
-      "message_changed",
       "message_deleted",
       "message_replied",
       "channel_join",
@@ -1344,6 +1360,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       "ekm_access_denied",
       "tombstone",
     ]);
+
+    if (event.subtype === "message_changed") {
+      this.handleMessageChanged(event, options);
+      return;
+    }
 
     if (event.subtype && ignoredSubtypes.has(event.subtype)) {
       this.logger.debug("Ignoring message subtype", {
@@ -1389,6 +1410,30 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     this.chat.processMessage(this, threadId, factory, options);
+  }
+
+  private handleMessageChanged(
+    event: SlackEvent,
+    _options?: WebhookOptions
+  ): void {
+    const inner = event.message;
+    if (!(inner && event.channel)) {
+      return;
+    }
+
+    const hasUnfurlAttachments = inner.attachments?.some(
+      (att) => att.from_url || att.original_url
+    );
+    if (!hasUnfurlAttachments) {
+      this.logger.debug("Ignoring message_changed without unfurl data");
+      return;
+    }
+
+    this.logger.debug("Processing message_changed for link unfurls", {
+      channel: event.channel,
+      ts: inner.ts,
+      attachmentCount: inner.attachments?.length,
+    });
   }
 
   /**
@@ -1846,14 +1891,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (urls.size === 0 && event.text) {
       const urlPattern = /<(https?:\/\/[^>]+)>/g;
       for (const match of event.text.matchAll(urlPattern)) {
-        // Strip optional "|label" suffix (Slack format: <url|label>)
         const raw = match[1] as string;
         const pipeIdx = raw.indexOf("|");
         urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
       }
     }
 
-    return [...urls].map((url) => this.createLinkPreview(url));
+    // Build unfurl metadata index from legacy attachments
+    const unfurls = new Map<
+      string,
+      {
+        title?: string;
+        description?: string;
+        imageUrl?: string;
+        siteName?: string;
+      }
+    >();
+    if (event.attachments) {
+      for (const att of event.attachments) {
+        const attUrl = att.from_url || att.original_url;
+        if (attUrl && (att.title || att.text)) {
+          unfurls.set(attUrl, {
+            title: att.title,
+            description: att.text,
+            imageUrl: att.image_url || att.thumb_url,
+            siteName: att.service_name,
+          });
+          urls.add(attUrl);
+        }
+      }
+    }
+
+    return [...urls].map((url) => {
+      const preview = this.createLinkPreview(url);
+      const unfurl = unfurls.get(url);
+      if (unfurl) {
+        return { ...preview, ...unfurl };
+      }
+      return preview;
+    });
   }
 
   /**
