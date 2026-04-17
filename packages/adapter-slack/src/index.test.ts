@@ -5340,7 +5340,7 @@ describe("socket mode - routeSocketEvent", () => {
     const slackEventHandler = mockSocketOn.mock.calls.find(
       (call: unknown[]) => call[0] === "slack_event"
     )?.[1] as (args: {
-      ack: () => Promise<void>;
+      ack: (response?: Record<string, unknown>) => Promise<void>;
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;
@@ -5418,6 +5418,27 @@ describe("socket mode - routeSocketEvent", () => {
     expect(chatInstance.processAction).toHaveBeenCalled();
   });
 
+  it("acks interactive with response payload for view_submission", async () => {
+    const { slackEventHandler } = await createSocketAdapter();
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      type: "interactive",
+      body: {
+        type: "block_actions",
+        actions: [{ type: "button", action_id: "test", value: "v" }],
+        channel: { id: "C123", name: "test" },
+        container: { type: "message", message_ts: "1.1", channel_id: "C123" },
+        message: { ts: "1.1" },
+        trigger_id: "t123",
+        user: { id: "U1", username: "u" },
+      },
+    });
+
+    expect(ack).toHaveBeenCalled();
+  });
+
   it("skips retries", async () => {
     const { chatInstance, slackEventHandler } = await createSocketAdapter();
 
@@ -5439,7 +5460,7 @@ describe("socket mode - routeSocketEvent", () => {
     expect(chatInstance.processMessage).not.toHaveBeenCalled();
   });
 
-  it("acks immediately", async () => {
+  it("acks events_api before processing", async () => {
     const { slackEventHandler } = await createSocketAdapter();
     const ack = vi.fn().mockResolvedValue(undefined);
 
@@ -5457,7 +5478,7 @@ describe("socket mode - routeSocketEvent", () => {
       },
     });
 
-    expect(ack).toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith();
   });
 
   it("logs unhandled event types", async () => {
@@ -5839,7 +5860,7 @@ describe("routeSocketEvent with options", () => {
     const slackEventHandler = mockSocketOn.mock.calls.find(
       (call: unknown[]) => call[0] === "slack_event"
     )?.[1] as (args: {
-      ack: () => Promise<void>;
+      ack: (response?: Record<string, unknown>) => Promise<void>;
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;

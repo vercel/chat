@@ -887,7 +887,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       try {
         const body = await request.text();
         const event = JSON.parse(body) as SlackForwardedSocketEvent;
-        this.routeSocketEvent(event.body, event.eventType, options);
+        const noopAck = async () => {};
+        await this.routeSocketEvent(
+          event.body,
+          event.eventType,
+          noopAck,
+          options
+        );
         return new Response("ok", { status: 200 });
       } catch {
         return new Response("Invalid JSON", { status: 400 });
@@ -1368,14 +1374,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.socketClient.on(
       "slack_event",
       async ({ ack, body, type, retry_num }) => {
-        await ack();
-
         if (retry_num && retry_num > 0) {
+          await ack();
           this.logger.debug("Skipping socket mode retry", { retry_num });
           return;
         }
 
-        this.routeSocketEvent(body as Record<string, unknown>, type as string);
+        await this.routeSocketEvent(
+          body as Record<string, unknown>,
+          type as string,
+          ack
+        );
       }
     );
 
@@ -1386,11 +1395,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Route a socket mode event to the appropriate handler.
    */
-  private routeSocketEvent(
+  private async routeSocketEvent(
     body: Record<string, unknown>,
     eventType: string,
+    ack: (response?: Record<string, unknown>) => Promise<void>,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     const wrapAsync = (promise: Promise<unknown>): void => {
       if (options?.waitUntil) {
         options.waitUntil(promise);
@@ -1403,6 +1413,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     switch (eventType) {
       case "events_api": {
+        await ack();
         if (!body.event || typeof body.event !== "object") {
           this.logger.warn("Socket mode events_api missing event field", {
             body,
@@ -1427,6 +1438,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
 
       case "slash_commands": {
+        await ack();
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(body)) {
           if (typeof value === "string") {
@@ -1440,13 +1452,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       case "interactive": {
         const payload = body as unknown as SlackInteractivePayload;
         const result = this.dispatchInteractivePayload(payload, options);
-        if (result instanceof Promise) {
-          wrapAsync(result);
-        }
+        const response = result instanceof Promise ? await result : result;
+        const responseBody = response.headers
+          .get("content-type")
+          ?.includes("application/json")
+          ? ((await response.json()) as Record<string, unknown>)
+          : undefined;
+        await ack(responseBody);
         break;
       }
 
       default:
+        await ack();
         this.logger.debug("Unhandled socket mode event type", {
           type: eventType,
         });
@@ -1525,15 +1542,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return;
       }
 
-      await ack();
-
       if (retry_num && retry_num > 0) {
+        await ack();
         this.logger.debug("Skipping socket mode retry", { retry_num });
         return;
       }
 
       const eventType = type as string;
       if (webhookUrl) {
+        await ack();
         await this.forwardSocketEvent(webhookUrl, {
           type: "socket_event",
           eventType,
@@ -1541,9 +1558,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           timestamp: Date.now(),
         });
       } else {
-        this.routeSocketEvent(
+        await this.routeSocketEvent(
           body as Record<string, unknown>,
           eventType,
+          ack,
           options
         );
       }
