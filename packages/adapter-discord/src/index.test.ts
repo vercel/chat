@@ -1679,7 +1679,7 @@ describe("editMessage", () => {
     spy.mockRestore();
   });
 
-  it("does not include content text when editing to a card message", async () => {
+  it("clears content when editing to a card message", async () => {
     const mockResponse = new Response(
       JSON.stringify({
         id: "msg004",
@@ -1712,7 +1712,7 @@ describe("editMessage", () => {
       embeds?: unknown[];
       components?: unknown[];
     };
-    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.content).toBe("");
     expect(calledPayload.embeds).toBeDefined();
     expect(calledPayload.components).toBeDefined();
 

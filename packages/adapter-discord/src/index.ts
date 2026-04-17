@@ -1156,7 +1156,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Don't include text - Discord shows both text and card if text is present
+      // Clear content so old text doesn't persist alongside the card (Discord PATCH keeps omitted fields)
+      payload.content = "";
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
