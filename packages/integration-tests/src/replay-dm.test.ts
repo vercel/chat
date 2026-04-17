@@ -43,9 +43,9 @@ import {
   SLACK_SIGNING_SECRET,
 } from "./slack-utils";
 import {
-  createMockBotAdapter,
-  injectMockBotAdapter,
-  type MockBotAdapter,
+  createMockTeamsApp,
+  injectMockTeamsApp,
+  type MockTeamsApp,
   TEAMS_APP_PASSWORD,
 } from "./teams-utils";
 
@@ -496,7 +496,7 @@ describe("DM Replay Tests", () => {
 
   describe("Teams", () => {
     let chat: Chat<{ teams: TeamsAdapter }>;
-    let mockBotAdapter: MockBotAdapter;
+    let mockTeamsApp: MockTeamsApp;
     let tracker: ReturnType<typeof createWaitUntilTracker>;
     let state: DMFlowState;
 
@@ -510,8 +510,8 @@ describe("DM Replay Tests", () => {
         userName: teamsFixtures.botName,
         logger: mockLogger,
       });
-      mockBotAdapter = createMockBotAdapter();
-      injectMockBotAdapter(teamsAdapter, mockBotAdapter);
+      mockTeamsApp = createMockTeamsApp();
+      injectMockTeamsApp(teamsAdapter, mockTeamsApp);
 
       chat = new Chat({
         userName: teamsFixtures.botName,
@@ -584,20 +584,20 @@ describe("DM Replay Tests", () => {
       expect(state.dmThreadId).toContain("teams:");
 
       // Verify createConversationAsync was called to create the DM
-      expect(mockBotAdapter.createdConversations).toHaveLength(1);
-      expect(mockBotAdapter.createdConversations[0]?.userId).toBe(
+      expect(mockTeamsApp.createdConversations).toHaveLength(1);
+      expect(mockTeamsApp.createdConversations[0]?.userId).toBe(
         state.dmRequestMessage?.author.userId
       );
 
       // Verify DM message was sent
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("Hello via DM!"),
         })
       );
 
       // Verify confirmation in original thread
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("I've sent you a DM!"),
         })
@@ -612,22 +612,9 @@ describe("DM Replay Tests", () => {
 
     it("should receive user reply in DM when subscribed", async () => {
       // Configure mock to return the actual DM conversation ID from fixtures
-      mockBotAdapter.createConversationAsync.mockImplementation(
-        async (...args: unknown[]) => {
-          const callback = args.at(-1) as
-            | ((context: unknown) => Promise<void>)
-            | undefined;
-          const mockTurnContext = {
-            activity: {
-              conversation: { id: teamsFixtures.dmConversationId },
-              id: "activity-dm",
-            },
-          };
-          if (typeof callback === "function") {
-            await callback(mockTurnContext);
-          }
-        }
-      );
+      mockTeamsApp.createConversationAsync.mockImplementation(async () => ({
+        id: teamsFixtures.dmConversationId,
+      }));
 
       // Step 1: Initial mention to subscribe (also caches serviceUrl and tenantId)
       await sendWebhook(teamsFixtures.mention);
@@ -651,7 +638,7 @@ describe("DM Replay Tests", () => {
       );
 
       // Verify bot responded to the DM
-      expect(mockBotAdapter.sentActivities).toContainEqual(
+      expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({
           text: expect.stringContaining("Got your DM: Hey"),
         })

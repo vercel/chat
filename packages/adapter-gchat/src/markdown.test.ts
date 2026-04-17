@@ -43,10 +43,10 @@ describe("GoogleChatFormatConverter", () => {
       expect(result).toContain("https://example.com");
     });
 
-    it("should output 'text (url)' when link text differs", () => {
+    it("should output Google Chat custom link syntax when link text differs", () => {
       const ast = converter.toAst("[click here](https://example.com)");
       const result = converter.fromAst(ast);
-      expect(result).toContain("click here (https://example.com)");
+      expect(result).toContain("<https://example.com|click here>");
     });
 
     it("should handle blockquotes", () => {

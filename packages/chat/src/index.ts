@@ -26,7 +26,30 @@ export {
   MessageHistoryCache,
   type MessageHistoryConfig,
 } from "./message-history";
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+export { Plan } from "./plan";
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
+export { isPostableObject } from "./postable-object";
+export { reviver } from "./reviver";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
+export {
+  StreamingPlan,
+  type StreamingPlanData,
+  type StreamingPlanOptions,
+} from "./streaming-plan";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
 // Card builders - import then re-export to ensure values are properly exported
@@ -255,7 +278,7 @@ export type {
   TextInputElement,
   TextInputOptions,
 } from "./modals";
-// Types
+// Types (Plan types are exported from ./plan, PostableObject types from ./postable-object)
 export type {
   ActionEvent,
   ActionHandler,
@@ -271,8 +294,11 @@ export type {
   Author,
   Channel,
   ChannelInfo,
+  ChannelVisibility,
   ChatConfig,
   ChatInstance,
+  ConcurrencyConfig,
+  ConcurrencyStrategy,
   CustomEmojiMap,
   DirectMessageHandler,
   Emoji,
@@ -288,12 +314,15 @@ export type {
   ListThreadsOptions,
   ListThreadsResult,
   Lock,
+  LockScope,
+  LockScopeContext,
   Logger,
   LogLevel,
   MarkdownTextChunk,
   MemberJoinedChannelEvent,
   MemberJoinedChannelHandler,
   MentionHandler,
+  MessageContext,
   MessageHandler,
   MessageMetadata,
   ModalCloseEvent,
@@ -313,6 +342,7 @@ export type {
   PostableMessage,
   PostableRaw,
   PostEphemeralOptions,
+  QueueEntry,
   RawMessage,
   ReactionEvent,
   ReactionHandler,

@@ -64,7 +64,7 @@ describe("Replay Tests - Modal privateMetadata", () => {
         userId: "U0A8WUV28QM",
         userName: "sd0a90bkva4s_user",
         adapterName: "slack",
-        channelId: "C0A9D9RTBMF",
+        channelId: "slack:C0A9D9RTBMF",
         isDM: false,
       });
 

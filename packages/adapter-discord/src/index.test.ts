@@ -181,6 +181,33 @@ describe("constructor env var resolution", () => {
     });
     expect(adapter.userName).toBe("mybot");
   });
+
+  it("should resolve apiUrl from DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://custom-discord.example.com/api/v10";
+    const adapter = new DiscordAdapter();
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://custom-discord.example.com/api/v10"
+    );
+  });
+
+  it("should prefer apiUrl config over DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://env-url.example.com/api/v10";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      apiUrl: "https://config-url.example.com/api/v10",
+    });
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://config-url.example.com/api/v10"
+    );
+  });
 });
 
 // ============================================================================
@@ -3966,5 +3993,72 @@ describe("mentionRoleIds handling", () => {
     );
 
     fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// createDiscordThread 160004 Recovery Tests
+// ============================================================================
+
+describe("createDiscordThread 160004 recovery", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("should recover when Discord returns 160004 (thread already exists)", async () => {
+    const { NetworkError } = await import("@chat-adapter/shared");
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(
+        new NetworkError(
+          "discord",
+          'Discord API error: 400 {"code": 160004, "message": "A thread has already been created for this message"}'
+        )
+      );
+
+    const result = await (adapter as any).createDiscordThread(
+      "channel123",
+      "msg456"
+    );
+
+    expect(result.id).toBe("msg456");
+    expect(result.name).toContain("Thread ");
+
+    spy.mockRestore();
+  });
+
+  it("should propagate non-160004 NetworkErrors", async () => {
+    const { NetworkError } = await import("@chat-adapter/shared");
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(
+        new NetworkError(
+          "discord",
+          'Discord API error: 403 {"code": 50001, "message": "Missing Access"}'
+        )
+      );
+
+    await expect(
+      (adapter as any).createDiscordThread("channel123", "msg456")
+    ).rejects.toThrow(NetworkError);
+
+    spy.mockRestore();
+  });
+
+  it("should propagate non-NetworkError errors", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(new Error("Connection failed"));
+
+    await expect(
+      (adapter as any).createDiscordThread("channel123", "msg456")
+    ).rejects.toThrow("Connection failed");
+
+    spy.mockRestore();
   });
 });

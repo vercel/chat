@@ -1,4 +1,5 @@
 import { AdapterRateLimitError } from "@chat-adapter/shared";
+import { auth } from "@googleapis/chat";
 import type { ChatInstance, Lock, Logger, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -151,6 +152,8 @@ async function createInitializedAdapter(opts?: {
   pubsubTopic?: string;
   userName?: string;
   endpointUrl?: string;
+  googleChatProjectNumber?: string;
+  pubsubAudience?: string;
 }) {
   const adapter = createGoogleChatAdapter({
     credentials: TEST_CREDENTIALS,
@@ -158,6 +161,8 @@ async function createInitializedAdapter(opts?: {
     pubsubTopic: opts?.pubsubTopic,
     userName: opts?.userName,
     endpointUrl: opts?.endpointUrl,
+    googleChatProjectNumber: opts?.googleChatProjectNumber,
+    pubsubAudience: opts?.pubsubAudience,
   });
   const mockState = createMockStateAdapter();
   const mockChat = createMockChatInstance(mockState);
@@ -381,6 +386,21 @@ describe("GoogleChatAdapter", () => {
       process.env.GOOGLE_CHAT_USE_ADC = "true";
       const adapter = new GoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve apiUrl from GOOGLE_CHAT_API_URL env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_API_URL = "https://custom-chat.googleapis.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        apiUrl: "https://custom-chat.googleapis.com",
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
@@ -1064,6 +1084,105 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
+    it("should read selection values from formInputs when parameters.value is missing", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["option-1"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "option-1",
+        }),
+        undefined
+      );
+    });
+
+    it("should prefer parameters.value when both parameters and formInputs are present", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+            value: "button-value",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["dropdown-value"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "button-value",
+        }),
+        undefined
+      );
+    });
+
     it("should ignore card click when space is missing", async () => {
       const { adapter, mockChat } = await createInitializedAdapter();
       const event: GoogleChatEvent = {
@@ -1379,7 +1498,7 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("editMessage", () => {
-    it("should call chatApi.spaces.messages.update for text", async () => {
+    it("should update text and clear cards when editing to text", async () => {
       const { adapter } = await createInitializedAdapter();
       const threadId = adapter.encodeThreadId({
         spaceName: "spaces/ABC123",
@@ -1401,9 +1520,10 @@ describe("GoogleChatAdapter", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "spaces/ABC123/messages/msg1",
-          updateMask: "text",
+          updateMask: "text,cardsV2",
           requestBody: expect.objectContaining({
             text: expect.any(String),
+            cardsV2: [],
           }),
         })
       );
@@ -2702,6 +2822,289 @@ describe("GoogleChatAdapter", () => {
         displayName: "Bob Wilson",
         email: undefined,
       });
+    });
+  });
+
+  describe("webhook verification", () => {
+    let verifyIdTokenSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      verifyIdTokenSpy = vi
+        .spyOn(auth.OAuth2.prototype, "verifyIdToken")
+        .mockRejectedValue(new Error("Invalid token"));
+    });
+
+    afterEach(() => {
+      verifyIdTokenSpy.mockRestore();
+    });
+
+    it("should reject direct webhook without Authorization header when project number is configured", async () => {
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+      // Should not even call verifyIdToken — no Bearer token present
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+    });
+
+    it("should reject direct webhook with invalid Bearer token when project number is configured", async () => {
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer invalid-token",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "invalid-token",
+        audience: "123456789",
+      });
+    });
+
+    it("should allow direct webhook with valid Bearer token when project number is configured", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "chat@system.gserviceaccount.com",
+          aud: "123456789",
+          email: "chat@system.gserviceaccount.com",
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer valid-google-jwt",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "valid-google-jwt",
+        audience: "123456789",
+      });
+    });
+
+    it("should allow direct webhook without verification when project number is not configured and warn once", async () => {
+      const { adapter } = await createInitializedAdapter();
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request1 = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      });
+      const request2 = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      });
+
+      const response1 = await adapter.handleWebhook(request1);
+      expect(response1.status).toBe(200);
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
+      );
+
+      // Second call should not warn again
+      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+      await adapter.handleWebhook(request2);
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
+      );
+    });
+
+    it("should reject Pub/Sub webhook without Authorization header when pubsubAudience is configured", async () => {
+      const { adapter } = await createInitializedAdapter({
+        pubsubAudience: "https://example.com/webhook/pubsub",
+      });
+
+      const pubsubMessage = makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          text: "Hello",
+          sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+          createTime: new Date().toISOString(),
+        },
+      });
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pubsubMessage),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+    });
+
+    it("should allow Pub/Sub webhook without verification when pubsubAudience is not configured and warn once", async () => {
+      const { adapter } = await createInitializedAdapter();
+
+      const makePubSubRequest = () => {
+        const pubsubMessage = makePubSubPushMessage({
+          message: {
+            name: "spaces/ABC123/messages/msg1",
+            text: "Hello",
+            sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+            createTime: new Date().toISOString(),
+          },
+        });
+        return new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(pubsubMessage),
+        });
+      };
+
+      const response1 = await adapter.handleWebhook(makePubSubRequest());
+      expect(response1.status).toBe(200);
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
+      );
+
+      // Second call should not warn again
+      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+      await adapter.handleWebhook(makePubSubRequest());
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
+      );
+    });
+
+    it("should reject Pub/Sub webhook with invalid token when pubsubAudience is configured", async () => {
+      const { adapter } = await createInitializedAdapter({
+        pubsubAudience: "https://example.com/webhook/pubsub",
+      });
+
+      const pubsubMessage = makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          text: "Hello",
+          sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+          createTime: new Date().toISOString(),
+        },
+      });
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer bad-token",
+        },
+        body: JSON.stringify(pubsubMessage),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "bad-token",
+        audience: "https://example.com/webhook/pubsub",
+      });
+    });
+
+    it("should allow Pub/Sub webhook with valid token when pubsubAudience is configured", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "accounts.google.com",
+          aud: "https://example.com/webhook/pubsub",
+          email: "pubsub@my-project.iam.gserviceaccount.com",
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        pubsubAudience: "https://example.com/webhook/pubsub",
+      });
+
+      const pubsubMessage = makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          text: "Hello",
+          sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+          createTime: new Date().toISOString(),
+        },
+      });
+
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer valid-pubsub-jwt",
+        },
+        body: JSON.stringify(pubsubMessage),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject request with non-Bearer Authorization scheme", async () => {
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Basic dXNlcjpwYXNz",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+    });
+
+    it("should reject when verifyIdToken returns no payload", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => undefined,
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer token-no-payload",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
     });
   });
 });

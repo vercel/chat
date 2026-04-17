@@ -521,12 +521,15 @@ describe("StreamingMarkdownRenderer", () => {
    * computing deltas from getCommittableText(), and collecting them.
    * Returns the concatenated deltas and the final flushed text.
    */
-  function simulateAppendStream(chunks: string[]): {
+  function simulateAppendStream(
+    chunks: string[],
+    options?: ConstructorParameters<typeof StreamingMarkdownRenderer>[0]
+  ): {
     appendedText: string;
     finalText: string;
     deltas: string[];
   } {
-    const r = new StreamingMarkdownRenderer();
+    const r = new StreamingMarkdownRenderer(options);
     let lastAppended = "";
     const deltas: string[] = [];
 
@@ -591,6 +594,26 @@ describe("StreamingMarkdownRenderer", () => {
     );
   });
 
+  it("append-only: table can stream without code fence when wrapping is disabled", () => {
+    const { appendedText } = simulateAppendStream(
+      [
+        "Intro\n\n",
+        "| A | B |\n",
+        "|---|---|\n",
+        "| 1 | 2 |\n",
+        "| 3 | 4 |\n",
+        "\nAfter table\n",
+      ],
+      { wrapTablesForAppend: false }
+    );
+
+    expect(appendedText).toContain("| A | B |");
+    expect(appendedText).toContain("| 1 | 2 |");
+    expect(appendedText).toContain("| 3 | 4 |");
+    expect(appendedText).toContain("After table");
+    expect(appendedText).not.toContain("```");
+  });
+
   it("append-only: table at end of stream is flushed on finish", () => {
     const { appendedText, deltas } = simulateAppendStream([
       "Text\n\n",
@@ -624,6 +647,28 @@ describe("StreamingMarkdownRenderer", () => {
     expect(appendedText).toContain("Done");
     // Table should be in code fences
     expect(appendedText).toContain("```");
+  });
+
+  it("append-only: concatenated deltas equal final text when table wrapping is disabled", () => {
+    const { appendedText } = simulateAppendStream(
+      [
+        "Hello **world**\n",
+        "\n",
+        "| H1 | H2 |\n",
+        "| - | - |\n",
+        "| a | b |\n",
+        "| c | d |\n",
+        "\nDone\n",
+      ],
+      { wrapTablesForAppend: false }
+    );
+
+    expect(appendedText).toContain("Hello **world**");
+    expect(appendedText).toContain("| H1 | H2 |");
+    expect(appendedText).toContain("| a | b |");
+    expect(appendedText).toContain("| c | d |");
+    expect(appendedText).toContain("Done");
+    expect(appendedText).not.toContain("```");
   });
 
   it("append-only: concatenated deltas are monotonic (each is a suffix)", () => {

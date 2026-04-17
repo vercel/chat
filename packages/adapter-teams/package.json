@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/teams",
-  "version": "4.20.2",
+  "version": "4.26.0",
   "description": "Microsoft Teams adapter for chat",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,14 +24,15 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@azure/identity": "^4.13.0",
     "@chat-adapter/shared": "workspace:*",
-    "botbuilder": "^4.23.1",
-    "botframework-connector": "^4.23.3",
+    "@microsoft/teams.api": "^2.0.6",
+    "@microsoft/teams.apps": "^2.0.6",
+    "@microsoft/teams.cards": "^2.0.6",
+    "@microsoft/teams.graph-endpoints": "^2.0.6",
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@microsoft/teams.graph": "^2.0.6",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

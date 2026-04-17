@@ -40,6 +40,33 @@ await thread.unsubscribe();
 const subscribed = await thread.isSubscribed();
 ```
 
+### Participants
+
+Get the unique human participants in a thread. Returns deduplicated authors, excluding all bots. Useful for deciding whether to subscribe based on how many humans are in the conversation.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread) => {
+  const participants = await thread.getParticipants();
+  if (participants.length === 1) {
+    await thread.subscribe();
+    await thread.post("I'm here to help!");
+  }
+});
+
+bot.onSubscribedMessage(async (thread) => {
+  const participants = await thread.getParticipants();
+  if (participants.length > 1) {
+    await thread.unsubscribe();
+    return;
+  }
+  // respond...
+});
+```
+
+<Callout type="warn">
+  Each call fetches the full message history to find all participants. On threads with long history this makes multiple API calls to the platform. Consider checking `message.author` against a known set before calling `getParticipants()` on every incoming message.
+</Callout>
+
 ### Typing indicator
 
 ```typescript title="lib/bot.ts"

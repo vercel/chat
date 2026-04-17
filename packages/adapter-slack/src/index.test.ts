@@ -171,6 +171,22 @@ describe("constructor env var resolution", () => {
     });
     expect(adapter).toBeInstanceOf(SlackAdapter);
   });
+
+  it("should resolve apiUrl from SLACK_API_URL env var", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_API_URL = "https://slack-gov.com/api/";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should accept apiUrl config value", () => {
+    const adapter = new SlackAdapter({
+      signingSecret: "test-secret",
+      apiUrl: "https://slack-gov.com/api/",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
 });
 
 // ============================================================================
@@ -1511,7 +1527,7 @@ describe("installationKeyPrefix", () => {
 describe("handleOAuthCallback", () => {
   const secret = "test-signing-secret";
 
-  it("exchanges code for token and saves installation", async () => {
+  function createOAuthAdapter() {
     const state = createMockState();
     const adapter = createSlackAdapter({
       signingSecret: secret,
@@ -1523,21 +1539,27 @@ describe("handleOAuthCallback", () => {
     // Mock the oauth.v2.access call on the internal client
     const mockClient = (adapter as unknown as { client: { oauth: unknown } })
       .client;
+    const mockAccess = vi.fn().mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-oauth-bot-token",
+      bot_user_id: "U_BOT_OAUTH",
+      team: { id: "T_OAUTH_1", name: "OAuth Team" },
+    });
     (
       mockClient as unknown as {
         oauth: { v2: { access: ReturnType<typeof vi.fn> } };
       }
     ).oauth = {
       v2: {
-        access: vi.fn().mockResolvedValue({
-          ok: true,
-          access_token: "xoxb-oauth-bot-token",
-          bot_user_id: "U_BOT_OAUTH",
-          team: { id: "T_OAUTH_1", name: "OAuth Team" },
-        }),
+        access: mockAccess,
       },
     };
 
+    return { adapter, state, mockAccess };
+  }
+
+  it("exchanges code for token and saves installation", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
     await adapter.initialize(createMockChatInstance(state));
 
     const request = new Request(
@@ -1554,6 +1576,76 @@ describe("handleOAuthCallback", () => {
     const stored = await adapter.getInstallation("T_OAUTH_1");
     expect(stored).not.toBeNull();
     expect(stored?.botToken).toBe("xoxb-oauth-bot-token");
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+    });
+  });
+
+  it("forwards redirect_uri from callback options", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123"
+    );
+    await adapter.handleOAuthCallback(request, {
+      redirectUri: "https://example.com/install/callback",
+    });
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/install/callback",
+    });
+  });
+
+  it("prefers callback options redirect_uri over the query param", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123&redirect_uri=https%3A%2F%2Fexample.com%2Fquery-callback"
+    );
+    await adapter.handleOAuthCallback(request, {
+      redirectUri: "https://example.com/explicit-callback",
+    });
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/explicit-callback",
+    });
+  });
+
+  it("falls back to redirect_uri from the callback query param", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-123&redirect_uri=https%3A%2F%2Fexample.com%2Fquery-callback"
+    );
+    await adapter.handleOAuthCallback(request);
+
+    expect(mockAccess).toHaveBeenCalledWith({
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "oauth-code-123",
+      redirect_uri: "https://example.com/query-callback",
+    });
+  });
+
+  it("throws when the callback code is missing", async () => {
+    const { adapter, state } = createOAuthAdapter();
+    await adapter.initialize(createMockChatInstance(state));
+
+    const request = new Request("https://example.com/auth/callback/slack");
+    await expect(adapter.handleOAuthCallback(request)).rejects.toThrow(
+      "Missing 'code' query parameter in OAuth callback request."
+    );
   });
 
   it("throws without clientId and clientSecret", async () => {
@@ -3647,6 +3739,18 @@ describe("error handling", () => {
 
 describe("resolveInlineMentions", () => {
   const secret = "test-signing-secret";
+  interface AdapterWithMentionContext {
+    requestContext: {
+      run<T>(
+        store: { token: string; botUserId?: string },
+        callback: () => Promise<T>
+      ): Promise<T>;
+    };
+    resolveInlineMentions(
+      text: string,
+      skipSelfMention: boolean
+    ): Promise<string>;
+  }
 
   it("resolves user mentions in incoming messages via webhook", async () => {
     const state = createMockState();
@@ -3748,6 +3852,41 @@ describe("resolveInlineMentions", () => {
 
     // Bot mention should NOT be resolved (kept as-is for mention detection)
     expect(message.text).toContain("@U_BOT");
+  });
+
+  it("skips request-scoped self mention resolution in multi-workspace mode", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        name: "workspacebot",
+        real_name: "Workspace Bot",
+        profile: {
+          display_name: "Workspace Bot",
+          real_name: "Workspace Bot",
+        },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const mentionAdapter = adapter as unknown as AdapterWithMentionContext;
+    const result = await mentionAdapter.requestContext.run(
+      {
+        token: "xoxb-multi-token",
+        botUserId: "U_BOT_MULTI",
+      },
+      () => mentionAdapter.resolveInlineMentions("<@U_BOT_MULTI> help me", true)
+    );
+
+    expect(result).toBe("<@U_BOT_MULTI> help me");
+    expect(usersInfoMock).not.toHaveBeenCalled();
   });
 
   it("resolves bare channel mentions in incoming messages", async () => {
@@ -4964,6 +5103,16 @@ describe("reverse user lookup", () => {
         signingSecret: secret,
         logger: mockLogger,
       });
+      mockClientMethod(
+        adapter,
+        "auth.test",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          user_id: "U_BOT",
+          user: "bot",
+          bot_id: "B_BOT",
+        })
+      );
       await adapter.initialize(createMockChatInstance(state));
 
       // Seed user cache
@@ -4998,6 +5147,65 @@ describe("reverse user lookup", () => {
 
       const cached = await state.get("slack:user:U_DOM_123");
       expect(cached).toBeNull();
+    });
+  });
+
+  describe("rehydrateAttachment", () => {
+    it("should resolve token from installation when teamId is present", async () => {
+      const state = createMockState();
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        logger: mockLogger,
+      });
+      await adapter.initialize(createMockChatInstance(state));
+
+      await adapter.setInstallation("T_MULTI_1", {
+        botToken: "xoxb-multi-workspace-token",
+        botUserId: "U_BOT_MULTI",
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: {
+          url: "https://files.slack.com/img.png",
+          teamId: "T_MULTI_1",
+        },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should fall back to getToken when no teamId in fetchMetadata", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-single",
+        logger: mockLogger,
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: { url: "https://files.slack.com/img.png" },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should return attachment unchanged when no url", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-test",
+        logger: mockLogger,
+      });
+
+      const attachment = { type: "file" as const, name: "test.bin" };
+      const rehydrated = adapter.rehydrateAttachment(attachment);
+
+      expect(rehydrated.fetchData).toBeUndefined();
+      expect(rehydrated).toBe(attachment);
     });
   });
 });

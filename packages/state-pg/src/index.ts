@@ -1,4 +1,4 @@
-import type { Lock, Logger, StateAdapter } from "chat";
+import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
 import pg from "pg";
 
@@ -325,6 +325,104 @@ export class PostgresStateAdapter implements StateAdapter {
     return result.rows.map((row) => JSON.parse(row.value as string) as T);
   }
 
+  async enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number> {
+    this.ensureConnected();
+
+    const serialized = JSON.stringify(entry);
+    const expiresAt = new Date(entry.expiresAt);
+
+    // Purge expired entries first to avoid phantom queue pressure
+    await this.pool.query(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = $1 AND thread_id = $2 AND expires_at <= now()`,
+      [this.keyPrefix, threadId]
+    );
+
+    // Insert the new entry
+    await this.pool.query(
+      `INSERT INTO chat_state_queues (key_prefix, thread_id, value, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [this.keyPrefix, threadId, serialized, expiresAt]
+    );
+
+    // Trim overflow (keep newest maxSize non-expired entries)
+    if (maxSize > 0) {
+      await this.pool.query(
+        `DELETE FROM chat_state_queues
+         WHERE key_prefix = $1 AND thread_id = $2 AND seq IN (
+           SELECT seq FROM chat_state_queues
+           WHERE key_prefix = $1 AND thread_id = $2
+             AND expires_at > now()
+           ORDER BY seq ASC
+           OFFSET 0
+           LIMIT GREATEST(
+             (SELECT count(*) FROM chat_state_queues
+              WHERE key_prefix = $1 AND thread_id = $2 AND expires_at > now()) - $3,
+             0
+           )
+         )`,
+        [this.keyPrefix, threadId, maxSize]
+      );
+    }
+
+    // Return current non-expired depth
+    const result = await this.pool.query(
+      `SELECT count(*) as depth FROM chat_state_queues
+       WHERE key_prefix = $1 AND thread_id = $2 AND expires_at > now()`,
+      [this.keyPrefix, threadId]
+    );
+
+    return Number.parseInt(result.rows[0].depth as string, 10);
+  }
+
+  async dequeue(threadId: string): Promise<QueueEntry | null> {
+    this.ensureConnected();
+
+    // Purge expired entries first
+    await this.pool.query(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = $1 AND thread_id = $2 AND expires_at <= now()`,
+      [this.keyPrefix, threadId]
+    );
+
+    // Atomically select + delete the oldest non-expired entry
+    const result = await this.pool.query(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = $1 AND thread_id = $2
+         AND seq = (
+           SELECT seq FROM chat_state_queues
+           WHERE key_prefix = $1 AND thread_id = $2
+             AND expires_at > now()
+           ORDER BY seq ASC
+           LIMIT 1
+         )
+       RETURNING value`,
+      [this.keyPrefix, threadId]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return JSON.parse(result.rows[0].value as string) as QueueEntry;
+  }
+
+  async queueDepth(threadId: string): Promise<number> {
+    this.ensureConnected();
+
+    const result = await this.pool.query(
+      `SELECT count(*) as depth FROM chat_state_queues
+       WHERE key_prefix = $1 AND thread_id = $2 AND expires_at > now()`,
+      [this.keyPrefix, threadId]
+    );
+
+    return Number.parseInt(result.rows[0].depth as string, 10);
+  }
+
   getClient(): pg.Pool {
     return this.pool;
   }
@@ -379,6 +477,20 @@ export class PostgresStateAdapter implements StateAdapter {
     await this.pool.query(
       `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
        ON chat_state_lists (expires_at)`
+    );
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS chat_state_queues (
+        key_prefix text NOT NULL,
+        thread_id text NOT NULL,
+        seq bigserial NOT NULL,
+        value text NOT NULL,
+        expires_at timestamptz NOT NULL,
+        PRIMARY KEY (key_prefix, thread_id, seq)
+      )`
+    );
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
+       ON chat_state_queues (expires_at)`
     );
   }
 

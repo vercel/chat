@@ -18,6 +18,7 @@ import type {
   RawMessage,
   StreamChunk,
   StreamOptions,
+  Thread,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -38,6 +39,7 @@ import type {
 } from "./types";
 
 const REVIEW_COMMENT_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+):rc:(\d+)$/;
+const ISSUE_THREAD_PATTERN = /^([^/]+)\/([^:]+):issue:(\d+)$/;
 const PR_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+)$/;
 
 // Re-export types
@@ -53,8 +55,8 @@ export type {
 /**
  * GitHub adapter for chat SDK.
  *
- * Supports both PR-level comments (Conversation tab) and review comment threads
- * (Files Changed tab - line-specific).
+ * Supports PR-level comments (Conversation tab), review comment threads
+ * (Files Changed tab - line-specific), and issue comments.
  *
  * @example Single-tenant (your own org)
  * ```typescript
@@ -109,8 +111,12 @@ export class GitHubAdapter
     appId: string;
     privateKey: string;
   } | null = null;
+  // Fixed installation for single-tenant GitHub App mode
+  private readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
+  // Custom API base URL (e.g. for GitHub Enterprise)
+  private readonly apiUrl?: string;
 
   private readonly webhookSecret: string;
   private chat: ChatInstance | null = null;
@@ -142,6 +148,8 @@ export class GitHubAdapter
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
+    this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
+    let fixedInstallationId: number | null = null;
 
     // Create Octokit instance based on auth method.
     // Only fall back to env vars when NO auth field was explicitly provided,
@@ -154,7 +162,10 @@ export class GitHubAdapter
 
     if ("token" in config && config.token) {
       // PAT mode - single Octokit instance
-      this.octokit = new Octokit({ auth: config.token });
+      this.octokit = new Octokit({
+        auth: config.token,
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+      });
     } else if (
       "appId" in config &&
       config.appId &&
@@ -163,6 +174,7 @@ export class GitHubAdapter
     ) {
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
+        fixedInstallationId = config.installationId;
         this.octokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
@@ -170,6 +182,7 @@ export class GitHubAdapter
             privateKey: config.privateKey,
             installationId: config.installationId,
           },
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
         });
       } else {
         // Multi-tenant app mode - create clients per installation
@@ -191,7 +204,10 @@ export class GitHubAdapter
       // Auto-detect from env vars
       const token = process.env.GITHUB_TOKEN;
       if (token) {
-        this.octokit = new Octokit({ auth: token });
+        this.octokit = new Octokit({
+          auth: token,
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+        });
       } else {
         const appId = process.env.GITHUB_APP_ID;
         const privateKey = process.env.GITHUB_PRIVATE_KEY;
@@ -200,9 +216,11 @@ export class GitHubAdapter
             ? Number.parseInt(process.env.GITHUB_INSTALLATION_ID, 10)
             : undefined;
           if (installationIdRaw) {
+            fixedInstallationId = installationIdRaw;
             this.octokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
+              ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
             });
           } else {
             this.appCredentials = { appId, privateKey };
@@ -218,6 +236,8 @@ export class GitHubAdapter
         }
       }
     }
+
+    this.fixedInstallationId = fixedInstallationId;
   }
 
   /**
@@ -256,6 +276,7 @@ export class GitHubAdapter
           privateKey: this.appCredentials.privateKey,
           installationId,
         },
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
       });
       this.installationClients.set(installationId, client);
       this.logger.debug("Created Octokit client for installation", {
@@ -315,7 +336,7 @@ export class GitHubAdapter
   /**
    * Get the installation ID for a repository (for multi-tenant mode).
    */
-  private async getInstallationId(
+  private async getStoredInstallationId(
     owner: string,
     repo: string
   ): Promise<number | undefined> {
@@ -325,6 +346,36 @@ export class GitHubAdapter
 
     const key = this.getInstallationKey(owner, repo);
     return (await this.chat.getState().get<number>(key)) ?? undefined;
+  }
+
+  /**
+   * Get the GitHub App installation ID associated with a thread.
+   *
+   * Returns the fixed installation ID in single-tenant app mode, the cached
+   * repository installation in multi-tenant mode, or undefined in PAT mode.
+   */
+  async getInstallationId(
+    thread: Thread | string
+  ): Promise<number | undefined> {
+    if (this.fixedInstallationId !== null) {
+      return this.fixedInstallationId;
+    }
+
+    if (!this.isMultiTenant) {
+      return undefined;
+    }
+
+    const threadId = typeof thread === "string" ? thread : thread.id;
+    const { owner, repo } = this.decodeThreadId(threadId);
+
+    if (!this.chat) {
+      throw new ValidationError(
+        "github",
+        "Adapter not initialized. Ensure chat.initialize() has been called first."
+      );
+    }
+
+    return this.getStoredInstallationId(owner, repo);
   }
 
   /**
@@ -375,7 +426,7 @@ export class GitHubAdapter
     // Extract and store installation ID for multi-tenant mode
     const installationId = (payload as { installation?: { id: number } })
       .installation?.id;
-    if (installationId && this.isMultiTenant) {
+    if (installationId && this.isMultiTenant && payload.repository) {
       const repo = payload.repository;
       await this.storeInstallationId(
         repo.owner.login,
@@ -387,11 +438,7 @@ export class GitHubAdapter
     // Handle events
     if (eventType === "issue_comment") {
       const issuePayload = payload as IssueCommentWebhookPayload;
-      // Only process comments on PRs (they have a pull_request field)
-      if (
-        issuePayload.action === "created" &&
-        issuePayload.issue.pull_request
-      ) {
+      if (issuePayload.action === "created") {
         this.handleIssueComment(issuePayload, installationId, options);
       }
     } else if (eventType === "pull_request_review_comment") {
@@ -440,11 +487,12 @@ export class GitHubAdapter
 
     const { comment, issue, repository, sender } = payload;
 
-    // Build thread ID (PR-level)
+    const isPR = !!issue.pull_request;
     const threadId = this.encodeThreadId({
       owner: repository.owner.login,
       repo: repository.name,
       prNumber: issue.number,
+      type: isPR ? "pr" : "issue",
     });
 
     // Build message
@@ -452,7 +500,8 @@ export class GitHubAdapter
       comment,
       repository,
       issue.number,
-      threadId
+      threadId,
+      isPR ? "pr" : "issue"
     );
 
     // Check if this is from the bot itself
@@ -520,7 +569,8 @@ export class GitHubAdapter
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
-    threadId: string
+    threadId: string,
+    threadType: "pr" | "issue" = "pr"
   ): Message<GitHubRawMessage> {
     const author = this.parseAuthor(comment.user);
 
@@ -539,6 +589,7 @@ export class GitHubAdapter
           owner: repository.owner,
         },
         prNumber,
+        threadType,
       },
       author,
       metadata: {
@@ -614,7 +665,7 @@ export class GitHubAdapter
     owner: string,
     repo: string
   ): Promise<Octokit> {
-    const installationId = await this.getInstallationId(owner, repo);
+    const installationId = await this.getStoredInstallationId(owner, repo);
     return this.getOctokit(installationId);
   }
 
@@ -625,7 +676,7 @@ export class GitHubAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
 
     const octokit = await this.getOctokitForThread(owner, repo);
@@ -670,7 +721,7 @@ export class GitHubAdapter
         },
       };
     }
-    // PR-level thread - issue comment
+    // PR-level or issue-level thread - issue comment
     const { data: comment } = await octokit.issues.createComment({
       owner,
       repo,
@@ -691,6 +742,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -703,7 +755,7 @@ export class GitHubAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const commentId = Number.parseInt(messageId, 10);
 
@@ -767,6 +819,7 @@ export class GitHubAdapter
           owner: { id: 0, login: owner, type: "User" },
         },
         prNumber,
+        threadType: type ?? "pr",
       },
     };
   }
@@ -960,7 +1013,7 @@ export class GitHubAdapter
     threadId: string,
     options?: FetchOptions
   ): Promise<FetchResult<GitHubRawMessage>> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
     const limit = options?.limit ?? 100;
     const direction = options?.direction ?? "backward";
@@ -1011,7 +1064,8 @@ export class GitHubAdapter
             name: repo,
           },
           prNumber,
-          threadId
+          threadId,
+          type ?? "pr"
         )
       );
     }
@@ -1038,10 +1092,33 @@ export class GitHubAdapter
    * Fetch thread metadata.
    */
   async fetchThread(threadId: string): Promise<ThreadInfo> {
-    const { owner, repo, prNumber, reviewCommentId } =
+    const { owner, repo, prNumber, type, reviewCommentId } =
       this.decodeThreadId(threadId);
 
     const octokit = await this.getOctokitForThread(owner, repo);
+
+    if (type === "issue") {
+      const { data: issue } = await octokit.issues.get({
+        owner,
+        repo,
+        issue_number: prNumber,
+      });
+
+      return {
+        id: threadId,
+        channelId: `${owner}/${repo}`,
+        channelName: `${repo} #${prNumber}`,
+        isDM: false,
+        metadata: {
+          owner,
+          repo,
+          issueNumber: prNumber,
+          issueTitle: issue.title,
+          issueState: issue.state,
+          type: "issue",
+        },
+      };
+    }
 
     const { data: pr } = await octokit.pulls.get({
       owner,
@@ -1070,11 +1147,22 @@ export class GitHubAdapter
    *
    * Thread ID formats:
    * - PR-level: `github:{owner}/{repo}:{prNumber}`
+   * - Issue-level: `github:{owner}/{repo}:issue:{issueNumber}`
    * - Review comment: `github:{owner}/{repo}:{prNumber}:rc:{reviewCommentId}`
    */
   encodeThreadId(platformData: GitHubThreadId): string {
-    const { owner, repo, prNumber, reviewCommentId } = platformData;
+    const { owner, repo, prNumber, type, reviewCommentId } = platformData;
 
+    if (type === "issue" && reviewCommentId) {
+      throw new ValidationError(
+        "github",
+        "Review comments are not supported on issue threads"
+      );
+    }
+
+    if (type === "issue") {
+      return `github:${owner}/${repo}:issue:${prNumber}`;
+    }
     if (reviewCommentId) {
       return `github:${owner}/${repo}:${prNumber}:rc:${reviewCommentId}`;
     }
@@ -1101,7 +1189,19 @@ export class GitHubAdapter
         owner: rcMatch[1],
         repo: rcMatch[2],
         prNumber: Number.parseInt(rcMatch[3], 10),
+        type: "pr",
         reviewCommentId: Number.parseInt(rcMatch[4], 10),
+      };
+    }
+
+    // Issue-level thread format
+    const issueMatch = withoutPrefix.match(ISSUE_THREAD_PATTERN);
+    if (issueMatch) {
+      return {
+        owner: issueMatch[1],
+        repo: issueMatch[2],
+        prNumber: Number.parseInt(issueMatch[3], 10),
+        type: "issue",
       };
     }
 
@@ -1112,6 +1212,7 @@ export class GitHubAdapter
         owner: prMatch[1],
         repo: prMatch[2],
         prNumber: Number.parseInt(prMatch[3], 10),
+        type: "pr",
       };
     }
 
@@ -1133,6 +1234,7 @@ export class GitHubAdapter
   /**
    * List threads (PRs) in a GitHub repository.
    * Each open PR is treated as a thread.
+   * Note: Issue threads are not listed here — they are created reactively via webhooks.
    */
   async listThreads(
     channelId: string,
@@ -1195,6 +1297,7 @@ export class GitHubAdapter
               owner: { id: 0, login: owner, type: "User" },
             },
             prNumber: pr.number,
+            threadType: "pr",
           },
           author: this.parseAuthor(pr.user as GitHubUser),
           metadata: {
@@ -1265,16 +1368,19 @@ export class GitHubAdapter
    */
   parseMessage(raw: GitHubRawMessage): Message<GitHubRawMessage> {
     if (raw.type === "issue_comment") {
+      const threadType = raw.threadType ?? "pr";
       const threadId = this.encodeThreadId({
         owner: raw.repository.owner.login,
         repo: raw.repository.name,
         prNumber: raw.prNumber,
+        type: threadType,
       });
       return this.parseIssueComment(
         raw.comment,
         { owner: raw.repository.owner, name: raw.repository.name },
         raw.prNumber,
-        threadId
+        threadId,
+        threadType
       );
     }
     const rootCommentId = raw.comment.in_reply_to_id ?? raw.comment.id;

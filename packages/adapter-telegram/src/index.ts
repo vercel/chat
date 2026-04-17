@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -189,11 +190,13 @@ export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
   readonly name = "telegram";
+  readonly lockScope = "channel" as const;
   readonly persistMessageHistory = true;
 
   private readonly botToken: string;
   private readonly apiBaseUrl: string;
   private readonly secretToken?: string;
+  private warnedNoVerification = false;
   private readonly logger: Logger;
   private readonly formatConverter = new TelegramFormatConverter();
   private readonly messageCache = new Map<
@@ -239,7 +242,8 @@ export class TelegramAdapter
 
     this.botToken = botToken;
     this.apiBaseUrl = trimTrailingSlashes(
-      config.apiBaseUrl ??
+      config.apiUrl ??
+        config.apiBaseUrl ??
         process.env.TELEGRAM_API_BASE_URL ??
         TELEGRAM_API_BASE
     );
@@ -313,12 +317,28 @@ export class TelegramAdapter
   ): Promise<Response> {
     if (this.secretToken) {
       const headerToken = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER);
-      if (headerToken !== this.secretToken) {
+      let valid = false;
+      try {
+        valid =
+          !!headerToken &&
+          timingSafeEqual(
+            Buffer.from(headerToken),
+            Buffer.from(this.secretToken)
+          );
+      } catch {
+        // Length mismatch throws — treat as invalid
+      }
+      if (!valid) {
         this.logger.warn(
           "Telegram webhook rejected due to invalid secret token"
         );
         return new Response("Invalid secret token", { status: 401 });
       }
+    } else if (!this.warnedNoVerification) {
+      this.warnedNoVerification = true;
+      this.logger.warn(
+        "Telegram webhook verification is disabled. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or secretToken to verify incoming requests."
+      );
     }
 
     let update: TelegramUpdate;
@@ -1139,6 +1159,18 @@ export class TelegramAdapter
       height: metadata?.height,
       name: metadata?.name,
       mimeType: metadata?.mimeType,
+      fetchMetadata: { fileId },
+      fetchData: async () => this.downloadFile(fileId),
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const fileId = attachment.fetchMetadata?.fileId;
+    if (!fileId) {
+      return attachment;
+    }
+    return {
+      ...attachment,
       fetchData: async () => this.downloadFile(fileId),
     };
   }

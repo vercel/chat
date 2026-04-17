@@ -12,6 +12,8 @@ import type { Logger } from "chat";
  * Base configuration options shared by all auth methods.
  */
 interface GitHubAdapterBaseConfig {
+  /** Override the GitHub API base URL (e.g. "https://github.example.com/api/v3" for GitHub Enterprise). Defaults to GITHUB_API_URL env var. */
+  apiUrl?: string;
   /**
    * Bot's GitHub user ID (numeric).
    * Used for self-message detection. If not provided, will be fetched on first API call.
@@ -104,20 +106,33 @@ export type GitHubAdapterConfig =
  * Thread types:
  * - PR-level: Comments in the "Conversation" tab (issue_comment API)
  * - Review comment: Line-specific comments in "Files changed" tab (pull request review comment API)
+ * - Issue-level: Comments on GitHub issues (issue_comment API)
  */
 export interface GitHubThreadId {
   /** Repository owner (user or organization) */
   owner: string;
-  /** Pull request number */
+  /**
+   * Issue or pull request number.
+   * GitHub uses a shared number space, so this works for both PRs and issues.
+   */
   prNumber: number;
   /** Repository name */
   repo: string;
   /**
    * Root review comment ID for line-specific threads.
    * If present, this is a review comment thread.
-   * If absent, this is a PR-level (issue comment) thread.
+   * If absent, this is a PR-level or issue-level comment thread.
+   * Only valid when type is "pr" or omitted.
    */
   reviewCommentId?: number;
+  /**
+   * Thread context type.
+   * - "pr": PR conversation tab or review comment thread (default)
+   * - "issue": GitHub issue comment thread
+   *
+   * Omitting this field is equivalent to "pr" for backward compatibility.
+   */
+  type?: "pr" | "issue";
 }
 
 // =============================================================================
@@ -274,6 +289,11 @@ export type GitHubRawMessage =
       comment: GitHubIssueComment;
       repository: GitHubRepository;
       prNumber: number;
+      /**
+       * Whether this comment is on a PR or a plain issue.
+       * Defaults to "pr" when omitted for backward compatibility.
+       */
+      threadType?: "pr" | "issue";
     }
   | {
       type: "review_comment";
