@@ -137,12 +137,12 @@ Socket mode requires a persistent WebSocket connection, which doesn't fit the re
 
 ```typescript
 // api/slack/socket-mode/route.ts
-import { bot, slackAdapter } from "@/lib/bot";
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
 
 export const maxDuration = 800;
 
 export async function GET(request: Request) {
-  // Verify cron secret
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response("Unauthorized", { status: 401 });
@@ -150,14 +150,15 @@ export async function GET(request: Request) {
 
   await bot.initialize();
 
-  const webhookUrl = `${process.env.VERCEL_URL}/api/webhooks/slack`;
+  const slack = bot.getAdapter("slack");
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/slack`;
 
-  await slackAdapter.startSocketModeListener(
-    { forwardTo: webhookUrl },
-    600_000 // 10 minutes
+  return slack.startSocketModeListener(
+    { waitUntil: (task: Promise<unknown>) => after(() => task) },
+    600_000, // 10 minutes
+    undefined,
+    webhookUrl
   );
-
-  return new Response("OK");
 }
 ```
 

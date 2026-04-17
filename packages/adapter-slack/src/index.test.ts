@@ -5129,25 +5129,25 @@ describe("socket mode - routeSocketEvent", () => {
 
     await adapter.initialize(chatInstance);
 
-    // Extract the slack_event handler registered via on()
     const slackEventHandler = mockSocketOn.mock.calls.find(
       (call: unknown[]) => call[0] === "slack_event"
     )?.[1] as (args: {
       ack: () => Promise<void>;
       body: Record<string, unknown>;
+      type: string;
       retry_num?: number;
     }) => Promise<void>;
 
     return { adapter, chatInstance, slackEventHandler };
   }
 
-  it("dispatches event_callback to processMessage", async () => {
+  it("dispatches events_api to processMessage", async () => {
     const { chatInstance, slackEventHandler } = await createSocketAdapter();
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
+      type: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           channel: "C123",
@@ -5166,8 +5166,8 @@ describe("socket mode - routeSocketEvent", () => {
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
+      type: "slash_commands",
       body: {
-        type: "slash_commands",
         command: "/test",
         text: "arg1",
         user_id: "U_USER",
@@ -5175,7 +5175,6 @@ describe("socket mode - routeSocketEvent", () => {
       },
     });
 
-    // handleSlashCommand is async (user lookup), wait for it to complete
     await vi.waitFor(() => {
       expect(chatInstance.processSlashCommand).toHaveBeenCalled();
     });
@@ -5186,27 +5185,25 @@ describe("socket mode - routeSocketEvent", () => {
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
+      type: "interactive",
       body: {
-        type: "interactive",
-        payload: {
-          type: "block_actions",
-          actions: [
-            {
-              type: "button",
-              action_id: "test_action",
-              value: "clicked",
-            },
-          ],
-          channel: { id: "C123", name: "test" },
-          container: {
-            type: "message",
-            message_ts: "1234567890.123456",
-            channel_id: "C123",
+        type: "block_actions",
+        actions: [
+          {
+            type: "button",
+            action_id: "test_action",
+            value: "clicked",
           },
-          message: { ts: "1234567890.123456" },
-          trigger_id: "trigger123",
-          user: { id: "U_USER", username: "testuser" },
+        ],
+        channel: { id: "C123", name: "test" },
+        container: {
+          type: "message",
+          message_ts: "1234567890.123456",
+          channel_id: "C123",
         },
+        message: { ts: "1234567890.123456" },
+        trigger_id: "trigger123",
+        user: { id: "U_USER", username: "testuser" },
       },
     });
 
@@ -5218,8 +5215,8 @@ describe("socket mode - routeSocketEvent", () => {
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
+      type: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           channel: "C123",
@@ -5240,8 +5237,8 @@ describe("socket mode - routeSocketEvent", () => {
 
     await slackEventHandler({
       ack,
+      type: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           channel: "C123",
@@ -5253,6 +5250,21 @@ describe("socket mode - routeSocketEvent", () => {
     });
 
     expect(ack).toHaveBeenCalled();
+  });
+
+  it("logs unhandled event types", async () => {
+    const { slackEventHandler } = await createSocketAdapter();
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      type: "hello",
+      body: {},
+    });
+
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "Unhandled socket mode event type",
+      { type: "hello" }
+    );
   });
 });
 
@@ -5309,8 +5321,8 @@ describe("socket mode forwarding - handleWebhook", () => {
 
     const body = JSON.stringify({
       type: "socket_event",
+      eventType: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           user: "U123",
@@ -5346,7 +5358,8 @@ describe("socket mode forwarding - handleWebhook", () => {
 
     const body = JSON.stringify({
       type: "socket_event",
-      body: { type: "event_callback" },
+      eventType: "events_api",
+      body: {},
       timestamp: Date.now(),
     });
 
@@ -5372,7 +5385,8 @@ describe("socket mode forwarding - handleWebhook", () => {
 
     const body = JSON.stringify({
       type: "socket_event",
-      body: { type: "event_callback" },
+      eventType: "events_api",
+      body: {},
       timestamp: Date.now(),
     });
 
@@ -5404,8 +5418,8 @@ describe("socket mode forwarding - handleWebhook", () => {
 
     const body = JSON.stringify({
       type: "socket_event",
+      eventType: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           user: "U123",
@@ -5441,7 +5455,8 @@ describe("socket mode forwarding - handleWebhook", () => {
 
     const body = JSON.stringify({
       type: "socket_event",
-      body: { type: "event_callback" },
+      eventType: "events_api",
+      body: {},
       timestamp: Date.now(),
     });
 
@@ -5469,11 +5484,10 @@ describe("socket mode forwarding - handleWebhook", () => {
     });
     await adapter.initialize(chatInstance);
 
-    // No x-slack-request-timestamp or x-slack-signature headers
     const body = JSON.stringify({
       type: "socket_event",
+      eventType: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           user: "U123",
@@ -5512,8 +5526,8 @@ describe("socket mode forwarding - handleWebhook", () => {
     const waitUntil = vi.fn();
     const body = JSON.stringify({
       type: "socket_event",
+      eventType: "events_api",
       body: {
-        type: "event_callback",
         event: {
           type: "message",
           user: "U123",
@@ -5619,6 +5633,7 @@ describe("routeSocketEvent with options", () => {
     )?.[1] as (args: {
       ack: () => Promise<void>;
       body: Record<string, unknown>;
+      type: string;
       retry_num?: number;
     }) => Promise<void>;
 
@@ -5631,8 +5646,8 @@ describe("routeSocketEvent with options", () => {
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
+      type: "slash_commands",
       body: {
-        type: "slash_commands",
         command: "/test",
         text: "arg1",
         user_id: "U_USER",
@@ -5643,5 +5658,89 @@ describe("routeSocketEvent with options", () => {
     await vi.waitFor(() => {
       expect(chatInstance.processSlashCommand).toHaveBeenCalled();
     });
+  });
+
+  it("forwards slash_commands with eventType in forwarded envelope", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      appToken: "xapp-test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "socket_event",
+      eventType: "slash_commands",
+      body: {
+        command: "/deploy",
+        text: "production",
+        user_id: "U_USER",
+        channel_id: "C123",
+      },
+      timestamp: Date.now(),
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": "xapp-test-token",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    await vi.waitFor(() => {
+      expect(chatInstance.processSlashCommand).toHaveBeenCalled();
+    });
+  });
+
+  it("forwards interactive payloads with eventType in forwarded envelope", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      appToken: "xapp-test-token",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "socket_event",
+      eventType: "interactive",
+      body: {
+        type: "block_actions",
+        actions: [{ type: "button", action_id: "approve", value: "yes" }],
+        channel: { id: "C123", name: "test" },
+        container: {
+          type: "message",
+          message_ts: "1234567890.123456",
+          channel_id: "C123",
+        },
+        message: { ts: "1234567890.123456" },
+        trigger_id: "trigger123",
+        user: { id: "U_USER", username: "testuser" },
+      },
+      timestamp: Date.now(),
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": "xapp-test-token",
+      },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(chatInstance.processAction).toHaveBeenCalled();
   });
 });

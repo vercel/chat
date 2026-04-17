@@ -97,6 +97,7 @@ export type SlackAdapterMode = "webhook" | "socket";
 /** Envelope for events forwarded from a socket mode listener via HTTP POST */
 interface SlackForwardedSocketEvent {
   body: Record<string, unknown>;
+  eventType: string;
   timestamp: number;
   type: "socket_event";
 }
@@ -861,7 +862,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       try {
         const body = await request.text();
         const event = JSON.parse(body) as SlackForwardedSocketEvent;
-        this.routeSocketEvent(event.body, options);
+        this.routeSocketEvent(event.body, event.eventType, options);
         return new Response("ok", { status: 200 });
       } catch {
         return new Response("Invalid JSON", { status: 400 });
@@ -1326,18 +1327,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.socketClient = new SocketModeClient({ appToken: this.appToken });
 
-    this.socketClient.on("slack_event", async ({ ack, body, retry_num }) => {
-      // Immediately ack to prevent retries
-      await ack();
+    this.socketClient.on(
+      "slack_event",
+      async ({ ack, body, type, retry_num }) => {
+        await ack();
 
-      // Skip retries
-      if (retry_num && retry_num > 0) {
-        this.logger.debug("Skipping socket mode retry", { retry_num });
-        return;
+        if (retry_num && retry_num > 0) {
+          this.logger.debug("Skipping socket mode retry", { retry_num });
+          return;
+        }
+
+        this.routeSocketEvent(body as Record<string, unknown>, type as string);
       }
-
-      this.routeSocketEvent(body);
-    });
+    );
 
     await this.socketClient.start();
     this.logger.info("Slack socket mode connected");
@@ -1348,10 +1350,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   private routeSocketEvent(
     body: Record<string, unknown>,
+    eventType: string,
     options?: WebhookOptions
   ): void {
-    const type = body.type as string;
-
     const wrapAsync = (promise: Promise<unknown>): void => {
       if (options?.waitUntil) {
         options.waitUntil(promise);
@@ -1362,16 +1363,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     };
 
-    switch (type) {
-      case "event_callback": {
+    switch (eventType) {
+      case "events_api": {
         if (!body.event || typeof body.event !== "object") {
-          this.logger.warn("Socket mode event_callback missing event field", {
+          this.logger.warn("Socket mode events_api missing event field", {
             body,
           });
           break;
         }
         const payload: SlackWebhookPayload = {
-          type: body.type as string,
+          type: "event_callback",
           event: body.event as SlackWebhookPayload["event"],
           team_id: body.team_id as string | undefined,
           event_id: body.event_id as string | undefined,
@@ -1380,7 +1381,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         try {
           this.processEventPayload(payload, options);
         } catch (error) {
-          this.logger.error("Error processing socket mode event_callback", {
+          this.logger.error("Error processing socket mode events_api", {
             error,
           });
         }
@@ -1399,18 +1400,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
 
       case "interactive": {
-        const payload = body.payload as SlackInteractivePayload | undefined;
-        if (payload) {
-          const result = this.dispatchInteractivePayload(payload, options);
-          if (result instanceof Promise) {
-            wrapAsync(result);
-          }
+        const payload = body as unknown as SlackInteractivePayload;
+        const result = this.dispatchInteractivePayload(payload, options);
+        if (result instanceof Promise) {
+          wrapAsync(result);
         }
         break;
       }
 
       default:
-        this.logger.debug("Unhandled socket mode event type", { type });
+        this.logger.debug("Unhandled socket mode event type", {
+          type: eventType,
+        });
     }
   }
 
@@ -1481,7 +1482,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const client = new SocketModeClient({ appToken });
     let isShuttingDown = false;
 
-    client.on("slack_event", async ({ ack, body, retry_num }) => {
+    client.on("slack_event", async ({ ack, body, type, retry_num }) => {
       if (isShuttingDown) {
         return;
       }
@@ -1493,14 +1494,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return;
       }
 
+      const eventType = type as string;
       if (webhookUrl) {
         await this.forwardSocketEvent(webhookUrl, {
           type: "socket_event",
+          eventType,
           body: body as Record<string, unknown>,
           timestamp: Date.now(),
         });
       } else {
-        this.routeSocketEvent(body as Record<string, unknown>, options);
+        this.routeSocketEvent(
+          body as Record<string, unknown>,
+          eventType,
+          options
+        );
       }
     });
 
