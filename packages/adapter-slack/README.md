@@ -320,7 +320,10 @@ settings:
 When streaming in an assistant thread, you can attach Block Kit elements to the final message:
 
 ```typescript
-await thread.stream(textStream, {
+const raw = message.raw as { team_id?: string; team?: string };
+await thread.adapter.stream(thread.id, textStream, {
+  recipientUserId: message.author.userId,
+  recipientTeamId: raw.team_id ?? raw.team,
   stopBlocks: [
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
   ],

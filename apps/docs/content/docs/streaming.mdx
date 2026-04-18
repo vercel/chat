@@ -118,6 +118,7 @@ const stream = (async function* () {
     type: "task_update",
     id: "search-1",
     title: "Searching documents",
+    details: "Querying internal docs and ranking the best matches",
     status: "in_progress",
   } satisfies StreamChunk;
 
@@ -127,6 +128,7 @@ const stream = (async function* () {
     type: "task_update",
     id: "search-1",
     title: "Searching documents",
+    details: "Ranked 3 relevant results",
     status: "complete",
     output: "Found 3 results",
   } satisfies StreamChunk;
@@ -142,16 +144,19 @@ await thread.post(stream);
 | Type | Fields | Description |
 |------|--------|-------------|
 | `markdown_text` | `text` | Streamed text content |
-| `task_update` | `id`, `title`, `status`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) |
+| `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
 | `plan_update` | `title` | Plan title updates |
 
 ### Task display mode
 
-Control how `task_update` chunks render in Slack by passing `taskDisplayMode` in stream options:
+Control how `task_update` chunks render in Slack by passing `taskDisplayMode` via the adapter's streaming API. These options are currently only available through `adapter.stream()` directly:
 
 ```typescript
-await thread.stream(stream, {
-  taskDisplayMode: "plan", // Group all tasks into a single plan block
+const raw = message.raw as { team_id?: string; team?: string };
+await thread.adapter.stream(thread.id, stream, {
+  recipientUserId: message.author.userId,
+  recipientTeamId: raw.team_id ?? raw.team,
+  taskDisplayMode: "plan",
 });
 ```
 
@@ -167,7 +172,10 @@ Adapters without structured chunk support extract text from `markdown_text` chun
 When streaming in Slack, you can attach Block Kit elements to the final message using `stopBlocks`. This is useful for adding action buttons after a streamed response completes:
 
 ```typescript title="lib/bot.ts" lineNumbers
-await thread.stream(textStream, {
+const raw = message.raw as { team_id?: string; team?: string };
+await thread.adapter.stream(thread.id, textStream, {
+  recipientUserId: message.author.userId,
+  recipientTeamId: raw.team_id ?? raw.team,
   stopBlocks: [
     {
       type: "actions",

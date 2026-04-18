@@ -33,13 +33,18 @@ import {
 } from "chat";
 import type { SlackBlock } from "./cards";
 
+// Match bare @mentions (e.g. "@george") to rewrite as Slack's `<@george>`.
+// The lookbehind excludes `<` (already-formatted mentions like `<@U123>`) and
+// any word character, so email addresses like `user@example.com` are left alone.
+const BARE_MENTION_REGEX = /(?<![<\w])@(\w+)/g;
+
 export class SlackFormatConverter extends BaseFormatConverter {
   /**
    * Convert @mentions to Slack format in plain text.
    * @name → <@name>
    */
   private convertMentionsToSlack(text: string): string {
-    return text.replace(/(?<!<)@(\w+)/g, "<@$1>");
+    return text.replace(BARE_MENTION_REGEX, "<@$1>");
   }
 
   /**
@@ -170,7 +175,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
     if (isTextNode(node)) {
       // Convert @mentions to Slack format <@mention>
-      return node.value.replace(/(?<!<)@(\w+)/g, "<@$1>");
+      return node.value.replace(BARE_MENTION_REGEX, "<@$1>");
     }
 
     if (isStrongNode(node)) {
@@ -252,10 +257,15 @@ function mdastTableToSlackBlock(
   const rows: Array<Array<{ type: "raw_text"; text: string }>> = [];
 
   for (const row of node.children) {
-    const cells = getNodeChildren(row).map((cell) => ({
-      type: "raw_text" as const,
-      text: getNodeChildren(cell).map(cellConverter).join("") || " ",
-    }));
+    const cells = getNodeChildren(row).map((cell) => {
+      // Convert cell children to text, defaulting to space if empty.
+      // Slack API requires text to be at least 1 character.
+      // Use explicit length check rather than falsy check to be defensive
+      // against edge cases (e.g., unusual whitespace or encoding issues).
+      const rawText = getNodeChildren(cell).map(cellConverter).join("");
+      const text = rawText.length > 0 ? rawText : " ";
+      return { type: "raw_text" as const, text };
+    });
     rows.push(cells);
   }
 

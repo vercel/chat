@@ -152,6 +152,22 @@ describe("constructor env var resolution", () => {
     });
     expect(adapter).toBeInstanceOf(SlackAdapter);
   });
+
+  it("should resolve apiUrl from SLACK_API_URL env var", () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_API_URL = "https://slack-gov.com/api/";
+    const adapter = new SlackAdapter();
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
+
+  it("should accept apiUrl config value", () => {
+    const adapter = new SlackAdapter({
+      signingSecret: "test-secret",
+      apiUrl: "https://slack-gov.com/api/",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
+  });
 });
 
 // ============================================================================
@@ -2329,7 +2345,7 @@ describe("postMessage", () => {
     expect(client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "C123",
-        thread_ts: "",
+        thread_ts: undefined,
       })
     );
   });
@@ -2425,7 +2441,7 @@ describe("postEphemeral", () => {
     );
   });
 
-  it("omits thread_ts when empty", async () => {
+  it("normalizes empty threadTs to undefined", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
@@ -3379,7 +3395,7 @@ describe("postChannelMessage", () => {
     expect(client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "C123",
-        thread_ts: "",
+        thread_ts: undefined,
       })
     );
   });
@@ -3704,6 +3720,18 @@ describe("error handling", () => {
 
 describe("resolveInlineMentions", () => {
   const secret = "test-signing-secret";
+  interface AdapterWithMentionContext {
+    requestContext: {
+      run<T>(
+        store: { token: string; botUserId?: string },
+        callback: () => Promise<T>
+      ): Promise<T>;
+    };
+    resolveInlineMentions(
+      text: string,
+      skipSelfMention: boolean
+    ): Promise<string>;
+  }
 
   it("resolves user mentions in incoming messages via webhook", async () => {
     const state = createMockState();
@@ -3805,6 +3833,41 @@ describe("resolveInlineMentions", () => {
 
     // Bot mention should NOT be resolved (kept as-is for mention detection)
     expect(message.text).toContain("@U_BOT");
+  });
+
+  it("skips request-scoped self mention resolution in multi-workspace mode", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        name: "workspacebot",
+        real_name: "Workspace Bot",
+        profile: {
+          display_name: "Workspace Bot",
+          real_name: "Workspace Bot",
+        },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const mentionAdapter = adapter as unknown as AdapterWithMentionContext;
+    const result = await mentionAdapter.requestContext.run(
+      {
+        token: "xoxb-multi-token",
+        botUserId: "U_BOT_MULTI",
+      },
+      () => mentionAdapter.resolveInlineMentions("<@U_BOT_MULTI> help me", true)
+    );
+
+    expect(result).toBe("<@U_BOT_MULTI> help me");
+    expect(usersInfoMock).not.toHaveBeenCalled();
   });
 
   it("resolves bare channel mentions in incoming messages", async () => {
@@ -5066,5 +5129,122 @@ describe("reverse user lookup", () => {
       const cached = await state.get("slack:user:U_DOM_123");
       expect(cached).toBeNull();
     });
+  });
+
+  describe("rehydrateAttachment", () => {
+    it("should resolve token from installation when teamId is present", async () => {
+      const state = createMockState();
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        logger: mockLogger,
+      });
+      await adapter.initialize(createMockChatInstance(state));
+
+      await adapter.setInstallation("T_MULTI_1", {
+        botToken: "xoxb-multi-workspace-token",
+        botUserId: "U_BOT_MULTI",
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: {
+          url: "https://files.slack.com/img.png",
+          teamId: "T_MULTI_1",
+        },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should fall back to getToken when no teamId in fetchMetadata", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-single",
+        logger: mockLogger,
+      });
+
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: { url: "https://files.slack.com/img.png" },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+    });
+
+    it("should return attachment unchanged when no url", () => {
+      const adapter = createSlackAdapter({
+        signingSecret: secret,
+        botToken: "xoxb-test",
+        logger: mockLogger,
+      });
+
+      const attachment = { type: "file" as const, name: "test.bin" };
+      const rehydrated = adapter.rehydrateAttachment(attachment);
+
+      expect(rehydrated.fetchData).toBeUndefined();
+      expect(rehydrated).toBe(attachment);
+    });
+  });
+});
+
+// ============================================================================
+// Empty threadTs normalization tests
+// ============================================================================
+
+describe("stream with empty threadTs", () => {
+  it("throws ValidationError when threadTs is empty", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    async function* emptyStream() {
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("slack:C123:", emptyStream(), {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+});
+
+describe("scheduleMessage with empty threadTs", () => {
+  it("normalizes empty threadTs to undefined", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "chat.scheduleMessage",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        scheduled_message_id: "Q123",
+        post_at: Math.floor(Date.now() / 1000) + 3600,
+      })
+    );
+
+    const futureDate = new Date(Date.now() + 3600 * 1000);
+    await adapter.scheduleMessage("slack:C123:", "Scheduled msg", {
+      postAt: futureDate,
+    });
+
+    const client = getClient(adapter);
+    expect(client.chat.scheduleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        thread_ts: undefined,
+      })
+    );
   });
 });

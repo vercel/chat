@@ -275,6 +275,24 @@ describe("TeamsAdapter", () => {
       expect(adapter).toBeInstanceOf(TeamsAdapter);
       expect(adapter.name).toBe("teams");
     });
+
+    it("should resolve apiUrl from TEAMS_API_URL env var", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      process.env.TEAMS_API_URL = "https://custom-teams.example.com";
+      const adapter = new TeamsAdapter();
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        apiUrl: "https://custom-teams.example.com",
+        logger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
   });
 
   // ==========================================================================

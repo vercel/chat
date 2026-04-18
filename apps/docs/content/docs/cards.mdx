@@ -109,6 +109,12 @@ The `id` maps to your `onAction` handler. Optional `value` passes extra data:
 <Button id="report" value="bug">Report Bug</Button>
 ```
 
+Set `actionType="modal"` to indicate the button opens a [modal](/docs/modals). The button still triggers your `onAction` handler, where you call `event.openModal()` — this prop tells adapters like Teams to wire up the button for dialog opening:
+
+```tsx title="lib/bot.tsx"
+<Button id="open-feedback" actionType="modal">Give Feedback</Button>
+```
+
 ### CardLink
 
 Inline hyperlink rendered as text. Unlike `LinkButton` (which must be inside `Actions`), `CardLink` can be placed directly in a card alongside other content.

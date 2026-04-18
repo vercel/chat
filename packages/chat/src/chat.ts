@@ -8,6 +8,7 @@ import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
 import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
+import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
   ActionEvent,
@@ -795,21 +796,7 @@ export class Chat<
   reviver(): (key: string, value: unknown) => unknown {
     // Ensure this chat instance is registered as singleton for thread deserialization
     this.registerSingleton();
-    return function reviver(_key: string, value: unknown): unknown {
-      if (value && typeof value === "object" && "_type" in value) {
-        const typed = value as { _type: string };
-        if (typed._type === "chat:Thread") {
-          return ThreadImpl.fromJSON(value as SerializedThread);
-        }
-        if (typed._type === "chat:Channel") {
-          return ChannelImpl.fromJSON(value as SerializedChannel);
-        }
-        if (typed._type === "chat:Message") {
-          return Message.fromJSON(value as SerializedMessage);
-        }
-      }
-      return value;
-    };
+    return standaloneReviver;
   }
 
   // ChatInstance interface implementations
@@ -1589,6 +1576,40 @@ export class Chat<
   }
 
   /**
+   * Get a Thread handle by its thread ID.
+   *
+   * The adapter is automatically inferred from the thread ID prefix.
+   *
+   * @param threadId - Full thread ID (e.g., "slack:C123ABC:1234567890.123456")
+   * @returns A Thread that can be used to post messages, subscribe, etc.
+   *
+   * @example
+   * ```typescript
+   * const thread = chat.thread("slack:C123ABC:1234567890.123456");
+   * await thread.post("Hello from outside a webhook!");
+   * ```
+   */
+  thread(threadId: string): Thread<TState> {
+    const adapterName = threadId.split(":")[0];
+    if (!adapterName) {
+      throw new ChatError(
+        `Invalid thread ID: ${threadId}`,
+        "INVALID_THREAD_ID"
+      );
+    }
+
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${adapterName}" not found for thread ID "${threadId}"`,
+        "ADAPTER_NOT_FOUND"
+      );
+    }
+
+    return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
    * Infer which adapter to use based on the userId format.
    */
   private inferAdapterFromUserId(userId: string): Adapter {
@@ -1922,7 +1943,7 @@ export class Chat<
       }
 
       // Reconstruct Message instance after JSON roundtrip through state adapter
-      const msg = this.rehydrateMessage(entry.message);
+      const msg = this.rehydrateMessage(entry.message, adapter);
 
       if (Date.now() > entry.expiresAt) {
         this.logger.info("message-expired", {
@@ -1974,7 +1995,7 @@ export class Chat<
         if (!entry) {
           break;
         }
-        const msg = this.rehydrateMessage(entry.message);
+        const msg = this.rehydrateMessage(entry.message, adapter);
         if (Date.now() <= entry.expiresAt) {
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
@@ -2223,44 +2244,58 @@ export class Chat<
    * object (not a Message instance). This restores class invariants like
    * `links` defaulting to `[]` and `metadata.dateSent` being a Date.
    */
-  private rehydrateMessage(raw: Message | Record<string, unknown>): Message {
+  private rehydrateMessage(
+    raw: Message | Record<string, unknown>,
+    adapter?: Adapter
+  ): Message {
     if (raw instanceof Message) {
       return raw;
     }
     // After JSON roundtrip, Message.toJSON() was called during stringify,
     // so the shape matches SerializedMessage
     const obj = raw as Record<string, unknown>;
+    let msg: Message;
     if (obj._type === "chat:Message") {
-      return Message.fromJSON(obj as unknown as SerializedMessage);
+      msg = Message.fromJSON(obj as unknown as SerializedMessage);
+    } else {
+      // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
+      // Reconstruct with defensive defaults
+      const metadata = obj.metadata as Record<string, unknown>;
+      const dateSent = metadata.dateSent;
+      const editedAt = metadata.editedAt;
+      msg = new Message({
+        id: obj.id as string,
+        threadId: obj.threadId as string,
+        text: obj.text as string,
+        formatted: obj.formatted as FormattedContent,
+        raw: obj.raw,
+        author: obj.author as Author,
+        metadata: {
+          dateSent:
+            dateSent instanceof Date ? dateSent : new Date(dateSent as string),
+          edited: metadata.edited as boolean,
+          editedAt: editedAt
+            ? new Date(
+                editedAt instanceof Date
+                  ? editedAt.toISOString()
+                  : (editedAt as string)
+              )
+            : undefined,
+        },
+        attachments: (obj.attachments as Attachment[]) ?? [],
+        isMention: obj.isMention as boolean | undefined,
+        links: (obj.links as LinkPreview[] | undefined) ?? [],
+      });
     }
-    // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
-    // Reconstruct with defensive defaults
-    const metadata = obj.metadata as Record<string, unknown>;
-    const dateSent = metadata.dateSent;
-    const editedAt = metadata.editedAt;
-    return new Message({
-      id: obj.id as string,
-      threadId: obj.threadId as string,
-      text: obj.text as string,
-      formatted: obj.formatted as FormattedContent,
-      raw: obj.raw,
-      author: obj.author as Author,
-      metadata: {
-        dateSent:
-          dateSent instanceof Date ? dateSent : new Date(dateSent as string),
-        edited: metadata.edited as boolean,
-        editedAt: editedAt
-          ? new Date(
-              editedAt instanceof Date
-                ? editedAt.toISOString()
-                : (editedAt as string)
-            )
-          : undefined,
-      },
-      attachments: (obj.attachments as Attachment[]) ?? [],
-      isMention: obj.isMention as boolean | undefined,
-      links: (obj.links as LinkPreview[] | undefined) ?? [],
-    });
+
+    const rehydrate = adapter?.rehydrateAttachment?.bind(adapter);
+    if (rehydrate && msg.attachments.length > 0) {
+      msg.attachments = msg.attachments.map((att) =>
+        att.fetchData ? att : rehydrate(att)
+      );
+    }
+
+    return msg;
   }
 
   private async runHandlers(

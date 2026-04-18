@@ -157,6 +157,13 @@ const messengerConfig: Record<
     adapterSlugs: ["zalo"],
     keywords: ["zalo"],
   },
+  mattermost: {
+    name: "Mattermost",
+    description:
+      "Build bots for Mattermost with Chat SDK. Browse official and community adapters that support Mattermost integration.",
+    adapterSlugs: ["mattermost"],
+    keywords: ["mattermost"],
+  },
 };
 
 const getMessengerAdapters = (messengerSlug: string) => {

@@ -39,7 +39,7 @@ bot.onNewMention(async (thread) => {
 
 Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
 
-## Multiple [adapters](/adapters)
+## Multiple adapters
 
 Register multiple [adapters](/adapters) to deploy your bot across platforms simultaneously:
 
@@ -76,7 +76,7 @@ Your event handlers work identically across all registered adapters — the SDK 
 | `fallbackStreamingPlaceholderText` | `string \| null` | `"..."` | Placeholder text while streaming starts. Set to `null` to skip |
 | `onLockConflict` | `'drop' \| 'force' \| (threadId, message) => 'drop' \| 'force'` | `"drop"` | Behavior when a thread lock is already held. `'force'` releases the existing lock and re-acquires it, enabling interrupt/steerability for long-running handlers |
 
-## Accessing [adapters](/adapters)
+## Accessing adapters
 
 Use `getAdapter` to access platform-specific APIs when you need functionality beyond the unified interface:
 

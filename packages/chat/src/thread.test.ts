@@ -7,6 +7,7 @@ import {
   mockLogger,
 } from "./mock-adapter";
 import { Plan } from "./plan";
+import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
 import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
 import { NotImplementedError } from "./types";
@@ -320,12 +321,8 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
-      // Should edit with empty string wrapped as markdown (final content)
-      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
-        "slack:C123:1234.5678",
-        "msg-1",
-        { markdown: "" }
-      );
+      // Should not edit with empty content
+      expect(mockAdapter.editMessage).not.toHaveBeenCalled();
     });
 
     it("should support disabling the placeholder for fallback streaming", async () => {
@@ -367,13 +364,79 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream([]);
       await threadNoPlaceholder.post(textStream);
 
-      // Should still post a message (empty) even with no chunks, wrapped as markdown
+      // Should post a non-empty fallback since stream must return a SentMessage
       expect(mockAdapter.postMessage).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
-        { markdown: "" }
+        { markdown: " " }
       );
-      // No edit needed since post content matches accumulated
       expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+    });
+
+    it("should not post empty content when table is buffered with null placeholder", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      const textStream = createTextStream([
+        "| A | B |\n",
+        "|---|---|\n",
+        "| 1 | 2 |\n",
+      ]);
+      await threadNoPlaceholder.post(textStream);
+
+      const postCalls = (mockAdapter.postMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      for (const call of postCalls) {
+        const content = call[1];
+        if (typeof content === "object" && "markdown" in content) {
+          expect(content.markdown.trim().length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("should not edit placeholder to empty during LLM warm-up", async () => {
+      mockAdapter.stream = undefined;
+      const editFn = mockAdapter.editMessage as ReturnType<typeof vi.fn>;
+
+      const textStream = createTextStream(["Hello world"]);
+      await thread.post(textStream);
+
+      for (const call of editFn.mock.calls) {
+        const content = call[2];
+        if (typeof content === "object" && "markdown" in content) {
+          expect(content.markdown.trim().length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it("should not post empty content during streaming with whitespace chunks", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      const textStream = createTextStream(["  ", "\n", "  \n"]);
+      await threadNoPlaceholder.post(textStream);
+
+      const postCalls = (mockAdapter.postMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      for (const call of postCalls) {
+        const content = call[1];
+        if (typeof content === "object" && "markdown" in content) {
+          expect(content.markdown.length).toBeGreaterThan(0);
+        }
+      }
     });
 
     it("should preserve newlines in streamed text (native path)", async () => {
@@ -576,6 +639,151 @@ describe("ThreadImpl", () => {
         })
       );
     });
+
+    it("should pass StreamingPlan PostableObject options to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      const streamMsg = new StreamingPlan(textStream, {
+        groupTasks: "plan",
+        endWith: [{ type: "actions" }],
+        updateIntervalMs: 1000,
+      });
+      await thread.post(streamMsg);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "plan",
+          stopBlocks: [{ type: "actions" }],
+          updateIntervalMs: 1000,
+        })
+      );
+    });
+
+    it("should pass StreamingPlan with only groupTasks", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { groupTasks: "timeline" })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "timeline",
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.stopBlocks).toBeUndefined();
+    });
+
+    it("should pass StreamingPlan with only endWith", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { endWith: [{ type: "actions" }] })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          stopBlocks: [{ type: "actions" }],
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+    });
+
+    it("should pass StreamingPlan with only updateIntervalMs", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { updateIntervalMs: 2000 })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          updateIntervalMs: 2000,
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+      expect(options.stopBlocks).toBeUndefined();
+    });
+
+    it("should route StreamingPlan through fallback when adapter has no native streaming", async () => {
+      mockAdapter.stream = undefined;
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.post(
+        new StreamingPlan(textStream, {
+          groupTasks: "plan",
+          endWith: [{ type: "actions" }],
+          updateIntervalMs: 2000,
+        })
+      );
+
+      // Should post initial placeholder and edit with final content
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
+
+    it("should still work without options (backward compat)", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(textStream);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.any(Object)
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+      expect(options.stopBlocks).toBeUndefined();
+    });
   });
 
   describe("fallback streaming error logging", () => {
@@ -649,6 +857,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installing dependencies",
           status: "in_progress",
         };
         yield "world";
@@ -656,6 +865,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installed dependencies",
           status: "complete",
           output: "Done",
         };
@@ -670,11 +880,20 @@ describe("ThreadImpl", () => {
       expect(capturedChunks).toHaveLength(4);
       expect(capturedChunks[0]).toBe("Hello ");
       expect(capturedChunks[1]).toEqual(
-        expect.objectContaining({ type: "task_update", status: "in_progress" })
+        expect.objectContaining({
+          type: "task_update",
+          details: "Installing dependencies",
+          status: "in_progress",
+        })
       );
       expect(capturedChunks[2]).toBe("world");
       expect(capturedChunks[3]).toEqual(
-        expect.objectContaining({ type: "task_update", status: "complete" })
+        expect.objectContaining({
+          type: "task_update",
+          details: "Installed dependencies",
+          output: "Done",
+          status: "complete",
+        })
       );
 
       // Accumulated text should only include strings, not task_update chunks
@@ -723,6 +942,7 @@ describe("ThreadImpl", () => {
           type: "task_update" as const,
           id: "tool-1",
           title: "Running bash",
+          details: "Installing dependencies",
           status: "in_progress",
         };
         yield " World";
@@ -1420,6 +1640,75 @@ describe("ThreadImpl", () => {
 
       expect(updated).not.toBeNull();
       expect(mockEditObject).toHaveBeenCalled();
+    });
+
+    it("should update a specific task by ID", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+      const task1 = await plan.addTask({ title: "Step 1" });
+      const task2 = await plan.addTask({ title: "Step 2" });
+
+      const updated = await plan.updateTask({
+        id: task1?.id,
+        output: "Step 1 result",
+        status: "complete",
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.id).toBe(task1?.id);
+      expect(updated?.status).toBe("complete");
+
+      const step2 = plan.tasks.find((t) => t.id === task2?.id);
+      expect(step2?.status).toBe("in_progress");
+    });
+
+    it("should return null when updating by non-existent ID", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+      await plan.addTask({ title: "Step 1" });
+
+      const updated = await plan.updateTask({
+        id: "non-existent-id",
+        output: "nope",
+      });
+
+      expect(updated).toBeNull();
+    });
+
+    it("should still update last in_progress task when no ID provided", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+      await plan.addTask({ title: "Step 1" });
+      await plan.addTask({ title: "Step 2" });
+
+      const updated = await plan.updateTask("Some output");
+
+      expect(updated).not.toBeNull();
+      expect(updated?.title).toBe("Step 2");
     });
 
     it("should complete plan and mark tasks done", async () => {
@@ -2578,6 +2867,168 @@ describe("ThreadImpl", () => {
 
       expect(cancel1).toHaveBeenCalledOnce();
       expect(cancel2).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getParticipants", () => {
+    it("should return unique non-bot authors from messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const msg1 = createTestMessage("1", "Hello", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const msg2 = createTestMessage("2", "Hi", {
+        author: {
+          userId: "U2",
+          userName: "bob",
+          fullName: "Bob",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const msg3 = createTestMessage("3", "Hello again", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi
+        .fn()
+        .mockResolvedValue({ messages: [msg1, msg2, msg3], nextCursor: null });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(2);
+      expect(participants.map((p) => p.userId)).toEqual(
+        expect.arrayContaining(["U1", "U2"])
+      );
+    });
+
+    it("should exclude bot messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const humanMsg = createTestMessage("1", "Hello", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+      const selfBotMsg = createTestMessage("2", "Hi there!", {
+        author: {
+          userId: "B1",
+          userName: "bot",
+          fullName: "Bot",
+          isBot: true,
+          isMe: true,
+        },
+      });
+      const thirdPartyBotMsg = createTestMessage("3", "Notification", {
+        author: {
+          userId: "B2",
+          userName: "jira-bot",
+          fullName: "Jira Bot",
+          isBot: true,
+          isMe: false,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi.fn().mockResolvedValue({
+        messages: [humanMsg, selfBotMsg, thirdPartyBotMsg],
+        nextCursor: null,
+      });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(1);
+      expect(participants[0].userId).toBe("U1");
+    });
+
+    it("should return empty array for thread with only bot messages", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      mockAdapter.fetchMessages = vi.fn().mockResolvedValue({
+        messages: [
+          createTestMessage("1", "Bot message", {
+            author: {
+              userId: "B1",
+              userName: "bot",
+              fullName: "Bot",
+              isBot: true,
+              isMe: true,
+            },
+          }),
+        ],
+        nextCursor: null,
+      });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(0);
+    });
+
+    it("should include currentMessage author", async () => {
+      const mockAdapter = createMockAdapter();
+      const mockState = createMockState();
+
+      const currentMsg = createTestMessage("1", "Hey bot", {
+        author: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      mockAdapter.fetchMessages = vi
+        .fn()
+        .mockResolvedValue({ messages: [], nextCursor: null });
+
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        currentMessage: currentMsg,
+      });
+
+      const participants = await thread.getParticipants();
+      expect(participants).toHaveLength(1);
+      expect(participants[0].userId).toBe("U1");
     });
   });
 });

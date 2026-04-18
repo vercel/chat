@@ -96,6 +96,8 @@ const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
 export interface SlackAdapterConfig {
+  /** Override the Slack API base URL (e.g. "https://slack-gov.com/api/" for GovSlack). Defaults to SLACK_API_URL env var. */
+  apiUrl?: string;
   /** Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace. */
   botToken?: string;
   /** Bot user ID (will be fetched if not provided) */
@@ -436,7 +438,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botToken =
       config.botToken ?? (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined);
 
-    this.client = new WebClient(botToken);
+    const slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.client = new WebClient(botToken, {
+      ...(slackApiUrl ? { slackApiUrl } : {}),
+    });
     this.signingSecret = signingSecret;
     this.defaultBotToken = botToken;
     this.logger = config.logger ?? new ConsoleLogger("info").child("slack");
@@ -1715,8 +1720,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    *
    * @param skipSelfMention - When true, skips the bot's own user ID so that
    *   mention detection (which looks for @botUserId in the text) continues to
-   *   work. Set to false when parsing historical/channel messages where mention
-   *   detection doesn't apply.
+   *   work. Uses the effective request-scoped bot user ID in multi-workspace
+   *   mode, not only the adapter's default bot user ID. Set to false when
+   *   parsing historical/channel messages where mention detection doesn't
+   *   apply.
    */
   private async resolveInlineMentions(
     text: string,
@@ -1753,8 +1760,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Don't resolve the bot's own mention when processing incoming webhooks —
     // detectMention needs @botUserId in the text
-    if (skipSelfMention && this._botUserId) {
-      userIds.delete(this._botUserId);
+    const currentBotUserId = this.botUserId;
+    if (skipSelfMention && currentBotUserId) {
+      userIds.delete(currentBotUserId);
     }
     if (userIds.size === 0 && channelIds.size === 0) {
       return text;
@@ -1955,7 +1963,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });
@@ -1965,15 +1973,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Create an Attachment object from a Slack file.
    * Includes a fetchData method that uses the bot token for auth.
    */
-  private createAttachment(file: {
-    id?: string;
-    mimetype?: string;
-    url_private?: string;
-    name?: string;
-    size?: number;
-    original_w?: number;
-    original_h?: number;
-  }): Attachment {
+  private createAttachment(
+    file: {
+      id?: string;
+      mimetype?: string;
+      url_private?: string;
+      name?: string;
+      size?: number;
+      original_w?: number;
+      original_h?: number;
+    },
+    teamId?: string
+  ): Attachment {
     const url = file.url_private;
     // Capture token at attachment creation time (during webhook processing context)
     const botToken = this.getToken();
@@ -1988,6 +1999,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       type = "audio";
     }
 
+    const fetchMeta: Record<string, string> = {};
+    if (url) {
+      fetchMeta.url = url;
+    }
+    if (teamId) {
+      fetchMeta.teamId = teamId;
+    }
+
     return {
       type,
       url,
@@ -1996,32 +2015,58 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       size: file.size,
       width: file.original_w,
       height: file.original_h,
-      fetchData: url
-        ? async () => {
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${botToken}`,
-              },
-            });
-            if (!response.ok) {
-              throw new NetworkError(
-                "slack",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const contentType = response.headers.get("content-type") ?? "";
-            if (contentType.includes("text/html")) {
-              throw new NetworkError(
-                "slack",
-                "Failed to download file from Slack: received HTML login page instead of file data. " +
-                  `Ensure your Slack app has the "files:read" OAuth scope. ` +
-                  `URL: ${url}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
+      fetchData: url ? () => this.fetchSlackFile(url, botToken) : undefined,
+    };
+  }
+
+  private async fetchSlackFile(url: string, token: string): Promise<Buffer> {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "slack",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      throw new NetworkError(
+        "slack",
+        "Failed to download file from Slack: received HTML login page instead of file data. " +
+          `Ensure your Slack app has the "files:read" OAuth scope. ` +
+          `URL: ${url}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    const teamId = attachment.fetchMetadata?.teamId;
+    if (!url) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: async () => {
+        let token: string;
+        if (teamId) {
+          const installation = await this.getInstallation(teamId);
+          if (!installation) {
+            throw new AuthenticationError(
+              "slack",
+              `Installation not found for team ${teamId}`
+            );
           }
-        : undefined,
+          token = installation.botToken;
+        } else {
+          token = this.getToken();
+        }
+        return this.fetchSlackFile(url, token);
+      },
     };
   }
 
@@ -2194,14 +2239,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     _message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
+    const threadTs = rawThreadTs || undefined;
 
     try {
       // Check for files to upload
       const files = extractFiles(message);
       if (files.length > 0) {
         // Upload files first (they're shared to the channel automatically)
-        await this.uploadFiles(files, channel, threadTs || undefined);
+        await this.uploadFiles(files, channel, threadTs);
 
         // If message only has files (no text/card), return early
         const hasText =
@@ -2335,7 +2382,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     _message: AdapterPostableMessage
   ): Promise<EphemeralMessage> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    const threadTs = rawThreadTs || undefined;
 
     try {
       // Check if message contains a card
@@ -2356,7 +2404,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.postEphemeral(
           this.withToken({
             channel,
-            thread_ts: threadTs || undefined,
+            thread_ts: threadTs,
             user: userId,
             text: fallbackText,
             blocks,
@@ -2389,7 +2437,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.postEphemeral(
           this.withToken({
             channel,
-            thread_ts: threadTs || undefined,
+            thread_ts: threadTs,
             user: userId,
             text: tableResult.text,
             blocks: tableResult.blocks,
@@ -2425,7 +2473,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.chat.postEphemeral(
         this.withToken({
           channel,
-          thread_ts: threadTs || undefined,
+          thread_ts: threadTs,
           user: userId,
           text,
         })
@@ -2453,7 +2501,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     options: { postAt: Date }
   ): Promise<ScheduledMessage> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    const threadTs = rawThreadTs || undefined;
     const postAtUnix = Math.floor(options.postAt.getTime() / 1000);
 
     if (postAtUnix <= Math.floor(Date.now() / 1000)) {
@@ -2489,7 +2538,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.scheduleMessage({
           token,
           channel,
-          thread_ts: threadTs || undefined,
+          thread_ts: threadTs,
           post_at: postAtUnix,
           text: fallbackText,
           blocks,
@@ -2531,7 +2580,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.chat.scheduleMessage({
         token,
         channel,
-        thread_ts: threadTs || undefined,
+        thread_ts: threadTs,
         post_at: postAtUnix,
         text,
         unfurl_links: false,
@@ -3132,7 +3181,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         "Slack streaming requires recipientUserId and recipientTeamId in options"
       );
     }
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
+    const threadTs = rawThreadTs || undefined;
+    if (!threadTs) {
+      this.logger.debug("Slack: stream skipped - no thread context");
+      throw new ValidationError(
+        "slack",
+        "Slack streaming requires a valid thread context (non-empty threadTs)"
+      );
+    }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = this.getToken();
@@ -3639,7 +3697,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           : undefined,
       },
       attachments: (event.files || []).map((file) =>
-        this.createAttachment(file)
+        this.createAttachment(file, event.team_id ?? event.team)
       ),
       links: this.extractLinks(event),
     });

@@ -56,7 +56,7 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, cardToFallbackText } from "./cards";
+import { cardToDiscordPayload } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
@@ -85,6 +85,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
+  private readonly apiBaseUrl: string;
   private readonly botToken: string;
   private readonly publicKey: string;
   private readonly applicationId: string;
@@ -124,6 +125,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
+    this.apiBaseUrl =
+      config.apiUrl ?? process.env.DISCORD_API_URL ?? DISCORD_API_BASE;
     this.botToken = botToken;
     this.publicKey = publicKey.trim().toLowerCase();
     this.applicationId = applicationId;
@@ -811,8 +814,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -1175,8 +1177,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Clear content so old text doesn't persist alongside the card (Discord PATCH keeps omitted fields)
+      payload.content = "";
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -1582,7 +1584,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     method: string,
     body?: unknown
   ): Promise<Response> {
-    const url = `${DISCORD_API_BASE}${path}`;
+    const url = `${this.apiBaseUrl}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bot ${this.botToken}`,
     };
@@ -2396,7 +2398,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(

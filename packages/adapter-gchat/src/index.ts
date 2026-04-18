@@ -70,6 +70,8 @@ export interface ServiceAccountCredentials {
 
 /** Base config options shared by all auth methods */
 export interface GoogleChatAdapterBaseConfig {
+  /** Override the Google Chat API root URL. Defaults to GOOGLE_CHAT_API_URL env var. */
+  apiUrl?: string;
   /**
    * HTTP endpoint URL for button click actions.
    * Required for HTTP endpoint apps - button clicks will be routed to this URL.
@@ -221,6 +223,14 @@ export interface GoogleChatUser {
   type: string;
 }
 
+interface GoogleChatFormInput {
+  stringInputs?: {
+    value?: string[];
+  };
+}
+
+type GoogleChatFormInputs = Record<string, GoogleChatFormInput>;
+
 /**
  * Google Workspace Add-ons event format.
  * This is the format used when configuring the app via Google Cloud Console.
@@ -249,6 +259,7 @@ export interface GoogleChatEvent {
     };
   };
   commonEventObject?: {
+    formInputs?: GoogleChatFormInputs;
     userLocale?: string;
     hostApp?: string;
     platform?: string;
@@ -319,6 +330,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       config.googleChatProjectNumber ?? process.env.GOOGLE_CHAT_PROJECT_NUMBER;
     this.pubsubAudience =
       config.pubsubAudience ?? process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE;
+    const apiRootUrl = config.apiUrl ?? process.env.GOOGLE_CHAT_API_URL;
 
     let authClient: Parameters<typeof chat>[0]["auth"];
 
@@ -377,7 +389,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     this.authClient = authClient;
-    this.chatApi = chat({ version: "v1", auth: authClient });
+    this.chatApi = chat({
+      version: "v1",
+      auth: authClient,
+      ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
+    });
 
     // Create impersonated Chat API for user-context operations (DMs)
     // Domain-wide delegation requires setting the `subject` claim to the impersonated user
@@ -396,6 +412,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       } else if (this.useADC) {
         // ADC with impersonation (requires clientOptions.subject support)
@@ -412,6 +429,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       }
     }
@@ -1117,8 +1135,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    // Get value from parameters
-    const value = commonEvent?.parameters?.value;
+    // Buttons send value via parameters, while selection inputs return
+    // the chosen option through formInputs under the action ID.
+    const value =
+      commonEvent?.parameters?.value ??
+      this.getFormInputValue(commonEvent?.formInputs, actionId);
 
     // Get space and message info from buttonClickedPayload
     const space = buttonPayload?.space;
@@ -1162,6 +1183,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  private getFormInputValue(
+    formInputs: GoogleChatFormInputs | undefined,
+    actionId: string
+  ): string | undefined {
+    return formInputs?.[actionId]?.stringInputs?.value?.[0];
   }
 
   /**
@@ -1440,9 +1468,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }): Attachment {
     const url = att.downloadUri || undefined;
     const resourceName = att.attachmentDataRef?.resourceName || undefined;
-    const chatApi = this.chatApi;
 
-    // Determine type based on contentType
     let type: Attachment["type"] = "file";
     if (att.contentType?.startsWith("image/")) {
       type = "image";
@@ -1452,59 +1478,82 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       type = "audio";
     }
 
-    // Capture auth client for use in fetchData closure (used for URL fallback)
-    const auth = this.authClient;
+    const fetchMeta: Record<string, string> = {};
+    if (resourceName) {
+      fetchMeta.resourceName = resourceName;
+    }
+    if (url) {
+      fetchMeta.url = url;
+    }
 
     return {
       type,
       url,
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData:
         resourceName || url
-          ? async () => {
-              // Prefer media.download API (correct method for chat apps)
-              if (resourceName) {
-                const res = await chatApi.media.download(
-                  { resourceName },
-                  { responseType: "arraybuffer" }
-                );
-                return Buffer.from(res.data as ArrayBuffer);
-              }
-
-              // Fallback to direct URL fetch (downloadUri)
-              if (typeof auth === "string" || !auth) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Cannot fetch file: no auth client configured"
-                );
-              }
-              const tokenResult = await auth.getAccessToken();
-              const token =
-                typeof tokenResult === "string"
-                  ? tokenResult
-                  : tokenResult?.token;
-              if (!token) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Failed to get access token"
-                );
-              }
-              const response = await fetch(url as string, {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              });
-              if (!response.ok) {
-                throw new NetworkError(
-                  "gchat",
-                  `Failed to fetch file: ${response.status} ${response.statusText}`
-                );
-              }
-              const arrayBuffer = await response.arrayBuffer();
-              return Buffer.from(arrayBuffer);
-            }
+          ? () => this.fetchAttachmentData(resourceName, url)
           : undefined,
+    };
+  }
+
+  private async fetchAttachmentData(
+    resourceName?: string,
+    url?: string
+  ): Promise<Buffer> {
+    // Prefer media.download API (correct method for chat apps)
+    if (resourceName) {
+      const res = await this.chatApi.media.download(
+        { resourceName },
+        { responseType: "arraybuffer" }
+      );
+      return Buffer.from(res.data as ArrayBuffer);
+    }
+
+    // Fallback to direct URL fetch (downloadUri)
+    if (!url) {
+      throw new NetworkError("gchat", "No URL or resourceName available");
+    }
+
+    const auth = this.authClient;
+    if (typeof auth === "string" || !auth) {
+      throw new AuthenticationError(
+        "gchat",
+        "Cannot fetch file: no auth client configured"
+      );
+    }
+    const tokenResult = await auth.getAccessToken();
+    const token =
+      typeof tokenResult === "string" ? tokenResult : tokenResult?.token;
+    if (!token) {
+      throw new AuthenticationError("gchat", "Failed to get access token");
+    }
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "gchat",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const resourceName = attachment.fetchMetadata?.resourceName;
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!(resourceName || url)) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: () => this.fetchAttachmentData(resourceName, url),
     };
   }
 
@@ -1565,9 +1614,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       const response = await this.chatApi.spaces.messages.update({
         name: messageId,
-        updateMask: "text",
+        updateMask: "text,cardsV2",
         requestBody: {
           text,
+          cardsV2: [],
         },
       });
 

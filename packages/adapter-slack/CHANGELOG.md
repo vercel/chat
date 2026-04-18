@@ -1,5 +1,15 @@
 # @chat-adapter/slack
 
+## 4.26.0
+
+### Patch Changes
+
+- 8955e71: Patches bug with conversion of markdown tables to Slack table blocks
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
 ## 4.25.0
 
 ### Patch Changes

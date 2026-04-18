@@ -207,7 +207,7 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 | Tables | GFM |
 | Fields | Yes |
 | Images in cards | Yes |
-| Modals | No |
+| Modals | Yes |
 
 ### Conversations
 

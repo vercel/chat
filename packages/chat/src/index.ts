@@ -43,7 +43,13 @@ export type {
   PostableObjectContext,
 } from "./postable-object";
 export { isPostableObject } from "./postable-object";
+export { reviver } from "./reviver";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
+export {
+  StreamingPlan,
+  type StreamingPlanData,
+  type StreamingPlanOptions,
+} from "./streaming-plan";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
 // Card builders - import then re-export to ensure values are properly exported

@@ -1,5 +1,15 @@
 # @chat-adapter/gchat
 
+## 4.26.0
+
+### Patch Changes
+
+- 4cc87dd: Preserve custom link labels in Google Chat text messages by rendering Markdown links with Google Chat's supported `<url|text>` syntax.
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
 ## 4.25.0
 
 ### Patch Changes

@@ -443,6 +443,15 @@ await dm.post("Hello via DM!");
 const dm = await bot.openDM(message.author);
 ```
 
+### thread
+
+Get a Thread handle by its thread ID. Useful for posting to threads outside of webhook contexts (e.g. cron jobs, external triggers).
+
+```typescript
+const thread = bot.thread("slack:C123ABC:1234567890.123456");
+await thread.post("Hello from a cron job!");
+```
+
 ### channel
 
 Get a Channel by its channel ID.
@@ -475,3 +484,13 @@ Get a `JSON.parse` reviver that deserializes `Thread` and `Message` objects from
 const data = JSON.parse(payload, bot.reviver());
 await data.thread.post("Hello from workflow!");
 ```
+
+There is also a standalone `reviver` export that works without a `Chat` instance. This is useful in Vercel Workflow functions where importing the full Chat instance (with its adapter dependencies) is not possible:
+
+```typescript
+import { reviver } from "chat";
+
+const data = JSON.parse(payload, reviver) as { thread: Thread; message: Message };
+```
+
+The standalone reviver uses lazy adapter resolution - the adapter is looked up from the Chat singleton when first accessed. Call `chat.registerSingleton()` before using thread methods like `post()` (typically inside a `"use step"` function).

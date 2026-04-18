@@ -18,7 +18,9 @@ import type {
   FieldsElement,
   ImageElement,
   LinkButtonElement,
+  RadioSelectElement,
   SectionElement,
+  SelectElement,
   TableElement,
   TextElement,
 } from "chat";
@@ -61,7 +63,25 @@ export interface GoogleChatWidget {
   };
   divider?: Record<string, never>;
   image?: { imageUrl: string; altText?: string };
+  selectionInput?: GoogleChatSelectionInput;
   textParagraph?: { text: string };
+}
+
+export interface GoogleChatSelectionInput {
+  items: GoogleChatSelectionItem[];
+  label: string;
+  name: string;
+  onChangeAction: {
+    function: string;
+    parameters: Array<{ key: string; value: string }>;
+  };
+  type: "DROPDOWN" | "RADIO_BUTTON";
+}
+
+export interface GoogleChatSelectionItem {
+  selected?: boolean;
+  text: string;
+  value: string;
 }
 
 export interface GoogleChatButton {
@@ -192,7 +212,7 @@ function convertChildToWidgets(
     case "divider":
       return [convertDividerToWidget(child)];
     case "actions":
-      return [convertActionsToWidget(child, endpointUrl)];
+      return convertActionsToWidgets(child, endpointUrl);
     case "section":
       return convertSectionToWidgets(child, endpointUrl);
     case "fields":
@@ -252,21 +272,74 @@ function convertDividerToWidget(_element: DividerElement): GoogleChatWidget {
   return { divider: {} };
 }
 
-function convertActionsToWidget(
+function convertActionsToWidgets(
   element: ActionsElement,
   endpointUrl?: string
-): GoogleChatWidget {
-  const buttons: (GoogleChatButton | GoogleChatLinkButton)[] = element.children
-    .filter((child) => child.type === "button" || child.type === "link-button")
-    .map((button) => {
-      if (button.type === "link-button") {
-        return convertLinkButtonToGoogleButton(button);
-      }
-      return convertButtonToGoogleButton(button, endpointUrl);
+): GoogleChatWidget[] {
+  const widgets: GoogleChatWidget[] = [];
+  let buttons: (GoogleChatButton | GoogleChatLinkButton)[] = [];
+
+  const flushButtons = () => {
+    if (buttons.length === 0) {
+      return;
+    }
+
+    widgets.push({
+      buttonList: { buttons },
     });
+    buttons = [];
+  };
+
+  for (const child of element.children) {
+    if (child.type === "button") {
+      buttons.push(convertButtonToGoogleButton(child, endpointUrl));
+      continue;
+    }
+
+    if (child.type === "link-button") {
+      buttons.push(convertLinkButtonToGoogleButton(child));
+      continue;
+    }
+
+    if (child.type === "select" || child.type === "radio_select") {
+      flushButtons();
+      widgets.push(convertSelectionInputToWidget(child, endpointUrl));
+    }
+  }
+
+  flushButtons();
+
+  return widgets;
+}
+
+function convertSelectionInputToWidget(
+  element: SelectElement | RadioSelectElement,
+  endpointUrl?: string
+): GoogleChatWidget {
+  const items = element.options.map((option) => {
+    const item: GoogleChatSelectionItem = {
+      text: convertEmoji(option.label),
+      value: option.value,
+    };
+
+    if (option.value === element.initialOption) {
+      item.selected = true;
+    }
+
+    return item;
+  });
 
   return {
-    buttonList: { buttons },
+    selectionInput: {
+      name: element.id,
+      label: convertEmoji(element.label),
+      type: element.type === "radio_select" ? "RADIO_BUTTON" : "DROPDOWN",
+      items,
+      onChangeAction: {
+        function: endpointUrl || element.id,
+        parameters: [{ key: "actionId", value: element.id }],
+      },
+    },
   };
 }
 

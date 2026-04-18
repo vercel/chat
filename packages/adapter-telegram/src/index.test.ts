@@ -212,6 +212,29 @@ describe("constructor env var resolution", () => {
     expect(adapter).toBeInstanceOf(TelegramAdapter);
   });
 
+  it("should accept apiUrl config and prefer it over apiBaseUrl", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    const adapter = new TelegramAdapter({
+      botToken: "token",
+      apiUrl: "https://apiurl.example.com",
+      apiBaseUrl: "https://apibaseurl.example.com",
+    });
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://apiurl.example.com"
+    );
+  });
+
+  it("should fall back to apiBaseUrl when apiUrl is not set", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    const adapter = new TelegramAdapter({
+      botToken: "token",
+      apiBaseUrl: "https://apibaseurl.example.com",
+    });
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://apibaseurl.example.com"
+    );
+  });
+
   it("should default logger when not provided", () => {
     process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
     const adapter = new TelegramAdapter();

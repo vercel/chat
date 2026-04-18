@@ -242,7 +242,8 @@ export class TelegramAdapter
 
     this.botToken = botToken;
     this.apiBaseUrl = trimTrailingSlashes(
-      config.apiBaseUrl ??
+      config.apiUrl ??
+        config.apiBaseUrl ??
         process.env.TELEGRAM_API_BASE_URL ??
         TELEGRAM_API_BASE
     );
@@ -1158,6 +1159,18 @@ export class TelegramAdapter
       height: metadata?.height,
       name: metadata?.name,
       mimeType: metadata?.mimeType,
+      fetchMetadata: { fileId },
+      fetchData: async () => this.downloadFile(fileId),
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const fileId = attachment.fetchMetadata?.fileId;
+    if (!fileId) {
+      return attachment;
+    }
+    return {
+      ...attachment,
       fetchData: async () => this.downloadFile(fileId),
     };
   }

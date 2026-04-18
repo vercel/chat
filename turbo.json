@@ -15,7 +15,8 @@
     "WHATSAPP_PHONE_NUMBER_ID",
     "WHATSAPP_VERIFY_TOKEN",
     "BOT_USERNAME",
-    "REDIS_URL"
+    "REDIS_URL",
+    "EDGE_CONFIG"
   ],
   "tasks": {
     "build": {

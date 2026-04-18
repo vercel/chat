@@ -438,6 +438,13 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
+  /**
+   * Reconstruct fetchData on an attachment after deserialization.
+   * Called during message rehydration for queue/debounce strategies.
+   * Uses fetchMetadata and adapter auth context to rebuild the download closure.
+   */
+  rehydrateAttachment?(attachment: Attachment): Attachment;
+
   /** Remove a reaction from a message */
   removeReaction(
     threadId: string,
@@ -511,6 +518,7 @@ export interface MarkdownTextChunk {
 }
 
 export interface TaskUpdateChunk {
+  details?: string;
   id: string;
   output?: string;
   status: "pending" | "in_progress" | "complete" | "error";
@@ -1019,6 +1027,41 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   ): SentMessage<TRawMessage>;
 
   /**
+   * Get the unique human participants in this thread.
+   *
+   * Scans all messages in the thread and returns deduplicated authors,
+   * excluding the bot itself. Useful for deciding whether to subscribe
+   * based on how many humans are participating — subscribe when it's a
+   * 1:1 conversation, unsubscribe when others join so humans can talk
+   * without the bot replying to every message.
+   *
+   * @returns Array of unique non-bot authors
+   *
+   * @example
+   * ```typescript
+   * // Subscribe only when one person is talking to the bot
+   * bot.onNewMention(async (thread, message) => {
+   *   const participants = await thread.getParticipants();
+   *   if (participants.length === 1) {
+   *     await thread.subscribe();
+   *     await thread.post("I'm here to help!");
+   *   }
+   * });
+   *
+   * // Unsubscribe when the thread becomes a group conversation
+   * bot.onSubscribedMessage(async (thread, message) => {
+   *   const participants = await thread.getParticipants();
+   *   if (participants.length > 1) {
+   *     await thread.unsubscribe();
+   *     return;
+   *   }
+   *   await thread.post("Still here to help!");
+   * });
+   * ```
+   */
+  getParticipants(): Promise<Author[]>;
+
+  /**
    * Check if this thread is currently subscribed.
    *
    * In subscribed message handlers, this is optimized to return true immediately
@@ -1067,6 +1110,13 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
+   *
+   * // Stream with options via StreamingPlan PostableObject
+   * const stream = new StreamingPlan(result.fullStream, {
+   *   groupTasks: "plan",
+   *   endWith: [feedbackBlocks],
+   * });
+   * await thread.post(stream);
    *
    * // Plan with live updates
    * const plan = new Plan({ initialMessage: "Working..." });
@@ -1179,10 +1229,7 @@ export type {
   UpdateTaskInput,
 } from "./plan";
 // Re-export PostableObject types from plan.ts for backwards compatibility
-export type {
-  PostableObject,
-  PostableObjectContext,
-} from "./postable-object";
+export type { PostableObject, PostableObjectContext } from "./postable-object";
 
 export interface ThreadInfo {
   channelId: string;
@@ -1474,6 +1521,12 @@ export interface Attachment {
    * this method handles the auth automatically.
    */
   fetchData?: () => Promise<Buffer>;
+  /**
+   * Platform-specific metadata needed to reconstruct fetchData after serialization.
+   * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that
+   * fetchData can be rebuilt when a message is rehydrated from the queue.
+   */
+  fetchMetadata?: Record<string, string>;
   /** Image/video height (if applicable) */
   height?: number;
   /** MIME type */

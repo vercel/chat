@@ -1423,6 +1423,33 @@ describe("Chat", () => {
     });
   });
 
+  describe("thread", () => {
+    it("should return a Thread handle for a valid thread ID", () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+      expect(thread).toBeDefined();
+      expect(thread.id).toBe("slack:C123:1234.5678");
+    });
+
+    it("should allow posting to a thread handle", async () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+      await thread.post("Hello from outside a webhook!");
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "Hello from outside a webhook!"
+      );
+    });
+
+    it("should throw for an invalid thread ID", () => {
+      expect(() => chat.thread("")).toThrow("Invalid thread ID");
+    });
+
+    it("should throw for an unknown adapter prefix", () => {
+      expect(() => chat.thread("unknown:C123:1234.5678")).toThrow(
+        'Adapter "unknown" not found'
+      );
+    });
+  });
+
   describe("isDM", () => {
     it("should return true for DM threads", async () => {
       const thread = await chat.openDM("U123456");
@@ -2398,6 +2425,223 @@ describe("Chat", () => {
         skipped: ["Hey @slack-bot second", "Hey @slack-bot third"],
         totalSinceLastHandler: 3,
       });
+    });
+  });
+
+  describe("concurrency: queue attachment rehydration", () => {
+    function createJsonRoundtripState() {
+      const state = createMockState();
+      const realEnqueue = state.enqueue.getMockImplementation();
+      if (!realEnqueue) {
+        throw new Error("Expected enqueue to have a mock implementation");
+      }
+      vi.mocked(state.enqueue).mockImplementation(
+        async (threadId, entry, maxSize) => {
+          // Simulate real state adapter: JSON.stringify strips functions
+          const serialized = JSON.parse(JSON.stringify(entry));
+          return realEnqueue(threadId, serialized, maxSize);
+        }
+      );
+      return state;
+    }
+
+    it("should call rehydrateAttachment on deserialized attachments missing fetchData", async () => {
+      const state = createJsonRoundtripState();
+      const adapter = createMockAdapter("slack");
+      const mockFetchData = vi.fn().mockResolvedValue(Buffer.from("data"));
+      adapter.rehydrateAttachment = vi.fn().mockImplementation((att) => ({
+        ...att,
+        fetchData: mockFetchData,
+      }));
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedAttachments: unknown[] = [];
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedAttachments.push(message.attachments);
+        })
+      );
+
+      // Pre-acquire lock so the message gets enqueued (and JSON-serialized)
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      const msg = createTestMessage("msg-att-1", "Hey @slack-bot file", {
+        attachments: [
+          {
+            type: "file" as const,
+            url: "https://example.com/f.pdf",
+            name: "f.pdf",
+            fetchMetadata: { url: "https://example.com/f.pdf" },
+            fetchData: () => Promise.resolve(Buffer.from("original")),
+          },
+        ],
+      });
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      // Release lock and trigger drain with a new message
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const trigger = createTestMessage("msg-att-2", "Hey @slack-bot trigger");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        trigger
+      );
+
+      // rehydrateAttachment should have been called for the queued message
+      expect(adapter.rehydrateAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "file",
+          fetchMetadata: { url: "https://example.com/f.pdf" },
+        })
+      );
+
+      // The handler should receive the attachment with fetchData restored
+      expect(receivedAttachments.length).toBeGreaterThanOrEqual(1);
+      const queuedAttachments = receivedAttachments.find(
+        (atts) =>
+          Array.isArray(atts) && atts.length > 0 && atts[0].name === "f.pdf"
+      ) as { fetchData?: () => Promise<Buffer> }[];
+      expect(queuedAttachments).toBeDefined();
+      expect(queuedAttachments[0].fetchData).toBe(mockFetchData);
+    });
+
+    it("should skip rehydration for attachments that already have fetchData", async () => {
+      const state = createMockState(); // no JSON roundtrip — Message survives as instance
+      const adapter = createMockAdapter("slack");
+      adapter.rehydrateAttachment = vi.fn();
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const originalFetchData = vi
+        .fn()
+        .mockResolvedValue(Buffer.from("original"));
+
+      const receivedAttachments: unknown[] = [];
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedAttachments.push(message.attachments);
+        })
+      );
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      const msg = createTestMessage("msg-skip-1", "Hey @slack-bot file", {
+        attachments: [
+          {
+            type: "file" as const,
+            url: "https://example.com/f.pdf",
+            fetchData: originalFetchData,
+          },
+        ],
+      });
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const trigger = createTestMessage("msg-skip-2", "Hey @slack-bot trigger");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        trigger
+      );
+
+      // rehydrateAttachment should NOT have been called — fetchData was already present
+      expect(adapter.rehydrateAttachment).not.toHaveBeenCalled();
+    });
+
+    it("should leave attachments unchanged when adapter has no rehydrateAttachment", async () => {
+      const state = createJsonRoundtripState();
+      const adapter = createMockAdapter("slack");
+      // adapter has no rehydrateAttachment (default from createMockAdapter)
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const receivedAttachments: unknown[] = [];
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedAttachments.push(message.attachments);
+        })
+      );
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      const msg = createTestMessage("msg-noop-1", "Hey @slack-bot file", {
+        attachments: [
+          {
+            type: "file" as const,
+            url: "https://example.com/f.pdf",
+            fetchMetadata: { url: "https://example.com/f.pdf" },
+            fetchData: () => Promise.resolve(Buffer.from("data")),
+          },
+        ],
+      });
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const trigger = createTestMessage("msg-noop-2", "Hey @slack-bot trigger");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        trigger
+      );
+
+      // Attachment should still have fetchMetadata but no fetchData (lost in JSON roundtrip)
+      const queuedAttachments = receivedAttachments.find(
+        (atts) =>
+          Array.isArray(atts) &&
+          atts.length > 0 &&
+          atts[0].url === "https://example.com/f.pdf"
+      ) as { fetchData?: unknown; fetchMetadata?: unknown }[];
+      expect(queuedAttachments).toBeDefined();
+      expect(queuedAttachments[0].fetchMetadata).toEqual({
+        url: "https://example.com/f.pdf",
+      });
+      expect(queuedAttachments[0].fetchData).toBeUndefined();
     });
   });
 

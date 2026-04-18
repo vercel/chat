@@ -75,3 +75,4 @@ bot.onSubscribedMessage(async (thread, message) => {
 | `width` | `number` (optional) | Image width |
 | `height` | `number` (optional) | Image height |
 | `fetchData` | `() => Promise<Buffer>` (optional) | Download the file data |
+| `fetchMetadata` | `Record<string, string>` (optional) | Platform-specific IDs for reconstructing `fetchData` after serialization |
