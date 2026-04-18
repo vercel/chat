@@ -327,6 +327,7 @@ export type {
   MessageMetadata,
   ModalCloseEvent,
   ModalCloseHandler,
+  ModalClearResponse,
   ModalCloseResponse,
   ModalErrorsResponse,
   ModalPushResponse,
