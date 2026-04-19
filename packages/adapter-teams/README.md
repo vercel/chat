@@ -89,12 +89,6 @@ az login
 teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env --azure --resource-group my-rg
 ```
 
-You can also migrate an existing Teams-managed bot to Azure later:
-
-```bash
-teams app bot migrate <appId> --resource-group my-rg --create-resource-group
-```
-
 ### Managing your app
 
 ```bash
