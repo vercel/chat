@@ -97,6 +97,10 @@ teams app update <appId> --endpoint "https://new-domain.com/api/webhooks/teams"
 
 # Rotate the client secret
 teams app auth secret create <appId> --env .env
+
+# Receive all messages (not just @mentions) + enable message history
+teams app rsc add <appId> ChannelMessage.Read.Group --type Application
+teams app rsc add <appId> ChatMessage.Read.Chat --type Application
 ```
 
 ## Configuration
@@ -203,23 +207,35 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 
 ## Message history (`fetchMessages`)
 
-Fetching message history requires the Microsoft Graph API with client credentials flow. To enable it:
+Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
 
-1. Set `appTenantId` in the adapter config (or `TEAMS_APP_TENANT_ID` env var)
-2. Grant one of these Azure AD app permissions:
-   - `ChatMessage.Read.Chat`
-   - `Chat.Read.All`
-   - `Chat.Read.WhereInstalled`
+| Context | Permission | Type | Admin consent? |
+|---------|-----------|------|---------------|
+| Channel | `ChannelMessage.Read.Group` | RSC | No |
+| Group chat | `ChatMessage.Read.Chat` | RSC | No |
+| DM | `Chat.Read.All` | Azure AD | Yes |
 
-Without these permissions, `fetchMessages` will throw a `NotImplementedError`.
-
-### Receiving all messages
-
-By default, Teams bots only receive messages when directly @-mentioned. To receive all messages in a channel or group chat, add the RSC permission:
+RSC permissions are set via the Teams CLI (no admin consent needed):
 
 ```bash
 teams app rsc add <appId> ChannelMessage.Read.Group --type Application
+teams app rsc add <appId> ChatMessage.Read.Chat --type Application
 ```
+
+These also enable receiving all messages without @mention as a side effect.
+
+For DM message history, RSC is not sufficient. Add the `Chat.Read.All` Azure AD permission:
+
+```bash
+az ad app permission add \
+  --id <appId> \
+  --api 00000003-0000-0000-c000-000000000000 \
+  --api-permissions 6b7d71aa-70aa-4810-a8d9-5d9fb2830017=Role
+
+az ad app permission admin-consent --id <appId>
+```
+
+Without any of these permissions, `fetchMessages` will throw a `NotImplementedError`.
 
 ## Troubleshooting
 
