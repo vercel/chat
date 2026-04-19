@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
 
-Microsoft Teams adapter for [Chat SDK](https://chat-sdk.dev). Configure with Azure Bot Service.
+Microsoft Teams adapter for [Chat SDK](https://chat-sdk.dev).
 
 ## Installation
 
@@ -33,104 +33,77 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-## Azure Bot setup
+## Bot setup
 
-### 1. Create Azure Bot resource
+The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
 
-1. Go to [portal.azure.com](https://portal.azure.com)
-2. Click **Create a resource**
-3. Search for **Azure Bot** and select it
-4. Click **Create** and fill in:
-   - **Bot handle**: Unique identifier for your bot
-   - **Subscription**: Your Azure subscription
-   - **Resource group**: Create new or use existing
-   - **Pricing tier**: F0 (free) for testing
-   - **Type of App**: **Single Tenant** (recommended for enterprise)
-   - **Creation type**: **Create new Microsoft App ID**
-5. Click **Review + create** then **Create**
-
-### 2. Get app credentials
-
-1. Go to your Bot resource then **Configuration**
-2. Copy **Microsoft App ID** as `TEAMS_APP_ID`
-3. Click **Manage Password** (next to Microsoft App ID)
-4. In the App Registration page, go to **Certificates & secrets**
-5. Click **New client secret**, add description, select expiry, click **Add**
-6. Copy the **Value** immediately (shown only once) as `TEAMS_APP_PASSWORD`
-7. Go to **Overview** and copy **Directory (tenant) ID** as `TEAMS_APP_TENANT_ID`
-
-### 3. Configure messaging endpoint
-
-1. In your Azure Bot resource, go to **Configuration**
-2. Set **Messaging endpoint** to `https://your-domain.com/api/webhooks/teams`
-3. Click **Apply**
-
-### 4. Enable Teams channel
-
-1. In your Azure Bot resource, go to **Channels**
-2. Click **Microsoft Teams**
-3. Accept the terms of service
-4. Click **Apply**
-
-### 5. Create Teams app package
-
-Create a `manifest.json` file:
-
-```json
-{
-  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
-  "manifestVersion": "1.16",
-  "version": "1.0.0",
-  "id": "your_app_id_here",
-  "packageName": "com.yourcompany.chatbot",
-  "developer": {
-    "name": "Your Company",
-    "websiteUrl": "https://your-domain.com",
-    "privacyUrl": "https://your-domain.com/privacy",
-    "termsOfUseUrl": "https://your-domain.com/terms"
-  },
-  "name": {
-    "short": "Chat Bot",
-    "full": "Chat SDK Demo Bot"
-  },
-  "description": {
-    "short": "A chat bot powered by Chat SDK",
-    "full": "A chat bot powered by Chat SDK that responds to messages and commands."
-  },
-  "icons": {
-    "outline": "outline.png",
-    "color": "color.png"
-  },
-  "accentColor": "#FFFFFF",
-  "bots": [
-    {
-      "botId": "your_app_id_here",
-      "scopes": ["personal", "team", "groupchat"],
-      "supportsFiles": false,
-      "isNotificationOnly": false
-    }
-  ],
-  "permissions": ["identity", "messageTeamMembers"],
-  "validDomains": ["your-domain.com"]
-}
+```bash
+npm install -g @microsoft/teams.cli@preview
 ```
 
-Create icon files (32x32 `outline.png` and 192x192 `color.png`), then zip all three files together.
+### 1. Create the app
 
-### 6. Upload app to Teams
+```bash
+teams login
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+```
 
-**For testing (sideloading):**
+Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
 
-1. In Teams, click **Apps** in the sidebar
-2. Click **Manage your apps** then **Upload an app**
-3. Click **Upload a custom app** and select your zip file
+```bash
+TEAMS_APP_ID=<CLIENT_ID>
+TEAMS_APP_PASSWORD=<CLIENT_SECRET>
+TEAMS_APP_TENANT_ID=<TENANT_ID>
+```
 
-**For organization-wide deployment:**
+### 2. Install in Teams
 
-1. Go to [Teams Admin Center](https://admin.teams.microsoft.com)
-2. Go to **Teams apps** then **Manage apps**
-3. Click **Upload new app** and select your zip file
-4. Go to **Setup policies** to control who can use the app
+Get a direct install link:
+
+```bash
+teams app get <appId> --install-link
+```
+
+Or download the app package for sideloading:
+
+```bash
+teams app package download <appId> -o my-bot.zip
+```
+
+Then in Teams: **Apps** > **Manage your apps** > **Upload an app** > **Upload a custom app**.
+
+### 3. Verify
+
+```bash
+teams app doctor <appId>
+```
+
+Checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
+
+### Azure bots (optional)
+
+By default, `teams app create` creates a Teams-managed bot (no Azure subscription required). For OAuth connections or SSO, create an Azure bot instead:
+
+```bash
+az login
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env --azure --resource-group my-rg
+```
+
+You can also migrate an existing Teams-managed bot to Azure later:
+
+```bash
+teams app bot migrate <appId> --resource-group my-rg --create-resource-group
+```
+
+### Managing your app
+
+```bash
+# Update the messaging endpoint
+teams app update <appId> --endpoint "https://new-domain.com/api/webhooks/teams"
+
+# Rotate the client secret
+teams app auth secret create <appId> --env .env
+```
 
 ## Configuration
 
@@ -248,46 +221,33 @@ Without these permissions, `fetchMessages` will throw a `NotImplementedError`.
 
 ### Receiving all messages
 
-By default, Teams bots only receive messages when directly @-mentioned. To receive all messages in a channel or group chat, add Resource-Specific Consent (RSC) permissions to your Teams app manifest:
+By default, Teams bots only receive messages when directly @-mentioned. To receive all messages in a channel or group chat, add the RSC permission:
 
-```json
-{
-  "authorization": {
-    "permissions": {
-      "resourceSpecific": [
-        {
-          "name": "ChannelMessage.Read.Group",
-          "type": "Application"
-        }
-      ]
-    }
-  }
-}
+```bash
+teams app rsc add <appId> ChannelMessage.Read.Group --type Application
 ```
 
-Alternatively, configure the bot in Azure to receive all messages.
-
 ## Troubleshooting
+
+Run `teams app doctor <appId>` to diagnose common issues — it checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
 
 ### "Unauthorized" error
 
 - Verify `TEAMS_APP_ID` and your chosen auth credential are correct
-- For client secret auth, check that `TEAMS_APP_PASSWORD` is valid and not expired
+- Check that `TEAMS_APP_PASSWORD` is valid and not expired (rotate with `teams app auth secret create`)
 - For federated auth, verify the managed identity client ID is correct and that federated credentials are configured in Azure AD
 - For SingleTenant apps, ensure `TEAMS_APP_TENANT_ID` is set
-- Check that the messaging endpoint URL is correct in Azure
 
 ### Bot not appearing in Teams
 
-- Verify the Teams channel is enabled in Azure Bot
+- Run `teams app doctor` to check registration and channel status
 - Check that the app manifest is correctly configured
 - Ensure the app is installed in the workspace/team
 
 ### Messages not received
 
-- Verify the messaging endpoint URL is correct
+- Verify the messaging endpoint is correct (`teams app update --endpoint`)
 - Check that your server is accessible from the internet
-- Review Azure Bot logs for errors
 
 ## License
 
