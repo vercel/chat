@@ -63,6 +63,8 @@ import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
   TeamsAdapterConfig,
   TeamsChannelContext,
+  TeamsDmContext,
+  TeamsGraphContext,
   TeamsThreadId,
 } from "./types";
 
@@ -112,8 +114,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       graph: this.app.graph,
       logger: this.logger,
       formatConverter: this.formatConverter,
-      getChannelContext: (baseConversationId) =>
-        this.getChannelContext(baseConversationId),
+      getGraphContext: (baseConversationId) =>
+        this.getGraphContext(baseConversationId),
     });
   }
 
@@ -216,14 +218,31 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         )
         .catch(() => {});
     }
+
+    // Cache DM context for Graph API chat ID resolution
+    const aadObjectId = (activity.from as { aadObjectId?: string }).aadObjectId;
+    if (aadObjectId && this.app.id && !baseChannelId.startsWith("19:")) {
+      const dmContext: TeamsDmContext = {
+        type: "dm",
+        graphChatId: `19:${aadObjectId}_${this.app.id}@unq.gbl.spaces`,
+      };
+      this.chat
+        .getState()
+        .set(
+          `teams:channelContext:${baseChannelId}`,
+          JSON.stringify(dmContext),
+          ttl
+        )
+        .catch(() => {});
+    }
   }
 
   /**
-   * Look up cached channel context, resolving aadGroupId via Bot API if needed.
+   * Look up cached Graph context (channel or DM), resolving via Bot API if needed.
    */
-  private async getChannelContext(
+  private async getGraphContext(
     baseConversationId: string
-  ): Promise<TeamsChannelContext | null> {
+  ): Promise<TeamsGraphContext | null> {
     if (!this.chat) {
       return null;
     }
@@ -233,7 +252,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       .get<string>(`teams:channelContext:${baseConversationId}`);
     if (cached) {
       try {
-        return JSON.parse(cached) as TeamsChannelContext;
+        return JSON.parse(cached) as TeamsGraphContext;
       } catch {
         return null;
       }
