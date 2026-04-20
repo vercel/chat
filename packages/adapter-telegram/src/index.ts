@@ -64,7 +64,7 @@ const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
-const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
+const TELEGRAM_MARKDOWN_PARSE_MODE = "MarkdownV2";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -103,18 +103,22 @@ interface ResolvedTelegramLongPollingConfig {
 type TelegramRuntimeMode = "webhook" | "polling";
 
 /**
- * Escape markdown special characters inside entity text so wrapping
- * with markdown syntax doesn't break parsing.
+ * Escape standard-markdown special characters inside inbound entity text.
+ *
+ * Used only by `applyTelegramEntities` below (inbound path). Outbound
+ * MarkdownV2 escaping lives in `markdown.ts` (`escapeMarkdownV2`).
  */
 const escapeMarkdownInEntity = (text: string): string =>
   text.replace(/([[\]()\\])/g, "\\$1");
 
 /**
- * Convert Telegram message entities to markdown.
+ * Convert Telegram message entities (inbound) to standard markdown.
  *
  * Telegram delivers formatting as separate entity objects alongside plain text.
- * This function reconstructs markdown so that links, bold, italic, code, etc.
- * are preserved when the text is later parsed as markdown.
+ * This function reconstructs **standard** markdown (`**bold**`, `~~strike~~`,
+ * etc.) so the result can be fed into the SDK's `parseMarkdown` — which is
+ * the canonical AST producer. The outbound direction (AST → MarkdownV2) is
+ * handled separately by `TelegramFormatConverter.fromAst`.
  *
  * Entities use UTF-16 offsets, which match JavaScript's native string indexing.
  */
@@ -664,7 +668,9 @@ export class TelegramAdapter
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
-          ? cardToFallbackText(card)
+          ? this.formatConverter.fromMarkdown(
+              cardToFallbackText(card, { boldFormat: "**" })
+            )
           : this.formatConverter.renderPostable(message),
         "gchat"
       )
@@ -750,7 +756,9 @@ export class TelegramAdapter
     const text = this.truncateMessage(
       convertEmojiPlaceholders(
         card
-          ? cardToFallbackText(card)
+          ? this.formatConverter.fromMarkdown(
+              cardToFallbackText(card, { boldFormat: "**" })
+            )
           : this.formatConverter.renderPostable(message),
         "gchat"
       )
@@ -1514,9 +1522,21 @@ export class TelegramAdapter
     message: AdapterPostableMessage,
     card: ReturnType<typeof extractCard>
   ): string | undefined {
-    const hasMarkdown =
-      typeof message === "object" && message !== null && "markdown" in message;
-    return card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    // Cards and any message routed through the format converter are rendered
+    // as MarkdownV2, so Telegram must parse them with MarkdownV2.
+    if (card) {
+      return TELEGRAM_MARKDOWN_PARSE_MODE;
+    }
+    // Plain strings and raw messages ship verbatim — no markdown parsing.
+    if (typeof message === "string") {
+      return undefined;
+    }
+    if (typeof message === "object" && message !== null && "raw" in message) {
+      return undefined;
+    }
+    // Every other shape ({markdown}, {ast}, JSX, etc.) flows through
+    // formatConverter.renderPostable, which emits MarkdownV2.
+    return TELEGRAM_MARKDOWN_PARSE_MODE;
   }
 
   private truncateMessage(text: string): string {
@@ -1816,7 +1836,7 @@ export function createTelegramAdapter(
   return new TelegramAdapter(config ?? {});
 }
 
-export { TelegramFormatConverter } from "./markdown";
+export { escapeMarkdownV2, TelegramFormatConverter } from "./markdown";
 export type {
   TelegramAdapterConfig,
   TelegramAdapterMode,

@@ -15,6 +15,7 @@ import {
   type TelegramMessage,
   type TelegramReactionType,
 } from "./index";
+import { TelegramFormatConverter } from "./markdown";
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -996,7 +997,103 @@ describe("TelegramAdapter", () => {
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as { parse_mode?: string };
 
-    expect(sendMessageBody.parse_mode).toBe("Markdown");
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
+  });
+
+  it("sets parse_mode for AST messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const ast = new TelegramFormatConverter().toAst("**hello** world!");
+    await adapter.postMessage("telegram:123", { ast });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string; text: string };
+
+    // AST messages were shipping without parse_mode, so Telegram rendered
+    // MarkdownV2 asterisks literally. Guard against regression.
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
+    expect(sendMessageBody.text).toContain("*hello*");
+    expect(sendMessageBody.text).toContain("world\\!");
+  });
+
+  it("omits parse_mode for plain string messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", "plain text message");
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string };
+
+    expect(sendMessageBody.parse_mode).toBeUndefined();
+  });
+
+  it("omits parse_mode for raw messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", { raw: "raw.unparsed!(text)" });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string; text: string };
+
+    expect(sendMessageBody.parse_mode).toBeUndefined();
+    expect(sendMessageBody.text).toBe("raw.unparsed!(text)");
   });
 
   it("posts cards with inline keyboard buttons", async () => {
@@ -1055,7 +1152,7 @@ describe("TelegramAdapter", () => {
 
     const row = sendMessageBody.reply_markup?.inline_keyboard[0];
     expect(row).toBeDefined();
-    expect(sendMessageBody.parse_mode).toBe("Markdown");
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
     expect(row?.[0]).toEqual({
       text: "Approve",
       callback_data: encodeTelegramCallbackData("approve", "request-123"),
@@ -1064,6 +1161,53 @@ describe("TelegramAdapter", () => {
       text: "View",
       url: "https://example.com",
     });
+  });
+
+  it("renders card title as MarkdownV2 bold", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      type: "card",
+      title: "Order #1234",
+      children: [
+        {
+          type: "section",
+          children: [{ type: "text", content: "Approval needed." }],
+        },
+      ],
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string; text: string };
+
+    // cardToFallbackText (from @chat-adapter/shared) defaults boldFormat
+    // to "*" (single asterisk, Slack mrkdwn). For Telegram the adapter
+    // passes `boldFormat: "**"` so the standard-markdown bold survives
+    // the `fromMarkdown` → AST → MarkdownV2 pipeline as real bold
+    // (`*Title*`), not italic (`_Title_`) or literal asterisks.
+    // Inner special chars (here `#`) are escaped per MarkdownV2 rules.
+    expect(sendMessageBody.parse_mode).toBe("MarkdownV2");
+    expect(sendMessageBody.text).toContain("*Order \\#1234*");
+    expect(sendMessageBody.text).not.toContain("\\*");
   });
 
   it("adds and removes reactions", async () => {
