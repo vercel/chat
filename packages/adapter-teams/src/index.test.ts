@@ -1027,4 +1027,210 @@ describe("TeamsAdapter", () => {
       await expect(adapter.openDM("user-123")).rejects.toThrow(ValidationError);
     });
   });
+
+  // ==========================================================================
+  // getUser Tests
+  // ==========================================================================
+
+  describe("getUser", () => {
+    it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => ({
+          displayName: "Alice Smith",
+          mail: "alice@contoso.com",
+          userPrincipalName: "alice@contoso.com",
+          id: "aad-object-id-456",
+        })),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Alice Smith");
+      expect(user?.email).toBe("alice@contoso.com");
+      expect(user?.userName).toBe("alice@contoso.com");
+      expect(user?.userId).toBe("29:user-123");
+      expect(user?.isBot).toBe(false);
+    });
+
+    it("should return null when aadObjectId is not cached", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: { initialize: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:unknown-user");
+      expect(user).toBeNull();
+    });
+
+    it("should return null when Graph call fails", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => {
+          throw new Error("Forbidden");
+        }),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).toBeNull();
+    });
+
+    it("should handle missing mail gracefully", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => ({
+          displayName: "Bob Jones",
+          mail: null,
+          userPrincipalName: "bob@contoso.com",
+          id: "aad-object-id-456",
+        })),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Bob Jones");
+      expect(user?.email).toBeUndefined();
+      expect(user?.userName).toBe("bob@contoso.com");
+    });
+
+    it("should return null when adapter is not initialized", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).toBeNull();
+    });
+  });
 });

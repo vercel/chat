@@ -18,6 +18,7 @@ import type {
 import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
 import type { IActivityContext } from "@microsoft/teams.apps";
 import { App } from "@microsoft/teams.apps";
+import { users } from "@microsoft/teams.graph-endpoints";
 import type {
   ActionEvent,
   Adapter,
@@ -39,6 +40,7 @@ import type {
   StreamChunk,
   StreamOptions,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -186,6 +188,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.chat
         .getState()
         .set(`teams:serviceUrl:${userId}`, activity.serviceUrl, ttl)
+        .catch(() => {});
+    }
+
+    // Cache aadObjectId for Graph API user lookups
+    if (activity.from.aadObjectId) {
+      this.chat
+        .getState()
+        .set(`teams:aadObjectId:${userId}`, activity.from.aadObjectId, ttl)
         .catch(() => {});
     }
 
@@ -839,6 +849,42 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     options?: WebhookOptions
   ): Promise<Response> {
     return this.bridgeAdapter.dispatch(request, options);
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    if (!this.chat) {
+      return null;
+    }
+
+    try {
+      const aadObjectId = await this.chat
+        .getState()
+        .get<string>(`teams:aadObjectId:${userId}`);
+
+      if (!aadObjectId) {
+        this.logger.debug("No cached aadObjectId for user", { userId });
+        return null;
+      }
+
+      const graphUser = await this.app.graph.call(users.get, {
+        "user-id": aadObjectId,
+      });
+
+      return {
+        avatarUrl: undefined,
+        email: graphUser.mail ?? undefined,
+        fullName: graphUser.displayName ?? aadObjectId,
+        isBot: false,
+        userId,
+        userName: graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
+      };
+    } catch (error) {
+      this.logger.warn("Failed to fetch user info from Graph API", {
+        userId,
+        error,
+      });
+      return null;
+    }
   }
 
   async postMessage(
