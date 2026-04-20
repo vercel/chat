@@ -49,6 +49,7 @@ import type {
   TelegramInlineKeyboardMarkup,
   TelegramLongPollingConfig,
   TelegramMessage,
+  TelegramParseMode,
   TelegramMessageEntity,
   TelegramMessageReactionUpdated,
   TelegramRawMessage,
@@ -64,7 +65,6 @@ const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
-const TELEGRAM_MARKDOWN_PARSE_MODE = "Markdown";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -210,6 +210,7 @@ export class TelegramAdapter
   private readonly hasExplicitUserName: boolean;
   private readonly mode: TelegramAdapterMode;
   private readonly longPolling?: TelegramLongPollingConfig;
+  private readonly parseMode: TelegramParseMode;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
   private pollingTask: Promise<void> | null = null;
@@ -255,11 +256,21 @@ export class TelegramAdapter
     this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
     this.longPolling = config.longPolling;
+    this.parseMode = config.parseMode ?? "Markdown";
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
       throw new ValidationError(
         "telegram",
         `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
+      );
+    }
+
+    if (
+      !["Markdown", "MarkdownV2", "HTML", "none"].includes(this.parseMode)
+    ) {
+      throw new ValidationError(
+        "telegram",
+        `Invalid parseMode: ${this.parseMode}. Expected "Markdown", "MarkdownV2", "HTML", or "none".`
       );
     }
   }
@@ -1516,7 +1527,8 @@ export class TelegramAdapter
   ): string | undefined {
     const hasMarkdown =
       typeof message === "object" && message !== null && "markdown" in message;
-    return card || hasMarkdown ? TELEGRAM_MARKDOWN_PARSE_MODE : undefined;
+    if (!card && !hasMarkdown) return undefined;
+    return this.parseMode === "none" ? undefined : this.parseMode;
   }
 
   private truncateMessage(text: string): string {
@@ -1825,6 +1837,7 @@ export type {
   TelegramLongPollingConfig,
   TelegramMessage,
   TelegramMessageReactionUpdated,
+  TelegramParseMode,
   TelegramRawMessage,
   TelegramThreadId,
   TelegramUpdate,

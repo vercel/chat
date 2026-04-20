@@ -25,6 +25,20 @@ export interface TelegramAdapterConfig {
    * - polling: polling-only mode
    */
   mode?: TelegramAdapterMode;
+  /**
+   * Telegram parse_mode used when sending messages with a `markdown` field
+   * or a card. See https://core.telegram.org/bots/api#formatting-options.
+   * - "Markdown" (default): legacy Markdown — kept for backward compatibility
+   *   with prior behavior. Telegram considers this mode legacy and it has no
+   *   escape support.
+   * - "MarkdownV2": current Telegram markdown with full escape support.
+   * - "HTML": HTML formatting.
+   * - "none": omit parse_mode entirely (send as plain text). Useful as a
+   *   safety valve when the upstream markdown converter produces output
+   *   Telegram cannot parse.
+   * @default "Markdown"
+   */
+  parseMode?: TelegramParseMode;
   /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
@@ -32,6 +46,8 @@ export interface TelegramAdapterConfig {
 }
 
 export type TelegramAdapterMode = "auto" | "webhook" | "polling";
+
+export type TelegramParseMode = "Markdown" | "MarkdownV2" | "HTML" | "none";
 
 /**
  * Telegram long-polling configuration.
