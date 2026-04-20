@@ -48,6 +48,9 @@ teams login
 teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
 ```
 
+> [!TIP]
+> For local development, use a tunnel (e.g. [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), ngrok) to expose your local server.
+
 Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
 
 ```bash
@@ -79,29 +82,6 @@ teams app doctor <appId>
 ```
 
 Checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
-
-### Azure bots (optional)
-
-By default, `teams app create` creates a Teams-managed bot (no Azure subscription required). For OAuth connections or SSO, create an Azure bot instead:
-
-```bash
-az login
-teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env --azure --resource-group my-rg
-```
-
-### Managing your app
-
-```bash
-# Update the messaging endpoint
-teams app update <appId> --endpoint "https://new-domain.com/api/webhooks/teams"
-
-# Rotate the client secret
-teams app auth secret create <appId> --env .env
-
-# Receive all messages (not just @mentions) + enable message history
-teams app rsc add <appId> ChannelMessage.Read.Group --type Application
-teams app rsc add <appId> ChatMessage.Read.Chat --type Application
-```
 
 ## Configuration
 
@@ -222,9 +202,7 @@ teams app rsc add <appId> ChannelMessage.Read.Group --type Application
 teams app rsc add <appId> ChatMessage.Read.Chat --type Application
 ```
 
-These also enable receiving all messages without @mention as a side effect.
-
-For DM message history, RSC is not sufficient. Add the `Chat.Read.All` Azure AD permission:
+For DM message history, RSC is not sufficient. Add the `Chat.Read.All` Azure AD permission using the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/):
 
 ```bash
 az ad app permission add \
@@ -237,6 +215,10 @@ az ad app permission admin-consent --id <appId>
 
 Without any of these permissions, `fetchMessages` will throw a `NotImplementedError`.
 
+### Receiving all messages
+
+By default, Teams bots only receive messages when directly @-mentioned. The RSC permissions above (`ChannelMessage.Read.Group` and `ChatMessage.Read.Chat`) also enable receiving all messages in channels and group chats as a side effect.
+
 ## Troubleshooting
 
 Run `teams app doctor <appId>` to diagnose common issues — it checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
@@ -244,20 +226,22 @@ Run `teams app doctor <appId>` to diagnose common issues — it checks bot regis
 ### "Unauthorized" error
 
 - Verify `TEAMS_APP_ID` and your chosen auth credential are correct
-- Check that `TEAMS_APP_PASSWORD` is valid and not expired (rotate with `teams app auth secret create`)
+- For client secret auth, check that `TEAMS_APP_PASSWORD` is valid and not expired
 - For federated auth, verify the managed identity client ID is correct and that federated credentials are configured in Azure AD
 - For SingleTenant apps, ensure `TEAMS_APP_TENANT_ID` is set
+- Check that the messaging endpoint URL is correct in Azure
 
 ### Bot not appearing in Teams
 
-- Run `teams app doctor` to check registration and channel status
+- Verify the Teams channel is enabled in Azure Bot
 - Check that the app manifest is correctly configured
 - Ensure the app is installed in the workspace/team
 
 ### Messages not received
 
-- Verify the messaging endpoint is correct (`teams app update --endpoint`)
+- Verify the messaging endpoint URL is correct
 - Check that your server is accessible from the internet
+- Review Azure Bot logs for errors
 
 ## License
 
