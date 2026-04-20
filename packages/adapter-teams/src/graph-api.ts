@@ -92,7 +92,7 @@ export class TeamsGraphReader {
         direction,
       });
 
-      if (graphContext?.type !== "dm" && graphContext && threadMessageId) {
+      if (graphContext && graphContext.type !== "dm" && threadMessageId) {
         return this.fetchChannelThreadMessages(
           graphContext,
           threadMessageId,
@@ -126,7 +126,7 @@ export class TeamsGraphReader {
         hasMoreMessages = graphMessages.length >= limit;
       }
 
-      if (threadMessageId && graphContext?.type !== "dm" && !graphContext) {
+      if (threadMessageId && !graphContext) {
         graphMessages = graphMessages.filter((msg) => {
           return msg.id && msg.id >= threadMessageId;
         });
