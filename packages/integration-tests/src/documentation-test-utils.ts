@@ -23,11 +23,13 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/state-ioredis",
   "@chat-adapter/state-pg",
   "@chat-adapter/state-memory",
+  "@chat-adapter/state-libsql",
   "next/server",
   "redis",
   "ioredis",
   "pg",
   "postgres",
+  "@libsql/client",
 ];
 
 export const VALID_DOC_PACKAGES = [
