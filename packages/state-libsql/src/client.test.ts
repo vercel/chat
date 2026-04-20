@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type Client, createClient } from "@libsql/client";
 import type { Lock, Logger } from "chat";
-import Database from "libsql/promise";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLibSqlState, LibSqlStateAdapter } from "./index";
+import { createLibSqlState, LibSqlStateAdapter } from "./client";
 
 const mockLogger: Logger = {
   child: vi.fn(() => mockLogger),
@@ -16,32 +16,30 @@ const mockLogger: Logger = {
 
 const LIBSQL_TOKEN_RE = /^libsql_/;
 
-function tmpFilePath(): { path: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "chat-libsql-"));
+function tmpFileUrl(): { url: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "chat-libsql-client-"));
   const file = join(dir, "state.db");
   return {
-    path: file,
+    url: `file:${file}`,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
 
-function makeTmpDb(): { db: Database; cleanup: () => void } {
-  const { path, cleanup } = tmpFilePath();
-  const db = new Database(path, {});
+function makeTmpClient(): { client: Client; cleanup: () => void } {
+  const { url, cleanup } = tmpFileUrl();
+  const client = createClient({ url });
   return {
-    db,
+    client,
     cleanup: () => {
-      try {
-        db.close();
-      } catch {
-        // already closed
+      if (!client.closed) {
+        client.close();
       }
       cleanup();
     },
   };
 }
 
-describe("LibSqlStateAdapter (libsql/promise)", () => {
+describe("LibSqlStateAdapter (@libsql/client)", () => {
   it("exports createLibSqlState", () => {
     expect(typeof createLibSqlState).toBe("function");
   });
@@ -51,20 +49,20 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
   });
 
   describe("createLibSqlState", () => {
-    it("creates an adapter from a file path", () => {
-      const { path, cleanup } = tmpFilePath();
+    it("creates an adapter from a file URL", () => {
+      const { url, cleanup } = tmpFileUrl();
       try {
-        const adapter = createLibSqlState({ url: path, logger: mockLogger });
+        const adapter = createLibSqlState({ url, logger: mockLogger });
         expect(adapter).toBeInstanceOf(LibSqlStateAdapter);
       } finally {
         cleanup();
       }
     });
 
-    it("accepts an existing Database", () => {
-      const { db, cleanup } = makeTmpDb();
+    it("accepts an existing Client", () => {
+      const { client, cleanup } = makeTmpClient();
       try {
-        const adapter = createLibSqlState({ client: db, logger: mockLogger });
+        const adapter = createLibSqlState({ client, logger: mockLogger });
         expect(adapter).toBeInstanceOf(LibSqlStateAdapter);
       } finally {
         cleanup();
@@ -83,8 +81,8 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
     });
 
     it("uses TURSO_DATABASE_URL env var as fallback", () => {
-      const { path, cleanup } = tmpFilePath();
-      vi.stubEnv("TURSO_DATABASE_URL", path);
+      const { url, cleanup } = tmpFileUrl();
+      vi.stubEnv("TURSO_DATABASE_URL", url);
       try {
         const adapter = createLibSqlState({ logger: mockLogger });
         expect(adapter).toBeInstanceOf(LibSqlStateAdapter);
@@ -95,29 +93,10 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
     });
 
     describe("URL types", () => {
-      it("connects to a local file path", async () => {
-        const { path, cleanup } = tmpFilePath();
-        try {
-          const adapter = createLibSqlState({
-            url: path,
-            logger: mockLogger,
-          });
-          await adapter.connect();
-          await adapter.subscribe("slack:C1:1.2");
-          expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(true);
-          await adapter.disconnect();
-        } finally {
-          cleanup();
-        }
-      });
-
       it("connects to a file: URL", async () => {
-        const { path, cleanup } = tmpFilePath();
+        const { url, cleanup } = tmpFileUrl();
         try {
-          const adapter = createLibSqlState({
-            url: `file:${path}`,
-            logger: mockLogger,
-          });
+          const adapter = createLibSqlState({ url, logger: mockLogger });
           await adapter.connect();
           await adapter.subscribe("slack:C1:1.2");
           expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(true);
@@ -127,26 +106,12 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
         }
       });
 
-      it("connects to an in-memory database", async () => {
-        const adapter = createLibSqlState({
-          url: ":memory:",
-          logger: mockLogger,
-        });
-        await adapter.connect();
-        await adapter.subscribe("slack:C1:1.2");
-        expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(true);
-        await adapter.disconnect();
-      });
-
-      // Remote URLs the native binding supports at construction time.
-      // It lazily dials the network on the first query, so construction
-      // succeeds without a live server. `ws://`/`wss://` are only supported
-      // by `@chat-adapter/state-libsql/client` (`@libsql/client`), not by
-      // the native binding.
       it.each([
         ["libsql://db.turso.io"],
         ["https://db.turso.io"],
         ["http://127.0.0.1:8080"],
+        ["wss://db.turso.io"],
+        ["ws://127.0.0.1:8080"],
       ])("accepts remote URL %s", (url) => {
         const adapter = createLibSqlState({
           url,
@@ -159,11 +124,11 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
   });
 
   describe("ensureConnected", () => {
-    let db: Database;
+    let client: Client;
     let cleanup: () => void;
 
     beforeEach(() => {
-      ({ db, cleanup } = makeTmpDb());
+      ({ client, cleanup } = makeTmpClient());
     });
 
     afterEach(() => {
@@ -203,18 +168,12 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
       ["dequeue", (a: LibSqlStateAdapter) => a.dequeue("t1")],
       ["queueDepth", (a: LibSqlStateAdapter) => a.queueDepth("t1")],
     ])("throws when calling %s before connect", async (_, fn) => {
-      const adapter = new LibSqlStateAdapter({
-        client: db,
-        logger: mockLogger,
-      });
+      const adapter = new LibSqlStateAdapter({ client, logger: mockLogger });
       await expect(fn(adapter)).rejects.toThrow("not connected");
     });
 
     it("throws for releaseLock before connect", async () => {
-      const adapter = new LibSqlStateAdapter({
-        client: db,
-        logger: mockLogger,
-      });
+      const adapter = new LibSqlStateAdapter({ client, logger: mockLogger });
       const lock: Lock = {
         threadId: "t1",
         token: "tok",
@@ -224,10 +183,7 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
     });
 
     it("throws for extendLock before connect", async () => {
-      const adapter = new LibSqlStateAdapter({
-        client: db,
-        logger: mockLogger,
-      });
+      const adapter = new LibSqlStateAdapter({ client, logger: mockLogger });
       const lock: Lock = {
         threadId: "t1",
         token: "tok",
@@ -239,30 +195,27 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
     });
 
     it("throws for forceReleaseLock before connect", async () => {
-      const adapter = new LibSqlStateAdapter({
-        client: db,
-        logger: mockLogger,
-      });
+      const adapter = new LibSqlStateAdapter({ client, logger: mockLogger });
       await expect(adapter.forceReleaseLock("t1")).rejects.toThrow(
         "not connected"
       );
     });
   });
 
-  describe("with a real libsql file database", () => {
-    let db: Database;
-    let cleanupDb: () => void;
+  describe("with a real libsql file client", () => {
+    let client: Client;
+    let cleanupClient: () => void;
     let adapter: LibSqlStateAdapter;
 
     beforeEach(async () => {
-      ({ db, cleanup: cleanupDb } = makeTmpDb());
-      adapter = new LibSqlStateAdapter({ client: db, logger: mockLogger });
+      ({ client, cleanup: cleanupClient } = makeTmpClient());
+      adapter = new LibSqlStateAdapter({ client, logger: mockLogger });
       await adapter.connect();
     });
 
     afterEach(async () => {
       await adapter.disconnect();
-      cleanupDb();
+      cleanupClient();
     });
 
     describe("connect / disconnect", () => {
@@ -272,9 +225,9 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
       });
 
       it("deduplicates concurrent connect calls", async () => {
-        const { db: d, cleanup } = makeTmpDb();
+        const { client: c, cleanup } = makeTmpClient();
         try {
-          const a = new LibSqlStateAdapter({ client: d, logger: mockLogger });
+          const a = new LibSqlStateAdapter({ client: c, logger: mockLogger });
           await Promise.all([a.connect(), a.connect()]);
           await a.disconnect();
         } finally {
@@ -290,30 +243,26 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
 
       it("does not close external client on disconnect", async () => {
         await adapter.disconnect();
-        // The Database is still usable — proving the adapter did not close
-        // a client it didn't own.
-        const stmt = await db.prepare("SELECT 1 AS v");
-        expect(stmt.get().v).toBe(1);
+        const rs = await client.execute("SELECT 1 AS v");
+        expect(rs.rows[0].v).toBe(1);
         await adapter.connect();
       });
 
       it("closes owned client on disconnect", async () => {
-        const { path, cleanup } = tmpFilePath();
+        const { url, cleanup } = tmpFileUrl();
         try {
-          const a = createLibSqlState({ url: path, logger: mockLogger });
+          const a = createLibSqlState({ url, logger: mockLogger });
           await a.connect();
-          const innerDb = a.getClient();
+          const innerClient = a.getClient();
           await a.disconnect();
-          // libsql/promise doesn't flip `open` on close(), so assert via
-          // behaviour: the closed Database should reject further use.
-          await expect(innerDb.prepare("SELECT 1")).rejects.toThrow();
+          expect(innerClient.closed).toBe(true);
         } finally {
           cleanup();
         }
       });
 
       it("handles connect failure and allows retry", async () => {
-        const { db: broken, cleanup } = makeTmpDb();
+        const { client: broken, cleanup } = makeTmpClient();
         try {
           broken.close();
           const a = new LibSqlStateAdapter({
@@ -334,7 +283,7 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
         expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(false);
         await adapter.subscribe("slack:C1:1.2");
         expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(true);
-        await adapter.subscribe("slack:C1:1.2"); // idempotent
+        await adapter.subscribe("slack:C1:1.2");
         expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(true);
         await adapter.unsubscribe("slack:C1:1.2");
         expect(await adapter.isSubscribed("slack:C1:1.2")).toBe(false);
@@ -342,7 +291,7 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
 
       it("isolates subscriptions by keyPrefix", async () => {
         const other = new LibSqlStateAdapter({
-          client: db,
+          client,
           keyPrefix: "other",
           logger: mockLogger,
         });
@@ -548,8 +497,8 @@ describe("LibSqlStateAdapter (libsql/promise)", () => {
     });
 
     describe("getClient", () => {
-      it("returns the underlying Database", () => {
-        expect(adapter.getClient()).toBe(db);
+      it("returns the underlying libsql Client", () => {
+        expect(adapter.getClient()).toBe(client);
       });
     });
   });

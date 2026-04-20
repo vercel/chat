@@ -1,25 +1,37 @@
-import { type Client, type Config, createClient } from "@libsql/client";
 import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
+import Database from "libsql/promise";
 
-// LibSQL
-
-export interface LibSqlStateAdapterOptions {
+export interface LibSqlDatabaseOptions {
   /** Auth token for remote libSQL / Turso connections. */
   authToken?: string;
-  /** Additional libsql client config (encryption key, sync, tls, intMode…). */
-  config?: Omit<Config, "url" | "authToken">;
+  /** Encryption key for encrypted local databases. */
+  encryptionKey?: string;
+  /** Open the replica in offline mode. */
+  offline?: boolean;
+  /** Sync period in seconds when using embedded replicas. */
+  syncPeriod?: number;
+  /** Sync URL for embedded-replica mode (local file mirrored from remote). */
+  syncUrl?: string;
+  /** Connection timeout in seconds. */
+  timeout?: number;
+}
+
+export interface LibSqlStateAdapterOptions extends LibSqlDatabaseOptions {
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger?: Logger;
-  /** libSQL connection URL. Supports `file:`, `libsql:`, `http(s):`, `ws(s):`. */
+  /**
+   * libSQL database URL. Use a local path (e.g. `./chat-state.db`), `:memory:`,
+   * or a remote URL (`libsql://`, `http(s)://`, `ws(s)://`).
+   */
   url: string;
 }
 
 export interface LibSqlStateClientOptions {
-  /** Existing libsql Client instance */
-  client: Client;
+  /** Existing libsql Database instance (opened via `libsql/promise`). */
+  client: Database;
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
@@ -29,13 +41,40 @@ export interface LibSqlStateClientOptions {
 export type CreateLibSqlStateOptions =
   | (Partial<LibSqlStateAdapterOptions> & { client?: never })
   | (Partial<Omit<LibSqlStateClientOptions, "client">> & {
-      client: Client;
+      client: Database;
     });
 
-type Primitive = string | number | null;
+// Minimal typing for libsql/promise — the shipped .d.ts is incomplete.
+interface LibSqlStatement {
+  all(...args: unknown[]): Promise<Record<string, unknown>[]>;
+  get(...args: unknown[]): Record<string, unknown> | undefined;
+  run(...args: unknown[]): {
+    changes: number;
+    lastInsertRowid: number | bigint;
+  };
+}
+
+interface LibSqlTxFn<R> {
+  deferred(): Promise<R>;
+  exclusive(): Promise<R>;
+  immediate(): Promise<R>;
+  (): Promise<R>;
+}
+
+interface LibSqlDatabase {
+  close(): void;
+  exec(sql: string): Promise<unknown>;
+  open: boolean;
+  prepare(sql: string): Promise<LibSqlStatement>;
+  transaction<R>(fn: () => R): LibSqlTxFn<R>;
+}
+
+function asDb(db: Database): LibSqlDatabase {
+  return db as unknown as LibSqlDatabase;
+}
 
 export class LibSqlStateAdapter implements StateAdapter {
-  private readonly client: Client;
+  private readonly db: LibSqlDatabase;
   private readonly keyPrefix: string;
   private readonly logger: Logger;
   private readonly ownsClient: boolean;
@@ -44,14 +83,19 @@ export class LibSqlStateAdapter implements StateAdapter {
 
   constructor(options: LibSqlStateAdapterOptions | LibSqlStateClientOptions) {
     if ("client" in options) {
-      this.client = options.client;
+      this.db = asDb(options.client);
       this.ownsClient = false;
     } else {
-      this.client = createClient({
-        ...options.config,
-        url: options.url,
-        authToken: options.authToken,
-      });
+      this.db = asDb(
+        new Database(options.url, {
+          authToken: options.authToken,
+          syncUrl: options.syncUrl,
+          syncPeriod: options.syncPeriod,
+          encryptionKey: options.encryptionKey,
+          offline: options.offline,
+          timeout: options.timeout,
+        })
+      );
       this.ownsClient = true;
     }
 
@@ -67,7 +111,7 @@ export class LibSqlStateAdapter implements StateAdapter {
     if (!this.connectPromise) {
       this.connectPromise = (async () => {
         try {
-          await this.client.execute("SELECT 1");
+          await this.db.exec("SELECT 1");
           await this.ensureSchema();
           this.connected = true;
         } catch (error) {
@@ -87,7 +131,7 @@ export class LibSqlStateAdapter implements StateAdapter {
     }
 
     if (this.ownsClient) {
-      this.client.close();
+      this.db.close();
     }
 
     this.connected = false;
@@ -96,36 +140,32 @@ export class LibSqlStateAdapter implements StateAdapter {
 
   async subscribe(threadId: string): Promise<void> {
     this.ensureConnected();
-
-    await this.client.execute({
-      sql: `INSERT INTO chat_state_subscriptions (key_prefix, thread_id)
-            VALUES (?, ?)
-            ON CONFLICT DO NOTHING`,
-      args: [this.keyPrefix, threadId],
-    });
+    const stmt = await this.db.prepare(
+      `INSERT INTO chat_state_subscriptions (key_prefix, thread_id)
+       VALUES (?, ?)
+       ON CONFLICT DO NOTHING`
+    );
+    stmt.run(this.keyPrefix, threadId);
   }
 
   async unsubscribe(threadId: string): Promise<void> {
     this.ensureConnected();
-
-    await this.client.execute({
-      sql: `DELETE FROM chat_state_subscriptions
-            WHERE key_prefix = ? AND thread_id = ?`,
-      args: [this.keyPrefix, threadId],
-    });
+    const stmt = await this.db.prepare(
+      `DELETE FROM chat_state_subscriptions
+       WHERE key_prefix = ? AND thread_id = ?`
+    );
+    stmt.run(this.keyPrefix, threadId);
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
     this.ensureConnected();
-
-    const result = await this.client.execute({
-      sql: `SELECT 1 FROM chat_state_subscriptions
-            WHERE key_prefix = ? AND thread_id = ?
-            LIMIT 1`,
-      args: [this.keyPrefix, threadId],
-    });
-
-    return result.rows.length > 0;
+    const stmt = await this.db.prepare(
+      `SELECT 1 AS present FROM chat_state_subscriptions
+       WHERE key_prefix = ? AND thread_id = ?
+       LIMIT 1`
+    );
+    const row = stmt.get(this.keyPrefix, threadId);
+    return row !== undefined;
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
@@ -135,105 +175,98 @@ export class LibSqlStateAdapter implements StateAdapter {
     const now = Date.now();
     const expiresAt = now + ttlMs;
 
-    // Clear any expired lock for this thread first, then insert.
-    // Using a transaction so the check+insert is atomic even on remote libSQL.
-    const tx = await this.client.transaction("write");
-    try {
-      await tx.execute({
-        sql: `DELETE FROM chat_state_locks
-              WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`,
-        args: [this.keyPrefix, threadId, now],
-      });
+    const delExpired = await this.db.prepare(
+      `DELETE FROM chat_state_locks
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`
+    );
+    const insert = await this.db.prepare(
+      `INSERT INTO chat_state_locks (key_prefix, thread_id, token, expires_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (key_prefix, thread_id) DO NOTHING
+       RETURNING thread_id, token, expires_at`
+    );
 
-      const result = await tx.execute({
-        sql: `INSERT INTO chat_state_locks (key_prefix, thread_id, token, expires_at, updated_at)
-              VALUES (?, ?, ?, ?, ?)
-              ON CONFLICT (key_prefix, thread_id) DO NOTHING
-              RETURNING thread_id, token, expires_at`,
-        args: [this.keyPrefix, threadId, token, expiresAt, now],
-      });
+    const row = await this.db
+      .transaction(() => {
+        delExpired.run(this.keyPrefix, threadId, now);
+        return insert.get(this.keyPrefix, threadId, token, expiresAt, now);
+      })
+      .immediate();
 
-      await tx.commit();
-
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      const row = result.rows[0];
-      return {
-        threadId: row.thread_id as string,
-        token: row.token as string,
-        expiresAt: Number(row.expires_at as number),
-      };
-    } catch (error) {
-      tx.close();
-      throw error;
+    if (!row) {
+      return null;
     }
+
+    return {
+      threadId: row.thread_id as string,
+      token: row.token as string,
+      expiresAt: Number(row.expires_at),
+    };
   }
 
   async forceReleaseLock(threadId: string): Promise<void> {
     this.ensureConnected();
-
-    await this.client.execute({
-      sql: `DELETE FROM chat_state_locks
-            WHERE key_prefix = ? AND thread_id = ?`,
-      args: [this.keyPrefix, threadId],
-    });
+    const stmt = await this.db.prepare(
+      `DELETE FROM chat_state_locks
+       WHERE key_prefix = ? AND thread_id = ?`
+    );
+    stmt.run(this.keyPrefix, threadId);
   }
 
   async releaseLock(lock: Lock): Promise<void> {
     this.ensureConnected();
-
-    await this.client.execute({
-      sql: `DELETE FROM chat_state_locks
-            WHERE key_prefix = ? AND thread_id = ? AND token = ?`,
-      args: [this.keyPrefix, lock.threadId, lock.token],
-    });
+    const stmt = await this.db.prepare(
+      `DELETE FROM chat_state_locks
+       WHERE key_prefix = ? AND thread_id = ? AND token = ?`
+    );
+    stmt.run(this.keyPrefix, lock.threadId, lock.token);
   }
 
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
     this.ensureConnected();
 
     const now = Date.now();
-    const result = await this.client.execute({
-      sql: `UPDATE chat_state_locks
-            SET expires_at = ?, updated_at = ?
-            WHERE key_prefix = ?
-              AND thread_id = ?
-              AND token = ?
-              AND expires_at > ?
-            RETURNING thread_id`,
-      args: [now + ttlMs, now, this.keyPrefix, lock.threadId, lock.token, now],
-    });
-
-    return result.rows.length > 0;
+    const stmt = await this.db.prepare(
+      `UPDATE chat_state_locks
+       SET expires_at = ?, updated_at = ?
+       WHERE key_prefix = ? AND thread_id = ? AND token = ? AND expires_at > ?
+       RETURNING thread_id`
+    );
+    const row = stmt.get(
+      now + ttlMs,
+      now,
+      this.keyPrefix,
+      lock.threadId,
+      lock.token,
+      now
+    );
+    return row !== undefined;
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
     this.ensureConnected();
 
     const now = Date.now();
-    const result = await this.client.execute({
-      sql: `SELECT value FROM chat_state_cache
-            WHERE key_prefix = ? AND cache_key = ?
-              AND (expires_at IS NULL OR expires_at > ?)
-            LIMIT 1`,
-      args: [this.keyPrefix, key, now],
-    });
+    const select = await this.db.prepare(
+      `SELECT value FROM chat_state_cache
+       WHERE key_prefix = ? AND cache_key = ?
+         AND (expires_at IS NULL OR expires_at > ?)
+       LIMIT 1`
+    );
+    const row = select.get(this.keyPrefix, key, now);
 
-    if (result.rows.length === 0) {
-      // Opportunistic cleanup of expired entry
-      await this.client.execute({
-        sql: `DELETE FROM chat_state_cache
-              WHERE key_prefix = ? AND cache_key = ?
-                AND expires_at IS NOT NULL AND expires_at <= ?`,
-        args: [this.keyPrefix, key, now],
-      });
-
+    if (!row) {
+      // Opportunistic cleanup of any stale row.
+      const del = await this.db.prepare(
+        `DELETE FROM chat_state_cache
+         WHERE key_prefix = ? AND cache_key = ?
+           AND expires_at IS NOT NULL AND expires_at <= ?`
+      );
+      del.run(this.keyPrefix, key, now);
       return null;
     }
 
-    const value = result.rows[0].value as string;
+    const value = row.value as string;
     try {
       return JSON.parse(value) as T;
     } catch {
@@ -248,15 +281,15 @@ export class LibSqlStateAdapter implements StateAdapter {
     const serialized = JSON.stringify(value);
     const expiresAt = ttlMs ? now + ttlMs : null;
 
-    await this.client.execute({
-      sql: `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (key_prefix, cache_key) DO UPDATE
-              SET value = excluded.value,
-                  expires_at = excluded.expires_at,
-                  updated_at = excluded.updated_at`,
-      args: [this.keyPrefix, key, serialized, expiresAt, now],
-    });
+    const stmt = await this.db.prepare(
+      `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (key_prefix, cache_key) DO UPDATE
+         SET value = excluded.value,
+             expires_at = excluded.expires_at,
+             updated_at = excluded.updated_at`
+    );
+    stmt.run(this.keyPrefix, key, serialized, expiresAt, now);
   }
 
   async setIfNotExists(
@@ -270,41 +303,35 @@ export class LibSqlStateAdapter implements StateAdapter {
     const serialized = JSON.stringify(value);
     const expiresAt = ttlMs ? now + ttlMs : null;
 
-    // Clear any expired entry first so setIfNotExists can "win" after TTL passes,
-    // matching the Redis SET NX PX semantics.
-    const tx = await this.client.transaction("write");
-    try {
-      await tx.execute({
-        sql: `DELETE FROM chat_state_cache
-              WHERE key_prefix = ? AND cache_key = ?
-                AND expires_at IS NOT NULL AND expires_at <= ?`,
-        args: [this.keyPrefix, key, now],
-      });
+    const delExpired = await this.db.prepare(
+      `DELETE FROM chat_state_cache
+       WHERE key_prefix = ? AND cache_key = ?
+         AND expires_at IS NOT NULL AND expires_at <= ?`
+    );
+    const insert = await this.db.prepare(
+      `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (key_prefix, cache_key) DO NOTHING
+       RETURNING cache_key`
+    );
 
-      const result = await tx.execute({
-        sql: `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at, updated_at)
-              VALUES (?, ?, ?, ?, ?)
-              ON CONFLICT (key_prefix, cache_key) DO NOTHING
-              RETURNING cache_key`,
-        args: [this.keyPrefix, key, serialized, expiresAt, now],
-      });
+    const row = await this.db
+      .transaction(() => {
+        delExpired.run(this.keyPrefix, key, now);
+        return insert.get(this.keyPrefix, key, serialized, expiresAt, now);
+      })
+      .immediate();
 
-      await tx.commit();
-      return result.rows.length > 0;
-    } catch (error) {
-      tx.close();
-      throw error;
-    }
+    return row !== undefined;
   }
 
   async delete(key: string): Promise<void> {
     this.ensureConnected();
-
-    await this.client.execute({
-      sql: `DELETE FROM chat_state_cache
-            WHERE key_prefix = ? AND cache_key = ?`,
-      args: [this.keyPrefix, key],
-    });
+    const stmt = await this.db.prepare(
+      `DELETE FROM chat_state_cache
+       WHERE key_prefix = ? AND cache_key = ?`
+    );
+    stmt.run(this.keyPrefix, key);
   }
 
   async appendToList(
@@ -317,66 +344,56 @@ export class LibSqlStateAdapter implements StateAdapter {
     const serialized = JSON.stringify(value);
     const expiresAt = options?.ttlMs ? Date.now() + options.ttlMs : null;
 
-    const tx = await this.client.transaction("write");
-    try {
-      await tx.execute({
-        sql: `INSERT INTO chat_state_lists (key_prefix, list_key, value, expires_at)
-              VALUES (?, ?, ?, ?)`,
-        args: [this.keyPrefix, key, serialized, expiresAt],
-      });
+    const insert = await this.db.prepare(
+      `INSERT INTO chat_state_lists (key_prefix, list_key, value, expires_at)
+       VALUES (?, ?, ?, ?)`
+    );
+    const refreshTtl = await this.db.prepare(
+      `UPDATE chat_state_lists
+       SET expires_at = ?
+       WHERE key_prefix = ? AND list_key = ?`
+    );
+    const trim = await this.db.prepare(
+      `DELETE FROM chat_state_lists
+       WHERE key_prefix = ? AND list_key = ? AND seq NOT IN (
+         SELECT seq FROM chat_state_lists
+         WHERE key_prefix = ? AND list_key = ?
+         ORDER BY seq DESC
+         LIMIT ?
+       )`
+    );
 
-      // Refresh TTL on all entries for this key (matches Redis PEXPIRE behaviour).
-      if (expiresAt !== null) {
-        await tx.execute({
-          sql: `UPDATE chat_state_lists
-                SET expires_at = ?
-                WHERE key_prefix = ? AND list_key = ?`,
-          args: [expiresAt, this.keyPrefix, key],
-        });
-      }
-
-      // Trim to maxLength: keep only the newest entries (highest seq).
-      if (options?.maxLength && options.maxLength > 0) {
-        await tx.execute({
-          sql: `DELETE FROM chat_state_lists
-                WHERE key_prefix = ? AND list_key = ? AND seq NOT IN (
-                  SELECT seq FROM chat_state_lists
-                  WHERE key_prefix = ? AND list_key = ?
-                  ORDER BY seq DESC
-                  LIMIT ?
-                )`,
-          args: [this.keyPrefix, key, this.keyPrefix, key, options.maxLength],
-        });
-      }
-
-      await tx.commit();
-    } catch (error) {
-      tx.close();
-      throw error;
-    }
+    await this.db
+      .transaction(() => {
+        insert.run(this.keyPrefix, key, serialized, expiresAt);
+        if (expiresAt !== null) {
+          refreshTtl.run(expiresAt, this.keyPrefix, key);
+        }
+        if (options?.maxLength && options.maxLength > 0) {
+          trim.run(this.keyPrefix, key, this.keyPrefix, key, options.maxLength);
+        }
+      })
+      .immediate();
   }
 
   async getList<T = unknown>(key: string): Promise<T[]> {
     this.ensureConnected();
 
     const now = Date.now();
+    const del = await this.db.prepare(
+      `DELETE FROM chat_state_lists
+       WHERE key_prefix = ? AND list_key = ?
+         AND expires_at IS NOT NULL AND expires_at <= ?`
+    );
+    del.run(this.keyPrefix, key, now);
 
-    // Opportunistic cleanup of expired entries for this key.
-    await this.client.execute({
-      sql: `DELETE FROM chat_state_lists
-            WHERE key_prefix = ? AND list_key = ?
-              AND expires_at IS NOT NULL AND expires_at <= ?`,
-      args: [this.keyPrefix, key, now],
-    });
-
-    const result = await this.client.execute({
-      sql: `SELECT value FROM chat_state_lists
-            WHERE key_prefix = ? AND list_key = ?
-            ORDER BY seq ASC`,
-      args: [this.keyPrefix, key],
-    });
-
-    return result.rows.map((row) => {
+    const select = await this.db.prepare(
+      `SELECT value FROM chat_state_lists
+       WHERE key_prefix = ? AND list_key = ?
+       ORDER BY seq ASC`
+    );
+    const rows = await select.all(this.keyPrefix, key);
+    return rows.map((row) => {
       const value = row.value as string;
       try {
         return JSON.parse(value) as T;
@@ -395,108 +412,97 @@ export class LibSqlStateAdapter implements StateAdapter {
 
     const now = Date.now();
     const serialized = JSON.stringify(entry);
-    const expiresAt = entry.expiresAt;
 
-    const tx = await this.client.transaction("write");
-    try {
-      // Purge expired entries first to avoid phantom queue pressure.
-      await tx.execute({
-        sql: `DELETE FROM chat_state_queues
-              WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`,
-        args: [this.keyPrefix, threadId, now],
-      });
+    const purge = await this.db.prepare(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`
+    );
+    const insert = await this.db.prepare(
+      `INSERT INTO chat_state_queues (key_prefix, thread_id, value, expires_at)
+       VALUES (?, ?, ?, ?)`
+    );
+    const trim = await this.db.prepare(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND seq NOT IN (
+         SELECT seq FROM chat_state_queues
+         WHERE key_prefix = ? AND thread_id = ?
+         ORDER BY seq DESC
+         LIMIT ?
+       )`
+    );
+    const countStmt = await this.db.prepare(
+      `SELECT COUNT(*) AS depth FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?`
+    );
 
-      await tx.execute({
-        sql: `INSERT INTO chat_state_queues (key_prefix, thread_id, value, expires_at)
-              VALUES (?, ?, ?, ?)`,
-        args: [this.keyPrefix, threadId, serialized, expiresAt],
-      });
+    const depth = await this.db
+      .transaction(() => {
+        purge.run(this.keyPrefix, threadId, now);
+        insert.run(this.keyPrefix, threadId, serialized, entry.expiresAt);
+        if (maxSize > 0) {
+          trim.run(this.keyPrefix, threadId, this.keyPrefix, threadId, maxSize);
+        }
+        const row = countStmt.get(this.keyPrefix, threadId, now);
+        return toNumber(row?.depth);
+      })
+      .immediate();
 
-      // Trim overflow (keep newest maxSize entries).
-      if (maxSize > 0) {
-        await tx.execute({
-          sql: `DELETE FROM chat_state_queues
-                WHERE key_prefix = ? AND thread_id = ? AND seq NOT IN (
-                  SELECT seq FROM chat_state_queues
-                  WHERE key_prefix = ? AND thread_id = ?
-                  ORDER BY seq DESC
-                  LIMIT ?
-                )`,
-          args: [this.keyPrefix, threadId, this.keyPrefix, threadId, maxSize],
-        });
-      }
-
-      const depthResult = await tx.execute({
-        sql: `SELECT COUNT(*) AS depth FROM chat_state_queues
-              WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?`,
-        args: [this.keyPrefix, threadId, now],
-      });
-
-      await tx.commit();
-      return toNumber(depthResult.rows[0].depth);
-    } catch (error) {
-      tx.close();
-      throw error;
-    }
+    return depth;
   }
 
   async dequeue(threadId: string): Promise<QueueEntry | null> {
     this.ensureConnected();
 
     const now = Date.now();
-    const tx = await this.client.transaction("write");
-    try {
-      await tx.execute({
-        sql: `DELETE FROM chat_state_queues
-              WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`,
-        args: [this.keyPrefix, threadId, now],
-      });
+    const purge = await this.db.prepare(
+      `DELETE FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at <= ?`
+    );
+    const pick = await this.db.prepare(
+      `SELECT seq, value FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?
+       ORDER BY seq ASC
+       LIMIT 1`
+    );
+    const del = await this.db.prepare(
+      "DELETE FROM chat_state_queues WHERE seq = ?"
+    );
 
-      const selected = await tx.execute({
-        sql: `SELECT seq, value FROM chat_state_queues
-              WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?
-              ORDER BY seq ASC
-              LIMIT 1`,
-        args: [this.keyPrefix, threadId, now],
-      });
+    const value = await this.db
+      .transaction(() => {
+        purge.run(this.keyPrefix, threadId, now);
+        const row = pick.get(this.keyPrefix, threadId, now);
+        if (!row) {
+          return null;
+        }
+        del.run(row.seq);
+        return row.value as string;
+      })
+      .immediate();
 
-      if (selected.rows.length === 0) {
-        await tx.commit();
-        return null;
-      }
-
-      const row = selected.rows[0];
-      await tx.execute({
-        sql: "DELETE FROM chat_state_queues WHERE seq = ?",
-        args: [row.seq as Primitive],
-      });
-
-      await tx.commit();
-      return JSON.parse(row.value as string) as QueueEntry;
-    } catch (error) {
-      tx.close();
-      throw error;
+    if (value === null) {
+      return null;
     }
+
+    return JSON.parse(value) as QueueEntry;
   }
 
   async queueDepth(threadId: string): Promise<number> {
     this.ensureConnected();
-
-    const result = await this.client.execute({
-      sql: `SELECT COUNT(*) AS depth FROM chat_state_queues
-            WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?`,
-      args: [this.keyPrefix, threadId, Date.now()],
-    });
-
-    return toNumber(result.rows[0].depth);
+    const stmt = await this.db.prepare(
+      `SELECT COUNT(*) AS depth FROM chat_state_queues
+       WHERE key_prefix = ? AND thread_id = ? AND expires_at > ?`
+    );
+    const row = stmt.get(this.keyPrefix, threadId, Date.now());
+    return toNumber(row?.depth);
   }
 
-  getClient(): Client {
-    return this.client;
+  getClient(): Database {
+    return this.db as unknown as Database;
   }
 
   private async ensureSchema(): Promise<void> {
-    await this.client.execute(
+    await this.db.exec(
       `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
         key_prefix TEXT NOT NULL,
         thread_id  TEXT NOT NULL,
@@ -504,7 +510,7 @@ export class LibSqlStateAdapter implements StateAdapter {
         PRIMARY KEY (key_prefix, thread_id)
       )`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE TABLE IF NOT EXISTS chat_state_locks (
         key_prefix TEXT NOT NULL,
         thread_id  TEXT NOT NULL,
@@ -514,7 +520,7 @@ export class LibSqlStateAdapter implements StateAdapter {
         PRIMARY KEY (key_prefix, thread_id)
       )`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE TABLE IF NOT EXISTS chat_state_cache (
         key_prefix TEXT NOT NULL,
         cache_key  TEXT NOT NULL,
@@ -524,16 +530,16 @@ export class LibSqlStateAdapter implements StateAdapter {
         PRIMARY KEY (key_prefix, cache_key)
       )`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
        ON chat_state_locks (expires_at)`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
        ON chat_state_cache (expires_at)
        WHERE expires_at IS NOT NULL`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE TABLE IF NOT EXISTS chat_state_lists (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
         key_prefix TEXT NOT NULL,
@@ -542,16 +548,16 @@ export class LibSqlStateAdapter implements StateAdapter {
         expires_at INTEGER
       )`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_lists_key_idx
        ON chat_state_lists (key_prefix, list_key, seq)`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
        ON chat_state_lists (expires_at)
        WHERE expires_at IS NOT NULL`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE TABLE IF NOT EXISTS chat_state_queues (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
         key_prefix TEXT NOT NULL,
@@ -560,11 +566,11 @@ export class LibSqlStateAdapter implements StateAdapter {
         expires_at INTEGER NOT NULL
       )`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_queues_thread_idx
        ON chat_state_queues (key_prefix, thread_id, seq)`
     );
-    await this.client.execute(
+    await this.db.exec(
       `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
        ON chat_state_queues (expires_at)`
     );
@@ -620,7 +626,11 @@ export function createLibSqlState(
   return new LibSqlStateAdapter({
     url,
     authToken,
-    config: options.config,
+    syncUrl: options.syncUrl,
+    syncPeriod: options.syncPeriod,
+    encryptionKey: options.encryptionKey,
+    offline: options.offline,
+    timeout: options.timeout,
     keyPrefix: options.keyPrefix,
     logger: options.logger,
   });

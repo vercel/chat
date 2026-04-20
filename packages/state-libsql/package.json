@@ -6,10 +6,15 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
     }
   },
   "files": [
@@ -24,8 +29,19 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@libsql/client": "^0.15.15",
     "chat": "workspace:*"
+  },
+  "peerDependencies": {
+    "@libsql/client": ">=0.15.0",
+    "libsql": ">=0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "@libsql/client": {
+      "optional": true
+    },
+    "libsql": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",
@@ -40,8 +56,10 @@
     "access": "public"
   },
   "devDependencies": {
+    "@libsql/client": "^0.15.15",
     "@types/node": "^25.3.2",
     "@vitest/coverage-v8": "^4.0.18",
+    "libsql": "^0.5.29",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"

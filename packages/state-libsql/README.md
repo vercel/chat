@@ -3,17 +3,32 @@
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/state-libsql)](https://www.npmjs.com/package/@chat-adapter/state-libsql)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-libsql)](https://www.npmjs.com/package/@chat-adapter/state-libsql)
 
-libSQL / Turso state adapter for [Chat SDK](https://chat-sdk.dev) built with [@libsql/client](https://www.npmjs.com/package/@libsql/client). Works against a local SQLite file for development or a remote libSQL / Turso server in production — same API, just change the URL.
+libSQL / Turso state adapter for [Chat SDK](https://chat-sdk.dev). Ships two variants — import the one that matches your runtime. 
+
+| Import path | Driver | Best for |
+|---|---|---|
+| `@chat-adapter/state-libsql` | [`libsql`](https://www.npmjs.com/package/libsql) (native binding) | Node. Fast local file access, also supports remote libSQL / Turso. |
+| `@chat-adapter/state-libsql/client` | [`@libsql/client`](https://www.npmjs.com/package/@libsql/client) (pure JS) | Edge / serverless (Vercel) where native modules aren't available. |
+
+Both entry points expose the same chat-sdk `StateAdapter` surface with `createLibSqlState` and `LibSqlStateAdapter`.
 
 ## Installation
 
+Install the package plus **one** of the two drivers:
+
 ```bash
+# Node / local-file primary
+pnpm add @chat-adapter/state-libsql libsql
+
+# edge / Turso-primary
 pnpm add @chat-adapter/state-libsql @libsql/client
 ```
 
+Both drivers are declared `optional` peer dependencies — pnpm / npm won't complain if you only install one.
+
 ## Usage
 
-`createLibSqlState()` auto-detects `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` so you can call it with no arguments:
+### Node + local file
 
 ```typescript
 import { Chat } from "chat";
@@ -22,57 +37,87 @@ import { createLibSqlState } from "@chat-adapter/state-libsql";
 const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
-  state: createLibSqlState(),
+  state: createLibSqlState({ url: "file:./chat-state.db" }),
 });
 ```
 
-### Local file (development)
+### Edge / serverless + Turso
 
 ```typescript
-const state = createLibSqlState({
-  url: "file:./chat-state.db",
-});
-```
+import { createLibSqlState } from "@chat-adapter/state-libsql/client";
 
-### Remote libSQL / Turso
-
-```typescript
 const state = createLibSqlState({
   url: "libsql://your-db.turso.io",
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 ```
 
-### Using an existing client
+### Auto-detect via env vars
+
+Both variants read `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` if no options are provided:
+
+```typescript
+const state = createLibSqlState(); // uses TURSO_DATABASE_URL / TURSO_AUTH_TOKEN
+```
+
+### Injecting your own client
+
+Native:
+
+```typescript
+import Database from "libsql/promise";
+import { createLibSqlState } from "@chat-adapter/state-libsql";
+
+const db = new Database("file:./chat-state.db", {});
+const state = createLibSqlState({ client: db });
+```
+
+`@libsql/client`:
 
 ```typescript
 import { createClient } from "@libsql/client";
+import { createLibSqlState } from "@chat-adapter/state-libsql/client";
 
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
-
 const state = createLibSqlState({ client });
 ```
 
 ## Configuration
 
+Both entry points accept the same core options:
+
 | Option | Required | Description |
 |--------|----------|-------------|
-| `url` | No* | libSQL connection URL (`file:`, `libsql:`, `http(s):`, `ws(s):`) |
+| `url` | No* | libSQL connection URL / path |
 | `authToken` | No | Auth token for remote libSQL / Turso |
-| `config` | No | Additional `@libsql/client` options (`encryptionKey`, `syncUrl`, `intMode`, `tls`, …) |
-| `client` | No | Existing libsql `Client` instance |
+| `client` | No | Existing driver client instance |
 | `keyPrefix` | No | Prefix for all state rows (default: `"chat-sdk"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info").child("libsql")`) |
 
 *Either `url`, the `TURSO_DATABASE_URL` env var, or `client` is required.
 
+The default entry additionally accepts `syncUrl`, `syncPeriod`, `encryptionKey`, `offline`, `timeout`.
+The `/client` entry additionally accepts a `config` pass-through for `@libsql/client` (`encryptionKey`, `syncUrl`, `intMode`, `tls`, …).
+
+### URL schemes
+
+| Scheme | Default (`libsql`) | `/client` (`@libsql/client`) |
+|--------|:------------------:|:----------------------------:|
+| `file:...` | ✅ | ✅ |
+| `:memory:` | ✅ | — |
+| `libsql:...` | ✅ | ✅ |
+| `http(s)://...` | ✅ | ✅ |
+| `ws(s)://...` | — | ✅ |
+
+Always prefix local paths with `file:` — both drivers accept it, and it keeps your config portable if you later switch entry points.
+
 ## Environment variables
 
 ```bash
-# Local file
+# Local file (works with both entries)
 TURSO_DATABASE_URL=file:./chat-state.db
 
 # or remote libSQL / Turso
@@ -110,9 +155,9 @@ All rows are namespaced by `key_prefix`. Timestamps are stored as millisecond in
 
 ## Locking considerations
 
-Lock acquisition runs inside a `transaction("write")` that clears any expired lock and then performs `INSERT ... ON CONFLICT DO NOTHING RETURNING`. This gives atomic compare-and-set semantics against both local SQLite files and remote libSQL / Turso servers.
+Lock acquisition runs inside a write transaction that clears any expired lock and then performs `INSERT ... ON CONFLICT DO NOTHING RETURNING`. This gives atomic compare-and-set semantics against both local SQLite files and remote libSQL / Turso servers.
 
-For multi-instance deployments, use a remote libSQL / Turso URL — a local `file:` database only coordinates processes on the same host.
+For multi-instance deployments, use a remote libSQL / Turso URL — a local file database only coordinates processes on the same host.
 
 ## Expired row cleanup
 
