@@ -640,6 +640,43 @@ describe("handleWebhook - interactive payloads", () => {
     expect(response.status).toBe(200);
   });
 
+  it("responds with response_action: clear when handler returns clear", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    chatInstance.processModalSubmit = vi
+      .fn()
+      .mockResolvedValue({ action: "clear" });
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const payload = JSON.stringify({
+      type: "view_submission",
+      trigger_id: "trigger123",
+      user: { id: "U123", username: "testuser", name: "Test User" },
+      view: {
+        id: "V123",
+        callback_id: "feedback_form",
+        state: { values: {} },
+      },
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      response_action?: string;
+    };
+    expect(json.response_action).toBe("clear");
+  });
+
   it("handles view_closed payload", async () => {
     const payload = JSON.stringify({
       type: "view_closed",

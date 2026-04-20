@@ -1308,6 +1308,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     switch (response.action) {
       case "close":
         return {};
+      case "clear":
+        return { response_action: "clear" };
       case "errors":
         return { response_action: "errors", errors: response.errors };
       case "update": {
