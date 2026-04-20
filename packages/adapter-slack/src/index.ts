@@ -2630,14 +2630,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     _message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
+    const threadTs = rawThreadTs || undefined;
 
     try {
       // Check for files to upload
       const files = extractFiles(message);
       if (files.length > 0) {
         // Upload files first (they're shared to the channel automatically)
-        await this.uploadFiles(files, channel, threadTs || undefined);
+        await this.uploadFiles(files, channel, threadTs);
 
         // If message only has files (no text/card), return early
         const hasText =
@@ -2771,7 +2773,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     _message: AdapterPostableMessage
   ): Promise<EphemeralMessage> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    const threadTs = rawThreadTs || undefined;
 
     try {
       // Check if message contains a card
@@ -2792,7 +2795,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.postEphemeral(
           this.withToken({
             channel,
-            thread_ts: threadTs || undefined,
+            thread_ts: threadTs,
             user: userId,
             text: fallbackText,
             blocks,
@@ -2825,7 +2828,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.postEphemeral(
           this.withToken({
             channel,
-            thread_ts: threadTs || undefined,
+            thread_ts: threadTs,
             user: userId,
             text: tableResult.text,
             blocks: tableResult.blocks,
@@ -2861,7 +2864,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.chat.postEphemeral(
         this.withToken({
           channel,
-          thread_ts: threadTs || undefined,
+          thread_ts: threadTs,
           user: userId,
           text,
         })
@@ -2889,7 +2892,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     options: { postAt: Date }
   ): Promise<ScheduledMessage> {
     const message = await this.resolveMessageMentions(_message, threadId);
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    const threadTs = rawThreadTs || undefined;
     const postAtUnix = Math.floor(options.postAt.getTime() / 1000);
 
     if (postAtUnix <= Math.floor(Date.now() / 1000)) {
@@ -2925,7 +2929,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const result = await this.client.chat.scheduleMessage({
           token,
           channel,
-          thread_ts: threadTs || undefined,
+          thread_ts: threadTs,
           post_at: postAtUnix,
           text: fallbackText,
           blocks,
@@ -2967,7 +2971,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const result = await this.client.chat.scheduleMessage({
         token,
         channel,
-        thread_ts: threadTs || undefined,
+        thread_ts: threadTs,
         post_at: postAtUnix,
         text,
         unfurl_links: false,
@@ -3568,7 +3572,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         "Slack streaming requires recipientUserId and recipientTeamId in options"
       );
     }
-    const { channel, threadTs } = this.decodeThreadId(threadId);
+    const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
+    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
+    const threadTs = rawThreadTs || undefined;
+    if (!threadTs) {
+      this.logger.debug("Slack: stream skipped - no thread context");
+      throw new ValidationError(
+        "slack",
+        "Slack streaming requires a valid thread context (non-empty threadTs)"
+      );
+    }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = this.getToken();
