@@ -2076,6 +2076,40 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ts: inner.ts,
       attachmentCount: inner.attachments?.length,
     });
+
+    if (!(this.chat && inner.ts && inner.attachments)) {
+      return;
+    }
+
+    const unfurls: Record<
+      string,
+      {
+        title?: string;
+        description?: string;
+        imageUrl?: string;
+        siteName?: string;
+      }
+    > = {};
+    for (const att of inner.attachments) {
+      const attUrl = att.from_url || att.original_url;
+      if (attUrl && (att.title || att.text)) {
+        unfurls[attUrl] = {
+          title: att.title,
+          description: att.text,
+          imageUrl: att.image_url || att.thumb_url,
+          siteName: att.service_name,
+        };
+      }
+    }
+
+    if (Object.keys(unfurls).length > 0) {
+      this.chat
+        .getState()
+        .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
+        .catch((error) => {
+          this.logger.error("Failed to cache unfurl metadata", { error });
+        });
+    }
   }
 
   /**
@@ -2686,8 +2720,55 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file, event.team_id ?? event.team)
       ),
-      links: this.extractLinks(event),
+      links: await this.enrichLinks(this.extractLinks(event), event.ts),
     });
+  }
+
+  private async enrichLinks(
+    links: LinkPreview[],
+    messageTs?: string
+  ): Promise<LinkPreview[]> {
+    if (!(this.chat && messageTs) || links.length === 0) {
+      return links;
+    }
+
+    const allHaveMetadata = links.every((l) => l.title || l.fetchMessage);
+    if (allHaveMetadata) {
+      return links;
+    }
+
+    try {
+      const stored = await this.chat.getState().get<
+        Record<
+          string,
+          {
+            title?: string;
+            description?: string;
+            imageUrl?: string;
+            siteName?: string;
+          }
+        >
+      >(`slack:unfurls:${messageTs}`);
+      if (!stored) {
+        return links;
+      }
+
+      return links.map((link) => {
+        if (link.title) {
+          return link;
+        }
+        const unfurl =
+          stored[link.url] ||
+          stored[link.url.replace(TRAILING_SLASH_PATTERN, "")] ||
+          stored[`${link.url}/`];
+        if (unfurl) {
+          return { ...link, ...unfurl };
+        }
+        return link;
+      });
+    } catch {
+      return links;
+    }
   }
 
   /**
