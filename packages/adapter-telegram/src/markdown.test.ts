@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { escapeMarkdownV2, TelegramFormatConverter } from "./markdown";
+import {
+  endsWithOrphanBackslash,
+  escapeMarkdownV2,
+  findUnescapedPositions,
+  TelegramFormatConverter,
+  truncateForTelegram,
+} from "./markdown";
 
 const TABLE_PIPE_PATTERN = /\|.*Name.*\|/;
 const TRAILING_TRIPLE_BACKTICK_PATTERN = /```\s*$/;
 const BASH_CODE_BLOCK_PATTERN = /```bash\n([\s\S]*?)\n```/;
+const ESCAPED_ELLIPSIS_PATTERN = /\\\.\\\.\\\.$/;
 
 // All 20 MarkdownV2 special characters per the Telegram Bot API spec.
 // Each must be escaped with a backslash when appearing in normal text.
@@ -460,5 +467,87 @@ describe("TelegramFormatConverter", () => {
       expect(result).not.toContain("**");
       expect(result).not.toContain("](");
     });
+  });
+});
+
+describe("truncateForTelegram", () => {
+  it("returns text unchanged when under limit", () => {
+    expect(truncateForTelegram("hello", 100, "plain")).toBe("hello");
+  });
+
+  it("truncates plain text with literal ellipsis", () => {
+    const result = truncateForTelegram("a".repeat(200), 100, "plain");
+    expect(result.length).toBe(100);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  it("truncates MarkdownV2 with escaped ellipsis", () => {
+    const result = truncateForTelegram("a".repeat(200), 100, "MarkdownV2");
+    expect(result.length).toBeLessThanOrEqual(100);
+    expect(result.endsWith("\\.\\.\\.")).toBe(true);
+  });
+
+  it("strips orphan backslash before ellipsis", () => {
+    const input = `${"a".repeat(90)}\\${"b".repeat(50)}`;
+    const result = truncateForTelegram(input, 100, "MarkdownV2");
+    const beforeEllipsis = result.replace(ESCAPED_ELLIPSIS_PATTERN, "");
+    expect(endsWithOrphanBackslash(beforeEllipsis)).toBe(false);
+    expect(result.endsWith("\\.\\.\\.")).toBe(true);
+  });
+
+  it("strips unclosed bold before ellipsis", () => {
+    const input = `${"a".repeat(80)}*${"b".repeat(100)}`;
+    const result = truncateForTelegram(input, 100, "MarkdownV2");
+    const beforeEllipsis = result.replace(ESCAPED_ELLIPSIS_PATTERN, "");
+    const stars = [...beforeEllipsis].filter((c) => c === "*").length;
+    expect(stars % 2).toBe(0);
+  });
+
+  it("handles input that is all special chars", () => {
+    const input = ".".repeat(200);
+    const rendered = escapeMarkdownV2(input);
+    const result = truncateForTelegram(rendered, 100, "MarkdownV2");
+    expect(result.length).toBeLessThanOrEqual(100);
+    expect(result.endsWith("\\.\\.\\.")).toBe(true);
+  });
+});
+
+describe("findUnescapedPositions", () => {
+  it("finds unescaped markers", () => {
+    expect(findUnescapedPositions("*a*", "*")).toEqual([0, 2]);
+  });
+
+  it("ignores escaped markers", () => {
+    expect(findUnescapedPositions("\\*a*", "*")).toEqual([3]);
+  });
+
+  it("handles double backslash (escaped backslash) before marker", () => {
+    expect(findUnescapedPositions("\\\\*", "*")).toEqual([2]);
+  });
+
+  it("returns empty for no markers", () => {
+    expect(findUnescapedPositions("hello", "*")).toEqual([]);
+  });
+});
+
+describe("endsWithOrphanBackslash", () => {
+  it("returns true for single trailing backslash", () => {
+    expect(endsWithOrphanBackslash("abc\\")).toBe(true);
+  });
+
+  it("returns false for double trailing backslash", () => {
+    expect(endsWithOrphanBackslash("abc\\\\")).toBe(false);
+  });
+
+  it("returns true for triple trailing backslash", () => {
+    expect(endsWithOrphanBackslash("abc\\\\\\")).toBe(true);
+  });
+
+  it("returns false for no trailing backslash", () => {
+    expect(endsWithOrphanBackslash("abc")).toBe(false);
+  });
+
+  it("returns false for empty string", () => {
+    expect(endsWithOrphanBackslash("")).toBe(false);
   });
 });
