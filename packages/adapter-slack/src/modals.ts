@@ -215,6 +215,10 @@ function externalSelectToBlock(select: ExternalSelectElement): SlackBlock {
     element.min_query_length = select.minQueryLength;
   }
 
+  if (select.initialOption) {
+    element.initial_option = selectOptionToSlackOption(select.initialOption);
+  }
+
   return {
     type: "input",
     block_id: select.id,

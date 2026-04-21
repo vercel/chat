@@ -7,7 +7,7 @@ import {
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
 import { MessageHistoryCache } from "./message-history";
-import type { ModalElement, SelectOptionElement } from "./modals";
+import type { ModalElement } from "./modals";
 import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
@@ -47,6 +47,7 @@ import type {
   ModalSubmitHandler,
   OptionsLoadEvent,
   OptionsLoadHandler,
+  OptionsLoadResult,
   ReactionEvent,
   ReactionHandler,
   SentMessage,
@@ -931,7 +932,7 @@ export class Chat<
   async processOptionsLoad(
     event: OptionsLoadEvent,
     _options?: WebhookOptions
-  ): Promise<SelectOptionElement[] | undefined> {
+  ): Promise<OptionsLoadResult | undefined> {
     const matchingHandlers = [
       ...this.optionsLoadHandlers.filter(
         ({ actionIds }) =>

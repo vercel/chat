@@ -1536,6 +1536,40 @@ describe("Chat", () => {
         expect.objectContaining({ actionId: "person_select" })
       );
     });
+
+    it("should support returning option groups", async () => {
+      const handler = vi.fn().mockResolvedValue([
+        {
+          label: "Recent",
+          options: [{ label: "Alice", value: "u1" }],
+        },
+        {
+          label: "All",
+          options: [
+            { label: "Bob", value: "u2" },
+            { label: "Carol", value: "u3" },
+          ],
+        },
+      ]);
+      chat.onOptionsLoad("user_select", handler);
+
+      const result = await chat.processOptionsLoad({
+        actionId: "user_select",
+        query: "",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      expect(result).toHaveLength(2);
+      expect((result as Array<{ label: string }>)[0].label).toBe("Recent");
+    });
   });
 
   describe("thread", () => {

@@ -187,6 +187,7 @@ export interface SelectProps {
 /** Props for ExternalSelect component in JSX */
 export interface ExternalSelectProps {
   id: string;
+  initialOption?: { label: string; value: string };
   label: string;
   minQueryLength?: number;
   optional?: boolean;
@@ -740,6 +741,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     }
     return ExternalSelect({
       id: props.id,
+      initialOption: props.initialOption,
       label: props.label,
       placeholder: props.placeholder,
       minQueryLength: props.minQueryLength,

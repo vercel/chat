@@ -655,7 +655,7 @@ export interface ChatInstance {
   processOptionsLoad(
     event: OptionsLoadEvent,
     options?: WebhookOptions
-  ): Promise<SelectOptionElement[] | undefined>;
+  ): Promise<OptionsLoadResult | undefined>;
 
   /**
    * Process an incoming reaction event from an adapter.
@@ -2006,12 +2006,16 @@ export interface OptionsLoadEvent {
   user: Author;
 }
 
+export interface OptionsLoadGroup {
+  label: string;
+  options: SelectOptionElement[];
+}
+
+export type OptionsLoadResult = SelectOptionElement[] | OptionsLoadGroup[];
+
 export type OptionsLoadHandler = (
   event: OptionsLoadEvent
-) =>
-  | SelectOptionElement[]
-  | Promise<SelectOptionElement[] | undefined>
-  | undefined;
+) => OptionsLoadResult | Promise<OptionsLoadResult | undefined> | undefined;
 
 // =============================================================================
 // Modal Events (Form Submissions)

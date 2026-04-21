@@ -890,6 +890,55 @@ describe("handleWebhook - interactive payloads", () => {
     });
   });
 
+  it("handles block_suggestion with option_groups response", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    (
+      chatInstance.processOptionsLoad as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        label: "Recent",
+        options: [{ label: "Alice", value: "u1" }],
+      },
+      {
+        label: "All",
+        options: [{ label: "Bob", value: "u2" }],
+      },
+    ]);
+    await adapter.initialize(chatInstance);
+
+    const payload = JSON.stringify({
+      type: "block_suggestion",
+      team: { id: "T123" },
+      user: { id: "U123", username: "testuser", name: "Test User" },
+      action_id: "user_select",
+      block_id: "user_block",
+      value: "",
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      option_groups: [
+        {
+          label: { type: "plain_text", text: "Recent" },
+          options: [
+            { text: { type: "plain_text", text: "Alice" }, value: "u1" },
+          ],
+        },
+        {
+          label: { type: "plain_text", text: "All" },
+          options: [{ text: { type: "plain_text", text: "Bob" }, value: "u2" }],
+        },
+      ],
+    });
+  });
+
   it("returns empty options when block_suggestion handler exceeds 2.5s budget", async () => {
     vi.useFakeTimers();
     try {

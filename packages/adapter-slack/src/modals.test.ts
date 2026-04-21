@@ -252,6 +252,35 @@ describe("modalToSlackView", () => {
     });
   });
 
+  it("converts external select with initialOption", () => {
+    const modal = Modal({
+      callbackId: "test",
+      title: "Test",
+      children: [
+        ExternalSelect({
+          id: "person",
+          label: "Person",
+          initialOption: { label: "Alice", value: "u1" },
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toMatchObject({
+      type: "input",
+      block_id: "person",
+      element: {
+        type: "external_select",
+        action_id: "person",
+        initial_option: {
+          text: { type: "plain_text", text: "Alice" },
+          value: "u1",
+        },
+      },
+    });
+  });
+
   it("includes contextId as private_metadata when provided", () => {
     const modal = Modal({
       callbackId: "test",

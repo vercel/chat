@@ -31,6 +31,8 @@ import type {
   Logger,
   ModalElement,
   ModalResponse,
+  OptionsLoadGroup,
+  OptionsLoadResult,
   PlanContent,
   PlanModel,
   RawMessage,
@@ -1399,8 +1401,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return this.optionsLoadResponse(result ?? []);
   }
 
-  private optionsLoadResponse(options: SelectOptionElement[]): Response {
-    const slackOptions = options.slice(0, 100).map(selectOptionToSlackOption);
+  private optionsLoadResponse(result: OptionsLoadResult): Response {
+    const isGroups =
+      result.length > 0 &&
+      "options" in result[0] &&
+      Array.isArray((result[0] as OptionsLoadGroup).options);
+
+    if (isGroups) {
+      const groups = (result as OptionsLoadGroup[])
+        .slice(0, 100)
+        .map((group) => ({
+          label: { type: "plain_text" as const, text: group.label },
+          options: group.options.slice(0, 100).map(selectOptionToSlackOption),
+        }));
+      return new Response(JSON.stringify({ option_groups: groups }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const slackOptions = (result as SelectOptionElement[])
+      .slice(0, 100)
+      .map(selectOptionToSlackOption);
     return new Response(JSON.stringify({ options: slackOptions }), {
       status: 200,
       headers: { "Content-Type": "application/json" },

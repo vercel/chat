@@ -60,6 +60,7 @@ export interface SelectElement {
 
 export interface ExternalSelectElement {
   id: string;
+  initialOption?: SelectOptionElement;
   label: string;
   minQueryLength?: number;
   optional?: boolean;
@@ -186,6 +187,7 @@ export function Select(options: SelectOptions): SelectElement {
 
 export interface ExternalSelectOptions {
   id: string;
+  initialOption?: SelectOptionElement;
   label: string;
   minQueryLength?: number;
   optional?: boolean;
@@ -198,6 +200,7 @@ export function ExternalSelect(
   return {
     type: "external_select",
     id: options.id,
+    initialOption: options.initialOption,
     label: options.label,
     placeholder: options.placeholder,
     minQueryLength: options.minQueryLength,
@@ -341,6 +344,7 @@ export function fromReactModalElement(
     case "ExternalSelect":
       return ExternalSelect({
         id: props.id as string,
+        initialOption: props.initialOption as SelectOptionElement | undefined,
         label: props.label as string,
         placeholder: props.placeholder as string | undefined,
         minQueryLength: props.minQueryLength as number | undefined,
