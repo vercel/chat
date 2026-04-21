@@ -7,7 +7,7 @@ import {
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
 import { MessageHistoryCache } from "./message-history";
-import type { ModalElement } from "./modals";
+import type { ModalElement, SelectOptionElement } from "./modals";
 import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import type {
@@ -45,6 +45,8 @@ import type {
   ModalResponse,
   ModalSubmitEvent,
   ModalSubmitHandler,
+  OptionsLoadEvent,
+  OptionsLoadHandler,
   ReactionEvent,
   ReactionHandler,
   SentMessage,
@@ -94,6 +96,12 @@ interface ActionPattern {
   /** If specified, only these action IDs trigger the handler. Empty means all actions. */
   actionIds: string[];
   handler: ActionHandler;
+}
+
+interface OptionsLoadPattern {
+  /** If specified, only these action IDs trigger the handler. Empty means all selects. */
+  actionIds: string[];
+  handler: OptionsLoadHandler;
 }
 
 interface ModalSubmitPattern {
@@ -215,6 +223,7 @@ export class Chat<
     [];
   private readonly reactionHandlers: ReactionPattern[] = [];
   private readonly actionHandlers: ActionPattern[] = [];
+  private readonly optionsLoadHandlers: OptionsLoadPattern[] = [];
   private readonly modalSubmitHandlers: ModalSubmitPattern[] = [];
   private readonly modalCloseHandlers: ModalClosePattern[] = [];
   private readonly slashCommandHandlers: SlashCommandPattern<TState>[] = [];
@@ -595,6 +604,34 @@ export class Chat<
   }
 
   /**
+   * Register a handler for loading dynamic options for external selects.
+   * Specific action IDs run before catch-all handlers.
+   */
+  onOptionsLoad(handler: OptionsLoadHandler): void;
+  onOptionsLoad(
+    actionIds: string[] | string,
+    handler: OptionsLoadHandler
+  ): void;
+  onOptionsLoad(
+    actionIdOrHandler: string | string[] | OptionsLoadHandler,
+    handler?: OptionsLoadHandler
+  ): void {
+    if (typeof actionIdOrHandler === "function") {
+      this.optionsLoadHandlers.push({
+        actionIds: [],
+        handler: actionIdOrHandler,
+      });
+      this.logger.debug("Registered options load handler for all action IDs");
+    } else if (handler) {
+      const actionIds = Array.isArray(actionIdOrHandler)
+        ? actionIdOrHandler
+        : [actionIdOrHandler];
+      this.optionsLoadHandlers.push({ actionIds, handler });
+      this.logger.debug("Registered options load handler", { actionIds });
+    }
+  }
+
+  /**
    * Register a handler for modal form submissions.
    *
    * @example
@@ -869,6 +906,35 @@ export class Chat<
     }
 
     return task;
+  }
+
+  async processOptionsLoad(
+    event: OptionsLoadEvent,
+    _options?: WebhookOptions
+  ): Promise<SelectOptionElement[] | undefined> {
+    const matchingHandlers = [
+      ...this.optionsLoadHandlers.filter(
+        ({ actionIds }) =>
+          actionIds.length > 0 && actionIds.includes(event.actionId)
+      ),
+      ...this.optionsLoadHandlers.filter(
+        ({ actionIds }) => actionIds.length === 0
+      ),
+    ];
+
+    for (const { handler } of matchingHandlers) {
+      try {
+        const options = await handler(event);
+        if (options) {
+          return options;
+        }
+      } catch (err) {
+        this.logger.error("Options load handler error", {
+          error: err,
+          actionId: event.actionId,
+        });
+      }
+    }
   }
 
   async processModalSubmit(

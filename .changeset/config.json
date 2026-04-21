@@ -7,5 +7,9 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["example-nextjs-chat", "@chat-adapter/integration-tests"]
+  "ignore": [
+    "example-nextjs-chat",
+    "example-telegram-chat",
+    "@chat-adapter/integration-tests"
+  ]
 }

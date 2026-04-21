@@ -654,6 +654,7 @@ const mockChat = {
   processMessage: vi.fn(),
   processReaction: vi.fn(),
   processAction: vi.fn(),
+  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
   processModalSubmit: vi.fn(),
   processModalClose: vi.fn(),
   processSlashCommand: vi.fn(),

@@ -1423,6 +1423,121 @@ describe("Chat", () => {
     });
   });
 
+  describe("Options Load", () => {
+    it("should call onOptionsLoad handler for a matching action ID", async () => {
+      const handler = vi
+        .fn()
+        .mockResolvedValue([{ label: "Maria Garcia", value: "person_123" }]);
+      chat.onOptionsLoad("person_select", handler);
+
+      const options = await chat.processOptionsLoad({
+        actionId: "person_select",
+        query: "mar",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "person_select",
+          query: "mar",
+        })
+      );
+      expect(options).toEqual([{ label: "Maria Garcia", value: "person_123" }]);
+    });
+
+    it("should prefer specific handlers before catch-all handlers", async () => {
+      const catchAll = vi
+        .fn()
+        .mockResolvedValue([{ label: "Fallback", value: "fallback" }]);
+      const specific = vi
+        .fn()
+        .mockResolvedValue([{ label: "Specific", value: "specific" }]);
+      chat.onOptionsLoad(catchAll);
+      chat.onOptionsLoad("person_select", specific);
+
+      const options = await chat.processOptionsLoad({
+        actionId: "person_select",
+        query: "mar",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      expect(specific).toHaveBeenCalledTimes(1);
+      expect(catchAll).not.toHaveBeenCalled();
+      expect(options).toEqual([{ label: "Specific", value: "specific" }]);
+    });
+
+    it("should fall back to catch-all handlers when no specific handler matches", async () => {
+      const catchAll = vi
+        .fn()
+        .mockResolvedValue([{ label: "Fallback", value: "fallback" }]);
+      chat.onOptionsLoad(catchAll);
+
+      const options = await chat.processOptionsLoad({
+        actionId: "unknown_select",
+        query: "test",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      expect(catchAll).toHaveBeenCalledTimes(1);
+      expect(options).toEqual([{ label: "Fallback", value: "fallback" }]);
+    });
+
+    it("should continue after handler errors", async () => {
+      const failingHandler = vi.fn().mockRejectedValue(new Error("boom"));
+      const fallbackHandler = vi
+        .fn()
+        .mockResolvedValue([{ label: "Recovered", value: "recovered" }]);
+      chat.onOptionsLoad("person_select", failingHandler);
+      chat.onOptionsLoad(fallbackHandler);
+
+      const options = await chat.processOptionsLoad({
+        actionId: "person_select",
+        query: "mar",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      expect(failingHandler).toHaveBeenCalledTimes(1);
+      expect(fallbackHandler).toHaveBeenCalledTimes(1);
+      expect(options).toEqual([{ label: "Recovered", value: "recovered" }]);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "Options load handler error",
+        expect.objectContaining({ actionId: "person_select" })
+      );
+    });
+  });
+
   describe("thread", () => {
     it("should return a Thread handle for a valid thread ID", () => {
       const thread = chat.thread("slack:C123:1234.5678");

@@ -32,7 +32,9 @@ const logger = new ConsoleLogger("error");
 describe("ESM compatibility", () => {
   it(
     "all subpath imports resolve in Node.js ESM (no bare directory imports)",
-    { timeout: 30_000 },
+    {
+      timeout: 30_000,
+    },
     () => {
       const source = readFileSync(
         resolve(import.meta.dirname, "index.ts"),
@@ -790,6 +792,7 @@ describe("TeamsAdapter", () => {
         getState: vi.fn(),
         processMessage: vi.fn(),
         processAction: vi.fn(),
+        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
         processReaction: vi.fn(),
       };
 
@@ -1008,6 +1011,7 @@ describe("TeamsAdapter", () => {
         getState: () => mockState,
         processMessage: vi.fn(),
         processAction: vi.fn(),
+        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
         processReaction: vi.fn(),
       };
 

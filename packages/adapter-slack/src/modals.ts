@@ -4,10 +4,12 @@
  */
 
 import type {
+  ExternalSelectElement,
   ModalChild,
   ModalElement,
   RadioSelectElement,
   SelectElement,
+  SelectOptionElement,
   TextInputElement,
 } from "chat";
 import {
@@ -31,6 +33,12 @@ export interface SlackModalResponse {
   errors?: Record<string, string>;
   response_action?: "errors" | "update" | "push" | "clear";
   view?: SlackView;
+}
+
+export interface SlackOptionObject {
+  description?: { type: "plain_text"; text: string };
+  text: { type: "plain_text"; text: string };
+  value: string;
 }
 
 // ============================================================================
@@ -109,6 +117,8 @@ function modalChildToBlock(child: ModalChild): SlackBlock {
       return textInputToBlock(child);
     case "select":
       return selectToBlock(child);
+    case "external_select":
+      return externalSelectToBlock(child);
     case "radio_select":
       return radioSelectToBlock(child);
     case "text":
@@ -120,6 +130,18 @@ function modalChildToBlock(child: ModalChild): SlackBlock {
         `Unknown modal child type: ${(child as { type: string }).type}`
       );
   }
+}
+
+export function selectOptionToSlackOption(
+  option: SelectOptionElement
+): SlackOptionObject {
+  return {
+    text: { type: "plain_text", text: option.label },
+    value: option.value,
+    ...(option.description
+      ? { description: { type: "plain_text", text: option.description } }
+      : {}),
+  };
 }
 
 function textInputToBlock(input: TextInputElement): SlackBlock {
@@ -149,16 +171,7 @@ function textInputToBlock(input: TextInputElement): SlackBlock {
 }
 
 function selectToBlock(select: SelectElement): SlackBlock {
-  const options = select.options.map((opt) => {
-    const option: Record<string, unknown> = {
-      text: { type: "plain_text" as const, text: opt.label },
-      value: opt.value,
-    };
-    if (opt.description) {
-      option.description = { type: "plain_text", text: opt.description };
-    }
-    return option;
-  });
+  const options = select.options.map(selectOptionToSlackOption);
 
   const element: Record<string, unknown> = {
     type: "static_select",
@@ -177,6 +190,29 @@ function selectToBlock(select: SelectElement): SlackBlock {
     if (initialOpt) {
       element.initial_option = initialOpt;
     }
+  }
+
+  return {
+    type: "input",
+    block_id: select.id,
+    optional: select.optional ?? false,
+    label: { type: "plain_text", text: select.label },
+    element,
+  };
+}
+
+function externalSelectToBlock(select: ExternalSelectElement): SlackBlock {
+  const element: Record<string, unknown> = {
+    type: "external_select",
+    action_id: select.id,
+  };
+
+  if (select.placeholder) {
+    element.placeholder = { type: "plain_text", text: select.placeholder };
+  }
+
+  if (select.minQueryLength !== undefined) {
+    element.min_query_length = select.minQueryLength;
   }
 
   return {

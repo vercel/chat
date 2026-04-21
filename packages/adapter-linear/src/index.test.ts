@@ -186,6 +186,7 @@ function createMockChatInstance(
     handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
     processReaction: vi.fn(),
     processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processSlashCommand: vi.fn(),

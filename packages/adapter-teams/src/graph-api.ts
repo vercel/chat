@@ -15,7 +15,7 @@ import type {
 import { Message, NotImplementedError } from "chat";
 import type { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
-import type { TeamsChannelContext } from "./types";
+import type { TeamsChannelContext, TeamsGraphContext } from "./types";
 
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const SEMICOLON_MESSAGEID_CAPTURE_PATTERN = /;messageid=(\d+)/;
@@ -33,9 +33,9 @@ type GraphMessage = NonNullable<ChatMessageListResponse["value"]>[number];
 export interface TeamsGraphReaderDeps {
   botId: string;
   formatConverter: TeamsFormatConverter;
-  getChannelContext: (
+  getGraphContext: (
     baseConversationId: string
-  ) => Promise<TeamsChannelContext | null>;
+  ) => Promise<TeamsGraphContext | null>;
   graph: GraphClient;
   logger: Logger;
 }
@@ -45,6 +45,21 @@ export class TeamsGraphReader {
 
   constructor(deps: TeamsGraphReaderDeps) {
     this.deps = deps;
+  }
+
+  /**
+   * Resolve the Graph API chat ID for a non-channel conversation.
+   * Uses the DM context's graphChatId if available, otherwise falls back to
+   * the raw conversation ID (works for group chats).
+   */
+  private chatIdFromContext(
+    context: TeamsGraphContext | null,
+    baseConversationId: string
+  ): string {
+    if (context?.type === "dm") {
+      return context.graphChatId;
+    }
+    return baseConversationId;
   }
 
   async fetchMessages(
@@ -65,35 +80,34 @@ export class TeamsGraphReader {
       ""
     );
 
-    const channelContext = threadMessageId
-      ? await this.deps.getChannelContext(baseConversationId)
-      : null;
+    const graphContext = await this.deps.getGraphContext(baseConversationId);
 
     try {
       this.deps.logger.debug("Teams Graph API: fetching messages", {
         conversationId: baseConversationId,
         threadMessageId,
-        hasChannelContext: !!channelContext,
+        contextType: graphContext?.type ?? "none",
         limit,
         cursor,
         direction,
       });
 
-      if (channelContext && threadMessageId) {
+      if (graphContext && graphContext.type !== "dm" && threadMessageId) {
         return this.fetchChannelThreadMessages(
-          channelContext,
+          graphContext,
           threadMessageId,
           threadId,
           options
         );
       }
 
+      const chatId = this.chatIdFromContext(graphContext, baseConversationId);
       let graphMessages: GraphMessage[];
       let hasMoreMessages = false;
 
       if (direction === "forward") {
         const response = await this.deps.graph.call(chats.messages.list, {
-          "chat-id": baseConversationId,
+          "chat-id": chatId,
           $top: limit,
           $orderby: ["createdDateTime asc"],
           $filter: cursor ? `createdDateTime gt ${cursor}` : undefined,
@@ -102,7 +116,7 @@ export class TeamsGraphReader {
         hasMoreMessages = graphMessages.length >= limit;
       } else {
         const response = await this.deps.graph.call(chats.messages.list, {
-          "chat-id": baseConversationId,
+          "chat-id": chatId,
           $top: limit,
           $orderby: ["createdDateTime desc"],
           $filter: cursor ? `createdDateTime lt ${cursor}` : undefined,
@@ -112,7 +126,7 @@ export class TeamsGraphReader {
         hasMoreMessages = graphMessages.length >= limit;
       }
 
-      if (threadMessageId && !channelContext) {
+      if (threadMessageId && !graphContext) {
         graphMessages = graphMessages.filter((msg) => {
           return msg.id && msg.id >= threadMessageId;
         });
@@ -175,12 +189,11 @@ export class TeamsGraphReader {
     const direction = options.direction ?? "backward";
 
     try {
-      const channelContext =
-        await this.deps.getChannelContext(baseConversationId);
+      const graphContext = await this.deps.getGraphContext(baseConversationId);
 
       this.deps.logger.debug("Teams Graph API: fetchChannelMessages", {
         conversationId: baseConversationId,
-        hasChannelContext: !!channelContext,
+        contextType: graphContext?.type ?? "none",
         limit,
         direction,
       });
@@ -188,10 +201,10 @@ export class TeamsGraphReader {
       let graphMessages: GraphMessage[];
       let hasMoreMessages = false;
 
-      if (channelContext) {
+      if (graphContext && graphContext.type !== "dm") {
         const channelParams = {
-          "team-id": channelContext.teamId,
-          "channel-id": channelContext.channelId,
+          "team-id": graphContext.teamId,
+          "channel-id": graphContext.channelId,
         };
 
         if (direction === "forward") {
@@ -239,29 +252,32 @@ export class TeamsGraphReader {
           graphMessages.reverse();
           hasMoreMessages = graphMessages.length >= limit;
         }
-      } else if (direction === "forward") {
-        const response = await this.deps.graph.call(chats.messages.list, {
-          "chat-id": baseConversationId,
-          $top: limit,
-          $orderby: ["createdDateTime asc"],
-          $filter: options.cursor
-            ? `createdDateTime gt ${options.cursor}`
-            : undefined,
-        });
-        graphMessages = (response.value || []) as GraphMessage[];
-        hasMoreMessages = graphMessages.length >= limit;
       } else {
-        const response = await this.deps.graph.call(chats.messages.list, {
-          "chat-id": baseConversationId,
-          $top: limit,
-          $orderby: ["createdDateTime desc"],
-          $filter: options.cursor
-            ? `createdDateTime lt ${options.cursor}`
-            : undefined,
-        });
-        graphMessages = (response.value || []) as GraphMessage[];
-        graphMessages.reverse();
-        hasMoreMessages = graphMessages.length >= limit;
+        const chatId = this.chatIdFromContext(graphContext, baseConversationId);
+        if (direction === "forward") {
+          const response = await this.deps.graph.call(chats.messages.list, {
+            "chat-id": chatId,
+            $top: limit,
+            $orderby: ["createdDateTime asc"],
+            $filter: options.cursor
+              ? `createdDateTime gt ${options.cursor}`
+              : undefined,
+          });
+          graphMessages = (response.value || []) as GraphMessage[];
+          hasMoreMessages = graphMessages.length >= limit;
+        } else {
+          const response = await this.deps.graph.call(chats.messages.list, {
+            "chat-id": chatId,
+            $top: limit,
+            $orderby: ["createdDateTime desc"],
+            $filter: options.cursor
+              ? `createdDateTime lt ${options.cursor}`
+              : undefined,
+          });
+          graphMessages = (response.value || []) as GraphMessage[];
+          graphMessages.reverse();
+          hasMoreMessages = graphMessages.length >= limit;
+        }
       }
 
       const messages = this.mapGraphMessages(graphMessages, channelId);
@@ -297,19 +313,18 @@ export class TeamsGraphReader {
       ""
     );
 
-    const channelContext =
-      await this.deps.getChannelContext(baseConversationId);
+    const graphContext = await this.deps.getGraphContext(baseConversationId);
 
-    if (channelContext) {
+    if (graphContext && graphContext.type !== "dm") {
       try {
         this.deps.logger.debug("Teams Graph API: GET channel info", {
-          teamId: channelContext.teamId,
-          channelId: channelContext.channelId,
+          teamId: graphContext.teamId,
+          channelId: graphContext.channelId,
         });
 
         const response = await this.deps.graph.call(teams.channels.get, {
-          "team-id": channelContext.teamId,
-          "channel-id": channelContext.channelId,
+          "team-id": graphContext.teamId,
+          "channel-id": graphContext.channelId,
         });
 
         return {
@@ -361,23 +376,22 @@ export class TeamsGraphReader {
     const limit = options.limit || 50;
 
     try {
-      const channelContext =
-        await this.deps.getChannelContext(baseConversationId);
+      const graphContext = await this.deps.getGraphContext(baseConversationId);
 
       this.deps.logger.debug("Teams Graph API: listThreads", {
         conversationId: baseConversationId,
-        hasChannelContext: !!channelContext,
+        contextType: graphContext?.type ?? "none",
         limit,
       });
 
       const threads: ThreadSummary[] = [];
 
-      if (channelContext) {
+      if (graphContext && graphContext.type !== "dm") {
         const response = await this.deps.graph.call(
           teams.channels.messages.list,
           {
-            "team-id": channelContext.teamId,
-            "channel-id": channelContext.channelId,
+            "team-id": graphContext.teamId,
+            "channel-id": graphContext.channelId,
             $top: limit,
           }
         );
@@ -434,8 +448,9 @@ export class TeamsGraphReader {
           });
         }
       } else {
+        const chatId = this.chatIdFromContext(graphContext, baseConversationId);
         const response = await this.deps.graph.call(chats.messages.list, {
-          "chat-id": baseConversationId,
+          "chat-id": chatId,
           $top: limit,
           $orderby: ["createdDateTime desc"],
         });

@@ -1,8 +1,16 @@
-import DynamicLink from "fumadocs-core/dynamic-link";
 import type { Metadata } from "next";
 import type { ComponentProps } from "react";
-import { Installer } from "@/components/geistdocs/installer";
-import { Button } from "@/components/ui/button";
+import {
+  CommandPromptContent,
+  CommandPromptCopy,
+  CommandPromptList,
+  CommandPromptPrefix,
+  CommandPromptRoot,
+  CommandPromptSurface,
+  CommandPromptTrigger,
+  CommandPromptTriggerDivider,
+  CommandPromptViewport,
+} from "@/components/ui/command-prompt";
 import { discord, gchat, slack, teams } from "@/lib/logos";
 import { AdaptersSection } from "./components/adapters-section";
 import { CenteredSection } from "./components/centered-section";
@@ -31,6 +39,9 @@ const LogoChip = ({
     {suffix}
   </span>
 );
+
+const COMMAND_FOR_HUMANS = "npm install chat";
+const COMMAND_FOR_AGENTS = "npx skills add vercel/chat";
 
 const title = "Chat SDK";
 const textDescription =
@@ -161,14 +172,29 @@ const HomePage = () => (
       description={heroDescription}
       title={title}
     >
-      <div className="mx-auto inline-flex w-fit items-center gap-3">
-        <Button asChild className="px-4" size="lg">
-          <DynamicLink href="/[lang]/docs/getting-started">
-            Get Started
-          </DynamicLink>
-        </Button>
-        <Installer className="w-28" command="npm i chat" />
-      </div>
+      <CommandPromptRoot className="mt-6" defaultValue="humans">
+        <CommandPromptList>
+          <CommandPromptTrigger className="min-w-[90px]" value="humans">
+            For humans
+          </CommandPromptTrigger>
+          <CommandPromptTriggerDivider />
+          <CommandPromptTrigger className="min-w-[84px]" value="agents">
+            For agents
+          </CommandPromptTrigger>
+        </CommandPromptList>
+        <CommandPromptSurface>
+          <CommandPromptPrefix>$</CommandPromptPrefix>
+          <CommandPromptViewport>
+            <CommandPromptContent copyValue={COMMAND_FOR_HUMANS} value="humans">
+              {COMMAND_FOR_HUMANS}
+            </CommandPromptContent>
+            <CommandPromptContent copyValue={COMMAND_FOR_AGENTS} value="agents">
+              {COMMAND_FOR_AGENTS}
+            </CommandPromptContent>
+          </CommandPromptViewport>
+          <CommandPromptCopy />
+        </CommandPromptSurface>
+      </CommandPromptRoot>
     </Hero>
     <div className="grid divide-y border-y sm:border-x">
       <CenteredSection

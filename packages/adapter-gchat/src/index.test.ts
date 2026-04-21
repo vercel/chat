@@ -73,6 +73,7 @@ function createMockChatInstance(state: StateAdapter): ChatInstance {
     processMessage: vi.fn(),
     processReaction: vi.fn(),
     processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
   } as unknown as ChatInstance;
 }
 
