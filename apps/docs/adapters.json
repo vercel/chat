@@ -173,6 +173,17 @@
     "vendorOfficial": true
   },
   {
+    "name": "Telnyx",
+    "slug": "telnyx",
+    "type": "platform",
+    "community": true,
+    "description": "Bidirectional SMS/MMS adapter for Chat SDK with Ed25519-verified webhooks, automatic MMS upgrade, and dedicated messaging profile support via Telnyx.",
+    "packageName": "@telnyx/chat-sdk-adapter",
+    "author": "Telnyx",
+    "readme": "https://github.com/team-telnyx/telnyx-chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
     "name": "Zernio",
     "slug": "zernio",
     "type": "platform",
