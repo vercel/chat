@@ -48,6 +48,31 @@ const STREAMING_CHUNKS = [
 
 const STREAM_CHUNK_DELAY_MS = 600;
 
+// Truncation demos: each produces a rendered message over Telegram's 4096-char
+// limit, exercising a different code path in trimToMarkdownV2SafeBoundary.
+// If any of these renders with the asterisks literal, an orphan `\`, or
+// Telegram returns `can't parse entities`, the truncator has regressed.
+const LONG_PLAIN_LENGTH = 5000;
+const LONG_BODY_BEFORE_ENTITY = 4000;
+const LONG_BODY_INSIDE_ENTITY = 1000;
+
+function longPlainMarkdown(): string {
+  // No special chars — rendered output is the same length as input. Truncation
+  // must append escaped `\.\.\.` and hold under the 4096 char limit.
+  return "a".repeat(LONG_PLAIN_LENGTH);
+}
+
+function longWithUnclosedBold(): string {
+  // `**bold**` opens before the limit and closes after it. Naive truncation
+  // keeps the opening `*` without its closer → unclosed bold entity → 400.
+  return `${"a".repeat(LONG_BODY_BEFORE_ENTITY)}**${"b".repeat(LONG_BODY_INSIDE_ENTITY)}**`;
+}
+
+function longWithUnclosedCode(): string {
+  // Same shape, inline code. Unclosed backtick entity → 400.
+  return `${"a".repeat(LONG_BODY_BEFORE_ENTITY)}\`${"b".repeat(LONG_BODY_INSIDE_ENTITY)}\``;
+}
+
 type AnyThread = Thread<unknown>;
 
 export const MARKDOWN_DEMOS: {
@@ -143,6 +168,27 @@ export const MARKDOWN_DEMOS: {
         }
       }
       await thread.post(iter());
+    },
+  },
+  {
+    id: "md.long-plain",
+    label: "Long (5000 plain)",
+    run: async (thread) => {
+      await thread.post({ markdown: longPlainMarkdown() });
+    },
+  },
+  {
+    id: "md.long-bold",
+    label: "Long (bold crosses 4096)",
+    run: async (thread) => {
+      await thread.post({ markdown: longWithUnclosedBold() });
+    },
+  },
+  {
+    id: "md.long-code",
+    label: "Long (code crosses 4096)",
+    run: async (thread) => {
+      await thread.post({ markdown: longWithUnclosedCode() });
     },
   },
 ];
