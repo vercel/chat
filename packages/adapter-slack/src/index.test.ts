@@ -5681,6 +5681,86 @@ describe("link unfurl enrichment", () => {
 
     expect(chatInstance.processMessage).not.toHaveBeenCalled();
   });
+
+  it("should store unfurl metadata and enrich subsequent messages", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const messageChangedBody = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        hidden: true,
+        channel: "C123",
+        ts: "1234567891.000000",
+        message: {
+          type: "message",
+          user: "U_USER",
+          text: "<https://example.com/page>",
+          ts: "1234567890.123456",
+          attachments: [
+            {
+              from_url: "https://example.com/page",
+              title: "Example Page",
+              text: "A great page",
+              service_name: "Example",
+            },
+          ],
+        },
+      },
+    });
+
+    const mcRequest = createWebhookRequest(messageChangedBody, secret);
+    await adapter.handleWebhook(mcRequest);
+
+    const stored = await state.cache.get("slack:unfurls:1234567890.123456");
+    expect(stored).not.toBeNull();
+    expect(
+      (stored as Record<string, { title: string }>)["https://example.com/page"]
+        .title
+    ).toBe("Example Page");
+
+    const messageBody = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C123",
+        ts: "1234567890.123456",
+        text: "Check <https://example.com/page>",
+        user: "U_USER",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [{ type: "link", url: "https://example.com/page" }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const msgRequest = createWebhookRequest(messageBody, secret);
+    await adapter.handleWebhook(msgRequest);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2] as () => Promise<{
+      links: Array<{ url: string; title?: string; description?: string }>;
+    }>;
+    const msg = await factory();
+
+    expect(msg.links[0].title).toBe("Example Page");
+    expect(msg.links[0].description).toBe("A great page");
+  });
 });
 
 // ============================================================================
