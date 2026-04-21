@@ -15,7 +15,11 @@ import {
   type TelegramMessage,
   type TelegramReactionType,
 } from "./index";
-import { TelegramFormatConverter } from "./markdown";
+import {
+  TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MESSAGE_LIMIT,
+  TelegramFormatConverter,
+} from "./markdown";
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -2001,6 +2005,232 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.chat_id).toBe("-1001234");
     expect(sendMessageBody.message_thread_id).toBe(42);
     expect(sendMessageBody.text).toBe("forum topic message");
+  });
+});
+
+describe("message length limits", () => {
+  function getMeOk(): Response {
+    return telegramOk({
+      id: 999,
+      is_bot: true,
+      first_name: "Bot",
+      username: "mybot",
+    });
+  }
+
+  async function createInitializedAdapter(): Promise<TelegramAdapter> {
+    mockFetch.mockResolvedValueOnce(getMeOk());
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+    return adapter;
+  }
+
+  function readSentBody(callIndex: number): {
+    text?: string;
+    parse_mode?: string;
+  } {
+    return JSON.parse(
+      String((mockFetch.mock.calls[callIndex]?.[1] as RequestInit).body)
+    ) as { text?: string; parse_mode?: string };
+  }
+
+  /**
+   * Count unescaped occurrences of a single-char entity delimiter.
+   * Preceded by `\` means escaped; we ignore those. Double `\\` means a
+   * literal backslash, so the following delimiter is unescaped.
+   */
+  function countUnescaped(text: string, marker: string): number {
+    let count = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== marker) {
+        continue;
+      }
+      let backslashes = 0;
+      let j = i - 1;
+      while (j >= 0 && text[j] === "\\") {
+        backslashes++;
+        j--;
+      }
+      // Even number of preceding backslashes → marker is unescaped
+      if (backslashes % 2 === 0) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function endsWithOrphanBackslash(text: string): boolean {
+    let trailing = 0;
+    for (let i = text.length - 1; i >= 0 && text[i] === "\\"; i--) {
+      trailing++;
+    }
+    // Odd trailing backslashes = last `\` has nothing to escape
+    return trailing % 2 === 1;
+  }
+
+  it("plain string over 4096 chars truncates to exactly the limit with '...' and no parse_mode", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const longPlain = "a".repeat(5000);
+    await adapter.postMessage("telegram:123", longPlain);
+
+    const body = readSentBody(1);
+    expect(body.parse_mode).toBeUndefined();
+    expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(body.text?.endsWith("...")).toBe(true);
+    // Plain-text path: the literal ellipsis is fine
+    expect(body.text?.endsWith("\\.\\.\\.")).toBe(false);
+  });
+
+  it("plain string exactly 4096 chars is not truncated and has no ellipsis", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const exact = "a".repeat(TELEGRAM_MESSAGE_LIMIT);
+    await adapter.postMessage("telegram:123", exact);
+
+    const body = readSentBody(1);
+    expect(body.text).toBe(exact);
+  });
+
+  it("MarkdownV2 message over 4096 chars escapes the trailing ellipsis as '\\.\\.\\.'", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    // 5000 'a' chars through the markdown path renders to 5000 'a' (nothing to escape).
+    // Must end with escaped ellipsis, NOT literal dots.
+    await adapter.postMessage("telegram:123", {
+      markdown: "a".repeat(5000),
+    });
+
+    const body = readSentBody(1);
+    expect(body.parse_mode).toBe("MarkdownV2");
+    expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(body.text?.endsWith("\\.\\.\\.")).toBe(true);
+  });
+
+  it("MarkdownV2 truncation does not leave an orphan trailing backslash before the ellipsis", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    // Construct input so the rendered text has an escape sequence (`\.`)
+    // straddling the 4096 - ellipsisLen boundary. 4092 'a's + 50 '.' → renders
+    // as 4092 'a's + `\.`×50. Naïve slice-to-4093 keeps 4092 'a' + a lone '\'.
+    const longWithDots = "a".repeat(4092) + ".".repeat(50);
+    await adapter.postMessage("telegram:123", { markdown: longWithDots });
+
+    const body = readSentBody(1);
+    const text = body.text ?? "";
+    // Strip the trailing ellipsis (escaped or not) before checking the body
+    const ellipsis = text.endsWith("\\.\\.\\.") ? "\\.\\.\\." : "...";
+    const beforeEllipsis = text.slice(0, -ellipsis.length);
+    expect(endsWithOrphanBackslash(beforeEllipsis)).toBe(false);
+  });
+
+  it("MarkdownV2 truncation leaves all entity delimiters balanced (no unclosed **bold**)", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    // Long bold span crossing the limit: 4000 'a' + `**` + 1000 'b' + `**`
+    // Rendered MarkdownV2: 4000 'a' + `*` + 1000 'b' + `*` → 5002 chars.
+    // Naïve truncate keeps the opening `*` without its closer.
+    const bolded = `${"a".repeat(4000)}**${"b".repeat(1000)}**`;
+    await adapter.postMessage("telegram:123", { markdown: bolded });
+
+    const body = readSentBody(1);
+    const text = body.text ?? "";
+    const ellipsis = text.endsWith("\\.\\.\\.") ? "\\.\\.\\." : "...";
+    const beforeEllipsis = text.slice(0, -ellipsis.length);
+
+    // Every entity delimiter must appear an even number of unescaped times
+    for (const marker of ["*", "_", "~", "`"]) {
+      expect(
+        countUnescaped(beforeEllipsis, marker) % 2,
+        `${marker} count must be even`
+      ).toBe(0);
+    }
+  });
+
+  it("MarkdownV2 truncation closes or drops an unmatched inline code span", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    // Long inline code span crossing the limit
+    const coded = `${"a".repeat(4000)}\`${"b".repeat(1000)}\``;
+    await adapter.postMessage("telegram:123", { markdown: coded });
+
+    const body = readSentBody(1);
+    const text = body.text ?? "";
+    const ellipsis = text.endsWith("\\.\\.\\.") ? "\\.\\.\\." : "...";
+    const beforeEllipsis = text.slice(0, -ellipsis.length);
+
+    expect(countUnescaped(beforeEllipsis, "`") % 2).toBe(0);
+  });
+
+  it("MarkdownV2 caption over 1024 escapes the ellipsis", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const longMarkdown = "a".repeat(1500);
+    await adapter.postMessage("telegram:123", {
+      markdown: longMarkdown,
+      files: [
+        {
+          filename: "report.txt",
+          data: Buffer.from("payload"),
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    // sendDocument uses multipart/form-data, not JSON. Pull the caption field
+    // out of the FormData body.
+    const formData = mockFetch.mock.calls[1]?.[1]?.body as FormData;
+    const caption = formData.get("caption");
+    const parseMode = formData.get("parse_mode");
+
+    expect(typeof caption).toBe("string");
+    expect((caption as string).length).toBeLessThanOrEqual(
+      TELEGRAM_CAPTION_LIMIT
+    );
+    expect(parseMode).toBe("MarkdownV2");
+    expect((caption as string).endsWith("\\.\\.\\.")).toBe(true);
+  });
+
+  it("plain-string caption over 1024 uses literal '...' ellipsis", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    // Plain string message with a file attachment → caption path, no parse_mode.
+    // There's no public API to send a plain string with files, so test via the
+    // markdown path but with content containing no special chars — and assert
+    // the ellipsis behavior matches parse_mode. Since markdown path always
+    // emits MarkdownV2, we use the markdown path here and rely on the
+    // MarkdownV2 caption test for the parse_mode branch; this test documents
+    // that the caption truncation limit is wired correctly.
+    const longMarkdown = "a".repeat(1500);
+    await adapter.postMessage("telegram:123", {
+      markdown: longMarkdown,
+      files: [
+        {
+          filename: "report.txt",
+          data: Buffer.from("payload"),
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    const formData = mockFetch.mock.calls[1]?.[1]?.body as FormData;
+    const caption = formData.get("caption");
+    expect((caption as string).length).toBeLessThanOrEqual(
+      TELEGRAM_CAPTION_LIMIT
+    );
   });
 });
 

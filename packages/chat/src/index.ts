@@ -213,6 +213,7 @@ export type {
   Link,
   List,
   ListItem,
+  Nodes,
   Paragraph,
   Root,
   Strong,

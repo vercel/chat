@@ -38,7 +38,14 @@ import {
   decodeTelegramCallbackData,
   emptyTelegramInlineKeyboard,
 } from "./cards";
-import { TelegramFormatConverter } from "./markdown";
+import {
+  TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MESSAGE_LIMIT,
+  TelegramFormatConverter,
+  type TelegramParseMode,
+  toBotApiParseMode,
+  truncateForTelegram,
+} from "./markdown";
 import type {
   TelegramAdapterConfig,
   TelegramAdapterMode,
@@ -60,11 +67,8 @@ import type {
 } from "./types";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
-const TELEGRAM_MESSAGE_LIMIT = 4096;
-const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
-const TELEGRAM_MARKDOWN_PARSE_MODE = "MarkdownV2";
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -665,7 +669,7 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
-    const text = this.truncateMessage(
+    const text = truncateForTelegram(
       convertEmojiPlaceholders(
         card
           ? this.formatConverter.fromMarkdown(
@@ -673,7 +677,9 @@ export class TelegramAdapter
             )
           : this.formatConverter.renderPostable(message),
         "gchat"
-      )
+      ),
+      TELEGRAM_MESSAGE_LIMIT,
+      parseMode
     );
 
     const files = extractFiles(message);
@@ -708,7 +714,7 @@ export class TelegramAdapter
         message_thread_id: parsedThread.messageThreadId,
         text,
         reply_markup: replyMarkup,
-        parse_mode: parseMode,
+        parse_mode: toBotApiParseMode(parseMode),
       });
     }
 
@@ -753,7 +759,7 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
-    const text = this.truncateMessage(
+    const text = truncateForTelegram(
       convertEmojiPlaceholders(
         card
           ? this.formatConverter.fromMarkdown(
@@ -761,7 +767,9 @@ export class TelegramAdapter
             )
           : this.formatConverter.renderPostable(message),
         "gchat"
-      )
+      ),
+      TELEGRAM_MESSAGE_LIMIT,
+      parseMode
     );
 
     if (!text.trim()) {
@@ -775,7 +783,7 @@ export class TelegramAdapter
         message_id: telegramMessageId,
         text,
         reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
-        parse_mode: parseMode,
+        parse_mode: toBotApiParseMode(parseMode),
       }
     );
 
@@ -1224,7 +1232,7 @@ export class TelegramAdapter
     },
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode?: string
+    parseMode: TelegramParseMode = "plain"
   ): Promise<TelegramMessage> {
     const buffer = await this.toTelegramBuffer(file.data);
 
@@ -1235,9 +1243,13 @@ export class TelegramAdapter
     }
 
     if (text.trim()) {
-      formData.append("caption", this.truncateCaption(text));
-      if (parseMode) {
-        formData.append("parse_mode", parseMode);
+      formData.append(
+        "caption",
+        truncateForTelegram(text, TELEGRAM_CAPTION_LIMIT, parseMode)
+      );
+      const botApiParseMode = toBotApiParseMode(parseMode);
+      if (botApiParseMode) {
+        formData.append("parse_mode", botApiParseMode);
       }
     }
 
@@ -1521,38 +1533,22 @@ export class TelegramAdapter
   private resolveParseMode(
     message: AdapterPostableMessage,
     card: ReturnType<typeof extractCard>
-  ): string | undefined {
+  ): TelegramParseMode {
     // Cards and any message routed through the format converter are rendered
     // as MarkdownV2, so Telegram must parse them with MarkdownV2.
     if (card) {
-      return TELEGRAM_MARKDOWN_PARSE_MODE;
+      return "MarkdownV2";
     }
     // Plain strings and raw messages ship verbatim — no markdown parsing.
     if (typeof message === "string") {
-      return undefined;
+      return "plain";
     }
     if (typeof message === "object" && message !== null && "raw" in message) {
-      return undefined;
+      return "plain";
     }
     // Every other shape ({markdown}, {ast}, JSX, etc.) flows through
     // formatConverter.renderPostable, which emits MarkdownV2.
-    return TELEGRAM_MARKDOWN_PARSE_MODE;
-  }
-
-  private truncateMessage(text: string): string {
-    if (text.length <= TELEGRAM_MESSAGE_LIMIT) {
-      return text;
-    }
-
-    return `${text.slice(0, TELEGRAM_MESSAGE_LIMIT - 3)}...`;
-  }
-
-  private truncateCaption(text: string): string {
-    if (text.length <= TELEGRAM_CAPTION_LIMIT) {
-      return text;
-    }
-
-    return `${text.slice(0, TELEGRAM_CAPTION_LIMIT - 3)}...`;
+    return "MarkdownV2";
   }
 
   private toTelegramReaction(emoji: EmojiValue | string): TelegramReactionType {
@@ -1846,6 +1842,7 @@ export type {
   TelegramMessage,
   TelegramMessageReactionUpdated,
   TelegramRawMessage,
+  TelegramReactionType,
   TelegramThreadId,
   TelegramUpdate,
   TelegramUser,
