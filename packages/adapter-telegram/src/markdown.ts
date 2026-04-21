@@ -117,7 +117,7 @@ export function endsWithOrphanBackslash(text: string): boolean {
  * Best-effort: may drop more than strictly necessary in edge cases, but
  * guarantees the output is parseable MarkdownV2 (when the input was).
  */
-export function trimToMarkdownV2SafeBoundary(text: string): string {
+function trimToMarkdownV2SafeBoundary(text: string): string {
   let current = text;
   const maxIterations = current.length + 1;
 
