@@ -142,48 +142,7 @@ await thread.post(
 
 ## Adapter inventory
 
-### Official platform adapters
-
-| Platform | Package | Factory |
-|---------|---------|---------|
-| Slack | `@chat-adapter/slack` | `createSlackAdapter` |
-| Microsoft Teams | `@chat-adapter/teams` | `createTeamsAdapter` |
-| Google Chat | `@chat-adapter/gchat` | `createGoogleChatAdapter` |
-| Discord | `@chat-adapter/discord` | `createDiscordAdapter` |
-| GitHub | `@chat-adapter/github` | `createGitHubAdapter` |
-| Linear | `@chat-adapter/linear` | `createLinearAdapter` |
-| Telegram | `@chat-adapter/telegram` | `createTelegramAdapter` |
-| WhatsApp Business Cloud | `@chat-adapter/whatsapp` | `createWhatsAppAdapter` |
-
-### Official state adapters
-
-| State backend | Package | Factory |
-|--------------|---------|---------|
-| Redis | `@chat-adapter/state-redis` | `createRedisState` |
-| ioredis | `@chat-adapter/state-ioredis` | `createIoRedisState` |
-| PostgreSQL | `@chat-adapter/state-pg` | `createPostgresState` |
-| Memory | `@chat-adapter/state-memory` | `createMemoryState` |
-
-### Community adapters
-
-- `chat-state-cloudflare-do`
-- `@beeper/chat-adapter-matrix`
-- `chat-adapter-imessage`
-- `@bitbasti/chat-adapter-webex`
-- `@resend/chat-sdk-adapter`
-- `@zernio/chat-sdk-adapter`
-- `chat-adapter-baileys`
-- `@liveblocks/chat-sdk-adapter`
-- `chat-adapter-sendblue`
-- `chat-adapter-zalo`
-- `chat-adapter-mattermost`
-
-### Coming-soon platform entries
-
-- Instagram
-- Signal
-- X
-- Messenger
+See [chat-sdk.dev/adapters](https://chat-sdk.dev/adapters) for the current list of official, vendor-official, and community adapters, including package names and authors. For the exact factory function and config types of an installed adapter, inspect its `dist/index.d.ts` in `node_modules`.
 
 ## Building a custom adapter
 

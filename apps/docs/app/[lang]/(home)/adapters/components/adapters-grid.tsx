@@ -8,13 +8,11 @@ import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
   beta?: boolean;
-  comingSoon?: boolean;
   community?: boolean;
   description: string;
   icon?: string;
   name: string;
   packageName?: string;
-  prs?: string[];
   slug: string;
   type: string;
   vendorOfficial?: boolean;
@@ -154,9 +152,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                     {...adapter}
                   />
                 ))}
-                {vendorOfficialPlatform.length === 0 ? (
-                  <BuildYourOwnCard />
-                ) : null}
+                <BuildYourOwnCard />
               </div>
             </section>
           ) : null}
@@ -219,6 +215,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                     {...adapter}
                   />
                 ))}
+                <BuildYourOwnCard />
               </div>
             </section>
           ) : null}

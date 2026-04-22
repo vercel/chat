@@ -127,7 +127,7 @@
     "description": "Cloudflare Durable Objects state adapter with SQLite-backed persistence, distributed locking, and caching.",
     "packageName": "chat-state-cloudflare-do",
     "author": "dcartertwo",
-    "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do"
+    "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do/tree/13ebf545b302b7c8fdabf7de9c5de678e047ce5e"
   },
   {
     "name": "Beeper Matrix",
@@ -137,7 +137,7 @@
     "description": "Matrix adapter for Chat SDK, built and maintained by Beeper.",
     "packageName": "@beeper/chat-adapter-matrix",
     "author": "Beeper",
-    "readme": "https://github.com/beeper/chat-adapter-matrix",
+    "readme": "https://github.com/beeper/chat-adapter-matrix/tree/632fb141b07d7243f2a09ee12ec55854c628217d",
     "vendorOfficial": true
   },
   {
@@ -148,7 +148,7 @@
     "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
     "packageName": "chat-adapter-imessage",
     "author": "Photon",
-    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage/tree/8e6ae8f1b824db798664c98be91138f083e02262",
     "vendorOfficial": true
   },
   {
@@ -159,7 +159,7 @@
     "description": "Community Webex adapter for Chat SDK with support for spaces, threads, and adaptive cards.",
     "packageName": "@bitbasti/chat-adapter-webex",
     "author": "SebastianBodza",
-    "readme": "https://github.com/SebastianBodza/chat-adapter-webex"
+    "readme": "https://github.com/SebastianBodza/chat-adapter-webex/tree/982d76b24217dfe2e248ec13a17d16c2df32e09e"
   },
   {
     "name": "Resend",
@@ -169,7 +169,7 @@
     "description": "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
     "packageName": "@resend/chat-sdk-adapter",
     "author": "Resend",
-    "readme": "https://github.com/resend/resend-chat-sdk",
+    "readme": "https://github.com/resend/resend-chat-sdk/tree/6b66fc12eabdf2529422fc0c0cf946392f1b5a76",
     "vendorOfficial": true
   },
   {
@@ -180,7 +180,7 @@
     "description": "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
     "packageName": "@zernio/chat-sdk-adapter",
     "author": "Zernio",
-    "readme": "https://github.com/zernio-dev/chat-sdk-adapter",
+    "readme": "https://github.com/zernio-dev/chat-sdk-adapter/tree/0a51a1d224536ae5d117a3afb6ab992fab167214",
     "vendorOfficial": true
   },
   {
@@ -191,7 +191,7 @@
     "description": "Chat SDK adapter for Baileys (Unofficial WhatsApp API).",
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
-    "readme": "https://github.com/rama-adi/chat-adapter-baileys"
+    "readme": "https://github.com/rama-adi/chat-adapter-baileys/tree/b5454e7c04c75d91b06213f16a4af82ddb4a120f"
   },
   {
     "name": "Liveblocks",
@@ -201,7 +201,7 @@
     "description": "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
     "packageName": "@liveblocks/chat-sdk-adapter",
     "author": "Liveblocks",
-    "readme": "https://github.com/liveblocks/liveblocks/tree/main/packages/liveblocks-chat-sdk-adapter",
+    "readme": "https://github.com/liveblocks/liveblocks/tree/a939486c73819ea78a96443d54cb5557881d80b6/packages/liveblocks-chat-sdk-adapter",
     "vendorOfficial": true
   },
   {
@@ -212,7 +212,7 @@
     "description": "iMessage adapter for Chat SDK using Sendblue for building your own iMessage bots.",
     "packageName": "chat-adapter-sendblue",
     "author": "midday-ai",
-    "readme": "https://github.com/midday-ai/chat-adapter-sendblue"
+    "readme": "https://github.com/midday-ai/chat-adapter-sendblue/tree/5125a9d018f5d05dca063cd4d7e554fdb92ecce8"
   },
   {
     "name": "Zalo",
@@ -222,7 +222,7 @@
     "description": "Zalo adapter for Chat SDK using Zalo for building your own Zalo bots.",
     "packageName": "chat-adapter-zalo",
     "author": "buiducnhat",
-    "readme": "https://github.com/buiducnhat/chat-adapter-zalo"
+    "readme": "https://github.com/buiducnhat/chat-adapter-zalo/tree/a11acb91efa9752c6d15c0a00c759b92c479e6fa"
   },
   {
     "name": "Mattermost",
@@ -232,40 +232,6 @@
     "description": "Mattermost adapter for Chat SDK with support for posts, reactions, and slash commands.",
     "packageName": "chat-adapter-mattermost",
     "author": "thiagoferolla",
-    "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost"
-  },
-  {
-    "name": "Instagram",
-    "slug": "instagram",
-    "type": "platform",
-    "icon": "instagram",
-    "description": "Build bots for Instagram direct messages and automated customer interactions.",
-    "comingSoon": true
-  },
-  {
-    "name": "Signal",
-    "slug": "signal",
-    "type": "platform",
-    "icon": "signal",
-    "description": "Integrate with Signal for private, encrypted bot messaging.",
-    "comingSoon": true,
-    "prs": ["https://github.com/vercel/chat/pull/169"]
-  },
-  {
-    "name": "X",
-    "slug": "x",
-    "type": "platform",
-    "icon": "x",
-    "description": "Build bots for X direct messages and automated interactions.",
-    "comingSoon": true
-  },
-  {
-    "name": "Messenger",
-    "slug": "messenger",
-    "type": "platform",
-    "icon": "messenger",
-    "description": "Build bots for Facebook Messenger with rich messages and automated customer interactions.",
-    "comingSoon": true,
-    "prs": ["https://github.com/vercel/chat/pull/156"]
+    "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost/tree/70eb85321cba65d511f6e158b9a2f5aac2aa922c"
   }
 ]
