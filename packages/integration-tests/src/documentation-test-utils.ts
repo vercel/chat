@@ -4,10 +4,8 @@ import { join, relative } from "node:path";
 
 export const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 export const REPO_ROOT = join(import.meta.dirname, "../../..");
-export const PACKAGES_DIR = join(REPO_ROOT, "packages");
+const PACKAGES_DIR = join(REPO_ROOT, "packages");
 export const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
-export const ADAPTERS_JSON_PATH = join(REPO_ROOT, "apps/docs/adapters.json");
-export const CHAT_SKILL_PATH = join(REPO_ROOT, "skills/chat/SKILL.md");
 
 export const VALID_PACKAGE_README_IMPORTS = [
   "chat",
