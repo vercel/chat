@@ -661,7 +661,6 @@ export class TeamsGraphReader {
    * Uses the graph client's HTTP client directly to avoid URL re-encoding issues.
    */
   private async graphGetNextLink<T>(nextLinkUrl: string): Promise<T> {
-    // @ts-expect-error — accessing protected `http` on GraphClient for raw nextLink pagination
     const res = await this.deps.graph.http.get<T>(nextLinkUrl);
     return res.data;
   }
