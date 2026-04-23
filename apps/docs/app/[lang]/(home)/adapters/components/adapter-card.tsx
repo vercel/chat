@@ -13,6 +13,7 @@ import {
   gchat,
   github,
   ioredis,
+  lark,
   linear,
   memory,
   postgres,
@@ -29,6 +30,7 @@ const iconMap: Record<
 > = {
   slack,
   teams,
+  lark,
   "google-chat": gchat,
   discord,
   github,

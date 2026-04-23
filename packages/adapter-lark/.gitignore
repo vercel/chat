@@ -1,0 +1,5 @@
+dist/
+node_modules/
+
+# Local override for scenario-test credentials. Never committed.
+smokes/credentials.local.ts

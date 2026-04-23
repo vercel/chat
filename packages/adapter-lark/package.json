@@ -1,0 +1,67 @@
+{
+  "name": "@chat-adapter/lark",
+  "version": "0.0.0",
+  "description": "Lark (Feishu) adapter for chat",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "smoke": "tsx smokes/echo.ts",
+    "smoke:echo": "tsx smokes/echo.ts",
+    "smoke:stream": "tsx smokes/stream.ts",
+    "smoke:edit": "tsx smokes/edit-delete.ts",
+    "smoke:reactions": "tsx smokes/reactions.ts",
+    "smoke:long": "tsx smokes/long-message.ts",
+    "smoke:history": "tsx smokes/history.ts"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "@larksuiteoapi/node-sdk": "1.62.0",
+    "chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@chat-adapter/state-memory": "workspace:*",
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-lark"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "lark",
+    "feishu",
+    "bytedance",
+    "bot",
+    "adapter"
+  ],
+  "license": "MIT"
+}

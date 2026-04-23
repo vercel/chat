@@ -122,6 +122,13 @@ const messengerConfig: Record<
     adapterSlugs: ["google-chat"],
     keywords: ["google chat"],
   },
+  lark: {
+    name: "Lark/Feishu",
+    description:
+      "Build bots for Lark and Feishu with Chat SDK. Browse official and community adapters that support Lark integration.",
+    adapterSlugs: ["lark"],
+    keywords: ["lark", "feishu"],
+  },
   liveblocks: {
     name: "Liveblocks",
     description:

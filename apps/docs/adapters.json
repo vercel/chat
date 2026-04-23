@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Lark/Feishu",
+    "slug": "lark",
+    "type": "platform",
+    "description": "Build bots for Lark/Feishu with native streaming, interactive cards, and reactions.",
+    "packageName": "@chat-adapter/lark",
+    "icon": "lark",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-lark"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",
