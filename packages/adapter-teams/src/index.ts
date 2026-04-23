@@ -104,7 +104,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app = new App({
       ...toAppOptions(config),
       client: {
-        headers: { "X-User-Agent": "Vercel.ChatSDK" },
+        headers: { "User-Agent": "Vercel.ChatSDK" },
       },
       httpServerAdapter: this.bridgeAdapter,
     });
