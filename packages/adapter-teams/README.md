@@ -45,6 +45,7 @@ npm install -g @microsoft/teams.cli@preview
 
 ```bash
 teams login
+teams status          # verify auth + sideloading permissions
 teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
 ```
 
