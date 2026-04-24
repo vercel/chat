@@ -4,13 +4,16 @@
 import { vi } from "vitest";
 import { parseMarkdown } from "./markdown";
 import { Message, type MessageData } from "./message";
+import { ThreadImpl } from "./thread";
 import type {
   Adapter,
+  ChannelVisibility,
   FormattedContent,
   Lock,
   Logger,
   QueueEntry,
   StateAdapter,
+  Thread,
 } from "./types";
 
 /**
@@ -220,7 +223,7 @@ export function createMockState(): MockStateAdapter {
 }
 
 /**
- * Create a test message for testing.
+ * Create a test message.
  * @param id - Message ID
  * @param text - Message text content
  * @param overrides - Optional overrides for message fields
@@ -251,4 +254,63 @@ export function createTestMessage(
     links: [],
     ...overrides,
   });
+}
+
+let threadCounter = 0;
+
+/** Options for creating a test thread. All fields optional — sensible defaults provided. */
+export interface CreateTestThreadOptions {
+  /** Adapter name (default: "slack") */
+  adapter?: string;
+  /** Partial overrides merged onto the mock adapter's spy methods */
+  adapterOverrides?: Partial<Adapter>;
+  id?: string;
+  channelId?: string;
+  channelVisibility?: ChannelVisibility;
+  currentMessage?: Message;
+  fallbackStreamingPlaceholderText?: string | null;
+  initialMessage?: Message;
+  isDM?: boolean;
+  isSubscribedContext?: boolean;
+  logger?: Logger;
+  streamingUpdateIntervalMs?: number;
+}
+
+/** Return value of createTestThread. */
+export interface TestThread {
+  thread: Thread;
+  mockAdapter: Adapter;
+  mockState: MockStateAdapter;
+}
+
+/**
+ * Create a test thread backed by a mock adapter with spyable methods.
+ * All adapter methods (post, edit, fetchMessages, etc.) are vi.fn() spies.
+ */
+export function createTestThread(opts?: CreateTestThreadOptions): TestThread {
+  const {
+    adapter: adapterName = "slack",
+    adapterOverrides,
+    id: idOpt,
+    channelId: channelIdOpt,
+    ...rest
+  } = opts ?? {};
+  const mockAdapter = {
+    ...createMockAdapter(adapterName),
+    ...adapterOverrides,
+  };
+  const mockState = createMockState();
+  const counter = ++threadCounter;
+  const id = idOpt ?? `${adapterName}:C${counter}:thread`;
+  const channelId = channelIdOpt ?? `C${counter}`;
+
+  const thread = new ThreadImpl({
+    id,
+    channelId,
+    adapter: mockAdapter,
+    stateAdapter: mockState,
+    ...rest,
+  });
+
+  return { thread, mockAdapter, mockState };
 }

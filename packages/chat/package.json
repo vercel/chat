@@ -18,6 +18,10 @@
     "./jsx-dev-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
       "import": "./dist/jsx-runtime.js"
+    },
+    "./test": {
+      "types": "./dist/test.d.ts",
+      "import": "./dist/test.js"
     }
   },
   "files": [
@@ -40,6 +44,14 @@
     "remark-stringify": "^11.0.0",
     "remend": "^1.2.1",
     "unified": "^11.0.5"
+  },
+  "peerDependencies": {
+    "vitest": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4",
