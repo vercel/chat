@@ -3211,6 +3211,139 @@ describe("Chat", () => {
       // Lock methods should not have been called by concurrent strategy
       // (the pre-acquire above is manual)
     });
+
+    it("should cap in-flight handlers at maxConcurrent per thread", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const chat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy: "concurrent", maxConcurrent: 2 },
+      });
+
+      await chat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      let inFlight = 0;
+      let peakInFlight = 0;
+      const releases: Array<() => void> = [];
+
+      chat.onNewMention(async () => {
+        inFlight++;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        await new Promise<void>((resolve) => {
+          releases.push(resolve);
+        });
+        inFlight--;
+      });
+
+      const threadId = "slack:C123:1234.5678";
+      const pending = Array.from({ length: 5 }, (_, i) =>
+        chat.handleIncomingMessage(
+          adapter,
+          threadId,
+          createTestMessage(`msg-mc-${i}`, "Hey @slack-bot")
+        )
+      );
+
+      // Let the first wave of handlers start.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(inFlight).toBe(2);
+
+      // Drain each slot one at a time and assert cap holds.
+      while (releases.length > 0) {
+        const release = releases.shift();
+        release?.();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(inFlight).toBeLessThanOrEqual(2);
+      }
+
+      await Promise.all(pending);
+      expect(peakInFlight).toBe(2);
+    });
+
+    it("should track slots per thread independently", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const chat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy: "concurrent", maxConcurrent: 1 },
+      });
+
+      await chat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const releases: Array<() => void> = [];
+      const handler = vi.fn().mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releases.push(resolve);
+          })
+      );
+      chat.onNewMention(handler);
+
+      const pendingA = chat.handleIncomingMessage(
+        adapter,
+        "slack:C123:thread-A",
+        createTestMessage("msg-a", "Hey @slack-bot")
+      );
+      const pendingB = chat.handleIncomingMessage(
+        adapter,
+        "slack:C123:thread-B",
+        createTestMessage("msg-b", "Hey @slack-bot")
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Both threads dispatch immediately because they are independent.
+      expect(handler).toHaveBeenCalledTimes(2);
+
+      for (const release of releases) {
+        release();
+      }
+      await Promise.all([pendingA, pendingB]);
+    });
+
+    it("should warn when maxConcurrent is set with a non-concurrent strategy", () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy: "queue", maxConcurrent: 2 },
+      });
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("maxConcurrent has no effect when strategy is")
+      );
+    });
+
+    it("should throw when maxConcurrent is less than 1", () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      expect(
+        () =>
+          new Chat({
+            userName: "testbot",
+            adapters: { slack: adapter },
+            state,
+            logger: mockLogger,
+            concurrency: { strategy: "concurrent", maxConcurrent: 0 },
+          })
+      ).toThrow("maxConcurrent must be >= 1");
+    });
   });
 
   describe("lockScope", () => {

@@ -214,6 +214,10 @@ export class Chat<
   private readonly _concurrencyConfig: Required<
     Omit<ConcurrencyConfig, "strategy">
   >;
+  private readonly _concurrentSlots = new Map<
+    string,
+    { inFlight: number; waiters: Array<() => void> }
+  >();
   private readonly _lockScope: ChatConfig["lockScope"];
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
@@ -259,6 +263,13 @@ export class Chat<
     this._onLockConflict = config.onLockConflict;
     this._lockScope = config.lockScope;
 
+    // Initialize logger first so concurrency parsing can warn on misconfig
+    if (typeof config.logger === "string") {
+      this.logger = new ConsoleLogger(config.logger as LogLevel);
+    } else {
+      this.logger = config.logger || new ConsoleLogger("info");
+    }
+
     // Parse concurrency config — new `concurrency` option takes precedence over deprecated `onLockConflict`
     const concurrency = config.concurrency;
     if (concurrency) {
@@ -272,6 +283,22 @@ export class Chat<
           queueEntryTtlMs: 90_000,
         };
       } else {
+        if (
+          concurrency.maxConcurrent !== undefined &&
+          concurrency.maxConcurrent < 1
+        ) {
+          throw new Error(
+            `concurrency.maxConcurrent must be >= 1 (got ${concurrency.maxConcurrent})`
+          );
+        }
+        if (
+          concurrency.maxConcurrent !== undefined &&
+          concurrency.strategy !== "concurrent"
+        ) {
+          this.logger.warn(
+            `concurrency.maxConcurrent has no effect when strategy is "${concurrency.strategy}" — it only applies to the "concurrent" strategy.`
+          );
+        }
         this._concurrencyStrategy = concurrency.strategy;
         this._concurrencyConfig = {
           debounceMs: concurrency.debounceMs ?? 1500,
@@ -296,13 +323,6 @@ export class Chat<
       this._stateAdapter,
       config.messageHistory
     );
-
-    // Initialize logger
-    if (typeof config.logger === "string") {
-      this.logger = new ConsoleLogger(config.logger as LogLevel);
-    } else {
-      this.logger = config.logger || new ConsoleLogger("info");
-    }
 
     // Register adapters and create webhook handlers
     const webhooks = {} as Record<string, WebhookHandler>;
@@ -2108,14 +2128,62 @@ export class Chat<
   }
 
   /**
-   * Concurrent strategy: no locking, process immediately.
+   * Concurrent strategy: no locking, process immediately — but cap
+   * simultaneous handlers per thread at `maxConcurrent` (default Infinity).
    */
   private async handleConcurrent(
     adapter: Adapter,
     threadId: string,
     message: Message
   ): Promise<void> {
-    await this.dispatchToHandlers(adapter, threadId, message);
+    const { maxConcurrent } = this._concurrencyConfig;
+
+    if (!Number.isFinite(maxConcurrent)) {
+      await this.dispatchToHandlers(adapter, threadId, message);
+      return;
+    }
+
+    await this.acquireConcurrentSlot(threadId, maxConcurrent);
+    try {
+      await this.dispatchToHandlers(adapter, threadId, message);
+    } finally {
+      this.releaseConcurrentSlot(threadId);
+    }
+  }
+
+  private acquireConcurrentSlot(
+    threadId: string,
+    maxConcurrent: number
+  ): Promise<void> {
+    let slot = this._concurrentSlots.get(threadId);
+    if (!slot) {
+      slot = { inFlight: 0, waiters: [] };
+      this._concurrentSlots.set(threadId, slot);
+    }
+    if (slot.inFlight < maxConcurrent) {
+      slot.inFlight++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      slot.waiters.push(resolve);
+    });
+  }
+
+  private releaseConcurrentSlot(threadId: string): void {
+    const slot = this._concurrentSlots.get(threadId);
+    if (!slot) {
+      return;
+    }
+    const next = slot.waiters.shift();
+    if (next) {
+      // Hand the slot directly to the next waiter; inFlight stays the same.
+      next();
+      return;
+    }
+    slot.inFlight--;
+    if (slot.inFlight === 0 && slot.waiters.length === 0) {
+      this._concurrentSlots.delete(threadId);
+    }
   }
 
   /**
