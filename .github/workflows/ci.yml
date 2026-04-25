@@ -14,6 +14,46 @@ permissions:
   contents: read
 
 jobs:
+  changeset:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check if packages changed
+        id: packages-changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=1
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep '^packages/' | grep -qv '\.md$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No package code changes detected — skipping changeset check."
+          fi
+
+      - name: Verify changeset present
+        if: steps.packages-changed.outputs.changed == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: pnpm changeset status --since="origin/$BASE_REF"
+
   lint:
     runs-on: ubuntu-latest
     steps:
