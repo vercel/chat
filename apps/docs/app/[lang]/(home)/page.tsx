@@ -12,13 +12,12 @@ import {
   CommandPromptViewport,
 } from "@/components/ui/command-prompt";
 import { discord, gchat, slack, teams } from "@/lib/logos";
-import { AdaptersSection } from "./components/adapters-section";
 import { CenteredSection } from "./components/centered-section";
 import { CTA } from "./components/cta";
 import { Demo } from "./components/demo";
 import { Hero } from "./components/hero";
 import { OneTwoSection } from "./components/one-two-section";
-import { Templates } from "./components/templates";
+import { ResourcesSection } from "./components/resources-section";
 import { TextGridSection } from "./components/text-grid-section";
 import { Usage } from "./components/usage";
 
@@ -67,60 +66,6 @@ export const metadata: Metadata = {
     card: "summary_large_image",
   },
 };
-
-const templates = [
-  {
-    title: "Slack bot with Next.js",
-    description:
-      "Build a Slack bot from scratch using Chat SDK, Next.js, and Redis.",
-    link: "/docs/guides/slack-nextjs",
-    code: `const bot = new Chat({
-  userName: "my-bot",
-  adapters: {
-    slack: createSlackAdapter(),
-  },
-  state: createRedisState(),
-});`,
-  },
-  {
-    title: "Discord support bot with Nuxt",
-    description:
-      "Build a Discord support bot using Chat SDK, Nuxt, and AI SDK.",
-    link: "/docs/guides/discord-nuxt",
-    code: `bot.onNewMention(async (thread) => {
-  await thread.subscribe();
-  await thread.post(
-    <Card title="Support">
-      <Text>Ask your question and
-        I'll do my best to answer.</Text>
-      <Actions>
-        <Button id="escalate">
-          Escalate to Human
-        </Button>
-      </Actions>
-    </Card>
-  );
-});`,
-  },
-  {
-    title: "Code review bot with Hono",
-    description:
-      "Build a GitHub bot that reviews pull requests using AI SDK and Vercel Sandbox.",
-    link: "/docs/guides/code-review-hono",
-    code: `const sandbox = await Sandbox.create({
-  source: {
-    type: "git",
-    url: \`https://github.com/\${owner}/\${repo}\`,
-    username: "x-access-token",
-    password: process.env.GITHUB_TOKEN,
-  },
-});
-
-const { tools } = await createBashTool({
-  sandbox,
-});`,
-  },
-];
 
 const textGridSection = [
   {
@@ -218,22 +163,7 @@ const HomePage = () => (
       >
         <Usage />
       </OneTwoSection>
-      <Templates
-        data={templates}
-        description="Step-by-step guides to help you build common patterns with the Chat SDK."
-        title="Guides"
-      />
-      <AdaptersSection
-        description={
-          <>
-            Connect to any platform with official and community-built adapters.{" "}
-            <a className="underline" href="/adapters">
-              Browse all adapters →
-            </a>
-          </>
-        }
-        title="Adapters"
-      />
+      <ResourcesSection />
       <CTA
         cta="Get started"
         href="/docs/getting-started"

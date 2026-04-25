@@ -17,8 +17,8 @@ interface DesktopMenuProps {
   items: { label: string; href: string }[];
 }
 
-// Nav hrefs can be deep links (e.g. `/docs/guides/slack-nextjs`), but the
-// tab represents the whole section. Use the first three path segments as
+// Nav hrefs can be deep links (e.g. `/docs/api/chat`), but the tab
+// represents the whole section. Use the first three path segments as
 // the matching prefix.
 const getSectionPrefix = (href: string) =>
   href.split("/").slice(0, 3).join("/");

@@ -19,6 +19,24 @@
       "type": "guide"
     },
     {
+      "title": "How to build a Slack bot with Next.js and Redis",
+      "description": "This guide walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.",
+      "href": "https://vercel.com/kb/guide/how-to-build-a-slack-bot-with-next-js-and-redis",
+      "type": "guide"
+    },
+    {
+      "title": "Create a Discord support bot with Nuxt and Redis",
+      "description": "This guide walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.",
+      "href": "https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis",
+      "type": "guide"
+    },
+    {
+      "title": "Ship a GitHub code review bot with Hono and Redis",
+      "description": "This guide walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.",
+      "href": "https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis",
+      "type": "guide"
+    },
+    {
       "title": "Chat SDK Liveblocks Bot",
       "description": "Build a bot that you can engage with inside Liveblocks.",
       "href": "https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot",

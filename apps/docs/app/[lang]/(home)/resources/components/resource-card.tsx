@@ -1,9 +1,7 @@
-import { ArrowUpRightIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -41,18 +39,6 @@ export const ResourceCard = ({ title, description, href, type }: Resource) => {
             {description}
           </CardDescription>
         </CardHeader>
-        <CardFooter className="border-t bg-sidebar px-6! py-4! transition-colors group-hover:bg-secondary">
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            {isExternal ? (
-              <>
-                <ArrowUpRightIcon className="size-3" />
-                {new URL(href).hostname}
-              </>
-            ) : (
-              "Read more"
-            )}
-          </span>
-        </CardFooter>
       </Card>
     </a>
   );
