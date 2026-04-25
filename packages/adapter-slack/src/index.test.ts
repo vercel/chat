@@ -148,7 +148,7 @@ describe("constructor env var resolution", () => {
 
   it("should not throw when webhookVerifier is provided without signingSecret", () => {
     const adapter = new SlackAdapter({
-      webhookVerifier: async (req) => await req.text(),
+      webhookVerifier: () => true,
     });
     expect(adapter).toBeInstanceOf(SlackAdapter);
   });
@@ -370,7 +370,7 @@ describe("handleWebhook - webhookVerifier", () => {
   it("uses webhookVerifier in place of signingSecret", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
-      webhookVerifier: async (req) => await req.text(),
+      webhookVerifier: () => true,
       logger: mockLogger,
     });
 
@@ -409,9 +409,50 @@ describe("handleWebhook - webhookVerifier", () => {
     expect(response.status).toBe(401);
   });
 
+  it("returns 401 when verifier returns a falsy value", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      webhookVerifier: () => false,
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "url_verification" }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("passes the body string to the verifier", async () => {
+    const body = JSON.stringify({
+      type: "url_verification",
+      challenge: "verifier-challenge",
+    });
+    const verifier = vi.fn((_req: Request, _body: string) => true);
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      webhookVerifier: verifier,
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(verifier).toHaveBeenCalledTimes(1);
+    expect(verifier.mock.calls[0]?.[1]).toBe(body);
+  });
+
   it("prefers signingSecret over webhookVerifier when both are set", async () => {
     const secret = "test-signing-secret";
-    const verifier = vi.fn(async (req: Request) => await req.text());
+    const verifier = vi.fn(() => true);
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
