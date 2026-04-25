@@ -130,6 +130,16 @@
     "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do/tree/13ebf545b302b7c8fdabf7de9c5de678e047ce5e"
   },
   {
+    "name": "MySQL",
+    "slug": "mysql",
+    "type": "state",
+    "community": true,
+    "description": "Community MySQL state adapter with persistence, distributed locking, caching, lists, and queues.",
+    "packageName": "chat-state-mysql",
+    "author": "DivyanshGolyan",
+    "readme": "https://github.com/DivyanshGolyan/chat-state-mysql/tree/26502f2c43e2aee16b0b58f2066a81e01b2c289b"
+  },
+  {
     "name": "Beeper Matrix",
     "slug": "matrix",
     "type": "platform",
