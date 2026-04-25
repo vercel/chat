@@ -141,7 +141,16 @@ describe("constructor env var resolution", () => {
   });
 
   it("should throw when signingSecret is missing and env var not set", () => {
-    expect(() => new SlackAdapter({})).toThrow("signingSecret is required");
+    expect(() => new SlackAdapter({})).toThrow(
+      "signingSecret or webhookVerifier is required"
+    );
+  });
+
+  it("should not throw when webhookVerifier is provided without signingSecret", () => {
+    const adapter = new SlackAdapter({
+      webhookVerifier: async (req) => await req.text(),
+    });
+    expect(adapter).toBeInstanceOf(SlackAdapter);
   });
 
   it("should resolve signingSecret from SLACK_SIGNING_SECRET env var", () => {
@@ -354,6 +363,71 @@ describe("handleWebhook - signature verification", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+});
+
+describe("handleWebhook - webhookVerifier", () => {
+  it("uses webhookVerifier in place of signingSecret", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      webhookVerifier: async (req) => await req.text(),
+      logger: mockLogger,
+    });
+
+    const body = JSON.stringify({
+      type: "url_verification",
+      challenge: "verifier-challenge",
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { challenge: string };
+    expect(json.challenge).toBe("verifier-challenge");
+  });
+
+  it("returns 401 when verifier throws", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      webhookVerifier: () => {
+        throw new Error("bad signature");
+      },
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "url_verification" }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("prefers signingSecret over webhookVerifier when both are set", async () => {
+    const secret = "test-signing-secret";
+    const verifier = vi.fn(async (req: Request) => await req.text());
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      webhookVerifier: verifier,
+      logger: mockLogger,
+    });
+
+    const body = JSON.stringify({
+      type: "url_verification",
+      challenge: "test-challenge",
+    });
+    const request = createWebhookRequest(body, secret);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(verifier).not.toHaveBeenCalled();
   });
 });
 
@@ -2485,6 +2559,143 @@ function mockClientMethod(
   }
   obj[parts.at(-1) as string] = mockFn;
 }
+
+// ============================================================================
+// botToken as function (resolver) Tests
+// ============================================================================
+
+describe("botToken as function", () => {
+  const secret = "test-signing-secret";
+
+  it("accepts a sync resolver and uses its return value on API calls", async () => {
+    const resolver = vi.fn(() => "xoxb-sync-token");
+    const adapter = createSlackAdapter({
+      botToken: resolver,
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    await adapter.postMessage("slack:C123:1234567890.000000", "hi");
+
+    const client = getClient(adapter);
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-sync-token" })
+    );
+    expect(resolver).toHaveBeenCalled();
+  });
+
+  it("accepts an async resolver and awaits the returned promise", async () => {
+    const resolver = vi.fn(async () => {
+      await Promise.resolve();
+      return "xoxb-async-token";
+    });
+    const adapter = createSlackAdapter({
+      botToken: resolver,
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    await adapter.postMessage("slack:C123:1234567890.000000", "hi");
+
+    const client = getClient(adapter);
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-async-token" })
+    );
+    expect(resolver).toHaveBeenCalled();
+  });
+
+  it("invokes the resolver per API call (supports rotation)", async () => {
+    const tokens = ["xoxb-token-1", "xoxb-token-2", "xoxb-token-3"];
+    let i = 0;
+    const resolver = vi.fn(() => tokens[i++]);
+    const adapter = createSlackAdapter({
+      botToken: resolver,
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const postMessage = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.999999" });
+    mockClientMethod(adapter, "chat.postMessage", postMessage);
+
+    await adapter.postMessage("slack:C123:1234567890.000000", "first");
+    await adapter.postMessage("slack:C123:1234567890.000000", "second");
+    await adapter.postMessage("slack:C123:1234567890.000000", "third");
+
+    expect(resolver).toHaveBeenCalledTimes(3);
+    expect(postMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ token: "xoxb-token-1" })
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ token: "xoxb-token-2" })
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ token: "xoxb-token-3" })
+    );
+  });
+
+  it("treats a function botToken as single-workspace mode", async () => {
+    const adapter = createSlackAdapter({
+      botToken: () => "xoxb-fn-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+        user: "fnbot",
+      })
+    );
+
+    // initialize() in single-workspace mode calls auth.test with the resolved token
+    await adapter.initialize({
+      getState: () => ({}) as unknown as StateAdapter,
+    } as unknown as ChatInstance);
+
+    const client = getClient(adapter);
+    expect(client.auth.test).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-fn-token" })
+    );
+    expect(adapter.botUserId).toBe("U_BOT");
+  });
+
+  it("propagates errors thrown by the resolver", async () => {
+    const adapter = createSlackAdapter({
+      botToken: () => {
+        throw new Error("token fetch failed");
+      },
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    mockClientMethod(adapter, "chat.postMessage", vi.fn());
+
+    await expect(
+      adapter.postMessage("slack:C123:1234567890.000000", "hi")
+    ).rejects.toThrow("token fetch failed");
+  });
+});
 
 // ============================================================================
 // postMessage Tests
