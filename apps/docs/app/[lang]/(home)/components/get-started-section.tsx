@@ -109,7 +109,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
           template.
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex flex-col items-stretch gap-3 sm:shrink-0 sm:flex-row sm:items-center">
         <Button asChild className="h-[42px] rounded-full px-5" size="default">
           <DynamicLink href="/[lang]/docs">Visit Documentation</DynamicLink>
         </Button>
