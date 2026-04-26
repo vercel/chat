@@ -31,6 +31,35 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+### Token rotation
+
+`botToken` accepts a function returning a string or `Promise<string>` — the resolver is invoked per API call, so it composes with [Slack token rotation](https://docs.slack.dev/authentication/using-token-rotation/) (12-hour TTL) or lazy fetch from a secret manager:
+
+```typescript
+createSlackAdapter({
+  botToken: async () => await secrets.get("slack-bot-token"),
+});
+```
+
+If the resolver is expensive (e.g. a vault round-trip), implement caching inside the resolver itself.
+
+### Custom webhook verification
+
+Pass `webhookVerifier` to replace the built-in HMAC check — useful when verification runs in a proxy or signing layer ahead of your handler:
+
+```typescript
+createSlackAdapter({
+  webhookVerifier: async (request, body) => {
+    if (!(await myProxy.verify(request))) {
+      throw new Error("invalid");
+    }
+    return true; // or return a string to substitute the verified body
+  },
+});
+```
+
+If both `signingSecret` and `webhookVerifier` are set, `signingSecret` wins. When using `webhookVerifier`, you are responsible for replay/timestamp protection — the built-in 5-minute timestamp tolerance only applies to the `signingSecret` path.
+
 ## Multi-workspace mode
 
 For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks.
@@ -266,8 +295,9 @@ All options are auto-detected from environment variables when not provided. You 
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `botToken` | No | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN` |
+| `botToken` | No | Bot token (`xoxb-...`) or a function returning one (sync or async) for rotation/lazy fetch. Auto-detected from `SLACK_BOT_TOKEN` |
 | `signingSecret` | No* | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET` |
+| `webhookVerifier` | No* | Custom verifier `(request, body) => unknown \| Promise<unknown>` used in place of `signingSecret`. Returning a string substitutes the verified body for downstream parsing |
 | `mode` | No | Connection mode: `"webhook"` (default) or `"socket"` |
 | `appToken` | No** | App-level token (`xapp-...`) for socket mode. Auto-detected from `SLACK_APP_TOKEN` |
 | `socketForwardingSecret` | No | Shared secret for authenticating forwarded socket events. Auto-detected from `SLACK_SOCKET_FORWARDING_SECRET`, falls back to `appToken` |
@@ -277,7 +307,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`signingSecret` is required for webhook mode — either via config or `SLACK_SIGNING_SECRET` env var.
+*`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
 **`appToken` is required for socket mode — either via config or `SLACK_APP_TOKEN` env var.
 
 ## Environment variables
@@ -437,6 +467,7 @@ await slackAdapter.handleOAuthCallback(request);
 
 - Verify `SLACK_SIGNING_SECRET` is correct
 - Check that the request timestamp is within 5 minutes (clock sync issue)
+- If using a custom `webhookVerifier`, the error also surfaces when the verifier throws or returns a falsy value
 
 ### Bot not responding to messages
 
