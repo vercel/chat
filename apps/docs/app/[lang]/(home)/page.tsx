@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import type { ComponentProps } from "react";
 import {
   CommandPromptContent,
   CommandPromptCopy,
@@ -11,58 +10,26 @@ import {
   CommandPromptTriggerDivider,
   CommandPromptViewport,
 } from "@/components/ui/command-prompt";
-import { discord, gchat, slack, teams } from "@/lib/logos";
-import { AdaptersSection } from "./components/adapters-section";
-import { CenteredSection } from "./components/centered-section";
-import { CTA } from "./components/cta";
+import { CodeSection } from "./components/code-section";
 import { Demo } from "./components/demo";
+import { GetStartedSection } from "./components/get-started-section";
 import { Hero } from "./components/hero";
-import { OneTwoSection } from "./components/one-two-section";
-import { Templates } from "./components/templates";
-import { TextGridSection } from "./components/text-grid-section";
+import { IntegrationsSection } from "./components/integrations-section";
+import { OssStatsSection } from "./components/oss-stats-section";
+import { SupportedPlatforms } from "./components/supported-platforms";
 import { Usage } from "./components/usage";
-
-const LogoChip = ({
-  icon: Icon,
-  name,
-  suffix,
-}: {
-  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
-  name: string;
-  suffix?: string;
-}) => (
-  <span className="ml-[2px] whitespace-nowrap">
-    <span className="relative inline-block h-0 w-[1em] align-middle">
-      <Icon className="absolute top-1/2 left-0 size-[1em] -translate-y-1/2" />
-    </span>
-    <span className="ml-[calc(0.25em+2px)]">{name}</span>
-    {suffix}
-  </span>
-);
 
 const COMMAND_FOR_HUMANS = "npm install chat";
 const COMMAND_FOR_AGENTS = "npx skills add vercel/chat";
 
-const title = "Chat SDK";
-const textDescription =
-  "A unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, and more. Write your bot logic once, deploy everywhere.";
-const heroDescription = (
-  <>
-    A unified TypeScript SDK for building chat bots across{" "}
-    <LogoChip icon={slack} name="Slack" suffix="," />{" "}
-    <LogoChip icon={teams} name="Microsoft Teams" suffix="," />{" "}
-    <LogoChip icon={gchat} name="Google Chat" suffix="," />{" "}
-    <LogoChip icon={discord} name="Discord" suffix="," />{" "}
-    <a className="underline" href="/adapters">
-      and more
-    </a>
-    . Write your bot logic once, deploy everywhere.
-  </>
-);
+const metadataTitle = "Chat SDK";
+const heroTitle = "Universal chat layer for building bots and agents";
+const heroDescription =
+  "A unified TypeScript SDK for building chat bots with type-safe handlers, JSX cards, and multi-platform support—powered by Vercel";
 
 export const metadata: Metadata = {
-  title,
-  description: textDescription,
+  title: metadataTitle,
+  description: heroDescription,
   twitter: {
     card: "summary_large_image",
   },
@@ -70,76 +37,49 @@ export const metadata: Metadata = {
 
 const templates = [
   {
-    title: "Slack bot with Next.js",
-    description:
-      "Build a Slack bot from scratch using Chat SDK, Next.js, and Redis.",
-    link: "/docs/guides/slack-nextjs",
-    code: `const bot = new Chat({
-  userName: "my-bot",
-  adapters: {
-    slack: createSlackAdapter(),
-  },
-  state: createRedisState(),
-});`,
-  },
-  {
-    title: "Discord support bot with Nuxt",
-    description:
-      "Build a Discord support bot using Chat SDK, Nuxt, and AI SDK.",
-    link: "/docs/guides/discord-nuxt",
-    code: `bot.onNewMention(async (thread) => {
+    title: "Slack Agent Guide",
+    description: "Stream agent responses and tool calls into Slack threads.",
+    link: "https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk",
+    code: `bot.onNewMention(async (thread, msg) => {
   await thread.subscribe();
-  await thread.post(
-    <Card title="Support">
-      <Text>Ask your question and
-        I'll do my best to answer.</Text>
-      <Actions>
-        <Button id="escalate">
-          Escalate to Human
-        </Button>
-      </Actions>
-    </Card>
-  );
+  const result = await agent.stream({
+    prompt: msg.text,
+  });
+  await thread.post(result.fullStream);
 });`,
   },
   {
-    title: "Code review bot with Hono",
+    title: "Knowledge Agent Template",
     description:
-      "Build a GitHub bot that reviews pull requests using AI SDK and Vercel Sandbox.",
-    link: "/docs/guides/code-review-hono",
-    code: `const sandbox = await Sandbox.create({
-  source: {
-    type: "git",
-    url: \`https://github.com/\${owner}/\${repo}\`,
-    username: "x-access-token",
-    password: process.env.GITHUB_TOKEN,
-  },
+      "Answer questions from synced docs and repos with file-system search.",
+    link: "https://vercel.com/templates/nuxt/chat-sdk-knowledge-agent",
+    code: `const savoir = createSavoir({
+  apiUrl: process.env.SAVOIR_URL,
+  apiKey: process.env.SAVOIR_API_KEY,
 });
 
-const { tools } = await createBashTool({
-  sandbox,
+const { text } = await generateText({
+  model,
+  tools: savoir.tools,
+  maxSteps: 10,
+  prompt: "How do I configure auth?",
 });`,
   },
-];
-
-const textGridSection = [
   {
-    id: "1",
-    title: "Multi-platform",
-    description:
-      "Deploy to Slack, Teams, Google Chat, Discord, GitHub, and Linear from a single codebase.",
-  },
-  {
-    id: "2",
-    title: "Type-safe",
-    description:
-      "Full TypeScript support with type-safe adapters, event handlers, and JSX cards.",
-  },
-  {
-    id: "3",
-    title: "AI streaming",
-    description:
-      "First-class support for streaming LLM responses with native platform rendering.",
+    title: "Code Review Bot Guide",
+    description: "Review pull requests with sandboxed AI analysis on GitHub.",
+    link: "https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis",
+    code: `bot.onNewMention(async (thread, msg) => {
+  const { data: pr } = await octokit.pulls.get({
+    owner, repo, pull_number,
+  });
+  await thread.post("Starting code review...");
+  const review = await reviewPullRequest({
+    owner, repo,
+    prBranch: pr.head.ref,
+  });
+  await thread.post(review);
+});`,
   },
 ];
 
@@ -147,7 +87,7 @@ const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareSourceCode",
   name: "Chat SDK",
-  description: textDescription,
+  description: heroDescription,
   url: "https://chat-sdk.dev",
   codeRepository: "https://github.com/vercel/chat",
   programmingLanguage: "TypeScript",
@@ -167,12 +107,8 @@ const HomePage = () => (
       dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       type="application/ld+json"
     />
-    <Hero
-      badge="Chat SDK is now open source and in beta"
-      description={heroDescription}
-      title={title}
-    >
-      <CommandPromptRoot className="mt-6" defaultValue="humans">
+    <Hero description={heroDescription} title={heroTitle}>
+      <CommandPromptRoot className="mt-2" defaultValue="humans">
         <CommandPromptList>
           <CommandPromptTrigger className="min-w-[90px]" value="humans">
             For humans
@@ -195,50 +131,18 @@ const HomePage = () => (
           <CommandPromptCopy />
         </CommandPromptSurface>
       </CommandPromptRoot>
+      <div className="mx-auto mt-12 max-w-4xl px-4 text-left sm:mt-16">
+        <Demo />
+      </div>
     </Hero>
     <div className="grid divide-y border-y sm:border-x">
-      <CenteredSection
-        description="See how your handlers respond to real-time chat events across any platform."
-        title="Event-driven by design"
-      >
-        <Demo />
-      </CenteredSection>
-      <TextGridSection data={textGridSection} />
-      <OneTwoSection
-        description={
-          <>
-            Install the SDK and pair it with your favorite{" "}
-            <a className="underline" href="/adapters">
-              adapters
-            </a>{" "}
-            and state management solutions.
-          </>
-        }
-        title="Usage"
-      >
+      <OssStatsSection />
+      <SupportedPlatforms />
+      <CodeSection>
         <Usage />
-      </OneTwoSection>
-      <Templates
-        data={templates}
-        description="Step-by-step guides to help you build common patterns with the Chat SDK."
-        title="Guides"
-      />
-      <AdaptersSection
-        description={
-          <>
-            Connect to any platform with official and community-built adapters.{" "}
-            <a className="underline" href="/adapters">
-              Browse all adapters →
-            </a>
-          </>
-        }
-        title="Adapters"
-      />
-      <CTA
-        cta="Get started"
-        href="/docs/getting-started"
-        title="Ship your chatbot today"
-      />
+      </CodeSection>
+      <IntegrationsSection />
+      <GetStartedSection data={templates} />
     </div>
   </div>
 );
