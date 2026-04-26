@@ -178,9 +178,18 @@ export interface SlackAdapterConfig {
    * read by the adapter. To reject the request, either
    * return a falsy value (sync or async) or throw/reject; the adapter will
    * respond with `401 Invalid signature`. Any truthy return value is treated
-   * as a successful verification.
-   * When both, `signingSecret` and `webhookVerifier` are specified, the
+   * as a successful verification. If a string is returned, it replaces the
+   * raw body for downstream parsing — useful when the verifier needs to
+   * canonicalize or substitute the verified payload.
+   *
+   * When both `signingSecret` and `webhookVerifier` are specified,
    * `signingSecret` takes precedence.
+   *
+   * SECURITY: When this is used in place of `signingSecret`, the built-in
+   * Slack timestamp tolerance check is NOT performed. Implementations are
+   * responsible for verifying the `x-slack-request-timestamp` header (or an
+   * equivalent freshness signal) to prevent replay of captured signed
+   * requests.
    */
   webhookVerifier?: (
     request: Request,
@@ -987,7 +996,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       });
     }
 
-    const body = await request.text();
+    let body = await request.text();
     this.logger.debug("Slack webhook raw body", { body });
 
     // Verify request using dynamic verifier or signature.
@@ -997,6 +1006,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         if (!verified) {
           this.logger.warn("Webhook verifier rejected request");
           return new Response("Invalid signature", { status: 401 });
+        }
+        // If the verifier returns a string, use it as the verified body for
+        // downstream parsing. Other truthy values (boolean, object) are
+        // treated as a pure verification signal.
+        if (typeof verified === "string") {
+          body = verified;
         }
       } catch (error) {
         this.logger.warn("Webhook verifier rejected request", { error });
@@ -3083,8 +3098,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       );
     }
 
-    // Capture token now so cancel() works outside request context
-    const token = await this.getToken();
+    // For multi-workspace mode, snapshot the per-team token from the active
+    // request context — cancel() may run outside the AsyncLocalStorage frame.
+    // For single-workspace mode, defer resolution so cancel() picks up the
+    // current token (supporting rotation).
+    const ctxToken = this.requestContext.getStore()?.token;
+    const resolveCancelToken = ctxToken
+      ? () => Promise.resolve(ctxToken)
+      : () => this.getToken();
+    const token = ctxToken ?? (await this.getToken());
 
     try {
       const card = extractCard(message);
@@ -3121,7 +3143,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           raw: result,
           async cancel() {
             await adapter.client.chat.deleteScheduledMessage({
-              token,
+              token: await resolveCancelToken(),
               channel,
               scheduled_message_id: scheduledMessageId,
             });
@@ -3162,7 +3184,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         raw: result,
         async cancel() {
           await adapter.client.chat.deleteScheduledMessage({
-            token,
+            token: await resolveCancelToken(),
             channel,
             scheduled_message_id: scheduledMessageId,
           });

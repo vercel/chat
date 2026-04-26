@@ -2739,6 +2739,120 @@ describe("botToken as function", () => {
 });
 
 // ============================================================================
+// Attachment fetchData token snapshot Tests
+// ============================================================================
+
+describe("Attachment.fetchData token resolution", () => {
+  const fileEvent = {
+    type: "message",
+    user: "U123",
+    channel: "C456",
+    text: "with file",
+    ts: "1234567890.123456",
+    files: [
+      {
+        id: "F123",
+        mimetype: "application/pdf",
+        url_private: "https://files.slack.com/file.pdf",
+        name: "doc.pdf",
+        size: 100,
+      },
+    ],
+  };
+
+  function createMockFetchResponse(): Response {
+    return new Response(new ArrayBuffer(8), {
+      status: 200,
+      headers: { "content-type": "application/pdf" },
+    });
+  }
+
+  it("snapshots ctx token at attachment creation in multi-workspace mode", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    interface AdapterInternals {
+      requestContext: {
+        run: <T>(ctx: { token: string }, fn: () => T) => T;
+      };
+    }
+    const internals = adapter as unknown as AdapterInternals;
+
+    const attachment = internals.requestContext.run(
+      { token: "xoxb-team-snapshot" },
+      () => adapter.parseMessage(fileEvent).attachments?.[0]
+    );
+    expect(attachment).toBeDefined();
+
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    try {
+      // Call fetchData OUTSIDE the requestContext frame to confirm the
+      // captured ctxToken is used (we are no longer inside AsyncLocalStorage).
+      await attachment?.fetchData?.();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://files.slack.com/file.pdf",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer xoxb-team-snapshot" },
+      })
+    );
+  });
+
+  it("re-resolves the default provider at fetch time in single-workspace mode", async () => {
+    const tokens = ["xoxb-stale", "xoxb-fresh"];
+    let i = 0;
+    const resolver = vi.fn(() => tokens[i++]);
+    const adapter = createSlackAdapter({
+      botToken: resolver,
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    // Attachment created outside any requestContext frame; resolver is NOT
+    // invoked at creation time because resolution is deferred to fetch.
+    const attachment = adapter.parseMessage(fileEvent).attachments?.[0];
+    expect(attachment).toBeDefined();
+    expect(resolver).not.toHaveBeenCalled();
+
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    try {
+      // First fetch picks up the first resolver value.
+      await attachment?.fetchData?.();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "https://files.slack.com/file.pdf",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer xoxb-stale" },
+        })
+      );
+      // A subsequent fetchData() re-invokes the resolver and picks up rotation.
+      await attachment?.fetchData?.();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "https://files.slack.com/file.pdf",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer xoxb-fresh" },
+        })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(resolver).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ============================================================================
 // postMessage Tests
 // ============================================================================
 
