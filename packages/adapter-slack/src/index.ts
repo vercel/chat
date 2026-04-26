@@ -519,9 +519,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   constructor(config: SlackAdapterConfig = {}) {
-    const signingSecret =
-      config.signingSecret ?? process.env.SLACK_SIGNING_SECRET;
     const webhookVerifier = config.webhookVerifier;
+    // An explicit webhookVerifier in config opts out of the SLACK_SIGNING_SECRET
+    // env fallback — otherwise an env-configured deployment would silently
+    // shadow the verifier the caller intended to use.
+    const signingSecret =
+      config.signingSecret ??
+      (webhookVerifier ? undefined : process.env.SLACK_SIGNING_SECRET);
     if (
       !(signingSecret || webhookVerifier) &&
       (config.mode ?? "webhook") === "webhook"
@@ -4801,9 +4805,13 @@ export function createSlackAdapter(
     }
   }
 
-  const signingSecret =
-    config?.signingSecret ?? process.env.SLACK_SIGNING_SECRET;
   const webhookVerifier = config?.webhookVerifier;
+  // An explicit webhookVerifier in config opts out of the SLACK_SIGNING_SECRET
+  // env fallback — otherwise an env-configured deployment would silently
+  // shadow the verifier the caller intended to use.
+  const signingSecret =
+    config?.signingSecret ??
+    (webhookVerifier ? undefined : process.env.SLACK_SIGNING_SECRET);
   if (mode === "webhook" && !(signingSecret || webhookVerifier)) {
     throw new ValidationError(
       "slack",

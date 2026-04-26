@@ -470,6 +470,34 @@ describe("handleWebhook - webhookVerifier", () => {
     expect(response.status).toBe(200);
     expect(verifier).not.toHaveBeenCalled();
   });
+
+  it("ignores SLACK_SIGNING_SECRET env var when webhookVerifier is configured", async () => {
+    vi.stubEnv("SLACK_SIGNING_SECRET", "env-signing-secret");
+    try {
+      const verifier = vi.fn(() => true);
+      const adapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        webhookVerifier: verifier,
+        logger: mockLogger,
+      });
+
+      const body = JSON.stringify({
+        type: "url_verification",
+        challenge: "verifier-challenge",
+      });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(verifier).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 // ============================================================================
