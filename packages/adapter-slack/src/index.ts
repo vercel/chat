@@ -1127,7 +1127,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         event.type === "reaction_added" ||
         event.type === "reaction_removed"
       ) {
-        this.handleReactionEvent(event as SlackReactionEvent, options);
+        // Outer prep work (conversations.replies, users.info) runs before
+        // processReaction registers its own waitUntil task — register the
+        // outer promise too so callers can await full completion.
+        const task = this.handleReactionEvent(
+          event as SlackReactionEvent,
+          options
+        );
+        options?.waitUntil?.(task);
       } else if (event.type === "assistant_thread_started") {
         this.handleAssistantThreadStarted(
           event as SlackAssistantThreadStartedEvent,
