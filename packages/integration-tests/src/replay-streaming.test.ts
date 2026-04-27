@@ -212,10 +212,7 @@ describe("Streaming Replay Tests", () => {
       });
 
       // Group chats accumulate and post as single message (no post+edit)
-      expectSentMessage(
-        ctx.mockTeamsApp,
-        "I am an AI assistant here to help."
-      );
+      expectSentMessage(ctx.mockTeamsApp, "I am an AI assistant here to help.");
     });
   });
 
