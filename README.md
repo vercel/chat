@@ -77,7 +77,11 @@ Full documentation is available at [chat-sdk.dev/docs](https://chat-sdk.dev/docs
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and the release process.
+See [CONTRIBUTING.md](./.github/CONTRIBUTING.md) for development setup and the release process.
+
+## Support
+
+For help or questions, see [SUPPORT.md](./.github/SUPPORT.md). To report a security vulnerability, see [SECURITY.md](./.github/SECURITY.md).
 
 ## License
 
