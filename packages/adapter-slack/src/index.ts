@@ -100,6 +100,15 @@ function findNextMention(text: string): number {
  * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
  */
 const TRAILING_SLASH_PATTERN = /\/$/;
+const UNFURL_WAIT_MS = 2000;
+const UNFURL_POLL_MS = 150;
+
+interface SlackUnfurl {
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
+  title?: string;
+}
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
@@ -2585,38 +2594,42 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return links;
     }
 
-    try {
-      const stored = await this.chat.getState().get<
-        Record<
-          string,
-          {
-            title?: string;
-            description?: string;
-            imageUrl?: string;
-            siteName?: string;
-          }
-        >
-      >(`slack:unfurls:${messageTs}`);
-      if (!stored) {
+    // slack delivers unfurled attachments via a separate message_changed event
+    // that lands ~100-2000ms after the original event. poll briefly so the
+    // handler sees enriched links instead of bare urls.
+    const deadline = Date.now() + UNFURL_WAIT_MS;
+    const state = this.chat.getState();
+    let stored: Record<string, SlackUnfurl> | null = null;
+    while (true) {
+      try {
+        stored = await state.get<Record<string, SlackUnfurl>>(
+          `slack:unfurls:${messageTs}`
+        );
+      } catch {
         return links;
       }
-
-      return links.map((link) => {
-        if (link.title) {
-          return link;
-        }
-        const unfurl =
-          stored[link.url] ||
-          stored[link.url.replace(TRAILING_SLASH_PATTERN, "")] ||
-          stored[`${link.url}/`];
-        if (unfurl) {
-          return { ...link, ...unfurl };
-        }
-        return link;
-      });
-    } catch {
+      if (stored || Date.now() >= deadline) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, UNFURL_POLL_MS));
+    }
+    if (!stored) {
       return links;
     }
+
+    return links.map((link) => {
+      if (link.title) {
+        return link;
+      }
+      const unfurl =
+        stored[link.url] ||
+        stored[link.url.replace(TRAILING_SLASH_PATTERN, "")] ||
+        stored[`${link.url}/`];
+      if (unfurl) {
+        return { ...link, ...unfurl };
+      }
+      return link;
+    });
   }
 
   /**
