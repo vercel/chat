@@ -68,6 +68,8 @@ The adapter creates these tables automatically on `connect()`:
 chat_state_subscriptions
 chat_state_locks
 chat_state_cache
+chat_state_lists
+chat_state_queues
 ```
 
 All rows are namespaced by `key_prefix`.
