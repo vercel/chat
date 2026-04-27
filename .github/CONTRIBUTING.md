@@ -1,5 +1,11 @@
 # Contributing
 
+## Reporting issues
+
+For bugs, feature requests, documentation issues, or new adapter requests, [pick an issue template](https://github.com/vercel/chat/issues/new/choose). Each one asks for the information we need to triage the report.
+
+For questions and getting help, see [SUPPORT.md](./SUPPORT.md). Security vulnerabilities should be reported privately — see [SECURITY.md](./SECURITY.md). Do not file a public issue for security issues.
+
 ## Signed Commits
 
 All commits to this repository must be **signed and verified**. Pull requests with unsigned commits will not be merged.
