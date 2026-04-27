@@ -25,7 +25,7 @@ export const nav = [
     href: "/docs/api",
   },
   {
-    label: "Source",
+    label: "GitHub",
     href: `https://github.com/${github.owner}/${github.repo}/`,
   },
 ];
