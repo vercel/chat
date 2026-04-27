@@ -6,6 +6,10 @@ For bugs, feature requests, documentation issues, or new adapter requests, [pick
 
 For questions and getting help, see [SUPPORT.md](./SUPPORT.md). Security vulnerabilities should be reported privately — see [SECURITY.md](./SECURITY.md). Do not file a public issue for security issues.
 
+## Building your own adapter
+
+Want to add Chat SDK support for a platform that isn't covered by the official adapters? See [Building a community adapter](https://chat-sdk.dev/docs/contributing/building) for a walkthrough of the `Adapter` interface, testing, packaging, and getting your adapter listed on chat-sdk.dev.
+
 ## Signed Commits
 
 All commits to this repository must be **signed and verified**. Pull requests with unsigned commits will not be merged.
@@ -13,6 +17,10 @@ All commits to this repository must be **signed and verified**. Pull requests wi
 GitHub has a guide on setting this up: [Signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits). The easiest path is usually [signing with SSH](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#ssh-commit-signature-verification) using a key you've already added to GitHub.
 
 Verify your setup by checking that new commits show a "Verified" badge on github.com.
+
+## Commit messages
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`). The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
 
 ## Development
 
@@ -80,6 +88,16 @@ This creates a markdown file in `.changeset/` describing your change. Commit thi
 | `major` | Breaking changes                   | `4.0.0` → `5.0.0` |
 
 All packages in this monorepo use **fixed versioning** — they always share the same version number, and any release bumps every package together.
+
+## Updating documentation
+
+User-facing docs live in `apps/docs/content/docs/` and render at [chat-sdk.dev/docs](https://chat-sdk.dev/docs). When a PR changes behavior, public APIs, or environment variables, update the relevant page(s) in the same PR.
+
+To preview docs locally:
+
+```bash
+pnpm --filter docs dev
+```
 
 ## Preview Branch Testing
 
