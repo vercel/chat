@@ -1411,7 +1411,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const groups = (result as OptionsLoadGroup[])
         .slice(0, 100)
         .map((group) => ({
-          label: { type: "plain_text" as const, text: group.label },
+          label: {
+            type: "plain_text" as const,
+            text: group.label.slice(0, 75),
+          },
           options: group.options.slice(0, 100).map(selectOptionToSlackOption),
         }));
       return new Response(JSON.stringify({ option_groups: groups }), {

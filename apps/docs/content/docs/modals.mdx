@@ -97,6 +97,7 @@ A dropdown that loads its options dynamically from a handler as the user types. 
 | `label` | `string` | Field label |
 | `placeholder` | `string` (optional) | Placeholder text |
 | `minQueryLength` | `number` (optional) | Minimum characters before the loader fires (Slack default: 3) |
+| `initialOption` | `{ label, value }` (optional) | Pre-selected option when the modal opens (must match an option returned by the loader). For static `<Select>`, `initialOption` is just the value string — for `<ExternalSelect>` it's the full `{ label, value }` object since the loader hasn't run yet. |
 | `optional` | `boolean` (optional) | Allow empty submission |
 
 Register the loader with `onOptionsLoad`:
@@ -129,6 +130,25 @@ bot.onModalSubmit("assign_form", async (event) => {
 ```
 
 The selected value arrives in `event.values` on submit just like a static `<Select>`.
+
+#### Grouped options
+
+Return an array of groups instead of a flat options array to render headers between sections (e.g. "Recent" / "All"):
+
+```tsx
+bot.onOptionsLoad("assignee", async (event) => {
+  const [recent, all] = await Promise.all([
+    peopleService.recent(event.user.userId),
+    peopleService.search(event.query),
+  ]);
+  return [
+    { label: "Recent", options: recent.map((p) => ({ label: p.fullName, value: p.id })) },
+    { label: "All", options: all.map((p) => ({ label: p.fullName, value: p.id })) },
+  ];
+});
+```
+
+Slack limits: max 100 groups, max 100 options per group, group label max 75 characters.
 
 <Callout type="warn">
 Slack requires a response within 3 seconds for options requests. The adapter caps the loader at ~2.5s and returns an empty result on timeout — keep your loader fast (cache, prefetch, or narrow the query server-side).
