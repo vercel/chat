@@ -86,6 +86,8 @@ body:
         - Microsoft Teams
         - Google Chat
         - Discord
+        - Telegram
+        - WhatsApp
         - GitHub
         - Linear
         - Other
