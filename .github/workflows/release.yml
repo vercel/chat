@@ -38,12 +38,16 @@ jobs:
         env:
           REDIS_URL: "redis://placeholder"
 
-      - name: Create Release Pull Request or Publish
+      - name: Create release PR or publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
         with:
           publish: pnpm changeset publish
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+          commitMode: github-api
         env:
+          NPM_CONFIG_PROVENANCE: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy to Vercel
