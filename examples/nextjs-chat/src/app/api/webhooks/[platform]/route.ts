@@ -29,7 +29,7 @@ export async function POST(
 }
 
 // GET handler — serves as health check, but also forwards to webhook handler
-// for platforms that need GET verification (e.g. WhatsApp challenge-response)
+// for platforms that need GET verification (e.g. WhatsApp/Facebook challenge-response)
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ platform: string }> }
