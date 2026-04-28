@@ -45,6 +45,11 @@ export type {
 export { isPostableObject } from "./postable-object";
 export { reviver } from "./reviver";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
+export {
+  StreamingPlan,
+  type StreamingPlanData,
+  type StreamingPlanOptions,
+} from "./streaming-plan";
 export { type SerializedThread, ThreadImpl } from "./thread";
 
 // Card builders - import then re-export to ensure values are properly exported
@@ -71,6 +76,7 @@ import type {
   CardComponent,
   CardLinkComponent,
   DividerComponent,
+  ExternalSelectComponent,
   FieldComponent,
   FieldsComponent,
   ImageComponent,
@@ -112,6 +118,7 @@ export const toModalElement = _toModalElement;
 
 // Modal builders
 import {
+  ExternalSelect as _ExternalSelect,
   fromReactModalElement as _fromReactModalElement,
   isModalElement as _isModalElement,
   Modal as _Modal,
@@ -122,6 +129,8 @@ import {
 } from "./modals";
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
+export const ExternalSelect =
+  _ExternalSelect as unknown as ExternalSelectComponent;
 export const Modal = _Modal as unknown as ModalComponent;
 export const RadioSelect = _RadioSelect as unknown as RadioSelectComponent;
 export const Select = _Select as unknown as SelectComponent;
@@ -177,6 +186,8 @@ export type {
   ContainerProps,
   DividerComponent,
   DividerProps,
+  ExternalSelectComponent,
+  ExternalSelectProps,
   FieldComponent,
   FieldProps,
   FieldsComponent,
@@ -208,6 +219,7 @@ export type {
   Link,
   List,
   ListItem,
+  Nodes,
   Paragraph,
   Root,
   Strong,
@@ -262,6 +274,8 @@ export {
 } from "./markdown";
 // Modal types
 export type {
+  ExternalSelectElement,
+  ExternalSelectOptions,
   ModalChild,
   ModalElement,
   ModalOptions,
@@ -320,6 +334,7 @@ export type {
   MessageContext,
   MessageHandler,
   MessageMetadata,
+  ModalClearResponse,
   ModalCloseEvent,
   ModalCloseHandler,
   ModalCloseResponse,
@@ -329,6 +344,8 @@ export type {
   ModalSubmitEvent,
   ModalSubmitHandler,
   ModalUpdateResponse,
+  OptionsLoadEvent,
+  OptionsLoadHandler,
   PlanUpdateChunk,
   Postable,
   PostableAst,

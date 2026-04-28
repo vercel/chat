@@ -225,6 +225,14 @@ export interface GoogleChatUser {
   type: string;
 }
 
+interface GoogleChatFormInput {
+  stringInputs?: {
+    value?: string[];
+  };
+}
+
+type GoogleChatFormInputs = Record<string, GoogleChatFormInput>;
+
 /**
  * Google Workspace Add-ons event format.
  * This is the format used when configuring the app via Google Cloud Console.
@@ -253,6 +261,7 @@ export interface GoogleChatEvent {
     };
   };
   commonEventObject?: {
+    formInputs?: GoogleChatFormInputs;
     userLocale?: string;
     hostApp?: string;
     platform?: string;
@@ -1147,8 +1156,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    // Get value from parameters
-    const value = commonEvent?.parameters?.value;
+    // Buttons send value via parameters, while selection inputs return
+    // the chosen option through formInputs under the action ID.
+    const value =
+      commonEvent?.parameters?.value ??
+      this.getFormInputValue(commonEvent?.formInputs, actionId);
 
     // Get space and message info from buttonClickedPayload
     const space = buttonPayload?.space;
@@ -1192,6 +1204,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  private getFormInputValue(
+    formInputs: GoogleChatFormInputs | undefined,
+    actionId: string
+  ): string | undefined {
+    return formInputs?.[actionId]?.stringInputs?.value?.[0];
   }
 
   /**

@@ -8,7 +8,7 @@ import type { SerializedChannel } from "./channel";
 import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
-import type { ModalElement } from "./modals";
+import type { ModalElement, SelectOptionElement } from "./modals";
 import type { PostableObject } from "./postable-object";
 import type { SerializedThread } from "./thread";
 
@@ -658,6 +658,15 @@ export interface ChatInstance {
   ): Promise<ModalResponse | undefined>;
 
   /**
+   * Process an interactive options load event from an adapter.
+   * Returns normalized select options for the adapter to render.
+   */
+  processOptionsLoad(
+    event: OptionsLoadEvent,
+    options?: WebhookOptions
+  ): Promise<SelectOptionElement[] | undefined>;
+
+  /**
    * Process an incoming reaction event from an adapter.
    * Handles waitUntil registration and error catching internally.
    *
@@ -1119,6 +1128,13 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
+   *
+   * // Stream with options via StreamingPlan PostableObject
+   * const stream = new StreamingPlan(result.fullStream, {
+   *   groupTasks: "plan",
+   *   endWith: [feedbackBlocks],
+   * });
+   * await thread.post(stream);
    *
    * // Plan with live updates
    * const plan = new Plan({ initialMessage: "Working..." });
@@ -1996,6 +2012,33 @@ export interface ActionEvent<TRawMessage = unknown> {
 export type ActionHandler = (event: ActionEvent) => void | Promise<void>;
 
 // =============================================================================
+// Options Load Events
+// =============================================================================
+
+/**
+ * Event emitted when an adapter needs dynamic options for an external select.
+ */
+export interface OptionsLoadEvent {
+  /** The action ID of the select requesting options */
+  actionId: string;
+  /** The adapter that received this event */
+  adapter: Adapter;
+  /** The current user-entered query text */
+  query: string;
+  /** Raw platform-specific payload */
+  raw: unknown;
+  /** The user requesting options */
+  user: Author;
+}
+
+export type OptionsLoadHandler = (
+  event: OptionsLoadEvent
+) =>
+  | SelectOptionElement[]
+  | Promise<SelectOptionElement[] | undefined>
+  | undefined;
+
+// =============================================================================
 // Modal Events (Form Submissions)
 // =============================================================================
 
@@ -2094,8 +2137,13 @@ export interface ModalCloseResponse {
   action: "close";
 }
 
+export interface ModalClearResponse {
+  action: "clear";
+}
+
 export type ModalResponse =
   | ModalCloseResponse
+  | ModalClearResponse
   | ModalErrorsResponse
   | ModalUpdateResponse
   | ModalPushResponse;

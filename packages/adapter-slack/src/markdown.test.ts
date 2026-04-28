@@ -110,6 +110,42 @@ describe("SlackMarkdownConverter", () => {
     it("should not double-wrap mentions via fromMarkdown", () => {
       expect(converter.fromMarkdown("Hey <@U12345>")).toBe("Hey <@U12345>");
     });
+
+    it("should not mangle email addresses in plain strings", () => {
+      expect(
+        converter.renderPostable("Contact user@example.com for help")
+      ).toBe("Contact user@example.com for help");
+    });
+
+    it("should not mangle email addresses in markdown input", () => {
+      // GFM auto-link turns the email into a mailto link; key point is the
+      // `@example` is not rewritten as a `<@example>` Slack mention.
+      expect(
+        converter.renderPostable({
+          markdown: "Contact user@example.com for help",
+        })
+      ).toBe("Contact <mailto:user@example.com|user@example.com> for help");
+    });
+
+    it("should not mangle mailto links in plain strings", () => {
+      expect(converter.renderPostable("Email <mailto:user@example.com>")).toBe(
+        "Email <mailto:user@example.com>"
+      );
+    });
+
+    it("should not mangle email addresses inside markdown link text", () => {
+      expect(
+        converter.fromMarkdown(
+          "Email [user@example.com](mailto:user@example.com)"
+        )
+      ).toBe("Email <mailto:user@example.com|user@example.com>");
+    });
+
+    it("should still convert mentions adjacent to non-word punctuation", () => {
+      expect(converter.renderPostable("(cc @george, @anne)")).toBe(
+        "(cc <@george>, <@anne>)"
+      );
+    });
   });
 
   describe("toPlainText", () => {

@@ -1,0 +1,58 @@
+{
+  "resources": [
+    {
+      "title": "How to build an AI agent for Slack with Chat SDK and AI SDK",
+      "description": "Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.",
+      "href": "https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk",
+      "type": "guide"
+    },
+    {
+      "title": "Run and track deploys from Slack",
+      "description": "Build a Slack deploy bot with Chat SDK and Vercel Workflow. Dispatch GitHub Actions from a slash command, gate production behind approval, poll for completion, and notify Linear and GitHub when the run finishes.",
+      "href": "https://vercel.com/kb/guide/run-and-track-deploys-from-slack",
+      "type": "guide"
+    },
+    {
+      "title": "Triage form submissions with Chat SDK",
+      "description": "Build a Slack bot that triages form submissions with interactive cards. Forward, edit, or mark as spam without leaving Slack. Built with Chat SDK, Hono, and Resend.",
+      "href": "https://vercel.com/kb/guide/triage-form-submissions-with-chat-sdk",
+      "type": "guide"
+    },
+    {
+      "title": "How to build a Slack bot with Next.js and Redis",
+      "description": "This guide walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.",
+      "href": "https://vercel.com/kb/guide/how-to-build-a-slack-bot-with-next-js-and-redis",
+      "type": "guide"
+    },
+    {
+      "title": "Create a Discord support bot with Nuxt and Redis",
+      "description": "This guide walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.",
+      "href": "https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis",
+      "type": "guide"
+    },
+    {
+      "title": "Ship a GitHub code review bot with Hono and Redis",
+      "description": "This guide walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.",
+      "href": "https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis",
+      "type": "guide"
+    },
+    {
+      "title": "Chat SDK Liveblocks Bot",
+      "description": "Build a bot that you can engage with inside Liveblocks.",
+      "href": "https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot",
+      "type": "template"
+    },
+    {
+      "title": "Knowledge Agent",
+      "description": "Open source file-system and knowledge based agent template. Build AI agents that stay up to date with your knowledge base.",
+      "href": "https://vercel.com/templates/nuxt/chat-sdk-knowledge-agent",
+      "type": "template"
+    },
+    {
+      "title": "Community Agent",
+      "description": "Open source AI-powered Slack community management bot with a built-in Next.js admin panel. Uses Chat SDK, AI SDK, and Vercel Workflow.",
+      "href": "https://vercel.com/templates/next.js/chat-sdk-community-agent",
+      "type": "template"
+    }
+  ]
+}

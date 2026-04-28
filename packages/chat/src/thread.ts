@@ -415,6 +415,28 @@ export class ThreadImpl<TState = Record<string, unknown>>
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
+      // StreamingPlan PostableObject - route to streaming with options
+      if (message.kind === "stream") {
+        const data = message.getPostData() as {
+          stream: AsyncIterable<string | StreamChunk | StreamEvent>;
+          options: {
+            groupTasks?: "plan" | "timeline";
+            endWith?: unknown[];
+            updateIntervalMs?: number;
+          };
+        };
+        const streamOptions: StreamOptions = {
+          ...(data.options.updateIntervalMs
+            ? { updateIntervalMs: data.options.updateIntervalMs }
+            : {}),
+          ...(data.options.groupTasks
+            ? { taskDisplayMode: data.options.groupTasks }
+            : {}),
+          ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
+        };
+        await this.handleStream(data.stream, streamOptions);
+        return message;
+      }
       await this.handlePostableObject(message);
       return message;
     }
@@ -543,12 +565,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
    * then uses adapter's native streaming if available, otherwise falls back to post+edit.
    */
   private async handleStream(
-    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    callerOptions?: StreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
-    // Build streaming options from current message context
-    const options: StreamOptions = {};
+    // Build streaming options from current message context + caller options
+    const options: StreamOptions = { ...callerOptions };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // Extract teamId from raw Slack payload

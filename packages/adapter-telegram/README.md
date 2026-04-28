@@ -149,7 +149,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 
 | Feature | Supported |
 |---------|-----------|
-| Card format | Markdown + inline keyboard buttons |
+| Card format | MarkdownV2 + inline keyboard buttons |
 | Buttons | Inline keyboard callbacks |
 | Link buttons | Inline keyboard URLs |
 | Select menus | No |

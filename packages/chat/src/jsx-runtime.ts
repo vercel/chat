@@ -63,6 +63,9 @@ import {
 } from "./cards";
 
 import {
+  ExternalSelect,
+  type ExternalSelectElement,
+  type ExternalSelectOptions,
   filterModalChildren,
   isModalElement,
   Modal,
@@ -181,6 +184,15 @@ export interface SelectProps {
   placeholder?: string;
 }
 
+/** Props for ExternalSelect component in JSX */
+export interface ExternalSelectProps {
+  id: string;
+  label: string;
+  minQueryLength?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
 /** Props for SelectOption component in JSX */
 export interface SelectOptionProps {
   description?: string;
@@ -208,6 +220,7 @@ export type CardJSXProps =
   | ModalProps
   | TextInputProps
   | SelectProps
+  | ExternalSelectProps
   | SelectOptionProps
   | TableProps;
 
@@ -227,6 +240,7 @@ type CardComponentFunction =
   | typeof Modal
   | typeof TextInput
   | typeof Select
+  | typeof ExternalSelect
   | typeof RadioSelect
   | typeof SelectOption
   | typeof Table;
@@ -259,6 +273,7 @@ export type ChatElement =
   | ModalElement
   | TextInputElement
   | SelectElement
+  | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement
   | TableElement;
@@ -344,6 +359,11 @@ export interface SelectComponent {
   (props: SelectProps): ChatElement;
 }
 
+export interface ExternalSelectComponent {
+  (options: ExternalSelectOptions): ExternalSelectElement;
+  (props: ExternalSelectProps): ChatElement;
+}
+
 export interface SelectOptionComponent {
   (options: {
     label: string;
@@ -385,6 +405,7 @@ type CardChildOrNested =
   | LinkElement
   | FieldElement
   | SelectElement
+  | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement;
 
@@ -432,6 +453,7 @@ type AnyCardElement =
   | FieldElement
   | ModalElement
   | ModalChild
+  | ExternalSelectElement
   | SelectOptionElement
   | null;
 
@@ -522,6 +544,20 @@ function isTextInputProps(props: CardJSXProps): props is TextInputProps {
  */
 function isSelectProps(props: CardJSXProps): props is SelectProps {
   return "id" in props && "label" in props && !("value" in props);
+}
+
+/**
+ * Type guard to check if props match ExternalSelectProps
+ */
+function isExternalSelectProps(
+  props: CardJSXProps
+): props is ExternalSelectProps {
+  return (
+    "id" in props &&
+    "label" in props &&
+    !("value" in props) &&
+    !("children" in props)
+  );
 }
 
 /**
@@ -695,6 +731,19 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       initialOption: props.initialOption,
       optional: props.optional,
       options: processedChildren as SelectOptionElement[],
+    });
+  }
+
+  if (type === ExternalSelect) {
+    if (!isExternalSelectProps(props)) {
+      throw new Error("ExternalSelect requires 'id' and 'label' props");
+    }
+    return ExternalSelect({
+      id: props.id,
+      label: props.label,
+      placeholder: props.placeholder,
+      minQueryLength: props.minQueryLength,
+      optional: props.optional,
     });
   }
 

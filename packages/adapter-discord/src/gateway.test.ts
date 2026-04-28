@@ -47,6 +47,7 @@ const mockChat = {
   getUserName: vi.fn().mockReturnValue("bot"),
   handleIncomingMessage: vi.fn(),
   processAction: vi.fn(),
+  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
   processAppHomeOpened: vi.fn(),
   processAssistantContextChanged: vi.fn(),
   processAssistantThreadStarted: vi.fn(),

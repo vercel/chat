@@ -7,6 +7,7 @@ import {
   mockLogger,
 } from "./mock-adapter";
 import { Plan } from "./plan";
+import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
 import type { Adapter, Message, ScheduledMessage, StreamChunk } from "./types";
 import { NotImplementedError } from "./types";
@@ -637,6 +638,151 @@ describe("ThreadImpl", () => {
           recipientTeamId: "T123",
         })
       );
+    });
+
+    it("should pass StreamingPlan PostableObject options to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      const streamMsg = new StreamingPlan(textStream, {
+        groupTasks: "plan",
+        endWith: [{ type: "actions" }],
+        updateIntervalMs: 1000,
+      });
+      await thread.post(streamMsg);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "plan",
+          stopBlocks: [{ type: "actions" }],
+          updateIntervalMs: 1000,
+        })
+      );
+    });
+
+    it("should pass StreamingPlan with only groupTasks", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { groupTasks: "timeline" })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          taskDisplayMode: "timeline",
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.stopBlocks).toBeUndefined();
+    });
+
+    it("should pass StreamingPlan with only endWith", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { endWith: [{ type: "actions" }] })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          stopBlocks: [{ type: "actions" }],
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+    });
+
+    it("should pass StreamingPlan with only updateIntervalMs", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(
+        new StreamingPlan(textStream, { updateIntervalMs: 2000 })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({
+          updateIntervalMs: 2000,
+        })
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+      expect(options.stopBlocks).toBeUndefined();
+    });
+
+    it("should route StreamingPlan through fallback when adapter has no native streaming", async () => {
+      mockAdapter.stream = undefined;
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.post(
+        new StreamingPlan(textStream, {
+          groupTasks: "plan",
+          endWith: [{ type: "actions" }],
+          updateIntervalMs: 2000,
+        })
+      );
+
+      // Should post initial placeholder and edit with final content
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
+
+    it("should still work without options (backward compat)", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(textStream);
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.any(Object)
+      );
+      const options = mockStream.mock.calls[0][2];
+      expect(options.taskDisplayMode).toBeUndefined();
+      expect(options.stopBlocks).toBeUndefined();
     });
   });
 

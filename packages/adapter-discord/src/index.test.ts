@@ -1563,6 +1563,77 @@ describe("postMessage", () => {
 
     spy.mockRestore();
   });
+
+  it("does not include content text when posting a card message", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg005",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.postMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeDefined();
+    expect(calledPayload.components).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("uses card over text when message has both", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg006",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const mixedMessage = {
+      raw: "Some text that should be ignored",
+      card: Card({
+        title: "Card Wins",
+        children: [Actions([Button({ id: "btn1", label: "Click" })])],
+      }),
+    };
+
+    await adapter.postMessage("discord:guild1:channel456", mixedMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeDefined();
+
+    spy.mockRestore();
+  });
 });
 
 // ============================================================================
@@ -1666,6 +1737,77 @@ describe("editMessage", () => {
     const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
     expect(calledPayload.content?.length).toBeLessThanOrEqual(2000);
     expect(calledPayload.content?.endsWith("...")).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("clears content when editing to a card message", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg004",
+      cardMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBe("");
+    expect(calledPayload.embeds).toBeDefined();
+    expect(calledPayload.components).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("restores content when editing from card back to text", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: "New text message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.editMessage("discord:guild1:channel456", "msg004", {
+      raw: "Updated to plain text",
+    });
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBe("Updated to plain text");
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.components).toBeUndefined();
 
     spy.mockRestore();
   });
@@ -2578,9 +2720,12 @@ describe("postChannelMessage", () => {
     await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
 
     const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
       embeds?: unknown[];
       components?: unknown[];
     };
+    // Should NOT include content text when card is present (avoids duplicate display)
+    expect(calledPayload.content).toBeUndefined();
     expect(calledPayload.embeds).toBeDefined();
     expect(Array.isArray(calledPayload.embeds)).toBe(true);
     expect((calledPayload.embeds ?? []).length).toBeGreaterThan(0);
@@ -3156,6 +3301,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: processMessage,
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction: vi.fn(),
     } as unknown as ChatInstance);
 
@@ -3198,6 +3344,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 
@@ -3244,6 +3391,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 

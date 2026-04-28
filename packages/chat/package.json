@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "resources"
   ],
   "scripts": {
     "build": "pnpm clean && tsup && cp -r ../../apps/docs/content/docs ./docs",

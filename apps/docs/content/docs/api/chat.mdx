@@ -255,7 +255,8 @@ bot.onModalSubmit("feedback", async (event) => {
 
 Returns `ModalResponse | undefined` to control the modal after submission:
 
-- `{ action: "close" }` — close the modal
+- `{ action: "close" }` — close the current view (goes back one level in the stack)
+- `{ action: "clear" }` — close all views and dismiss the modal entirely
 - `{ action: "errors", errors: { fieldId: "message" } }` — show validation errors
 - `{ action: "update", modal: ModalElement }` — replace the modal content
 - `{ action: "push", modal: ModalElement }` — push a new modal view onto the stack

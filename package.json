@@ -22,7 +22,8 @@
     "validate": "pnpm knip && pnpm check && turbo typecheck && pnpm test && pnpm build:validate",
     "clean": "turbo clean && rm -rf node_modules",
     "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "sync-resources": "npx tsx scripts/sync-resources.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
