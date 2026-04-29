@@ -876,7 +876,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         fullName: graphUser.displayName ?? aadObjectId,
         isBot: false,
         userId,
-        userName: graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
+        userName:
+          graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
       };
     } catch (error) {
       this.logger.warn("Failed to fetch user info from Graph API", {
