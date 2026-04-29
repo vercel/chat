@@ -194,8 +194,8 @@ describe("Streaming Replay Tests", () => {
       // Verify initial message was sent
       expectSentMessage(ctx.mockTeamsApp, "AI Mode Enabled!");
 
-      // Verify streaming completed with final message
-      expectUpdatedMessage(ctx.mockTeamsApp, "Love is a complex emotion.");
+      // Group chats accumulate and post as single message (no post+edit)
+      expectSentMessage(ctx.mockTeamsApp, "Love is a complex emotion.");
     });
 
     it("should stream response to follow-up message in AI mode", async () => {
@@ -211,11 +211,8 @@ describe("Streaming Replay Tests", () => {
         adapterName: "teams",
       });
 
-      // Verify streaming response
-      expectUpdatedMessage(
-        ctx.mockTeamsApp,
-        "I am an AI assistant here to help."
-      );
+      // Group chats accumulate and post as single message (no post+edit)
+      expectSentMessage(ctx.mockTeamsApp, "I am an AI assistant here to help.");
     });
   });
 
