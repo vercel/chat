@@ -446,7 +446,7 @@ const dm = await bot.openDM(message.author);
 
 ### getUser
 
-Look up user information by user ID. Returns a `UserInfo` object with name, email, avatar, and bot status, or `null` if the user was not found. Supported on Slack, Discord, Google Chat, GitHub, Linear, and Telegram. Other adapters will throw `NOT_SUPPORTED`.
+Look up user information by user ID. Returns a `UserInfo` object with name, email, avatar, and bot status, or `null` if the user was not found. Supported on Slack, Microsoft Teams, Discord, Google Chat, GitHub, Linear, and Telegram. Other adapters will throw `NOT_SUPPORTED`.
 
 ```typescript
 const user = await bot.getUser("U123456");
