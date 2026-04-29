@@ -1,5 +1,39 @@
 # @chat-adapter/linear
 
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- bc94f0a: Add multi-tenant support in the Linear adapter using `clientId` / `clientSecret`.
+
+  The Linear adapter now exposes a `handleOAuthCallback()` function for OAuth multi-tenant support.
+
+  Add `clientCredentials.scopes` to the Linear adapter so single-tenant client-credentials auth can request custom OAuth scopes.
+
+  Add support for agent sessions in Linear, with streaming / task / plan support.
+
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+
+### Patch Changes
+
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
 ## 4.26.0
 
 ### Patch Changes
