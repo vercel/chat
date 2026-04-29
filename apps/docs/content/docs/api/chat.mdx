@@ -489,7 +489,16 @@ const user = await bot.getUser(message.author);
 />
 
 <Callout type="info">
-  Email availability varies by platform. On Slack it requires the `users:read.email` scope. Discord and Telegram don't expose email to bots. Fields that aren't available return `undefined`.
+  **Per-platform constraints:**
+  - **Slack** — requires both `users:read` and `users:read.email` scopes (the email scope must be granted at OAuth install time).
+  - **Discord** — bot tokens never see email (the `email` OAuth scope only applies in user-context auth).
+  - **Telegram** — bots can only look up users who have previously messaged them.
+  - **Microsoft Teams** — only works for users who previously interacted with the bot (cached from webhook activity). `avatarUrl` is not returned (Graph API requires a separate photo call).
+  - **Google Chat** — same caching constraint as Teams: only users seen in prior webhooks.
+  - **GitHub** — `email` is `null` unless the user made it public, or you authenticated with the `user:email` scope.
+  - **Linear** — full profile (incl. email + avatar) for any active workspace member.
+
+  Fields that aren't available return `undefined`. Numeric user IDs (Discord/Telegram/GitHub) can be ambiguous when multiple of those adapters are registered — call the platform's adapter directly (`adapter.getUser(userId)`) in that case.
 </Callout>
 
 Adapters that don't support user lookups will throw a `ChatError` with code `NOT_SUPPORTED`. Handle both cases if your bot runs on multiple platforms:

@@ -67,8 +67,11 @@ const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
+const SLACK_USER_ID_REGEX = /^[UW][A-Z0-9]+$/;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
+const LINEAR_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NUMERIC_REGEX = /^\d+$/;
 /** TTL for message deduplication entries */
 const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -1730,7 +1733,9 @@ export class Chat<
    * Infer which adapter to use based on the userId format.
    */
   private inferAdapterFromUserId(userId: string): Adapter {
-    // Google Chat: users/123456789
+    // Unique-prefix formats — no collision possible across adapters
+
+    // Google Chat: "users/123456789"
     if (userId.startsWith("users/")) {
       const adapter = this.adapters.get("gchat");
       if (adapter) {
@@ -1738,7 +1743,7 @@ export class Chat<
       }
     }
 
-    // Teams: 29:base64string...
+    // Teams: "29:base64string..."
     if (userId.startsWith("29:")) {
       const adapter = this.adapters.get("teams");
       if (adapter) {
@@ -1746,7 +1751,16 @@ export class Chat<
       }
     }
 
-    // Slack: U followed by alphanumeric (e.g., U00FAKEUSER1)
+    // Linear: UUID v4 (e.g., "8f1f3c7e-d4e1-4f9a-bf2b-1c3d4e5f6a7b")
+    if (LINEAR_UUID_REGEX.test(userId)) {
+      const adapter = this.adapters.get("linear");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
+    // Slack: "U..." or "W..." (uppercase, alphanumeric, 7+ chars total)
+    // — never lowercase, so won't collide with GitHub logins like "user123"
     if (SLACK_USER_ID_REGEX.test(userId)) {
       const adapter = this.adapters.get("slack");
       if (adapter) {
@@ -1754,16 +1768,40 @@ export class Chat<
       }
     }
 
-    // Discord: snowflake ID (17-19 digit number)
-    if (DISCORD_SNOWFLAKE_REGEX.test(userId)) {
-      const adapter = this.adapters.get("discord");
-      if (adapter) {
-        return adapter;
+    // Numeric IDs are shared by Discord (17-19 digit snowflakes), Telegram
+    // (positive integer up to 52 bits), and GitHub (numeric account_id).
+    // Disambiguate by which adapters the caller actually registered.
+    if (NUMERIC_REGEX.test(userId)) {
+      const candidates: string[] = [];
+      if (
+        DISCORD_SNOWFLAKE_REGEX.test(userId) &&
+        this.adapters.has("discord")
+      ) {
+        candidates.push("discord");
+      }
+      if (this.adapters.has("telegram")) {
+        candidates.push("telegram");
+      }
+      if (this.adapters.has("github")) {
+        candidates.push("github");
+      }
+
+      if (candidates.length === 1) {
+        const adapter = this.adapters.get(candidates[0] as string);
+        if (adapter) {
+          return adapter;
+        }
+      }
+      if (candidates.length > 1) {
+        throw new ChatError(
+          `Numeric userId "${userId}" is ambiguous between adapters: ${candidates.join(", ")}. Call the platform's adapter directly (e.g. \`adapter.getUser(userId)\`).`,
+          "AMBIGUOUS_USER_ID"
+        );
       }
     }
 
     throw new ChatError(
-      `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), or Discord (numeric snowflake).`,
+      `Cannot infer adapter from userId "${userId}". Expected: Slack ("U..."), Teams ("29:..."), Google Chat ("users/..."), Linear (UUID), or Discord/Telegram/GitHub (numeric).`,
       "UNKNOWN_USER_ID_FORMAT"
     );
   }

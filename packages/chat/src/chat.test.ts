@@ -1654,6 +1654,116 @@ describe("Chat", () => {
         'Cannot infer adapter from userId "invalid-user-id"'
       );
     });
+
+    it("should infer linear adapter from a UUID", async () => {
+      const linearAdapter = createMockAdapter("linear");
+      linearAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "8f1f3c7e-d4e1-4f9a-bf2b-1c3d4e5f6a7b",
+        userName: "ben",
+        fullName: "Ben Sabic",
+        isBot: false,
+      });
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter, linear: linearAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      const user = await multi.getUser("8f1f3c7e-d4e1-4f9a-bf2b-1c3d4e5f6a7b");
+      expect(user?.fullName).toBe("Ben Sabic");
+      expect(linearAdapter.getUser).toHaveBeenCalledWith(
+        "8f1f3c7e-d4e1-4f9a-bf2b-1c3d4e5f6a7b"
+      );
+    });
+
+    it("should infer telegram from numeric id when only telegram is registered", async () => {
+      const telegramAdapter = createMockAdapter("telegram");
+      telegramAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "987654321",
+        userName: "alice",
+        fullName: "Alice",
+        isBot: false,
+      });
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { telegram: telegramAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      const user = await multi.getUser("987654321");
+      expect(user?.userName).toBe("alice");
+      expect(telegramAdapter.getUser).toHaveBeenCalledWith("987654321");
+    });
+
+    it("should infer github from numeric id when only github is registered", async () => {
+      const githubAdapter = createMockAdapter("github");
+      githubAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "12345",
+        userName: "octocat",
+        fullName: "The Octocat",
+        isBot: false,
+      });
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { github: githubAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      const user = await multi.getUser("12345");
+      expect(user?.userName).toBe("octocat");
+    });
+
+    it("should infer discord for 17-19 digit snowflake when only discord is registered", async () => {
+      const discordAdapter = createMockAdapter("discord");
+      discordAdapter.getUser = vi.fn().mockResolvedValue({
+        userId: "175928847299117063",
+        userName: "discordbot",
+        fullName: "Discord User",
+        isBot: false,
+      });
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { discord: discordAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      const user = await multi.getUser("175928847299117063");
+      expect(user?.fullName).toBe("Discord User");
+    });
+
+    it("should throw AMBIGUOUS_USER_ID when numeric id matches multiple registered adapters", async () => {
+      const discordAdapter = createMockAdapter("discord");
+      const telegramAdapter = createMockAdapter("telegram");
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { discord: discordAdapter, telegram: telegramAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      await expect(multi.getUser("175928847299117063")).rejects.toThrow(
+        "ambiguous"
+      );
+    });
+
+    it("should not match GitHub-style logins as Slack ids (case sensitivity)", async () => {
+      // "user123" used to match the case-insensitive Slack regex; now must not.
+      const githubAdapter = createMockAdapter("github");
+      const multi = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter, github: githubAdapter },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+
+      await expect(multi.getUser("user123")).rejects.toThrow(
+        'Cannot infer adapter from userId "user123"'
+      );
+    });
   });
 
   describe("isDM", () => {
