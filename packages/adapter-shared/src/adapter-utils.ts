@@ -5,7 +5,12 @@
  * to reduce code duplication and ensure consistent behavior.
  */
 
-import type { AdapterPostableMessage, CardElement, FileUpload } from "chat";
+import type {
+  AdapterPostableMessage,
+  Attachment,
+  CardElement,
+  FileUpload,
+} from "chat";
 import { isCardElement } from "chat";
 
 /**
@@ -71,6 +76,42 @@ export function extractCard(
 export function extractFiles(message: AdapterPostableMessage): FileUpload[] {
   if (typeof message === "object" && message !== null && "files" in message) {
     return (message as { files?: FileUpload[] }).files ?? [];
+  }
+  return [];
+}
+
+/**
+ * Extract Attachment array from an AdapterPostableMessage if present.
+ *
+ * Attachments can be attached to PostableRaw, PostableMarkdown, PostableAst,
+ * or PostableCard messages via the `attachments` property.
+ *
+ * @param message - The message to extract attachments from
+ * @returns Array of Attachment objects, or empty array if none
+ *
+ * @example
+ * ```typescript
+ * // With attachments
+ * const message = {
+ *   markdown: "**Text**",
+ *   attachments: [{ data: Buffer.from("..."), name: "doc.pdf" }]
+ * };
+ * extractAttachments(message); // returns the attachments array
+ *
+ * // Without attachments
+ * extractAttachments("Hello"); // returns []
+ * extractAttachments({ raw: "text" }); // returns []
+ * ```
+ */
+export function extractAttachments(
+  message: AdapterPostableMessage
+): Attachment[] {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    "attachments" in message
+  ) {
+    return (message as { attachments?: Attachment[] }).attachments ?? [];
   }
   return [];
 }
