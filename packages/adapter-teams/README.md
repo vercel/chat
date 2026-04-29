@@ -221,6 +221,7 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 | Typing indicator | Yes |
 | DMs | Yes |
 | Ephemeral messages | No (DM fallback) |
+| User lookup (`getUser`) | Yes (requires `User.Read.All`) |
 
 ### Message history
 
@@ -233,6 +234,21 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 | List threads | Yes (requires Graph permissions) |
 | Fetch channel info | Yes (requires Graph permissions) |
 | Post channel message | Yes |
+
+## User lookup (`getUser`)
+
+The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
+
+1. Grant the `User.Read.All` **application permission** in your Azure AD app registration
+2. Grant admin consent for the permission
+
+```typescript
+const user = await bot.getUser(message.author);
+console.log(user?.email);    // "alice@contoso.com"
+console.log(user?.fullName); // "Alice Smith"
+```
+
+The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot. Returns `null` if the user hasn't been seen or the Graph call fails.
 
 ## Message history (`fetchMessages`)
 
