@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractCard, ValidationError } from "@chat-adapter/shared";
+import {
+  AdapterError,
+  extractCard,
+  ValidationError,
+} from "@chat-adapter/shared";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -24,6 +28,7 @@ import {
   defaultEmojiResolver,
   getEmoji,
   Message,
+  MessageHistoryCache,
 } from "chat";
 import { cardToWhatsApp, decodeWhatsAppCallbackData } from "./cards";
 import { WhatsAppFormatConverter } from "./markdown";
@@ -36,11 +41,12 @@ import type {
   WhatsAppRawMessage,
   WhatsAppSendResponse,
   WhatsAppThreadId,
+  WhatsAppTypingIndicatorResponse,
   WhatsAppWebhookPayload,
 } from "./types";
 
 /** Default Graph API version */
-const DEFAULT_API_VERSION = "v21.0";
+const DEFAULT_API_VERSION = "v25.0";
 
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
@@ -968,13 +974,57 @@ export class WhatsAppAdapter
   /**
    * Start typing indicator.
    *
-   * WhatsApp supports typing indicators via the messages endpoint.
-   * The indicator displays for up to 25 seconds or until the next message.
+   * WhatsApp typing indicators require the most recent inbound message ID.
+   * They also implicitly mark the referenced message as read.
    *
-   * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/mark-messages-as-read
+   * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/typing-indicators
    */
-  async startTyping(_threadId: string, _status?: string): Promise<void> {
-    // WhatsApp Cloud API does not support typing indicators.
+  async startTyping(threadId: string, status?: string): Promise<void> {
+    const messageId = await this.resolveTypingTargetMessageId(threadId);
+    this.logger.debug("WhatsApp typing indicator requested", {
+      messageId,
+      threadId,
+    });
+
+    if (!messageId) {
+      this.logger.warn(
+        "WhatsApp typing indicator skipped - no inbound message context",
+        { threadId }
+      );
+      return;
+    }
+
+    if (status) {
+      this.logger.warn("WhatsApp typing indicator ignores custom status text", {
+        status,
+        threadId,
+        messageId,
+      });
+    }
+
+    const response =
+      await this.graphApiRequest<WhatsAppTypingIndicatorResponse>(
+        `/${this.phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: messageId,
+          typing_indicator: {
+            type: "text",
+          },
+        }
+      );
+
+    if (!response.success) {
+      this.logger.error(
+        "WhatsApp typing indicator failed: API returned success=false",
+        {
+          messageId,
+          threadId,
+        }
+      );
+      throw new AdapterError("WhatsApp typing indicator failed", "whatsapp");
+    }
   }
 
   /**
@@ -1139,6 +1189,29 @@ export class WhatsAppAdapter
   // =============================================================================
 
   /**
+   * Resolve the latest inbound message ID for a thread.
+   */
+  private async resolveTypingTargetMessageId(
+    threadId: string
+  ): Promise<string | null> {
+    if (!this.chat) {
+      return null;
+    }
+
+    const state = this.chat.getState();
+    const history = await new MessageHistoryCache(state).getMessages(threadId);
+
+    for (let index = history.length - 1; index >= 0; index--) {
+      const message = history[index];
+      if (message && !message.author.isMe) {
+        return message.id;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Make a request to the Meta Graph API.
    */
   private async graphApiRequest<T = unknown>(
@@ -1161,7 +1234,10 @@ export class WhatsAppAdapter
         body: errorBody,
         path,
       });
-      throw new Error(`WhatsApp API error: ${response.status} ${errorBody}`);
+      throw new AdapterError(
+        `WhatsApp API error: ${response.status} ${errorBody}`,
+        "whatsapp"
+      );
     }
 
     return response.json() as Promise<T>;
