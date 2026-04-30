@@ -102,6 +102,16 @@ function findNextMention(text: string): number {
  * The timestamp in the URL has no dot (e.g., p1234567890123456).
  * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
  */
+const TRAILING_SLASH_PATTERN = /\/$/;
+const UNFURL_WAIT_MS = 2000;
+const UNFURL_POLL_MS = 150;
+
+interface SlackUnfurl {
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
+  title?: string;
+}
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
@@ -220,6 +230,19 @@ export interface SlackThreadId {
 
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
+  /** Legacy attachments (unfurl previews, app unfurls, etc.) */
+  attachments?: Array<{
+    from_url?: string;
+    image_url?: string;
+    is_msg_unfurl?: boolean;
+    original_url?: string;
+    service_icon?: string;
+    service_name?: string;
+    text?: string;
+    thumb_url?: string;
+    title?: string;
+    title_link?: string;
+  }>;
   /** Rich text blocks containing structured elements (links, mentions, etc.) */
   blocks?: Array<{
     type: string;
@@ -246,8 +269,12 @@ export interface SlackEvent {
     original_w?: number;
     original_h?: number;
   }>;
+  /** Hidden flag on message_changed events (true for unfurl-only updates) */
+  hidden?: boolean;
   /** Timestamp of the latest reply (present on thread parent messages) */
   latest_reply?: string;
+  /** Inner message on message_changed events */
+  message?: SlackEvent;
   /** Number of replies in the thread (present on thread parent messages) */
   reply_count?: number;
   subtype?: string;
@@ -1965,7 +1992,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Allow through: bot_message, file_share, thread_broadcast, me_message, and
     // any other content-carrying subtypes. Chat class handles isMe filtering.
     const ignoredSubtypes = new Set([
-      "message_changed",
       "message_deleted",
       "message_replied",
       "channel_join",
@@ -1985,6 +2011,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       "ekm_access_denied",
       "tombstone",
     ]);
+
+    if (event.subtype === "message_changed") {
+      this.handleMessageChanged(event, options);
+      return;
+    }
 
     if (event.subtype && ignoredSubtypes.has(event.subtype)) {
       this.logger.debug("Ignoring message subtype", {
@@ -2030,6 +2061,64 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     this.chat.processMessage(this, threadId, factory, options);
+  }
+
+  private handleMessageChanged(
+    event: SlackEvent,
+    _options?: WebhookOptions
+  ): void {
+    const inner = event.message;
+    if (!(inner && event.channel)) {
+      return;
+    }
+
+    const hasUnfurlAttachments = inner.attachments?.some(
+      (att) => att.from_url || att.original_url
+    );
+    if (!hasUnfurlAttachments) {
+      this.logger.debug("Ignoring message_changed without unfurl data");
+      return;
+    }
+
+    this.logger.debug("Processing message_changed for link unfurls", {
+      channel: event.channel,
+      ts: inner.ts,
+      attachmentCount: inner.attachments?.length,
+    });
+
+    if (!(this.chat && inner.ts && inner.attachments)) {
+      return;
+    }
+
+    const unfurls: Record<
+      string,
+      {
+        title?: string;
+        description?: string;
+        imageUrl?: string;
+        siteName?: string;
+      }
+    > = {};
+    for (const att of inner.attachments) {
+      const attUrl = att.from_url || att.original_url;
+      if (attUrl && (att.title || att.text)) {
+        unfurls[attUrl] = {
+          title: att.title,
+          description: att.text,
+          imageUrl: att.image_url || att.thumb_url,
+          siteName: att.service_name,
+        };
+      }
+    }
+
+    if (Object.keys(unfurls).length > 0) {
+      this.chat
+        .getState()
+        .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
+        .catch((error) => {
+          this.logger.error("Failed to cache unfurl metadata", { error });
+        });
+    }
   }
 
   /**
@@ -2487,14 +2576,48 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (urls.size === 0 && event.text) {
       const urlPattern = /<(https?:\/\/[^>]+)>/g;
       for (const match of event.text.matchAll(urlPattern)) {
-        // Strip optional "|label" suffix (Slack format: <url|label>)
         const raw = match[1] as string;
         const pipeIdx = raw.indexOf("|");
         urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
       }
     }
 
-    return [...urls].map((url) => this.createLinkPreview(url));
+    // Build unfurl metadata index from legacy attachments
+    const unfurls = new Map<
+      string,
+      {
+        title?: string;
+        description?: string;
+        imageUrl?: string;
+        siteName?: string;
+      }
+    >();
+    if (event.attachments) {
+      for (const att of event.attachments) {
+        const attUrl = att.from_url || att.original_url;
+        if (attUrl && (att.title || att.text)) {
+          unfurls.set(attUrl, {
+            title: att.title,
+            description: att.text,
+            imageUrl: att.image_url || att.thumb_url,
+            siteName: att.service_name,
+          });
+          urls.add(attUrl);
+        }
+      }
+    }
+
+    return [...urls].map((url) => {
+      const preview = this.createLinkPreview(url);
+      const unfurl =
+        unfurls.get(url) ||
+        unfurls.get(url.replace(TRAILING_SLASH_PATTERN, "")) ||
+        unfurls.get(`${url}/`);
+      if (unfurl) {
+        return { ...preview, ...unfurl };
+      }
+      return preview;
+    });
   }
 
   /**
@@ -2606,7 +2729,58 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file, event.team_id ?? event.team)
       ),
-      links: this.extractLinks(event),
+      links: await this.enrichLinks(this.extractLinks(event), event.ts),
+    });
+  }
+
+  private async enrichLinks(
+    links: LinkPreview[],
+    messageTs?: string
+  ): Promise<LinkPreview[]> {
+    if (!(this.chat && messageTs) || links.length === 0) {
+      return links;
+    }
+
+    const allHaveMetadata = links.every((l) => l.title || l.fetchMessage);
+    if (allHaveMetadata) {
+      return links;
+    }
+
+    // slack delivers unfurled attachments via a separate message_changed event
+    // that lands ~100-2000ms after the original event. poll briefly so the
+    // handler sees enriched links instead of bare urls.
+    const deadline = Date.now() + UNFURL_WAIT_MS;
+    const state = this.chat.getState();
+    let stored: Record<string, SlackUnfurl> | null = null;
+    while (true) {
+      try {
+        stored = await state.get<Record<string, SlackUnfurl>>(
+          `slack:unfurls:${messageTs}`
+        );
+      } catch {
+        return links;
+      }
+      if (stored || Date.now() >= deadline) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, UNFURL_POLL_MS));
+    }
+    if (!stored) {
+      return links;
+    }
+
+    return links.map((link) => {
+      if (link.title) {
+        return link;
+      }
+      const unfurl =
+        stored[link.url] ||
+        stored[link.url.replace(TRAILING_SLASH_PATTERN, "")] ||
+        stored[`${link.url}/`];
+      if (unfurl) {
+        return { ...link, ...unfurl };
+      }
+      return link;
     });
   }
 
