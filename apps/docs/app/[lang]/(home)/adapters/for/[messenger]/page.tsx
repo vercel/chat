@@ -21,7 +21,7 @@ const messengerConfig: Record<
     name: "iMessage",
     description:
       "Build bots for iMessage with Chat SDK. Browse official and community adapters that support iMessage integration.",
-    adapterSlugs: ["imessage", "sendblue"],
+    adapterSlugs: ["imessage", "blooio", "sendblue"],
     keywords: ["imessage"],
   },
   whatsapp: {

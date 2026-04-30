@@ -225,6 +225,16 @@
     "readme": "https://github.com/midday-ai/chat-adapter-sendblue/tree/5125a9d018f5d05dca063cd4d7e554fdb92ecce8"
   },
   {
+    "name": "Blooio iMessage",
+    "slug": "blooio",
+    "type": "platform",
+    "community": true,
+    "description": "Blooio adapter for Chat SDK to send and receive iMessage, RCS, and SMS from your bot.",
+    "packageName": "chat-adapter-blooio",
+    "author": "midday-ai",
+    "readme": "https://github.com/midday-ai/chat-adapter-blooio/tree/283678e3490275c7b440221ce3cdeac56bbfb60a"
+  },
+  {
     "name": "Zalo",
     "slug": "zalo",
     "type": "platform",
