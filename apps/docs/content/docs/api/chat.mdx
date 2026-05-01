@@ -539,12 +539,13 @@ const user = await bot.getUser(message.author);
   Fields that aren't available return `undefined`. Numeric user IDs (Discord/Telegram/GitHub) can be ambiguous when multiple of those adapters are registered — `bot.getUser` throws a `ChatError` with code `AMBIGUOUS_USER_ID` in that case. Pass an `Author` from a message handler (which already carries the adapter), or call the adapter directly (`adapter.getUser(userId)`).
 </Callout>
 
-`bot.getUser` throws a `ChatError` in two distinct cases. Handle both if your bot runs on multiple platforms:
+`bot.getUser` throws a `ChatError` in three cases. Handle them if your bot runs on multiple platforms:
 
 | Code | When |
 |------|------|
 | `NOT_SUPPORTED` | The resolved adapter doesn't implement `getUser` (e.g. WhatsApp) |
 | `AMBIGUOUS_USER_ID` | A numeric user ID could belong to more than one registered adapter (Discord/Telegram/GitHub) |
+| `UNKNOWN_USER_ID_FORMAT` | The `userId` string doesn't match any registered platform's ID format |
 
 ```typescript
 import { ChatError } from "chat";
@@ -560,6 +561,8 @@ try {
       // This adapter doesn't support user lookups
     } else if (error.code === "AMBIGUOUS_USER_ID") {
       // Pass message.author or call adapter.getUser(userId) directly
+    } else if (error.code === "UNKNOWN_USER_ID_FORMAT") {
+      // userId doesn't match any known platform format
     }
   }
 }
