@@ -96,6 +96,7 @@ All options are auto-detected from environment variables when not provided. Inte
 | `appType` | No | `"MultiTenant"` or `"SingleTenant"` (default: `"MultiTenant"`) |
 | `appTenantId` | For SingleTenant | Azure AD Tenant ID. Auto-detected from `TEAMS_APP_TENANT_ID` |
 | `userName` | No | Bot display name (default: `"bot"`) |
+| `apiUrl` | No | Override the Teams API base URL (e.g. for GCC-High or sovereign-cloud deployments). Auto-detected from `TEAMS_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 \*`appId` is required — either via config or `TEAMS_APP_ID` env var.
@@ -134,6 +135,7 @@ createTeamsAdapter({
 TEAMS_APP_ID=...
 TEAMS_APP_PASSWORD=...
 TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
+TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 ```
 
 ## Features
@@ -146,7 +148,7 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | Yes |
-| Streaming | Post+Edit fallback |
+| Streaming | Native (DMs) / Post+Edit fallback (group chats) |
 
 ### Rich content
 

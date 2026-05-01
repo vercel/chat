@@ -118,7 +118,7 @@ All options are auto-detected from environment variables when not provided.
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
-| `apiBaseUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL` |
+| `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken` is required — either via config or env vars.
@@ -181,6 +181,12 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | List threads | No |
 | Fetch channel info | Yes |
 | Post channel message | Yes |
+
+## Markdown formatting
+
+Outbound messages are sent with Telegram's `MarkdownV2` parse mode. The adapter walks the markdown AST and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), so you author standard markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`) and the adapter handles every reserved character.
+
+Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping — the renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
 ## Notes
 

@@ -305,6 +305,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
+| `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
@@ -320,6 +321,7 @@ SLACK_SOCKET_FORWARDING_SECRET=...   # Optional, for socket event forwarding aut
 SLACK_CLIENT_ID=...                  # Multi-workspace only
 SLACK_CLIENT_SECRET=...              # Multi-workspace only
 SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
+SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted gateway
 ```
 
 ## Features
@@ -433,14 +435,18 @@ settings:
 
 ### Stream with stop blocks
 
-When streaming in an assistant thread, you can attach Block Kit elements to the final message:
+When streaming in an assistant thread, attach Block Kit elements to the final message by wrapping the stream in a `StreamingPlan` and passing `endWith`:
 
 ```typescript
-await thread.post(textStream, {
-  stopBlocks: [
-    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
-  ],
-});
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(textStream, {
+    endWith: [
+      { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
+    ],
+  })
+);
 ```
 
 ## Troubleshooting

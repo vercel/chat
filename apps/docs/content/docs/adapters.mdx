@@ -20,7 +20,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
 | Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
 | File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file | <Cross /> | <Cross /> | <Check /> Images, audio, docs |
-| Streaming | <Check /> Native | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Cross /> | <Cross /> | <Cross /> |
+| Streaming | <Check /> Native | <Warn /> Native (DMs) / Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Cross /> | <Cross /> | <Cross /> |
 | Scheduled messages | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 
 ### Rich content
@@ -47,6 +47,8 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Typing indicator | <Cross /> | <Check /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> |
 | DMs | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> |
 | Ephemeral messages | <Check /> Native | <Cross /> | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> |
+| Custom API endpoint ([`apiUrl`](/docs/getting-started)) | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
 
 ### Message history
 

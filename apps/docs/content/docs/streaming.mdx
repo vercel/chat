@@ -59,9 +59,10 @@ await thread.post(stream);
 | Platform | Method | Description |
 |----------|--------|-------------|
 | Slack | Native streaming API | Uses Slack's `chatStream` for smooth, real-time updates |
-| Teams | Post + Edit | Posts a message then edits it as chunks arrive |
+| Teams | Native (DMs) / Post + Edit (group chats) | Uses the Teams SDK's native `stream.emit()` for direct messages; falls back to post+edit in group chats |
 | Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |
+| Telegram | Post + Edit | Posts a message then edits it as chunks arrive |
 
 The post+edit fallback throttles edits to avoid rate limits. Configure the update interval when creating your `Chat` instance:
 
@@ -147,36 +148,39 @@ await thread.post(stream);
 | `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
 | `plan_update` | `title` | Plan title updates |
 
-### Task display mode
+### Streaming with options
 
-Control how `task_update` chunks render in Slack by passing `taskDisplayMode` via the adapter's streaming API. These options are currently only available through `adapter.stream()` directly:
+Wrap a stream in a `StreamingPlan` to pass platform-specific options through `thread.post()` without dropping down to `adapter.stream()` directly:
 
 ```typescript
-const raw = message.raw as { team_id?: string; team?: string };
-await thread.adapter.stream(thread.id, stream, {
-  recipientUserId: message.author.userId,
-  recipientTeamId: raw.team_id ?? raw.team,
-  taskDisplayMode: "plan",
+import { StreamingPlan } from "chat";
+
+const planned = new StreamingPlan(stream, {
+  groupTasks: "plan",         // Slack: render task cards as a single grouped block
+  endWith: [feedbackBlock],   // Slack: Block Kit elements appended after stream stops
+  updateIntervalMs: 750,      // Fallback mode: post+edit cadence on non-native adapters
 });
+
+await thread.post(planned);
 ```
 
-| Mode | Description |
-|------|-------------|
-| `"timeline"` | Individual task cards shown inline with text (default) |
-| `"plan"` | All tasks grouped into a single plan block |
+| Option | Platform | Description |
+|--------|----------|-------------|
+| `groupTasks` | Slack | `"timeline"` (default) renders task cards inline; `"plan"` groups them into one plan block |
+| `endWith` | Slack | Block Kit elements attached when the stream stops (e.g. retry / feedback buttons) |
+| `updateIntervalMs` | Fallback adapters (Teams, Google Chat, Telegram) | Minimum interval between post+edit cycles in ms (default `500`) |
 
-Adapters without structured chunk support extract text from `markdown_text` chunks and ignore other types.
+Adapters without structured chunk support extract text from `markdown_text` chunks and ignore other types. Slack-only options are silently ignored on other platforms.
 
 ## Stop blocks (Slack only)
 
-When streaming in Slack, you can attach Block Kit elements to the final message using `stopBlocks`. This is useful for adding action buttons after a streamed response completes:
+Use `endWith` on `StreamingPlan` to attach Block Kit elements to the final message. This is useful for adding action buttons after a streamed response completes:
 
 ```typescript title="lib/bot.ts" lineNumbers
-const raw = message.raw as { team_id?: string; team?: string };
-await thread.adapter.stream(thread.id, textStream, {
-  recipientUserId: message.author.userId,
-  recipientTeamId: raw.team_id ?? raw.team,
-  stopBlocks: [
+import { StreamingPlan } from "chat";
+
+const planned = new StreamingPlan(textStream, {
+  endWith: [
     {
       type: "actions",
       elements: [{
@@ -187,7 +191,47 @@ await thread.adapter.stream(thread.id, textStream, {
     },
   ],
 });
+
+await thread.post(planned);
 ```
+
+## Plan API
+
+For step-by-step task progress that lives outside an LLM stream, post a `Plan` directly. `Plan` is a `PostableObject` you can mutate after posting — every mutation re-renders the block in place.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Plan } from "chat";
+
+const plan = new Plan({ initialMessage: "Researching options..." });
+await thread.post(plan);
+
+const lookup = await plan.addTask({ title: "Look up customer record" });
+// ...do work...
+await plan.updateTask("Found 3 matches");
+
+await plan.addTask({ title: "Summarize findings" });
+await plan.complete({ completeMessage: "Done!" });
+```
+
+By default `updateTask()` mutates the most recent `in_progress` task. Pass `{ id }` to target a specific task — useful when work runs in parallel or out of order:
+
+```typescript
+const fetchTask = await plan.addTask({ title: "Fetch data" });
+const transformTask = await plan.addTask({ title: "Transform" });
+
+// Update a specific task by id, even if it isn't the most recent in_progress one.
+await plan.updateTask({ id: fetchTask.id, output: "Got 42 rows" });
+await plan.updateTask({ id: transformTask.id, status: "complete" });
+```
+
+Adapters that don't support PostableObject editing (e.g. WhatsApp) render the plan as a fallback emoji-list message; the plan still posts, but mutations are no-ops.
+
+| Method | Description |
+|--------|-------------|
+| `addTask({ title, children? })` | Append a new task. The previous in-progress task is auto-completed |
+| `updateTask(input)` | Mutate the current (or `{ id }`-targeted) task's `output`, `status`, or `title` |
+| `complete({ completeMessage })` | Mark all in-progress tasks complete and update the plan title |
+| `reset({ initialMessage })` | Discard all tasks and start fresh with a new initial message — useful when re-using a plan handle for a new run |
 
 ## Streaming with conversation history
 

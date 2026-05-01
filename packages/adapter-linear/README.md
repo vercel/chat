@@ -212,6 +212,7 @@ All options are auto-detected from environment variables when not provided.
 | `mode` | No | Inbound webhook handling mode. `"comments"` by default, or `"agent-sessions"` for app-actor installs |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
+| `apiUrl` | No | Override the Linear GraphQL API base URL. Auto-detected from `LINEAR_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *One of `apiKey`, `accessToken`, top-level `clientId`/`clientSecret`, or `clientCredentials` is required (via config or env vars).
@@ -244,6 +245,9 @@ LINEAR_MODE=comments
 
 # Required
 LINEAR_WEBHOOK_SECRET=your-webhook-secret
+
+# Optional: override the Linear GraphQL API base URL
+LINEAR_API_URL=...
 ```
 
 ## Features

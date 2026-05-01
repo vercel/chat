@@ -157,6 +157,7 @@ All options are auto-detected from environment variables when not provided.
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
@@ -168,6 +169,7 @@ DISCORD_BOT_TOKEN=your-bot-token
 DISCORD_PUBLIC_KEY=your-application-public-key
 DISCORD_APPLICATION_ID=your-application-id
 DISCORD_MENTION_ROLE_IDS=1234567890,0987654321  # Optional
+DISCORD_API_URL=...                              # Optional, override the Discord API base URL
 CRON_SECRET=your-random-secret                   # For Gateway cron
 ```
 
