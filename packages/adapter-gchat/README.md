@@ -165,6 +165,7 @@ All options are auto-detected from environment variables when not provided.
 | `googleChatProjectNumber` | No | GCP project number for direct webhook JWT verification. Auto-detected from `GOOGLE_CHAT_PROJECT_NUMBER` |
 | `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
 | `auth` | No | Custom auth object (advanced) |
+| `apiUrl` | No | Override the Google Chat API base URL. Auto-detected from `GOOGLE_CHAT_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
@@ -181,6 +182,9 @@ GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
 # Optional: webhook verification (recommended for production)
 GOOGLE_CHAT_PROJECT_NUMBER=123456789          # For direct webhook JWT verification
 GOOGLE_CHAT_PUBSUB_AUDIENCE=https://your-domain.com/api/webhooks/gchat  # For Pub/Sub JWT verification
+
+# Optional: override the Google Chat API base URL
+GOOGLE_CHAT_API_URL=...
 ```
 
 ## Webhook verification

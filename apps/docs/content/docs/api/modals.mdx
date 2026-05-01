@@ -167,6 +167,52 @@ Select({
   }}
 />
 
+## ExternalSelect
+
+Dropdown that loads options dynamically from a handler as the user types. Slack-only. Pair with [`bot.onOptionsLoad`](/docs/api/chat#onoptionsload) to supply options. See [Modals → ExternalSelect](/docs/modals#externalselect) for a full example, grouped-options support, and Slack setup notes.
+
+```typescript
+ExternalSelect({
+  id: "assignee",
+  label: "Assignee",
+  placeholder: "Search people",
+  minQueryLength: 1,
+  initialOption: { label: "Alice", value: "U123" },
+})
+```
+
+<TypeTable
+  type={{
+    id: {
+      description: 'Input ID — used as the key in event.values.',
+      type: 'string',
+    },
+    label: {
+      description: 'Label displayed above the select.',
+      type: 'string',
+    },
+    placeholder: {
+      description: 'Placeholder text.',
+      type: 'string',
+    },
+    minQueryLength: {
+      description: 'Minimum characters before the loader fires (Slack default: 3).',
+      type: 'number',
+    },
+    initialOption: {
+      description: 'Pre-selected option when the modal opens. Unlike static Select where initialOption is a value string, ExternalSelect needs the full label/value object since the loader has not run yet.',
+      type: '{ label: string, value: string }',
+    },
+    optional: {
+      description: 'Whether the field can be left empty.',
+      type: 'boolean',
+      default: 'false',
+    },
+  }}
+/>
+
+The loader registered via `bot.onOptionsLoad("assignee", handler)` returns either a flat `SelectOptionElement[]` or `OptionsLoadGroup[]` (`{ label, options }[]`) for grouped options.
+
 ## RadioSelect
 
 Radio button group for mutually exclusive choices.

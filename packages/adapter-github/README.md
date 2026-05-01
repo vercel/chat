@@ -179,6 +179,7 @@ All options are auto-detected from environment variables when not provided.
 | `webhookSecret` | No** | Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET` |
 | `userName` | No | Bot username for @mention detection. Auto-detected from `GITHUB_BOT_USERNAME` (default: `"github-bot"`) |
 | `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
+| `apiUrl` | No | Override the GitHub API base URL (e.g. for GitHub Enterprise Server). Auto-detected from `GITHUB_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Either `token`/`GITHUB_TOKEN` or `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY` is required.
@@ -198,6 +199,9 @@ GITHUB_INSTALLATION_ID=12345678  # Optional for multi-tenant
 
 # Required
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
+
+# Optional: GitHub Enterprise Server
+GITHUB_API_URL=https://github.example.com/api/v3
 ```
 
 ## Features

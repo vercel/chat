@@ -69,6 +69,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `verifyToken` | No* | Webhook verification secret. Auto-detected from `WHATSAPP_VERIFY_TOKEN` |
 | `apiVersion` | No | Graph API version (defaults to `v21.0`) |
 | `userName` | No | Bot username for self-message detection. Auto-detected from `WHATSAPP_BOT_USERNAME` (defaults to `whatsapp-bot`) |
+| `apiUrl` | No | Override the Meta Graph API base URL. Auto-detected from `WHATSAPP_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Required at runtime — either via config or environment variable.
@@ -81,6 +82,7 @@ WHATSAPP_APP_SECRET=...            # App secret for X-Hub-Signature-256 verifica
 WHATSAPP_PHONE_NUMBER_ID=...       # Bot's phone number ID from Meta dashboard
 WHATSAPP_VERIFY_TOKEN=...          # User-defined secret for webhook verification
 WHATSAPP_BOT_USERNAME=...          # Optional, defaults to "whatsapp-bot"
+WHATSAPP_API_URL=...               # Optional, override the Meta Graph API base URL
 ```
 
 ## Webhook setup

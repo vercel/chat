@@ -15,6 +15,25 @@ import {
 } from "chat";
 ```
 
+## Type re-exports
+
+The chat package re-exports mdast's union and content types so adapters and downstream code can build exhaustively-typed AST walkers without depending on `mdast` directly:
+
+```typescript
+import type { Nodes, Root, Content } from "chat";
+
+function render(node: Nodes): string {
+  switch (node.type) {
+    case "text": return node.value;
+    case "strong": return node.children.map(render).join("");
+    // ...
+    default: throw new Error(`Unhandled: ${node satisfies never}`);
+  }
+}
+```
+
+Adapters use this pattern to make the type checker reject the build when a new mdast node type is introduced upstream.
+
 ## Node builders
 
 ### root
