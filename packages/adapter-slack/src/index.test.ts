@@ -1326,7 +1326,7 @@ describe("renderFormatted", () => {
     logger: mockLogger,
   });
 
-  it("renders AST to Slack mrkdwn format", () => {
+  it("renders AST to standard markdown (Slack now accepts markdown natively)", () => {
     const ast = {
       type: "root" as const,
       children: [
@@ -1343,7 +1343,7 @@ describe("renderFormatted", () => {
     };
 
     const result = adapter.renderFormatted(ast);
-    expect(result).toBe("*bold*");
+    expect(result.trim()).toBe("**bold**");
   });
 });
 

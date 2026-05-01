@@ -535,7 +535,7 @@ export class MatrixFormatConverter extends BaseFormatConverter {
 }
 ```
 
-For platforms with non-standard formatting (e.g., Slack's `mrkdwn`), implement custom parsing in `toAst()` and rendering in `fromAst()`. See the [Discord adapter](https://github.com/vercel/chat/blob/main/packages/adapter-discord/src/markdown.ts) for an example of handling platform-specific mention syntax.
+For platforms with non-standard formatting, implement custom parsing in `toAst()` and rendering in `fromAst()`. See the [Discord adapter](https://github.com/vercel/chat/blob/main/packages/adapter-discord/src/markdown.ts) for an example of handling platform-specific mention syntax.
 
 ## Optional methods
 

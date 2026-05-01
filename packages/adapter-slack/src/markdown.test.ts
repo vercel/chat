@@ -1,50 +1,8 @@
-import { parseMarkdown } from "chat";
 import { describe, expect, it } from "vitest";
-import { SlackMarkdownConverter } from "./markdown";
+import { SlackFormatConverter } from "./markdown";
 
-describe("SlackMarkdownConverter", () => {
-  const converter = new SlackMarkdownConverter();
-
-  describe("fromMarkdown (markdown -> mrkdwn)", () => {
-    it("should convert bold", () => {
-      expect(converter.fromMarkdown("Hello **world**!")).toBe("Hello *world*!");
-    });
-
-    it("should convert italic", () => {
-      expect(converter.fromMarkdown("Hello _world_!")).toBe("Hello _world_!");
-    });
-
-    it("should convert strikethrough", () => {
-      expect(converter.fromMarkdown("Hello ~~world~~!")).toBe("Hello ~world~!");
-    });
-
-    it("should convert links", () => {
-      expect(converter.fromMarkdown("Check [this](https://example.com)")).toBe(
-        "Check <https://example.com|this>"
-      );
-    });
-
-    it("should preserve inline code", () => {
-      expect(converter.fromMarkdown("Use `const x = 1`")).toBe(
-        "Use `const x = 1`"
-      );
-    });
-
-    it("should handle code blocks", () => {
-      const input = "```js\nconst x = 1;\n```";
-      const output = converter.fromMarkdown(input);
-      expect(output).toContain("```");
-      expect(output).toContain("const x = 1;");
-    });
-
-    it("should handle mixed formatting", () => {
-      const input = "**Bold** and _italic_ and [link](https://x.com)";
-      const output = converter.fromMarkdown(input);
-      expect(output).toContain("*Bold*");
-      expect(output).toContain("_italic_");
-      expect(output).toContain("<https://x.com|link>");
-    });
-  });
+describe("SlackFormatConverter", () => {
+  const converter = new SlackFormatConverter();
 
   describe("toMarkdown (mrkdwn -> markdown)", () => {
     it("should convert bold", () => {
@@ -81,70 +39,134 @@ describe("SlackMarkdownConverter", () => {
     });
   });
 
+  describe("toSlackPayload", () => {
+    it("routes plain strings to text (preserves literal markdown chars)", () => {
+      expect(converter.toSlackPayload("Use *foo* literally")).toEqual({
+        text: "Use *foo* literally",
+      });
+    });
+
+    it("routes raw strings to text", () => {
+      expect(converter.toSlackPayload({ raw: "*already mrkdwn*" })).toEqual({
+        text: "*already mrkdwn*",
+      });
+    });
+
+    it("routes markdown to markdown_text", () => {
+      expect(
+        converter.toSlackPayload({ markdown: "## Heading\n\n- a\n- b" })
+      ).toEqual({ markdown_text: "## Heading\n\n- a\n- b" });
+    });
+
+    it("routes ast to markdown_text via stringifyMarkdown", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "paragraph" as const,
+            children: [
+              {
+                type: "strong" as const,
+                children: [{ type: "text" as const, value: "bold" }],
+              },
+            ],
+          },
+        ],
+      };
+      const result = converter.toSlackPayload({ ast });
+      expect(result).toHaveProperty("markdown_text");
+      expect((result as { markdown_text: string }).markdown_text).toContain(
+        "**bold**"
+      );
+    });
+
+    it("preserves tables when rendering ast to markdown_text", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "table" as const,
+            align: [null, null] as Array<"left" | "right" | "center" | null>,
+            children: [
+              {
+                type: "tableRow" as const,
+                children: [
+                  {
+                    type: "tableCell" as const,
+                    children: [{ type: "text" as const, value: "A" }],
+                  },
+                  {
+                    type: "tableCell" as const,
+                    children: [{ type: "text" as const, value: "B" }],
+                  },
+                ],
+              },
+              {
+                type: "tableRow" as const,
+                children: [
+                  {
+                    type: "tableCell" as const,
+                    children: [{ type: "text" as const, value: "1" }],
+                  },
+                  {
+                    type: "tableCell" as const,
+                    children: [{ type: "text" as const, value: "2" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+      const result = converter.toSlackPayload({ ast });
+      expect(result).toHaveProperty("markdown_text");
+      const text = (result as { markdown_text: string }).markdown_text;
+      expect(text).toContain("| A | B |");
+      expect(text).toContain("| 1 | 2 |");
+    });
+  });
+
   describe("mentions", () => {
-    it("should not double-wrap mentions already in <@user> format", () => {
-      // renderPostable with string containing existing Slack mention
-      expect(converter.renderPostable("Hey <@U12345>. Please select")).toBe(
-        "Hey <@U12345>. Please select"
-      );
+    it("does not double-wrap existing <@U123> mentions in plain strings", () => {
+      expect(converter.toSlackPayload("Hey <@U12345>. Please select")).toEqual({
+        text: "Hey <@U12345>. Please select",
+      });
     });
 
-    it("should not double-wrap mentions in markdown input", () => {
+    it("does not double-wrap existing mentions in markdown", () => {
       expect(
-        converter.renderPostable({ markdown: "Hey <@U12345>. Please select" })
-      ).toBe("Hey <@U12345>. Please select");
+        converter.toSlackPayload({ markdown: "Hey <@U12345>. Please select" })
+      ).toEqual({ markdown_text: "Hey <@U12345>. Please select" });
     });
 
-    it("should still convert bare @mentions to Slack format", () => {
-      expect(converter.renderPostable("Hey @george. Please select")).toBe(
-        "Hey <@george>. Please select"
-      );
+    it("rewrites bare @mentions in plain strings", () => {
+      expect(converter.toSlackPayload("Hey @george. Please select")).toEqual({
+        text: "Hey <@george>. Please select",
+      });
     });
 
-    it("should convert bare @mentions in markdown", () => {
+    it("rewrites bare @mentions in markdown", () => {
       expect(
-        converter.renderPostable({ markdown: "Hey @george. Please select" })
-      ).toBe("Hey <@george>. Please select");
+        converter.toSlackPayload({ markdown: "Hey @george. Please select" })
+      ).toEqual({ markdown_text: "Hey <@george>. Please select" });
     });
 
-    it("should not double-wrap mentions via fromMarkdown", () => {
-      expect(converter.fromMarkdown("Hey <@U12345>")).toBe("Hey <@U12345>");
-    });
-
-    it("should not mangle email addresses in plain strings", () => {
+    it("does not mangle email addresses in plain strings", () => {
       expect(
-        converter.renderPostable("Contact user@example.com for help")
-      ).toBe("Contact user@example.com for help");
+        converter.toSlackPayload("Contact user@example.com for help")
+      ).toEqual({ text: "Contact user@example.com for help" });
     });
 
-    it("should not mangle email addresses in markdown input", () => {
-      // GFM auto-link turns the email into a mailto link; key point is the
-      // `@example` is not rewritten as a `<@example>` Slack mention.
+    it("does not mangle mailto links", () => {
       expect(
-        converter.renderPostable({
-          markdown: "Contact user@example.com for help",
-        })
-      ).toBe("Contact <mailto:user@example.com|user@example.com> for help");
+        converter.toSlackPayload("Email <mailto:user@example.com>")
+      ).toEqual({ text: "Email <mailto:user@example.com>" });
     });
 
-    it("should not mangle mailto links in plain strings", () => {
-      expect(converter.renderPostable("Email <mailto:user@example.com>")).toBe(
-        "Email <mailto:user@example.com>"
-      );
-    });
-
-    it("should not mangle email addresses inside markdown link text", () => {
-      expect(
-        converter.fromMarkdown(
-          "Email [user@example.com](mailto:user@example.com)"
-        )
-      ).toBe("Email <mailto:user@example.com|user@example.com>");
-    });
-
-    it("should still convert mentions adjacent to non-word punctuation", () => {
-      expect(converter.renderPostable("(cc @george, @anne)")).toBe(
-        "(cc <@george>, <@anne>)"
-      );
+    it("converts mentions adjacent to non-word punctuation", () => {
+      expect(converter.toSlackPayload("(cc @george, @anne)")).toEqual({
+        text: "(cc <@george>, <@anne>)",
+      });
     });
   });
 
@@ -176,162 +198,8 @@ describe("SlackMarkdownConverter", () => {
       expect(result).toContain("italic");
       expect(result).toContain("link");
       expect(result).toContain("user");
-      // Should not contain formatting characters
       expect(result).not.toContain("*");
       expect(result).not.toContain("<");
-    });
-  });
-
-  describe("table rendering", () => {
-    it("should render markdown tables as code blocks in fromMarkdown", () => {
-      const result = converter.fromMarkdown(
-        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
-      );
-      expect(result).toContain("```");
-      expect(result).toContain("Name");
-      expect(result).toContain("Age");
-      expect(result).toContain("Alice");
-      expect(result).toContain("30");
-    });
-
-    it("should preserve table structure in code block", () => {
-      const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
-      // Should be wrapped in code fences
-      expect(result.startsWith("```\n")).toBe(true);
-      expect(result.endsWith("\n```")).toBe(true);
-    });
-  });
-
-  describe("toBlocksWithTable", () => {
-    it("should return null when AST has no tables", () => {
-      const ast = converter.toAst("Hello world");
-      expect(converter.toBlocksWithTable(ast)).toBeNull();
-    });
-
-    it("should return native table block for a markdown table", () => {
-      const ast = converter.toAst(
-        "| Name | Age |\n|------|-----|\n| Alice | 30 |"
-      );
-      const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).toHaveLength(1);
-      expect(blocks?.[0].type).toBe("table");
-      expect(blocks?.[0].rows).toEqual([
-        [
-          { type: "raw_text", text: "Name" },
-          { type: "raw_text", text: "Age" },
-        ],
-        [
-          { type: "raw_text", text: "Alice" },
-          { type: "raw_text", text: "30" },
-        ],
-      ]);
-    });
-
-    it("should include surrounding text as section blocks", () => {
-      const markdown =
-        "Here are the results:\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nAll done.";
-      const ast = converter.toAst(markdown);
-      const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).toHaveLength(3);
-      expect(blocks?.[0].type).toBe("section");
-      expect(blocks?.[0].text.text).toContain("Here are the results");
-      expect(blocks?.[1].type).toBe("table");
-      expect(blocks?.[2].type).toBe("section");
-      expect(blocks?.[2].text.text).toContain("All done");
-    });
-
-    it("should use native block for first table and ASCII for second", () => {
-      const markdown =
-        "| A | B |\n|---|---|\n| 1 | 2 |\n\n| C | D |\n|---|---|\n| 3 | 4 |";
-      const ast = converter.toAst(markdown);
-      const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).toHaveLength(2);
-      expect(blocks?.[0].type).toBe("table");
-      // Second table falls back to ASCII in section
-      expect(blocks?.[1].type).toBe("section");
-      expect(blocks?.[1].text.text).toContain("```");
-    });
-
-    it("should replace empty table cells with a space to satisfy Slack API", () => {
-      const ast = converter.toAst(
-        "| Kind | Label |\n|------|-------|\n| FORM | Form Submission |\n| and more... | |"
-      );
-      const blocks = converter.toBlocksWithTable(ast);
-      const tableBlock = blocks?.[0];
-      expect(tableBlock?.type).toBe("table");
-      // Every cell must have non-empty text (Slack rejects empty strings)
-      for (const row of tableBlock?.rows ?? []) {
-        for (const cell of row) {
-          expect(cell.text.length).toBeGreaterThan(0);
-        }
-      }
-      // The empty cell should be a space
-      expect(tableBlock?.rows[2][1].text).toBe(" ");
-    });
-
-    it("should handle empty header cells with parseMarkdown (production path)", () => {
-      // This tests the actual production code path where parseMarkdown is used
-      // instead of toAst (which goes through Slack mrkdwn conversion first)
-      const markdown =
-        "Here is a table:\n\n|  | Header2 |\n|---------|----------|\n| Data1 | Data2 |";
-      const ast = parseMarkdown(markdown);
-      const blocks = converter.toBlocksWithTable(ast);
-      expect(blocks).toHaveLength(2); // section + table
-      expect(blocks?.[0].type).toBe("section");
-      expect(blocks?.[1].type).toBe("table");
-
-      const tableBlock = blocks?.[1];
-      // First row, first cell (empty header) should be a space
-      expect(tableBlock?.rows[0][0].text).toBe(" ");
-      // All cells must have non-empty text
-      for (const row of tableBlock?.rows ?? []) {
-        for (const cell of row) {
-          expect(cell.text.length).toBeGreaterThan(0);
-        }
-      }
-    });
-  });
-
-  describe("nested lists", () => {
-    it("should indent nested unordered lists", () => {
-      const result = converter.fromMarkdown(
-        "- parent\n  - child 1\n  - child 2"
-      );
-      expect(result).toBe("• parent\n  • child 1\n  • child 2");
-    });
-
-    it("should indent nested ordered lists", () => {
-      const result = converter.fromMarkdown(
-        "1. first\n   1. sub-first\n   2. sub-second\n2. second"
-      );
-      expect(result).toContain("1. first");
-      expect(result).toContain("  1. sub-first");
-      expect(result).toContain("  2. sub-second");
-      expect(result).toContain("2. second");
-    });
-
-    it("should handle deeply nested lists", () => {
-      const result = converter.fromMarkdown(
-        "- level 1\n  - level 2\n    - level 3"
-      );
-      expect(result).toContain("• level 1");
-      expect(result).toContain("  • level 2");
-      expect(result).toContain("    • level 3");
-    });
-
-    it("should keep sibling items at the same indent level", () => {
-      const result = converter.fromMarkdown("- item 1\n- item 2\n- item 3");
-      expect(result).toBe("• item 1\n• item 2\n• item 3");
-    });
-
-    it("should handle mixed ordered and unordered nesting", () => {
-      const result = converter.fromMarkdown(
-        "1. first\n   - sub a\n   - sub b\n2. second"
-      );
-      expect(result).toContain("1. first");
-      expect(result).toContain("  • sub a");
-      expect(result).toContain("  • sub b");
-      expect(result).toContain("2. second");
     });
   });
 });

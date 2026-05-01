@@ -24,7 +24,7 @@ This sends the string directly without any formatting conversion.
 
 ## Markdown
 
-Pass a `{ markdown }` object to have the SDK convert standard markdown to each platform's native format — mrkdwn for Slack, HTML for Teams, and so on.
+Pass a `{ markdown }` object to have the SDK render standard markdown on each platform — passed through to Slack's native `markdown_text` field, converted to HTML for Teams, and so on.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
@@ -32,7 +32,7 @@ await thread.post({
 });
 ```
 
-Under the hood, the SDK parses the markdown into an mdast AST, then each adapter converts it to the platform's format.
+Under the hood, the SDK parses the markdown into an mdast AST, then each adapter handles it natively or converts it to the platform's format.
 
 ## AST builders
 
