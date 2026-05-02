@@ -15,6 +15,8 @@ import type {
 
 const GCHAT_PREFIX_PATTERN = /^gchat:/;
 const DM_SUFFIX_PATTERN = /:dm$/;
+const VERIFICATION_REQUIRED_PATTERN =
+  /Webhook signature verification is required/;
 
 // Test credentials
 const mockLogger: Logger = {
@@ -28,6 +30,12 @@ const TEST_CREDENTIALS = {
   client_email: "test@test.iam.gserviceaccount.com",
   private_key: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
 };
+
+// The adapter now fails closed by default when no JWT verification config is
+// provided. Most tests in this file exercise non-security mechanics and don't
+// supply one, so set the explicit opt-out env var globally; specific
+// verification-behavior tests override it locally.
+process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
 
 // Mock StateAdapter for testing
 function createMockStateAdapter(): StateAdapter & {
@@ -259,6 +267,9 @@ describe("GoogleChatAdapter", () => {
           delete process.env[key];
         }
       }
+      // Restore the opt-out flag so non-security tests can construct adapters
+      // without supplying JWT verification config.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
     });
 
     afterEach(() => {
@@ -345,6 +356,9 @@ describe("GoogleChatAdapter", () => {
           delete process.env[key];
         }
       }
+      // Restore the opt-out flag so non-security tests can construct adapters
+      // without supplying JWT verification config.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
     });
 
     afterEach(() => {
@@ -2917,34 +2931,122 @@ describe("GoogleChatAdapter", () => {
       });
     });
 
-    it("should allow direct webhook without verification when project number is not configured and warn once", async () => {
-      const { adapter } = await createInitializedAdapter();
+    it("should fail-closed in constructor when no JWT verification config is provided", () => {
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      // Any value other than "true" disables the opt-out and should make the
+      // constructor refuse to start.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        expect(() =>
+          createGoogleChatAdapter({
+            credentials: TEST_CREDENTIALS,
+            logger: mockLogger,
+          })
+        ).toThrow(VERIFICATION_REQUIRED_PATTERN);
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
+    });
+
+    it("should accept direct webhook with disableSignatureVerification opt-in (fail-open)", async () => {
+      // Regression: previously the adapter accepted unverified webhooks
+      // silently when no project number was configured. Now this requires
+      // an explicit opt-in flag.
+      const adapter = createGoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        logger: mockLogger,
+        disableSignatureVerification: true,
+      });
+      const mockState = createMockStateAdapter();
+      const mockChat = createMockChatInstance(mockState);
+      await adapter.initialize(mockChat);
 
       const event = makeMessageEvent({ messageText: "Hello" });
-      const request1 = new Request("https://example.com/webhook", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(event),
-      });
-      const request2 = new Request("https://example.com/webhook", {
+      const request = new Request("https://example.com/webhook", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(event),
       });
 
-      const response1 = await adapter.handleWebhook(request1);
-      expect(response1.status).toBe(200);
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
       expect(verifyIdTokenSpy).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
-      );
+    });
 
-      // Second call should not warn again
-      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-      await adapter.handleWebhook(request2);
-      expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
-      );
+    it("should reject Pub/Sub-shaped requests when only googleChatProjectNumber is configured", async () => {
+      // Regression: the two transports share one endpoint. With only the
+      // direct-webhook verifier configured, a Pub/Sub-shaped request
+      // previously fell through to "warn once" and was processed unverified.
+      // The module-level GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true
+      // would otherwise route this through the opt-out path; clear it for
+      // this test.
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        const adapter = createGoogleChatAdapter({
+          credentials: TEST_CREDENTIALS,
+          logger: mockLogger,
+          googleChatProjectNumber: "123456789",
+        });
+        const mockState = createMockStateAdapter();
+        const mockChat = createMockChatInstance(mockState);
+        await adapter.initialize(mockChat);
+
+        const pubsubMessage = makePubSubPushMessage({
+          message: {
+            name: "spaces/ABC123/messages/msg1",
+            text: "Hello",
+            sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+            createTime: new Date().toISOString(),
+          },
+        });
+        const request = new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(pubsubMessage),
+        });
+
+        const response = await adapter.handleWebhook(request);
+        expect(response.status).toBe(401);
+        expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
+    });
+
+    it("should reject direct webhook events when only pubsubAudience is configured", async () => {
+      // Inverse of the previous test.
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        const adapter = createGoogleChatAdapter({
+          credentials: TEST_CREDENTIALS,
+          logger: mockLogger,
+          pubsubAudience: "https://example.com/webhook/pubsub",
+        });
+        const mockState = createMockStateAdapter();
+        const mockChat = createMockChatInstance(mockState);
+        await adapter.initialize(mockChat);
+
+        const event = makeMessageEvent({ messageText: "Hello" });
+        const request = new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(event),
+        });
+
+        const response = await adapter.handleWebhook(request);
+        expect(response.status).toBe(401);
+        expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
     });
 
     it("should reject Pub/Sub webhook without Authorization header when pubsubAudience is configured", async () => {
@@ -2971,38 +3073,33 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(401);
     });
 
-    it("should allow Pub/Sub webhook without verification when pubsubAudience is not configured and warn once", async () => {
-      const { adapter } = await createInitializedAdapter();
+    it("should accept Pub/Sub webhook with disableSignatureVerification opt-in (fail-open)", async () => {
+      const adapter = createGoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        logger: mockLogger,
+        disableSignatureVerification: true,
+      });
+      const mockState = createMockStateAdapter();
+      const mockChat = createMockChatInstance(mockState);
+      await adapter.initialize(mockChat);
 
-      const makePubSubRequest = () => {
-        const pubsubMessage = makePubSubPushMessage({
-          message: {
-            name: "spaces/ABC123/messages/msg1",
-            text: "Hello",
-            sender: { name: "users/100", displayName: "User", type: "HUMAN" },
-            createTime: new Date().toISOString(),
-          },
-        });
-        return new Request("https://example.com/webhook", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(pubsubMessage),
-        });
-      };
+      const pubsubMessage = makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          text: "Hello",
+          sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+          createTime: new Date().toISOString(),
+        },
+      });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pubsubMessage),
+      });
 
-      const response1 = await adapter.handleWebhook(makePubSubRequest());
-      expect(response1.status).toBe(200);
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
       expect(verifyIdTokenSpy).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
-      );
-
-      // Second call should not warn again
-      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-      await adapter.handleWebhook(makePubSubRequest());
-      expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
-      );
     });
 
     it("should reject Pub/Sub webhook with invalid token when pubsubAudience is configured", async () => {

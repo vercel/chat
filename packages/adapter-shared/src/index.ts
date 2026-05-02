@@ -29,6 +29,15 @@ export {
   renderGfmTable,
 } from "./card-utils";
 
+// Token encryption helpers (AES-256-GCM)
+export {
+  decodeKey,
+  decryptToken,
+  type EncryptedTokenData,
+  encryptToken,
+  isEncryptedTokenData,
+} from "./crypto";
+
 // Standardized adapter errors
 export {
   AdapterError,

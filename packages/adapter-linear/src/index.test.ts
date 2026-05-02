@@ -9,6 +9,7 @@ import type {
 import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
+const BYTES_32_PATTERN = /32 bytes/;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -3516,6 +3517,121 @@ describe("multi-tenant installations", () => {
 
     expect(revokedResponse.status).toBe(200);
     expect(await adapter.getInstallation("org-123")).toBeNull();
+  });
+
+  describe("token encryption", () => {
+    // 32-byte AES-256 key as 64-char hex
+    const TEST_KEY_HEX =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    it("encrypts accessToken and refreshToken at rest in the state store", async () => {
+      const state = createMockState();
+      const adapter = attachLegacyClientAlias(
+        new LinearAdapter({
+          clientId: "test-client-id",
+          clientSecret: "test-client-secret",
+          webhookSecret: WEBHOOK_SECRET,
+          userName: "test-bot",
+          logger: createMockLogger(),
+          encryptionKey: TEST_KEY_HEX,
+        })
+      );
+      await adapter.initialize(createMockChatInstance(state));
+
+      await adapter.setInstallation(
+        "org-123",
+        createInstallation({
+          accessToken: "plaintext-access",
+          refreshToken: "plaintext-refresh",
+        })
+      );
+
+      const raw = state.cache.get("linear:installation:org-123") as {
+        accessToken: unknown;
+        refreshToken: unknown;
+      };
+      // Tokens must NOT be present in plaintext on disk.
+      expect(raw.accessToken).not.toBe("plaintext-access");
+      expect(raw.refreshToken).not.toBe("plaintext-refresh");
+      // They must be encrypted envelopes ({ iv, data, tag }).
+      expect(raw.accessToken).toEqual(
+        expect.objectContaining({
+          iv: expect.any(String),
+          data: expect.any(String),
+          tag: expect.any(String),
+        })
+      );
+      expect(raw.refreshToken).toEqual(
+        expect.objectContaining({
+          iv: expect.any(String),
+          data: expect.any(String),
+          tag: expect.any(String),
+        })
+      );
+
+      // Round-trip: getInstallation must return plaintext to callers.
+      const fetched = await adapter.getInstallation("org-123");
+      expect(fetched?.accessToken).toBe("plaintext-access");
+      expect(fetched?.refreshToken).toBe("plaintext-refresh");
+    });
+
+    it("stores plaintext when no encryptionKey is configured (legacy behavior)", async () => {
+      const state = createMockState();
+      const adapter = createMultiTenantAdapter();
+      await adapter.initialize(createMockChatInstance(state));
+      await adapter.setInstallation(
+        "org-123",
+        createInstallation({ accessToken: "leak-me" })
+      );
+
+      const raw = state.cache.get("linear:installation:org-123") as {
+        accessToken: unknown;
+      };
+      expect(raw.accessToken).toBe("leak-me");
+    });
+
+    it("getInstallation tolerates legacy plaintext records when encryption is enabled (zero-downtime key rotation in)", async () => {
+      const state = createMockState();
+      // Pre-populate state with a plaintext (legacy) install before encryption
+      // is enabled.
+      state.cache.set("linear:installation:org-123", {
+        organizationId: "org-123",
+        accessToken: "legacy-plaintext",
+        refreshToken: "legacy-refresh",
+        expiresAt: Date.now() + 600_000,
+        botUserId: "bot-user-id",
+      });
+
+      const adapter = attachLegacyClientAlias(
+        new LinearAdapter({
+          clientId: "test-client-id",
+          clientSecret: "test-client-secret",
+          webhookSecret: WEBHOOK_SECRET,
+          userName: "test-bot",
+          logger: createMockLogger(),
+          encryptionKey: TEST_KEY_HEX,
+        })
+      );
+      await adapter.initialize(createMockChatInstance(state));
+
+      const fetched = await adapter.getInstallation("org-123");
+      expect(fetched?.accessToken).toBe("legacy-plaintext");
+      expect(fetched?.refreshToken).toBe("legacy-refresh");
+    });
+
+    it("rejects an encryption key of the wrong length", () => {
+      expect(
+        () =>
+          new LinearAdapter({
+            clientId: "test-client-id",
+            clientSecret: "test-client-secret",
+            webhookSecret: WEBHOOK_SECRET,
+            userName: "test-bot",
+            logger: createMockLogger(),
+            encryptionKey: "tooshort",
+          })
+      ).toThrow(BYTES_32_PATTERN);
+    });
   });
 });
 

@@ -6298,6 +6298,68 @@ describe("socket mode forwarding - handleWebhook", () => {
     expect(response.status).toBe(200);
   });
 
+  it("rejects forwarded event with token of correct length but wrong content (timing-safe)", async () => {
+    // Regression: previously used `!==` string equality which short-circuits on
+    // first byte mismatch, leaking secret bytes via response timing. Now uses
+    // timingSafeEqual on equal-length Buffers.
+    const forwardingSecret = "abcdef0123456789";
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken,
+      socketForwardingSecret: forwardingSecret,
+      logger: mockLogger,
+    });
+
+    // Same length as the secret, but every byte different.
+    const wrongSameLength = "0000000000000000";
+    expect(wrongSameLength.length).toBe(forwardingSecret.length);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": wrongSameLength,
+      },
+      body: JSON.stringify({
+        type: "socket_event",
+        eventType: "events_api",
+        body: {},
+        timestamp: Date.now(),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects forwarded event when supplied token has different length than secret", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken,
+      socketForwardingSecret: "abcdef0123456789",
+      logger: mockLogger,
+    });
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": "short",
+      },
+      body: JSON.stringify({
+        type: "socket_event",
+        eventType: "events_api",
+        body: {},
+        timestamp: Date.now(),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
   it("rejects forwarded event with appToken when socketForwardingSecret is set", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",

@@ -1,3 +1,5 @@
+import { issueOAuthState } from "@/lib/oauth-state";
+
 const LINEAR_INSTALL_SCOPES = [
   "read",
   "write",
@@ -6,7 +8,10 @@ const LINEAR_INSTALL_SCOPES = [
   "app:mentionable",
 ];
 
-export function GET() {
+const STATE_COOKIE = "linear_oauth_state";
+const CALLBACK_PATH = "/api/linear/install/callback";
+
+export async function GET() {
   const clientId = process.env.LINEAR_CLIENT_ID;
   const redirectUri = process.env.LINEAR_REDIRECT_URI;
 
@@ -20,12 +25,18 @@ export function GET() {
     });
   }
 
+  const state = await issueOAuthState({
+    cookieName: STATE_COOKIE,
+    callbackPath: CALLBACK_PATH,
+  });
+
   const installUrl = new URL("https://linear.app/oauth/authorize");
   installUrl.searchParams.set("client_id", clientId);
   installUrl.searchParams.set("redirect_uri", redirectUri);
   installUrl.searchParams.set("response_type", "code");
   installUrl.searchParams.set("actor", "app");
   installUrl.searchParams.set("scope", LINEAR_INSTALL_SCOPES.join(","));
+  installUrl.searchParams.set("state", state);
 
   return Response.redirect(installUrl.toString(), 302);
 }

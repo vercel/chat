@@ -74,6 +74,15 @@ export interface GoogleChatAdapterBaseConfig {
   /** Override the Google Chat API root URL. Defaults to GOOGLE_CHAT_API_URL env var. */
   apiUrl?: string;
   /**
+   * Explicit opt-in to disable webhook signature verification. Required to
+   * accept incoming webhooks when neither `googleChatProjectNumber` nor
+   * `pubsubAudience` is configured. Without this flag set the constructor
+   * throws — fail-closed by default. Only enable in development or when an
+   * upstream layer (e.g. Cloud Run authenticated invocations) is providing
+   * equivalent guarantees.
+   */
+  disableSignatureVerification?: boolean;
+  /**
    * HTTP endpoint URL for button click actions.
    * Required for HTTP endpoint apps - button clicks will be routed to this URL.
    * Should be the full URL of your webhook endpoint (e.g., "https://your-app.vercel.app/api/webhooks/gchat")
@@ -308,6 +317,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   private readonly googleChatProjectNumber?: string;
   /** Expected audience for Pub/Sub push message JWT verification */
   private readonly pubsubAudience?: string;
+  /** Explicit opt-in to skip JWT verification (fail-open). */
+  private readonly disableSignatureVerification: boolean;
   /** OAuth2 client for verifying Google-signed JWTs */
   private readonly oauth2Client = new auth.OAuth2();
   /** Track whether we've already warned about missing verification config */
@@ -332,6 +343,26 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       config.googleChatProjectNumber ?? process.env.GOOGLE_CHAT_PROJECT_NUMBER;
     this.pubsubAudience =
       config.pubsubAudience ?? process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE;
+    this.disableSignatureVerification =
+      config.disableSignatureVerification ??
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION === "true";
+
+    // Fail-closed: refuse to start if no verification config is provided and
+    // the operator has not explicitly opted into the unsafe path. Previously
+    // the adapter accepted any webhook in this state, allowing forged
+    // payloads to impersonate users / trigger handlers.
+    if (
+      !(
+        this.googleChatProjectNumber ||
+        this.pubsubAudience ||
+        this.disableSignatureVerification
+      )
+    ) {
+      throw new ValidationError(
+        "gchat",
+        "Webhook signature verification is required. Set googleChatProjectNumber (or GOOGLE_CHAT_PROJECT_NUMBER) for direct webhooks and/or pubsubAudience (or GOOGLE_CHAT_PUBSUB_AUDIENCE) for Pub/Sub. To accept unverified webhooks (NOT recommended in production), set disableSignatureVerification: true."
+      );
+    }
     const apiRootUrl = config.apiUrl ?? process.env.GOOGLE_CHAT_API_URL;
 
     let authClient: Parameters<typeof chat>[0]["auth"];
@@ -767,7 +798,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Check if this is a Pub/Sub push message (from Workspace Events subscription)
     const maybePubSub = parsed as PubSubPushMessage;
     if (maybePubSub.message?.data && maybePubSub.subscription) {
-      // Verify Pub/Sub JWT if audience is configured
+      // Verify Pub/Sub JWT if audience is configured. The two transports
+      // share a single endpoint, so each shape must be independently
+      // verified — otherwise an attacker could send the unconfigured shape
+      // to bypass the configured verifier. The constructor's "at least one
+      // verifier OR disableSignatureVerification" check is not sufficient
+      // here for that reason.
       if (this.pubsubAudience) {
         const valid = await this.verifyBearerToken(
           request,
@@ -776,16 +812,28 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         if (!valid) {
           return new Response("Unauthorized", { status: 401 });
         }
-      } else if (!this.warnedNoPubsubVerification) {
-        this.warnedNoPubsubVerification = true;
+      } else if (this.disableSignatureVerification) {
+        if (!this.warnedNoPubsubVerification) {
+          this.warnedNoPubsubVerification = true;
+          this.logger.warn(
+            "Pub/Sub webhook verification is disabled. Set GOOGLE_CHAT_PUBSUB_AUDIENCE or pubsubAudience to verify incoming requests."
+          );
+        }
+      } else {
+        // Direct webhook verifier may be configured but Pub/Sub verifier is
+        // not — reject rather than silently process an unverified payload
+        // that a peer transport's config does nothing to authenticate.
         this.logger.warn(
-          "Pub/Sub webhook verification is disabled. Set GOOGLE_CHAT_PUBSUB_AUDIENCE or pubsubAudience to verify incoming requests."
+          "Rejected Pub/Sub webhook: pubsubAudience is not configured. Set GOOGLE_CHAT_PUBSUB_AUDIENCE, or set disableSignatureVerification to accept unverified Pub/Sub payloads."
         );
+        return new Response("Unauthorized", { status: 401 });
       }
       return this.handlePubSubMessage(maybePubSub, options);
     }
 
-    // Verify direct Google Chat webhook JWT if project number is configured
+    // Verify direct Google Chat webhook JWT if project number is configured.
+    // Same reasoning as the Pub/Sub branch: each shape requires its own
+    // verifier (or explicit opt-out) to prevent cross-transport bypass.
     if (this.googleChatProjectNumber) {
       const valid = await this.verifyBearerToken(
         request,
@@ -794,11 +842,18 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (!valid) {
         return new Response("Unauthorized", { status: 401 });
       }
-    } else if (!this.warnedNoWebhookVerification) {
-      this.warnedNoWebhookVerification = true;
+    } else if (this.disableSignatureVerification) {
+      if (!this.warnedNoWebhookVerification) {
+        this.warnedNoWebhookVerification = true;
+        this.logger.warn(
+          "Google Chat webhook verification is disabled. Set GOOGLE_CHAT_PROJECT_NUMBER or googleChatProjectNumber to verify incoming requests."
+        );
+      }
+    } else {
       this.logger.warn(
-        "Google Chat webhook verification is disabled. Set GOOGLE_CHAT_PROJECT_NUMBER or googleChatProjectNumber to verify incoming requests."
+        "Rejected direct Google Chat webhook: googleChatProjectNumber is not configured. Set GOOGLE_CHAT_PROJECT_NUMBER, or set disableSignatureVerification to accept unverified payloads."
       );
+      return new Response("Unauthorized", { status: 401 });
     }
 
     // Otherwise, treat as a direct Google Chat webhook event

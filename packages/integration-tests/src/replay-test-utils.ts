@@ -424,6 +424,9 @@ export function createGchatTestContext(
     credentials: GCHAT_TEST_CREDENTIALS,
     userName: fixtures.botName,
     logger: mockLogger,
+    // Replay tests inject pre-recorded webhook payloads directly; the JWT
+    // verification path is not exercised, so explicitly opt out.
+    disableSignatureVerification: true,
   });
   adapter.botUserId = fixtures.botUserId;
 

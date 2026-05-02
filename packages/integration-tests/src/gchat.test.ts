@@ -51,6 +51,9 @@ describe("Google Chat Integration", () => {
       credentials: GCHAT_TEST_CREDENTIALS,
       userName: GCHAT_BOT_NAME,
       logger: mockLogger,
+      // Integration tests inject pre-built event payloads directly; no real
+      // webhook signature is exercised here.
+      disableSignatureVerification: true,
     });
 
     mockChatApi = createMockGoogleChatApi();
