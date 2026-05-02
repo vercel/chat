@@ -83,6 +83,21 @@ const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
 // network latency so the HTTP response lands before Slack gives up.
 const OPTIONS_LOAD_TIMEOUT_MS = 2500;
 
+/**
+ * Compare two strings in constant time to avoid leaking information about how
+ * many leading bytes match via response timing. Returns false on length
+ * mismatch (which itself is not a secret-leaking signal because the secret's
+ * length is fixed at configuration time).
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) {
+    return false;
+  }
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 /** Find the next `<@` or `<#` mention in text. */
 function findNextMention(text: string): number {
   const atIdx = text.indexOf("<@");
@@ -1030,8 +1045,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const socketToken = request.headers.get("x-slack-socket-token");
     if (socketToken) {
       if (
-        !this.socketForwardingSecret ||
-        socketToken !== this.socketForwardingSecret
+        !(
+          this.socketForwardingSecret &&
+          timingSafeStringEqual(socketToken, this.socketForwardingSecret)
+        )
       ) {
         this.logger.warn("Invalid socket forwarding token");
         return new Response("Invalid socket token", { status: 401 });

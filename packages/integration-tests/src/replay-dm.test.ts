@@ -374,6 +374,8 @@ describe("DM Replay Tests", () => {
         credentials: GCHAT_TEST_CREDENTIALS,
         userName: gchatFixtures.botName,
         logger: mockLogger,
+        // Replay tests inject pre-recorded webhook payloads directly.
+        disableSignatureVerification: true,
       });
       gchatAdapter.botUserId = gchatFixtures.botUserId;
 

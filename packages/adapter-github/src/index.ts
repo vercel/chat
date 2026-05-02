@@ -283,26 +283,77 @@ export class GitHubAdapter
       this.logger.debug("Created Octokit client for installation", {
         installationId,
       });
+      // Eagerly detect _botUserId on the first installation client. The bot
+      // identity is the same across all installations of the same App, so we
+      // only do this once. Without this, multi-tenant deployments never set
+      // _botUserId — leading to isMe always being false and self-reply loops
+      // in handlers that respond to every message.
+      if (this._botUserId === null) {
+        this.detectBotUserId(client).catch((error) => {
+          this.logger.warn("Could not auto-detect bot user ID", { error });
+        });
+      }
     }
 
     return client;
   }
 
+  /**
+   * Fetch the bot's user ID from GitHub. Used for self-message detection.
+   * Best-effort: errors are swallowed so they don't block webhook processing.
+   * The returned promise resolves once detection completes (or fails).
+   */
+  private async detectBotUserId(octokit: Octokit): Promise<void> {
+    if (this._botUserId !== null) {
+      return;
+    }
+    // For App installations, /user is not available. Fetch the App's bot user
+    // via /app then look up the slug to get a numeric user ID. The /user
+    // endpoint works for PAT mode and (returns the bot user) for installation
+    // tokens too, so we try it first.
+    try {
+      const { data: user } = await octokit.users.getAuthenticated();
+      this._botUserId = user.id;
+      this.logger.info("GitHub bot user ID auto-detected", {
+        botUserId: this._botUserId,
+        login: user.login,
+      });
+      return;
+    } catch (error) {
+      this.logger.debug(
+        "users.getAuthenticated failed; falling back to apps.getAuthenticated",
+        { error }
+      );
+    }
+    try {
+      // For App-authenticated installation tokens, use apps.getAuthenticated
+      // and resolve the bot user via /users/{login}[bot].
+      const { data: app } = await octokit.apps.getAuthenticated();
+      if (app) {
+        const login = `${app.slug}[bot]`;
+        const { data: botUser } = await octokit.users.getByUsername({
+          username: login,
+        });
+        this._botUserId = botUser.id;
+        this.logger.info("GitHub bot user ID auto-detected via app slug", {
+          botUserId: this._botUserId,
+          login,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("Could not auto-detect GitHub bot user ID", { error });
+    }
+  }
+
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
 
-    // Fetch bot user ID if not provided (only works for single-tenant or PAT mode)
+    // Fetch bot user ID if not provided. For multi-tenant mode there's no
+    // global octokit yet — detection happens lazily in getOctokit() on first
+    // installation client creation, and synchronously in handleWebhook() on
+    // the first webhook so isMe checks work for the very first reply.
     if (!this._botUserId && this.octokit) {
-      try {
-        const { data: user } = await this.octokit.users.getAuthenticated();
-        this._botUserId = user.id;
-        this.logger.info("GitHub auth completed", {
-          botUserId: this._botUserId,
-          login: user.login,
-        });
-      } catch (error) {
-        this.logger.warn("Could not fetch bot user ID", { error });
-      }
+      await this.detectBotUserId(this.octokit);
     }
   }
 
@@ -454,6 +505,12 @@ export class GitHubAdapter
         repo.name,
         installationId
       );
+      // Eagerly resolve the bot user ID before dispatching to handlers, so
+      // isMe checks work on the very first webhook. Without this, multi-tenant
+      // adapters can self-reply-loop until detection fires lazily elsewhere.
+      if (this._botUserId === null) {
+        await this.detectBotUserId(this.getOctokit(installationId));
+      }
     }
 
     // Handle events
@@ -939,14 +996,8 @@ export class GitHubAdapter
 
     const octokit = await this.getOctokitForThread(owner, repo);
 
-    // Multi-tenant mode has no global octokit, so initialize() can't detect _botUserId
-    if (!this._botUserId) {
-      try {
-        const { data: user } = await octokit.users.getAuthenticated();
-        this._botUserId = user.id;
-      } catch {
-        this.logger.warn("Could not detect bot user ID for reaction removal");
-      }
+    if (this._botUserId === null) {
+      await this.detectBotUserId(octokit);
     }
 
     // List reactions to find the one to delete

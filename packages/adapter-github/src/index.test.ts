@@ -27,6 +27,8 @@ const mockReactionsListForPullRequestReviewComment = vi.fn();
 const mockReactionsDeleteForIssueComment = vi.fn();
 const mockReactionsDeleteForPullRequestComment = vi.fn();
 const mockUsersGetAuthenticated = vi.fn();
+const mockUsersGetByUsername = vi.fn();
+const mockAppsGetAuthenticated = vi.fn();
 const mockReposGet = vi.fn();
 const mockRequest = vi.fn();
 
@@ -59,6 +61,10 @@ vi.mock("@octokit/rest", () => {
     };
     users = {
       getAuthenticated: mockUsersGetAuthenticated,
+      getByUsername: mockUsersGetByUsername,
+    };
+    apps = {
+      getAuthenticated: mockAppsGetAuthenticated,
     };
     repos = {
       get: mockReposGet,
@@ -289,6 +295,9 @@ describe("GitHubAdapter", () => {
       mockUsersGetAuthenticated.mockRejectedValueOnce(
         new Error("Bad credentials")
       );
+      mockAppsGetAuthenticated.mockRejectedValueOnce(
+        new Error("Bad credentials")
+      );
 
       const mockChat = {
         getLogger: vi.fn(),
@@ -301,7 +310,7 @@ describe("GitHubAdapter", () => {
       await adapter.initialize(mockChat);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        "Could not fetch bot user ID",
+        "Could not auto-detect GitHub bot user ID",
         expect.any(Object)
       );
       expect(adapter.botUserId).toBeUndefined();
@@ -830,6 +839,105 @@ describe("GitHubAdapter", () => {
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
       expect(mockChat.processMessage).not.toHaveBeenCalled();
+    });
+
+    it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
+      // Regression: previously the multi-tenant App constructor left
+      // this.octokit null, so initialize()'s detection branch was skipped.
+      // The fallback only ran inside removeReaction(), so bots that never
+      // remove reactions had _botUserId === null forever — meaning isMe was
+      // always false and the bot would re-process its own replies in an
+      // unbounded loop.
+      const state = createMockState();
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      expect(multiTenantAdapter.isMultiTenant).toBe(true);
+      await multiTenantAdapter.initialize(mockChat);
+      // No detection happens at initialize time in multi-tenant mode.
+      expect(multiTenantAdapter.botUserId).toBeUndefined();
+
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot[bot]" },
+      });
+
+      // Bot's own reply arrives as a webhook from a tenant installation.
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+        sender: { id: 777, login: "test-bot[bot]", type: "Bot" },
+        comment: {
+          ...makeIssueCommentPayload().comment,
+          user: { id: 777, login: "test-bot[bot]", type: "Bot" },
+        },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await multiTenantAdapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      // botUserId must be set after the first webhook so isMe works.
+      expect(multiTenantAdapter.botUserId).toBe("777");
+      // The bot's own reply must NOT be dispatched to handlers.
+      expect(mockChat.processMessage).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to apps.getAuthenticated when users.getAuthenticated rejects (multi-tenant App)", async () => {
+      // Belt-and-suspenders: in multi-tenant App mode, /user may not be
+      // available with installation tokens depending on permissions. Fall
+      // back to /app + /users/{slug}[bot] to recover the bot user ID.
+      const state = createMockState();
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      await multiTenantAdapter.initialize(mockChat);
+
+      mockUsersGetAuthenticated.mockRejectedValueOnce(
+        new Error("Not Found: /user is unavailable for installation tokens")
+      );
+      mockAppsGetAuthenticated.mockResolvedValueOnce({
+        data: { slug: "test-bot" },
+      });
+      mockUsersGetByUsername.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot[bot]" },
+      });
+
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await multiTenantAdapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(multiTenantAdapter.botUserId).toBe("777");
     });
   });
 

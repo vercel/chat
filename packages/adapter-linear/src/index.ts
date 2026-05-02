@@ -2,6 +2,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import {
   AdapterError,
   AuthenticationError,
+  decodeKey,
+  decryptToken,
+  type EncryptedTokenData,
+  encryptToken,
+  isEncryptedTokenData,
   ValidationError,
 } from "@chat-adapter/shared";
 import type { AgentActivityPayload, Comment } from "@linear/sdk";
@@ -73,6 +78,19 @@ interface LinearRequestContext {
   client: LinearClient;
   installation: LinearInstallation;
 }
+
+/**
+ * Persisted form of LinearInstallation. accessToken / refreshToken may be
+ * either a plaintext string (legacy / no encryption configured) or an
+ * EncryptedTokenData envelope (when an encryption key is set).
+ */
+type StoredLinearInstallation = Omit<
+  LinearInstallation,
+  "accessToken" | "refreshToken"
+> & {
+  accessToken: string | EncryptedTokenData;
+  refreshToken?: string | EncryptedTokenData;
+};
 
 // Re-export types
 export type {
@@ -163,6 +181,8 @@ export class LinearAdapter
   private accessTokenExpiry: number | null = null;
   // Custom API base URL
   private readonly apiUrl?: string;
+  // Optional AES-256-GCM key for encrypting OAuth tokens at rest
+  private readonly encryptionKey: Buffer | undefined;
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
     const webhookSecret =
@@ -179,6 +199,11 @@ export class LinearAdapter
     this.userName =
       config.userName ?? process.env.LINEAR_BOT_USERNAME ?? "linear-bot";
     this.apiUrl = config.apiUrl ?? process.env.LINEAR_API_URL;
+    const encryptionKey =
+      config.encryptionKey ?? process.env.LINEAR_ENCRYPTION_KEY;
+    if (encryptionKey) {
+      this.encryptionKey = decodeKey(encryptionKey);
+    }
 
     if ("apiKey" in config && config.apiKey) {
       this.defaultClient = new LinearClient({
@@ -396,9 +421,10 @@ export class LinearAdapter
       );
     }
 
+    const dataToStore = this.encryptInstallation(installation);
     await this.chat
       .getState()
-      .set(this.installationKey(organizationId), installation);
+      .set(this.installationKey(organizationId), dataToStore);
     this.logger.info("Linear installation saved", { organizationId });
   }
 
@@ -424,11 +450,70 @@ export class LinearAdapter
       return contextInstallation.installation;
     }
 
-    const installation = await this.chat
+    const stored = await this.chat
       .getState()
-      .get<LinearInstallation>(this.installationKey(organizationId));
+      .get<StoredLinearInstallation>(this.installationKey(organizationId));
 
-    return installation ?? null;
+    if (!stored) {
+      return null;
+    }
+
+    return this.decryptInstallation(stored);
+  }
+
+  /**
+   * Encrypt installation tokens before persisting to the state store, if an
+   * encryption key is configured. Without a key, the installation is stored
+   * as-is (legacy behavior, with a warning logged at construction time
+   * elsewhere is left to the deployer's discretion).
+   */
+  private encryptInstallation(
+    installation: LinearInstallation
+  ): StoredLinearInstallation {
+    if (!this.encryptionKey) {
+      return installation;
+    }
+    return {
+      ...installation,
+      accessToken: encryptToken(installation.accessToken, this.encryptionKey),
+      ...(installation.refreshToken
+        ? {
+            refreshToken: encryptToken(
+              installation.refreshToken,
+              this.encryptionKey
+            ),
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * Decrypt installation tokens from the state store. Tolerates plaintext
+   * values (legacy installs from before encryption was enabled) so rotating
+   * keys in is non-breaking.
+   */
+  private decryptInstallation(
+    stored: StoredLinearInstallation
+  ): LinearInstallation {
+    const accessToken = this.maybeDecrypt(stored.accessToken);
+    const refreshToken =
+      stored.refreshToken === undefined
+        ? undefined
+        : this.maybeDecrypt(stored.refreshToken);
+    return {
+      botUserId: stored.botUserId,
+      expiresAt: stored.expiresAt,
+      organizationId: stored.organizationId,
+      accessToken,
+      ...(refreshToken !== undefined ? { refreshToken } : {}),
+    };
+  }
+
+  private maybeDecrypt(value: string | EncryptedTokenData): string {
+    if (this.encryptionKey && isEncryptedTokenData(value)) {
+      return decryptToken(value, this.encryptionKey);
+    }
+    return value as string;
   }
 
   /**

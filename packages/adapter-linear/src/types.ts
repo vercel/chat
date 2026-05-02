@@ -49,6 +49,15 @@ export type LinearAdapterMode = "agent-sessions" | "comments";
 interface LinearAdapterBaseConfig {
   /** Override the Linear API base URL. Defaults to LINEAR_API_URL env var. */
   apiUrl?: string;
+  /**
+   * Optional 32-byte AES-256-GCM key used to encrypt OAuth `accessToken` and
+   * `refreshToken` values at rest in the state store. Accepts either a 64-char
+   * hex string or a 44-char base64 string. Defaults to the
+   * `LINEAR_ENCRYPTION_KEY` env var. Strongly recommended for multi-tenant
+   * deployments — without it, a state-store compromise yields plaintext per-
+   * tenant Linear API tokens.
+   */
+  encryptionKey?: string;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /**
