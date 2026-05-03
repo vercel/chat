@@ -623,7 +623,7 @@ export interface ChatInstance {
     threadId: string,
     message: Message | (() => Promise<Message>),
     options?: WebhookOptions
-  ): void;
+  ): Promise<void>;
 
   /**
    * Process a modal close event from an adapter.

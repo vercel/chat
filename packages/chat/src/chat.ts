@@ -873,20 +873,28 @@ export class Chat<
     threadId: string,
     messageOrFactory: Message | (() => Promise<Message>),
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     const task = (async () => {
       const message =
         typeof messageOrFactory === "function"
           ? await messageOrFactory()
           : messageOrFactory;
       await this.handleIncomingMessage(adapter, threadId, message);
-    })().catch((err) => {
+    })();
+
+    // Track via waitUntil with errors swallowed (existing webhook semantics —
+    // platforms shouldn't retry on handler bugs). The returned task itself
+    // still rejects so streaming adapters (e.g. @chat-adapter/web) can
+    // surface failures to the client.
+    const tracked = task.catch((err) => {
       this.logger.error("Message processing error", { error: err, threadId });
     });
 
     if (options?.waitUntil) {
-      options.waitUntil(task);
+      options.waitUntil(tracked);
     }
+
+    return task;
   }
 
   /**
