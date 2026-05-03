@@ -5,6 +5,7 @@
   "ignore": ["apps/docs/**/*"],
   "rules": {
     "duplicates": "off",
-    "types": "off"
+    "types": "off",
+    "optionalPeerDependencies": "off"
   }
 }
