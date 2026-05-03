@@ -1,5 +1,22 @@
 import type { ComponentProps } from "react";
 
+export const web = (props: ComponentProps<"svg">) => (
+  <svg
+    fill="none"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M3 12h18" stroke="currentColor" strokeWidth="1.5" />
+    <path
+      d="M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+  </svg>
+);
+
 export const github = (props: ComponentProps<"svg">) => (
   <svg
     fill="none"

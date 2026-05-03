@@ -20,6 +20,7 @@ import {
   slack,
   teams,
   telegram,
+  web,
   whatsapp,
 } from "@/lib/logos";
 
@@ -32,6 +33,7 @@ const iconMap: Record<
   "google-chat": gchat,
   discord,
   github,
+  web,
   linear,
   telegram,
   redis,
