@@ -111,6 +111,16 @@ createLinearAdapter({
 });
 ```
 
+### Token encryption
+
+For multi-tenant OAuth installs, pass a base64-encoded 32-byte key as `encryptionKey` (or set `LINEAR_ENCRYPTION_KEY`) to encrypt stored access and refresh tokens at rest using AES-256-GCM:
+
+```bash
+openssl rand -base64 32
+```
+
+When `encryptionKey` is set, `setInstallation()` encrypts tokens before writing them to the configured state adapter and `getInstallation()` decrypts them transparently. Existing plaintext records continue to work, so you can roll the key in without flushing installs. Without an `encryptionKey`, tokens are stored in plaintext (the previous default).
+
 ### Making the bot @-mentionable (optional)
 
 To make the bot appear in Linear's `@` mention dropdown as an Agent:
@@ -207,6 +217,7 @@ All options are auto-detected from environment variables when not provided.
 | `accessToken` | No* | Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN` |
 | `clientId` | No* | Multi-tenant OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
 | `clientSecret` | No* | Multi-tenant OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
+| `encryptionKey` | No | AES-256-GCM key for encrypting stored OAuth tokens. Auto-detected from `LINEAR_ENCRYPTION_KEY` |
 | `clientCredentials` | No* | Single-tenant client credentials config |
 | `clientCredentials.scopes` | No | Scopes for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
 | `mode` | No | Inbound webhook handling mode. `"comments"` by default, or `"agent-sessions"` for app-actor installs |
@@ -238,6 +249,8 @@ LINEAR_CLIENT_CREDENTIALS_SCOPES=read,write,comments:create,issues:create
 LINEAR_CLIENT_ID=your-client-id
 LINEAR_CLIENT_SECRET=your-client-secret
 LINEAR_REDIRECT_URI=https://your-domain.com/api/linear/install/callback
+# Optional: encrypt stored OAuth tokens at rest
+LINEAR_ENCRYPTION_KEY=...
 
 # Optional: inbound webhook mode
 # comments | agent-sessions

@@ -639,3 +639,19 @@ import {
   cardToFallbackText, // Convert card to plain text
 } from "@chat-adapter/shared";
 ```
+
+### Token encryption
+
+If your adapter persists OAuth tokens to a `StateAdapter`, encrypt them at rest with the shared AES-256-GCM helpers instead of rolling your own:
+
+```typescript
+import {
+  encryptToken,         // Encrypt a string into an EncryptedTokenData envelope
+  decryptToken,         // Decrypt an envelope back to the original string
+  decodeKey,            // Decode a hex-64 or base64-44 32-byte key (throws on wrong length)
+  isEncryptedTokenData, // Type guard for tolerating legacy plaintext records
+  type EncryptedTokenData,
+} from "@chat-adapter/shared";
+```
+
+Accept the key as an optional `encryptionKey` config field (auto-detected from a `*_ENCRYPTION_KEY` env var), encrypt on `setInstallation()`, decrypt on `getInstallation()`, and use `isEncryptedTokenData` to keep accepting plaintext records so operators can roll the key in without flushing existing installs. See `@chat-adapter/slack` and `@chat-adapter/linear` for reference implementations.
