@@ -1,7 +1,7 @@
 import { ValidationError } from "@chat-adapter/shared";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import type { UIMessage } from "ai";
-import { Chat } from "chat";
+import { Chat, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createWebAdapter, WebAdapter } from "./index";
 import type { WebUser } from "./types";
@@ -300,6 +300,112 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const endCount = events.filter((e) => e.type === "text-end").length;
     expect(startCount).toBeGreaterThanOrEqual(1);
     expect(endCount).toBe(startCount);
+  });
+
+  it("returns a SentMessage whose id matches the streamed text-* event id", async () => {
+    const { chat } = buildChat({});
+    const captured: { id?: string } = {};
+    chat.onDirectMessage(async (thread) => {
+      async function* gen() {
+        yield "Hello ";
+        yield "world";
+      }
+      const sent = await thread.post(gen());
+      captured.id = sent.id;
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-id",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      id?: string;
+      delta?: string;
+    }>;
+    const textStart = events.find((e) => e.type === "text-start");
+    const textEnd = events.find((e) => e.type === "text-end");
+    expect(captured.id).toBeDefined();
+    expect(textStart?.id).toBe(captured.id);
+    expect(textEnd?.id).toBe(captured.id);
+  });
+
+  it("short-circuits stream iteration when request.signal aborts", async () => {
+    const { chat } = buildChat({});
+    const ctrl = new AbortController();
+    const seen: string[] = [];
+    chat.onDirectMessage(async (thread) => {
+      async function* gen() {
+        yield "first";
+        ctrl.abort();
+        yield "second";
+        yield "third";
+      }
+      await thread.post(gen());
+      seen.push("done");
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest(
+        { id: "conv-abort", messages: [makeUserMessage("trigger")] },
+        ctrl.signal
+      )
+    );
+    expect(response.status).toBe(200);
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      delta?: string;
+    }>;
+    const deltas = events
+      .filter((e) => e.type === "text-delta")
+      .map((e) => e.delta);
+    expect(deltas.join("")).toBe("first");
+    expect(events.filter((e) => e.type === "text-end")).toHaveLength(1);
+    expect(seen).toEqual(["done"]);
+  });
+
+  it("drops non-text StreamChunks (task_update / plan_update) silently", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield "before";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "tool call",
+          status: "in_progress",
+        };
+        yield {
+          type: "plan_update",
+          title: "step 1",
+        };
+        yield "after";
+      }
+      await thread.post(gen());
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-chunks",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      delta?: string;
+    }>;
+    const deltas = events
+      .filter((e) => e.type === "text-delta")
+      .map((e) => e.delta);
+    expect(deltas.join("")).toBe("beforeafter");
+    expect(deltas).toHaveLength(2);
   });
 
   it("propagates handler errors as an error chunk", async () => {
