@@ -40,7 +40,7 @@ AES-256-GCM helpers for encrypting OAuth tokens at rest before writing them to a
 - `decryptToken(data, key)` - decrypt an envelope back to the original string
 - `decodeKey(encoded)` - decode a hex-64 or base64-44 encoded 32-byte key; throws on wrong length
 - `isEncryptedTokenData(value)` - type guard for distinguishing envelopes from legacy plaintext records
-- `EncryptedTokenData` - the envelope type (`{ ciphertext, iv, authTag }`, all base64)
+- `EncryptedTokenData` - the envelope type (`{ data, iv, tag }`, all base64)
 
 ### Error classes
 
