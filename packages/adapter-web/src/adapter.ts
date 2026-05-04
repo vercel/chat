@@ -122,6 +122,15 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     if (!user) {
       return jsonError(401, "Unauthorized");
     }
+    if (user.id.includes(":")) {
+      // Thread ids embed the user id between `:` delimiters
+      // (`web:{userId}:{conversationId}`); a colon in the userId would
+      // corrupt the round-trip through decodeThreadId.
+      this.logger.error("getUser returned id with reserved ':' character", {
+        userId: user.id,
+      });
+      return jsonError(400, "Invalid user id");
+    }
 
     const conversationId = body.id ?? generateId();
     const threadId = this.threadIdFor({ user, conversationId });
@@ -155,32 +164,44 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
           writer.write({ type: "finish" });
         }
       },
-      onError: (error) => {
-        this.logger.error("Web handler error", {
-          error,
-          threadId,
-        });
-        return error instanceof Error ? error.message : "Internal error";
-      },
+      onError: (error) =>
+        // chat.processMessage already logs handler errors at ERROR level.
+        // Just turn the error into a string for the SSE error chunk.
+        error instanceof Error ? error.message : "Internal error",
     });
 
     return createUIMessageStreamResponse({ stream });
   }
 
   parseMessage(raw: UIMessage): Message<UIMessage> {
+    const text = extractTextFromUIMessage(raw);
+    // The hot path uses buildMessageFromUI (which has WebUser context) and
+    // does not call this method. Round-trip rehydration paths land here
+    // without a WebUser, so for assistant messages we identify the bot by
+    // userName, and for user messages we leave userId as "unknown".
+    const isAssistant = raw.role !== "user";
+    const author = isAssistant
+      ? {
+          userId: this.userName,
+          userName: this.userName,
+          fullName: this.userName,
+          isBot: true,
+          isMe: true,
+        }
+      : {
+          userId: "unknown",
+          userName: "unknown",
+          fullName: "unknown",
+          isBot: false,
+          isMe: false,
+        };
     return new Message<UIMessage>({
       id: raw.id,
       threadId: "",
-      text: extractTextFromUIMessage(raw),
-      formatted: parseMarkdown(extractTextFromUIMessage(raw)),
+      text,
+      formatted: parseMarkdown(text),
       raw,
-      author: {
-        userId: "unknown",
-        userName: "unknown",
-        fullName: "unknown",
-        isBot: raw.role !== "user",
-        isMe: false,
-      },
+      author,
       metadata: { dateSent: new Date(), edited: false },
       attachments: [],
     });
@@ -225,10 +246,17 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     const ctx = requireWebRequestContext();
     const text = adapterPostableToText(message, this.formatConverter);
     const id = generateId();
-    ctx.writer.write({ type: "text-start", id });
-    if (text) {
-      ctx.writer.write({ type: "text-delta", id, delta: text });
+    // Skip empty messages (e.g., a CardElement with no fallbackText) so
+    // useChat doesn't render a blank assistant bubble.
+    if (!text) {
+      return {
+        id,
+        threadId,
+        raw: assistantUIMessageFromText(id, ""),
+      };
     }
+    ctx.writer.write({ type: "text-start", id });
+    ctx.writer.write({ type: "text-delta", id, delta: text });
     ctx.writer.write({ type: "text-end", id });
     return {
       id,
@@ -319,12 +347,16 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     return Promise.resolve();
   }
 
+  /**
+   * Always resolves to an empty list. Web has no platform-side history API;
+   * when `persistMessageHistory: true` (the default) chat-sdk's own
+   * `MessageHistoryCache` backfills `thread.messages` / `channel.messages`
+   * from state after this method returns.
+   */
   fetchMessages(
     _threadId: string,
     _options?: FetchOptions
   ): Promise<FetchResult<UIMessage>> {
-    // No platform-side history. When `persistMessageHistory: true`, chat-sdk's
-    // own MessageHistoryCache backfills via a state read after we return [].
     return Promise.resolve({ messages: [] });
   }
 

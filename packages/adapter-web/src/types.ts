@@ -22,9 +22,11 @@ export interface WebAdapterOptions {
   /**
    * When true, chat-sdk persists incoming message history in the configured state adapter.
    *
-   * Default: false. The AI SDK client retains the conversation in its UI state and
-   * resends it on every request, so server-side persistence is unnecessary for
-   * single-device use. Enable for cross-device continuity.
+   * Default: `true`. Web has no platform-side history API, so the only way for
+   * chat-sdk handlers to see prior turns via `thread.messages` / `channel.messages`
+   * is through the configured state adapter's message history cache. Set to
+   * `false` only if your handler re-derives history from the request body's
+   * `messages[]` itself.
    */
   persistMessageHistory?: boolean;
   /**
