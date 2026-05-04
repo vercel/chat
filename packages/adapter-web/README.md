@@ -146,11 +146,12 @@ adapter.decodeThreadId("web:u1:abc");
 
 ```typescript
 import { streamText } from "ai";
-import { openai } from "@ai-sdk/openai";
+// Bring your own model from any AI SDK provider
+// (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, ...).
 
 bot.onDirectMessage(async (thread, message) => {
   const result = streamText({
-    model: openai("gpt-4o"),
+    model: myModel,
     prompt: message.text,
   });
   await thread.post(result.textStream);
