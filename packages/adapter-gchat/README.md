@@ -161,14 +161,17 @@ All options are auto-detected from environment variables when not provided.
 | `credentials` | No* | Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS` |
 | `useApplicationDefaultCredentials` | No | Use Application Default Credentials. Auto-detected from `GOOGLE_CHAT_USE_ADC` |
 | `pubsubTopic` | No | Pub/Sub topic for Workspace Events. Auto-detected from `GOOGLE_CHAT_PUBSUB_TOPIC` |
-| `pubsubAudience` | No | Expected JWT audience for Pub/Sub webhook verification. Auto-detected from `GOOGLE_CHAT_PUBSUB_AUDIENCE` |
-| `googleChatProjectNumber` | No | GCP project number for direct webhook JWT verification. Auto-detected from `GOOGLE_CHAT_PROJECT_NUMBER` |
+| `pubsubAudience` | No† | Expected JWT audience for Pub/Sub webhook verification. Auto-detected from `GOOGLE_CHAT_PUBSUB_AUDIENCE` |
+| `googleChatProjectNumber` | No† | GCP project number for direct webhook JWT verification. Auto-detected from `GOOGLE_CHAT_PROJECT_NUMBER` |
+| `disableSignatureVerification` | No† | Disable JWT verification entirely (development only). Auto-detected from `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true` |
 | `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
 | `auth` | No | Custom auth object (advanced) |
 | `apiUrl` | No | Override the Google Chat API base URL. Auto-detected from `GOOGLE_CHAT_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
+
+†One of `googleChatProjectNumber`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive; requests of a shape whose verifier is unconfigured are rejected with HTTP 401.
 
 ## Environment variables
 
@@ -179,9 +182,10 @@ GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}
 GOOGLE_CHAT_PUBSUB_TOPIC=projects/your-project/topics/chat-events
 GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
 
-# Optional: webhook verification (recommended for production)
+# Webhook verification — at least one of the three is required
 GOOGLE_CHAT_PROJECT_NUMBER=123456789          # For direct webhook JWT verification
 GOOGLE_CHAT_PUBSUB_AUDIENCE=https://your-domain.com/api/webhooks/gchat  # For Pub/Sub JWT verification
+# GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true  # Escape hatch for local dev only
 
 # Optional: override the Google Chat API base URL
 GOOGLE_CHAT_API_URL=...
@@ -191,7 +195,13 @@ GOOGLE_CHAT_API_URL=...
 
 The adapter supports JWT verification for both webhook types. When configured, the adapter validates the `Authorization: Bearer <JWT>` header on incoming requests using Google's public keys. Requests with missing or invalid tokens are rejected with HTTP 401.
 
-Verification is opt-in — when the config options are not set, webhooks are accepted without signature checks (for backward compatibility and development).
+Verification is required. The constructor throws `ValidationError` unless one of the following is set:
+
+- `googleChatProjectNumber` (or `GOOGLE_CHAT_PROJECT_NUMBER`) — direct webhooks
+- `pubsubAudience` (or `GOOGLE_CHAT_PUBSUB_AUDIENCE`) — Pub/Sub push deliveries
+- `disableSignatureVerification: true` (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`) — explicit opt-out, intended for local development only
+
+The two transports share one HTTP endpoint, so each verifier only covers its own request shape. If you only configure `googleChatProjectNumber`, incoming Pub/Sub-shaped requests are rejected with HTTP 401, and vice versa — configure both if you receive both.
 
 ### Direct webhooks (Google Chat API)
 
