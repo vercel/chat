@@ -510,6 +510,31 @@ describe("truncateForTelegram", () => {
     expect(result.length).toBeLessThanOrEqual(100);
     expect(result.endsWith("\\.\\.\\.")).toBe(true);
   });
+
+  it("strips unpaired entity markers when under the limit (streaming leak)", () => {
+    const input = "Hello *world* _italic and bold *bold*";
+    const result = truncateForTelegram(input, 4096, "MarkdownV2");
+    const underscores = [...result].filter((c) => c === "_").length;
+    expect(underscores % 2).toBe(0);
+  });
+
+  it("preserves code fences with literal asterisks (no false-positive trim)", () => {
+    const input = "```python\nprint(*args, **kwargs)\n```";
+    const result = truncateForTelegram(input, 4096, "MarkdownV2");
+    expect(result).toBe(input);
+  });
+
+  it("does not modify plain parseMode messages", () => {
+    const input = "Hello *world* _unclosed";
+    const result = truncateForTelegram(input, 4096, "plain");
+    expect(result).toBe(input);
+  });
+
+  it("preserves balanced MarkdownV2 under the limit (no-op)", () => {
+    const input = "*bold* _italic_ ~strike~ `code`";
+    const result = truncateForTelegram(input, 4096, "MarkdownV2");
+    expect(result).toBe(input);
+  });
 });
 
 describe("findUnescapedPositions", () => {

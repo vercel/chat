@@ -97,6 +97,52 @@ export function findUnescapedPositions(text: string, marker: string): number[] {
   return positions;
 }
 
+/**
+ * Like `findUnescapedPositions` but skips occurrences inside fenced code
+ * blocks (``` ```) or inline code spans (`` ` ``). Inside those regions
+ * Telegram treats `*`, `_`, `~`, `[`, `]` as literal text.
+ */
+function findUnescapedPositionsOutsideCode(
+  text: string,
+  marker: string
+): number[] {
+  const positions: number[] = [];
+  let inFence = false;
+  let inInline = false;
+  let backslashes = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch === "\\") {
+      backslashes++;
+      continue;
+    }
+
+    const escaped = backslashes % 2 === 1;
+    backslashes = 0;
+
+    if (ch === "`" && !escaped) {
+      const isTriple = text[i + 1] === "`" && text[i + 2] === "`";
+      if (isTriple && !inInline) {
+        inFence = !inFence;
+        i += 2;
+        continue;
+      }
+      if (!inFence) {
+        inInline = !inInline;
+      }
+      continue;
+    }
+
+    if (ch === marker && !escaped && !inFence && !inInline) {
+      positions.push(i);
+    }
+  }
+
+  return positions;
+}
+
 export function endsWithOrphanBackslash(text: string): boolean {
   let trailing = 0;
   for (let i = text.length - 1; i >= 0 && text[i] === "\\"; i--) {
@@ -130,7 +176,10 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
     let minUnsafePosition = current.length;
 
     for (const marker of MARKDOWN_V2_ENTITY_MARKERS) {
-      const positions = findUnescapedPositions(current, marker);
+      const positions =
+        marker === "`"
+          ? findUnescapedPositions(current, marker)
+          : findUnescapedPositionsOutsideCode(current, marker);
       if (positions.length % 2 === 1) {
         const lastUnpaired = positions.at(-1) ?? current.length;
         if (lastUnpaired < minUnsafePosition) {
@@ -139,8 +188,8 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
       }
     }
 
-    const openBrackets = findUnescapedPositions(current, "[");
-    const closeBrackets = findUnescapedPositions(current, "]");
+    const openBrackets = findUnescapedPositionsOutsideCode(current, "[");
+    const closeBrackets = findUnescapedPositionsOutsideCode(current, "]");
     if (openBrackets.length > closeBrackets.length) {
       const lastOpen = openBrackets.at(-1) ?? current.length;
       if (lastOpen < minUnsafePosition) {
@@ -174,11 +223,12 @@ export function truncateForTelegram(
   limit: number,
   parseMode: TelegramParseMode
 ): string {
+  const isMarkdownV2 = parseMode === "MarkdownV2";
+
   if (text.length <= limit) {
-    return text;
+    return isMarkdownV2 ? trimToMarkdownV2SafeBoundary(text) : text;
   }
 
-  const isMarkdownV2 = parseMode === "MarkdownV2";
   const ellipsis = isMarkdownV2 ? MARKDOWN_V2_ELLIPSIS : PLAIN_ELLIPSIS;
   let slice = text.slice(0, limit - ellipsis.length);
 
