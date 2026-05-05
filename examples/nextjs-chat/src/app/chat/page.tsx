@@ -4,7 +4,7 @@ import { useChat } from "@chat-adapter/web/react";
 import { type FormEvent, useState } from "react";
 
 export default function ChatPage() {
-  const { messages, sendMessage, status, stop } = useChat();
+  const { messages, sendMessage, status, stop, error } = useChat();
   const [input, setInput] = useState("");
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -95,6 +95,22 @@ export default function ChatPage() {
           })
         )}
       </div>
+
+      {error && (
+        <div
+          style={{
+            padding: "0.5rem 0.75rem",
+            marginBottom: "0.75rem",
+            borderRadius: 8,
+            background: "#fef2f2",
+            color: "#991b1b",
+            border: "1px solid #fecaca",
+            fontSize: 14,
+          }}
+        >
+          {error.message}
+        </div>
+      )}
 
       <form
         onSubmit={onSubmit}
