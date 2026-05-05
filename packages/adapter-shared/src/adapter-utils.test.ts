@@ -2,10 +2,10 @@
  * Tests for shared adapter utility functions.
  */
 
-import type { AdapterPostableMessage, FileUpload } from "chat";
+import type { AdapterPostableMessage, Attachment, FileUpload } from "chat";
 import { Card, CardText } from "chat";
 import { describe, expect, it } from "vitest";
-import { extractCard, extractFiles } from "./adapter-utils";
+import { extractAttachments, extractCard, extractFiles } from "./adapter-utils";
 
 describe("extractCard", () => {
   describe("with CardElement", () => {
@@ -224,6 +224,125 @@ describe("extractFiles", () => {
     it("returns empty array for undefined input", () => {
       // @ts-expect-error testing invalid input
       const result = extractFiles(undefined);
+      expect(result).toEqual([]);
+    });
+  });
+});
+
+describe("extractAttachments", () => {
+  describe("with attachments present", () => {
+    it("extracts attachments array from PostableRaw", () => {
+      const attachments: Attachment[] = [
+        { data: Buffer.from("content1"), name: "file1.txt", type: "file" },
+        { data: Buffer.from("content2"), name: "file2.txt", type: "file" },
+      ];
+      const message: AdapterPostableMessage = { raw: "Text", attachments };
+      const result = extractAttachments(message);
+      expect(result).toBe(attachments);
+      expect(result).toHaveLength(2);
+    });
+
+    it("extracts attachments array from PostableMarkdown", () => {
+      const attachments: Attachment[] = [
+        {
+          data: Buffer.from("image"),
+          name: "image.png",
+          mimeType: "image/png",
+          type: "image",
+        },
+      ];
+      const message: AdapterPostableMessage = {
+        markdown: "**Text**",
+        attachments,
+      };
+      const result = extractAttachments(message);
+      expect(result).toEqual(attachments);
+      expect(result[0].mimeType).toBe("image/png");
+    });
+
+    it("extracts attachments array from PostableCard", () => {
+      const card = Card({ title: "Test" });
+      const attachments: Attachment[] = [
+        { data: Buffer.from("doc"), name: "doc.pdf", type: "file" },
+      ];
+      const message: AdapterPostableMessage = { card, attachments };
+      const result = extractAttachments(message);
+      expect(result).toBe(attachments);
+    });
+
+    it("handles Blob data in attachments", () => {
+      const blob = new Blob(["content"], { type: "text/plain" });
+      const attachments: Attachment[] = [
+        { data: blob, name: "blob.txt", type: "file" },
+      ];
+      const message: AdapterPostableMessage = { raw: "Text", attachments };
+      const result = extractAttachments(message);
+      expect(result).toHaveLength(1);
+      expect(result[0].data).toBe(blob);
+    });
+
+    it("handles ArrayBuffer data in attachments", () => {
+      const buffer = new ArrayBuffer(8);
+      const attachments: Attachment[] = [
+        { data: buffer, name: "binary.bin", type: "file" },
+      ];
+      const message: AdapterPostableMessage = { raw: "Text", attachments };
+      const result = extractAttachments(message);
+      expect(result).toHaveLength(1);
+      expect(result[0].data).toBe(buffer);
+    });
+  });
+
+  describe("with empty or missing attachments", () => {
+    it("returns empty array when attachments property is empty array", () => {
+      const message: AdapterPostableMessage = { raw: "Text", attachments: [] };
+      const result = extractAttachments(message);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array when attachments property is undefined", () => {
+      const message = {
+        raw: "Text",
+        attachments: undefined,
+      } as AdapterPostableMessage;
+      const result = extractAttachments(message);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array for PostableRaw without attachments", () => {
+      const message: AdapterPostableMessage = { raw: "Just text" };
+      const result = extractAttachments(message);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array for PostableMarkdown without attachments", () => {
+      const message: AdapterPostableMessage = { markdown: "**Bold**" };
+      const result = extractAttachments(message);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("with non-object messages", () => {
+    it("returns empty array for plain string", () => {
+      const result = extractAttachments("Hello world");
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array for CardElement (no attachments property)", () => {
+      const card = Card({ title: "Test" });
+      const result = extractAttachments(card);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array for null input", () => {
+      // @ts-expect-error testing invalid input
+      const result = extractAttachments(null);
+      expect(result).toEqual([]);
+    });
+
+    it("returns empty array for undefined input", () => {
+      // @ts-expect-error testing invalid input
+      const result = extractAttachments(undefined);
       expect(result).toEqual([]);
     });
   });
