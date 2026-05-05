@@ -1,19 +1,20 @@
 /**
- * Slack-specific format conversion using AST-based parsing.
+ * Slack format conversion.
  *
- * Slack uses "mrkdwn" format which is similar but not identical to markdown:
- * - Bold: *text* (not **text**)
- * - Italic: _text_ (same)
- * - Strikethrough: ~text~ (not ~~text~~)
- * - Links: <url|text> (not [text](url))
- * - User mentions: <@U123>
- * - Channel mentions: <#C123|name>
+ * Outgoing: Slack now natively renders markdown via the `markdown_text` field
+ * on chat.postMessage / postEphemeral / update / scheduleMessage. We pass
+ * markdown through there and let Slack handle it. Interactive `response_url`
+ * payloads do not accept `markdown_text`, so those still use Slack mrkdwn text.
+ *
+ * Incoming: Slack `message` events still deliver text as mrkdwn
+ * (`*bold*`, `<@U123>`, `<url|text>`), so the toAst parser stays.
  */
 
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
   type Content,
+  convertEmojiPlaceholders,
   getNodeChildren,
   isBlockquoteNode,
   isCodeNode,
@@ -26,60 +27,32 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
-  type MdastTable,
   parseMarkdown,
   type Root,
+  stringifyMarkdown,
   tableToAscii,
 } from "chat";
-import type { SlackBlock } from "./cards";
 
 // Match bare @mentions (e.g. "@george") to rewrite as Slack's `<@george>`.
 // The lookbehind excludes `<` (already-formatted mentions like `<@U123>`) and
 // any word character, so email addresses like `user@example.com` are left alone.
 const BARE_MENTION_REGEX = /(?<![<\w])@(\w+)/g;
 
+export type SlackTextPayload = { text: string } | { markdown_text: string };
+
 export class SlackFormatConverter extends BaseFormatConverter {
   /**
-   * Convert @mentions to Slack format in plain text.
-   * @name → <@name>
-   */
-  private convertMentionsToSlack(text: string): string {
-    return text.replace(BARE_MENTION_REGEX, "<@$1>");
-  }
-
-  /**
-   * Override renderPostable to convert @mentions in plain strings.
-   */
-  override renderPostable(message: AdapterPostableMessage): string {
-    if (typeof message === "string") {
-      return this.convertMentionsToSlack(message);
-    }
-    if ("raw" in message) {
-      return this.convertMentionsToSlack(message.raw);
-    }
-    if ("markdown" in message) {
-      return this.fromAst(parseMarkdown(message.markdown));
-    }
-    if ("ast" in message) {
-      return this.fromAst(message.ast);
-    }
-    return "";
-  }
-
-  /**
-   * Render an AST to Slack mrkdwn format.
+   * Render an AST to standard markdown. Slack accepts this directly via
+   * `markdown_text` and the `markdown` block.
    */
   fromAst(ast: Root): string {
-    return this.fromAstWithNodeConverter(ast, (node) =>
-      this.nodeToMrkdwn(node)
-    );
+    return stringifyMarkdown(ast);
   }
 
   /**
-   * Parse Slack mrkdwn into an AST.
+   * Parse Slack mrkdwn into an AST. Used for incoming `message` events.
    */
   toAst(mrkdwn: string): Root {
-    // Convert Slack mrkdwn to standard markdown string, then parse
     let markdown = mrkdwn;
 
     // User mentions: <@U123|name> -> @name or <@U123> -> @U123
@@ -99,8 +72,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     // Bare links: <url> -> url
     markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
 
-    // Bold: *text* -> **text** (but be careful with emphasis)
-    // This is tricky because Slack uses * for bold, not emphasis
+    // Bold: *text* -> **text** (Slack uses single * for bold)
     markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
 
     // Strikethrough: ~text~ -> ~~text~~
@@ -110,63 +82,72 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   /**
-   * Convert AST to Slack blocks, using a native table block for the first table.
-   * Returns null if the AST contains no tables (caller should use regular text).
-   * Slack allows at most one table block per message; additional tables use ASCII.
+   * Build the Slack API payload fields for a message.
+   *
+   * - `string` / `{ raw }` → `{ text }` (plain — preserves literal `*`, `_`, etc.)
+   * - `{ markdown }` / `{ ast }` → `{ markdown_text }` (Slack renders natively)
+   *
+   * Bare `@user` mentions are rewritten to `<@user>` and `:emoji:` placeholders
+   * are normalized for Slack in all branches.
+   *
+   * Note: `markdown_text` has a 12,000 character limit; `text` allows ~40,000.
+   * Note: `markdown_text` is mutually exclusive with `text` and `blocks`.
    */
-  toBlocksWithTable(ast: Root): SlackBlock[] | null {
-    const hasTable = ast.children.some((node) => isTableNode(node as Content));
-    if (!hasTable) {
-      return null;
+  toSlackPayload(message: AdapterPostableMessage): SlackTextPayload {
+    if (typeof message === "string") {
+      return { text: this.finalize(message) };
     }
-
-    const blocks: SlackBlock[] = [];
-    let usedNativeTable = false;
-    let textBuffer: string[] = [];
-
-    const flushText = () => {
-      if (textBuffer.length > 0) {
-        const text = textBuffer.join("\n\n");
-        if (text.trim()) {
-          blocks.push({
-            type: "section",
-            text: { type: "mrkdwn", text },
-          });
-        }
-        textBuffer = [];
-      }
-    };
-
-    for (const child of ast.children) {
-      const node = child as Content;
-      if (isTableNode(node)) {
-        flushText();
-        if (usedNativeTable) {
-          // Additional tables fall back to ASCII in a code block
-          blocks.push({
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `\`\`\`\n${tableToAscii(node)}\n\`\`\``,
-            },
-          });
-        } else {
-          blocks.push(
-            mdastTableToSlackBlock(node, this.nodeToMrkdwn.bind(this))
-          );
-          usedNativeTable = true;
-        }
-      } else {
-        textBuffer.push(this.nodeToMrkdwn(node));
-      }
+    if ("raw" in message) {
+      return { text: this.finalize(message.raw) };
     }
+    if ("markdown" in message) {
+      return { markdown_text: this.finalize(message.markdown) };
+    }
+    if ("ast" in message) {
+      return { markdown_text: this.finalize(stringifyMarkdown(message.ast)) };
+    }
+    return { text: "" };
+  }
 
-    flushText();
-    return blocks;
+  /**
+   * Build text for Slack response_url payloads.
+   *
+   * Slack rejects `markdown_text` on response_url (`no_text`), so markdown/AST
+   * messages are rendered to Slack's legacy mrkdwn format for this surface.
+   */
+  toResponseUrlText(message: AdapterPostableMessage): string {
+    if (typeof message === "string") {
+      return this.finalize(message);
+    }
+    if ("raw" in message) {
+      return this.finalize(message.raw);
+    }
+    if ("markdown" in message) {
+      return convertEmojiPlaceholders(
+        this.astToMrkdwn(parseMarkdown(message.markdown)),
+        "slack"
+      );
+    }
+    if ("ast" in message) {
+      return convertEmojiPlaceholders(this.astToMrkdwn(message.ast), "slack");
+    }
+    return "";
+  }
+
+  private finalize(text: string): string {
+    return convertEmojiPlaceholders(
+      text.replace(BARE_MENTION_REGEX, "<@$1>"),
+      "slack"
+    );
+  }
+
+  private astToMrkdwn(ast: Root): string {
+    return this.fromAstWithNodeConverter(ast, (node) =>
+      this.nodeToMrkdwn(node)
+    );
   }
 
   private nodeToMrkdwn(node: Content): string {
-    // Use type guards for type-safe node handling
     if (isParagraphNode(node)) {
       return getNodeChildren(node)
         .map((child) => this.nodeToMrkdwn(child))
@@ -174,12 +155,10 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      // Convert @mentions to Slack format <@mention>
       return node.value.replace(BARE_MENTION_REGEX, "<@$1>");
     }
 
     if (isStrongNode(node)) {
-      // Markdown **text** -> Slack *text*
       const content = getNodeChildren(node)
         .map((child) => this.nodeToMrkdwn(child))
         .join("");
@@ -187,7 +166,6 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isEmphasisNode(node)) {
-      // Both use _text_
       const content = getNodeChildren(node)
         .map((child) => this.nodeToMrkdwn(child))
         .join("");
@@ -195,7 +173,6 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isDeleteNode(node)) {
-      // Markdown ~~text~~ -> Slack ~text~
       const content = getNodeChildren(node)
         .map((child) => this.nodeToMrkdwn(child))
         .join("");
@@ -214,7 +191,6 @@ export class SlackFormatConverter extends BaseFormatConverter {
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToMrkdwn(child))
         .join("");
-      // Markdown [text](url) -> Slack <url|text>
       return `<${node.url}|${linkText}>`;
     }
 
@@ -243,45 +219,3 @@ export class SlackFormatConverter extends BaseFormatConverter {
     return this.defaultNodeToText(node, (child) => this.nodeToMrkdwn(child));
   }
 }
-
-/**
- * Convert an mdast Table node to a Slack table block.
- * Uses the table block schema: first row = headers, cells are raw_text,
- * column_settings carries alignment from mdast.
- * @see https://docs.slack.dev/reference/block-kit/blocks/table-block/
- */
-function mdastTableToSlackBlock(
-  node: MdastTable,
-  cellConverter: (node: Content) => string
-): SlackBlock {
-  const rows: Array<Array<{ type: "raw_text"; text: string }>> = [];
-
-  for (const row of node.children) {
-    const cells = getNodeChildren(row).map((cell) => {
-      // Convert cell children to text, defaulting to space if empty.
-      // Slack API requires text to be at least 1 character.
-      // Use explicit length check rather than falsy check to be defensive
-      // against edge cases (e.g., unusual whitespace or encoding issues).
-      const rawText = getNodeChildren(cell).map(cellConverter).join("");
-      const text = rawText.length > 0 ? rawText : " ";
-      return { type: "raw_text" as const, text };
-    });
-    rows.push(cells);
-  }
-
-  const block: SlackBlock = { type: "table", rows };
-
-  if (node.align) {
-    const columnSettings = node.align.map(
-      (a: "left" | "center" | "right" | null) => ({
-        align: a || "left",
-      })
-    );
-    block.column_settings = columnSettings;
-  }
-
-  return block;
-}
-
-// Backwards compatibility alias
-export { SlackFormatConverter as SlackMarkdownConverter };

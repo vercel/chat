@@ -1326,7 +1326,7 @@ describe("renderFormatted", () => {
     logger: mockLogger,
   });
 
-  it("renders AST to Slack mrkdwn format", () => {
+  it("renders AST to standard markdown (Slack now accepts markdown natively)", () => {
     const ast = {
       type: "root" as const,
       children: [
@@ -1343,7 +1343,7 @@ describe("renderFormatted", () => {
     };
 
     const result = adapter.renderFormatted(ast);
-    expect(result).toBe("*bold*");
+    expect(result.trim()).toBe("**bold**");
   });
 });
 
@@ -5303,16 +5303,24 @@ describe("editMessage via response_url", () => {
       .spyOn(global, "fetch")
       .mockResolvedValue(new Response("ok", { status: 200 }));
 
-    await adapter.editMessage(
-      "slack:C123:1234567890.000000",
-      ephemeralId,
-      "Updated text"
-    );
+    await adapter.editMessage("slack:C123:1234567890.000000", ephemeralId, {
+      markdown:
+        "**Updated** [text](https://example.com)\n\n| A | B |\n|---|---|\n| 1 | 2 |",
+    });
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://hooks.slack.com/respond",
       expect.objectContaining({ method: "POST" })
     );
+    const callBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(callBody).toEqual(
+      expect.objectContaining({
+        replace_original: true,
+        text: expect.stringContaining("*Updated* <https://example.com|text>"),
+      })
+    );
+    expect(callBody.text).toContain("```");
+    expect(callBody).not.toHaveProperty("markdown_text");
     fetchSpy.mockRestore();
   });
 });

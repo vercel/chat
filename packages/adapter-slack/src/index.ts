@@ -37,7 +37,6 @@ import type {
   PlanModel,
   RawMessage,
   ReactionEvent,
-  Root,
   ScheduledMessage,
   SelectOptionElement,
   StreamChunk,
@@ -50,7 +49,6 @@ import type {
 
 import {
   ConsoleLogger,
-  convertEmojiPlaceholders,
   defaultEmojiResolver,
   isJSX,
   Message,
@@ -59,7 +57,7 @@ import {
   toModalElement,
   toPlainText,
 } from "chat";
-import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
+import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
   decodeKey,
@@ -3039,38 +3037,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return message;
   }
 
-  /**
-   * Try to render a message using native Slack table blocks.
-   * Returns blocks + fallback text if the message contains tables, null otherwise.
-   */
-  private renderWithTableBlocks(
-    message: AdapterPostableMessage
-  ): { text: string; blocks: SlackBlock[] } | null {
-    let ast: Root | null = null;
-    if (typeof message === "object" && message !== null) {
-      if ("ast" in message) {
-        ast = (message as { ast: Root }).ast;
-      } else if ("markdown" in message) {
-        ast = parseMarkdown((message as { markdown: string }).markdown);
-      }
-    }
-    if (!ast) {
-      return null;
-    }
-
-    const blocks = this.formatConverter.toBlocksWithTable(ast);
-    if (!blocks) {
-      return null;
-    }
-
-    // Use regular rendering as fallback text for notifications
-    const fallbackText = convertEmojiPlaceholders(
-      this.formatConverter.renderPostable(message),
-      "slack"
-    );
-    return { text: fallbackText, blocks };
-  }
-
   async postMessage(
     threadId: string,
     _message: AdapterPostableMessage
@@ -3144,55 +3110,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         };
       }
 
-      // Check for tables in markdown/AST messages → use native table blocks
-      const tableResult = this.renderWithTableBlocks(message);
-      if (tableResult) {
-        this.logger.debug("Slack API: chat.postMessage (table blocks)", {
-          channel,
-          threadTs,
-          blockCount: tableResult.blocks.length,
-        });
-
-        const result = await this.client.chat.postMessage(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            text: tableResult.text,
-            blocks: tableResult.blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-          })
-        );
-
-        this.logger.debug("Slack API: chat.postMessage response", {
-          messageId: result.ts,
-          ok: result.ok,
-        });
-
-        return {
-          id: result.ts as string,
-          threadId,
-          raw: result,
-        };
-      }
-
-      // Regular text message
-      const text = convertEmojiPlaceholders(
-        this.formatConverter.renderPostable(message),
-        "slack"
-      );
+      const payload = this.formatConverter.toSlackPayload(message);
 
       this.logger.debug("Slack API: chat.postMessage", {
         channel,
         threadTs,
-        textLength: text.length,
+        payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
       const result = await this.client.chat.postMessage(
         await this.withToken({
           channel,
           thread_ts: threadTs,
-          text,
+          ...payload,
           unfurl_links: false,
           unfurl_media: false,
         })
@@ -3261,50 +3191,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         };
       }
 
-      // Check for tables in markdown/AST messages → use native table blocks
-      const tableResult = this.renderWithTableBlocks(message);
-      if (tableResult) {
-        this.logger.debug("Slack API: chat.postEphemeral (table blocks)", {
-          channel,
-          threadTs,
-          userId,
-          blockCount: tableResult.blocks.length,
-        });
-
-        const result = await this.client.chat.postEphemeral(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            user: userId,
-            text: tableResult.text,
-            blocks: tableResult.blocks,
-          })
-        );
-
-        this.logger.debug("Slack API: chat.postEphemeral response", {
-          messageTs: result.message_ts,
-          ok: result.ok,
-        });
-
-        return {
-          id: result.message_ts || "",
-          threadId,
-          usedFallback: false,
-          raw: result,
-        };
-      }
-
-      // Regular text message
-      const text = convertEmojiPlaceholders(
-        this.formatConverter.renderPostable(message),
-        "slack"
-      );
+      const payload = this.formatConverter.toSlackPayload(message);
 
       this.logger.debug("Slack API: chat.postEphemeral", {
         channel,
         threadTs,
         userId,
-        textLength: text.length,
+        payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
       const result = await this.client.chat.postEphemeral(
@@ -3312,7 +3205,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           channel,
           thread_ts: threadTs,
           user: userId,
-          text,
+          ...payload,
         })
       );
 
@@ -3408,17 +3301,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         };
       }
 
-      // Regular text message
-      const text = convertEmojiPlaceholders(
-        this.formatConverter.renderPostable(message),
-        "slack"
-      );
+      const payload = this.formatConverter.toSlackPayload(message);
 
       this.logger.debug("Slack API: chat.scheduleMessage", {
         channel,
         threadTs,
         postAt: postAtUnix,
-        textLength: text.length,
+        payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
       const result = await this.client.chat.scheduleMessage({
@@ -3426,7 +3315,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         channel,
         thread_ts: threadTs,
         post_at: postAtUnix,
-        text,
+        ...payload,
         unfurl_links: false,
         unfurl_media: false,
       });
@@ -3639,53 +3528,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         };
       }
 
-      // Check for tables in markdown/AST messages → use native table blocks
-      const tableResult = this.renderWithTableBlocks(message);
-      if (tableResult) {
-        this.logger.debug("Slack API: chat.update (table blocks)", {
-          channel,
-          messageId,
-          blockCount: tableResult.blocks.length,
-        });
-
-        const result = await this.client.chat.update(
-          await this.withToken({
-            channel,
-            ts: messageId,
-            text: tableResult.text,
-            blocks: tableResult.blocks,
-          })
-        );
-
-        this.logger.debug("Slack API: chat.update response", {
-          messageId: result.ts,
-          ok: result.ok,
-        });
-
-        return {
-          id: result.ts as string,
-          threadId,
-          raw: result,
-        };
-      }
-
-      // Regular text message
-      const text = convertEmojiPlaceholders(
-        this.formatConverter.renderPostable(message),
-        "slack"
-      );
+      const payload = this.formatConverter.toSlackPayload(message);
 
       this.logger.debug("Slack API: chat.update", {
         channel,
         messageId,
-        textLength: text.length,
+        payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
       const result = await this.client.chat.update(
         await this.withToken({
           channel,
           ts: messageId,
-          text,
+          ...payload,
         })
       );
 
@@ -4982,22 +4837,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blocks: cardToBlockKit(card),
         };
       } else {
-        const tableResult = this.renderWithTableBlocks(message);
-        if (tableResult) {
-          payload = {
-            replace_original: true,
-            text: tableResult.text,
-            blocks: tableResult.blocks,
-          };
-        } else {
-          payload = {
-            replace_original: true,
-            text: convertEmojiPlaceholders(
-              this.formatConverter.renderPostable(message),
-              "slack"
-            ),
-          };
-        }
+        payload = {
+          replace_original: true,
+          text: this.formatConverter.toResponseUrlText(message),
+        };
       }
       if (options?.threadTs) {
         payload.thread_ts = options.threadTs;
