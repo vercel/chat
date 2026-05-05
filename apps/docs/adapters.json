@@ -260,7 +260,6 @@
     "type": "state",
     "description": "DynamoDB state adapter for production environments.",
     "packageName": "@chat-adapter/state-dynamodb",
-    "icon": "dynamodb",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-dynamodb"
   }
