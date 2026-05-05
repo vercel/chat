@@ -13,6 +13,7 @@
     "state",
     "---Features---",
     "concurrency",
+    "conversation-history",
     "...",
     "error-handling",
     "---API Reference---",

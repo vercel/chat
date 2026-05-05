@@ -22,6 +22,7 @@ import {
   Table,
   CardText as Text,
   TextInput,
+  type TranscriptEntry,
   toAiMessages,
 } from "chat";
 import { buildAdapters } from "./adapters";
@@ -30,6 +31,12 @@ const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
+
+// Hardcoded user key for testing the Transcripts API — every inbound message
+// is persisted under this single key, so you can exercise append/list/delete
+// without juggling real user identities. Swap the `identity` resolver below
+// for `({ author }) => author.email ?? author.userId` in production.
+const TEST_USER_KEY = "test-user";
 
 const state = process.env.REDIS_URL
   ? createRedisState({
@@ -42,7 +49,6 @@ const adapters = buildAdapters();
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
-  history?: AiMessage[];
 }
 
 // Create the bot instance with typed thread state
@@ -52,6 +58,17 @@ export const bot = new Chat<typeof adapters, ThreadState>({
   adapters,
   state,
   logger: "debug",
+
+  // Hardcoded for testing — see `TEST_USER_KEY` above.
+  identity: () => TEST_USER_KEY,
+
+  // Persist a per-user transcript across every adapter the user talks
+  // through. Used below to backfill conversation context for platforms
+  // that don't expose server-side message history.
+  transcripts: {
+    retention: "30d",
+    maxPerUser: 100,
+  },
 });
 
 // AI agent for AI mode
@@ -60,6 +77,14 @@ const agent = new ToolLoopAgent({
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
+
+// Map transcript entries to AI SDK chat-message shape.
+function transcriptToAiMessages(entries: TranscriptEntry[]): AiMessage[] {
+  return entries.map((entry) => ({
+    role: entry.role === "assistant" ? "assistant" : "user",
+    content: entry.text,
+  }));
+}
 
 // Handle new @mentions of the bot
 bot.onNewMention(async (thread, message) => {
@@ -122,6 +147,10 @@ bot.onNewMention(async (thread, message) => {
           Send Feedback
         </Button>
         <Button id="messages">Fetch Messages</Button>
+        <Button id="transcripts">Show Transcripts</Button>
+        <Button id="clear-transcripts" style="danger">
+          Clear Transcripts
+        </Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="show-table">Show Table</Button>
         <Button id="who-am-i">Who Am I</Button>
@@ -595,7 +624,62 @@ bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
-// Demonstrate fetchMessages and allMessages
+// Demonstrate bot.transcripts.list / count / delete
+bot.onAction("transcripts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const entries = await bot.transcripts.list({
+    userKey: TEST_USER_KEY,
+    limit: 50,
+  });
+
+  if (entries.length === 0) {
+    await event.thread.post(
+      <Card title={`${emoji.memo} Transcripts`}>
+        <Text>No entries stored yet for `{TEST_USER_KEY}`.</Text>
+        <Text>
+          Mention the bot with "AI" to enable AI mode, then send a few messages
+          — they'll be persisted here.
+        </Text>
+      </Card>
+    );
+    return;
+  }
+
+  const truncate = (s: string, n = 80) =>
+    s.length > n ? `${s.slice(0, n)}…` : s;
+  const lines = entries
+    .map(
+      (e, i) =>
+        `${i + 1}. **[${e.role}]** \`${e.platform}\` — ${truncate(e.text)}`
+    )
+    .join("\n");
+
+  await event.thread.post(
+    <Card
+      subtitle={`userKey: ${TEST_USER_KEY}`}
+      title={`${emoji.memo} Transcripts (${entries.length})`}
+    >
+      <Text>{lines}</Text>
+    </Card>
+  );
+});
+
+bot.onAction("clear-transcripts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { deleted } = await bot.transcripts.delete({
+    userKey: TEST_USER_KEY,
+  });
+  await event.thread.post(
+    <Card title={`${emoji.check} Transcripts cleared`}>
+      <Text>{`Removed ${deleted} entr${deleted === 1 ? "y" : "ies"} for \`${TEST_USER_KEY}\`.`}</Text>
+    </Card>
+  );
+});
+
 bot.onAction("messages", async (event) => {
   if (!event.thread) {
     return;
@@ -784,28 +868,36 @@ bot.onSubscribedMessage(async (thread, message) => {
 
   // If AI mode is enabled (or this is a DM), use the AI agent
   if (threadState?.aiMode) {
+    // Capture the user's message in their cross-platform transcript so we can
+    // backfill context on platforms without server-side history.
+    await bot.transcripts.append(thread, message);
+
     // Build conversation history: try fetchMessages first, then fall back to
-    // stored history in thread state (for platforms without message history API)
+    // the user's stored transcript (filtered to this thread) for platforms
+    // without a message history API.
     let history: AiMessage[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
-      if (result.messages.length > 0) {
-        history = await toAiMessages(result.messages);
-      } else {
-        // No messages from API — use stored history + current message
-        history = [
-          ...(threadState?.history ?? []),
-          { role: "user" as const, content: message.text },
-        ];
-      }
+      history =
+        result.messages.length > 0
+          ? await toAiMessages(result.messages)
+          : transcriptToAiMessages(
+              await bot.transcripts.list({
+                userKey: message.userKey ?? "",
+                threadId: thread.id,
+                limit: 20,
+              })
+            );
     } catch {
-      // fetchMessages not supported — use stored history + current message
-      history = [
-        ...(threadState?.history ?? []),
-        { role: "user" as const, content: message.text },
-      ];
+      history = transcriptToAiMessages(
+        await bot.transcripts.list({
+          userKey: message.userKey ?? "",
+          threadId: thread.id,
+          limit: 20,
+        })
+      );
     }
 
     await thread.startTyping("Thinking...");
@@ -813,9 +905,15 @@ bot.onSubscribedMessage(async (thread, message) => {
       const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
       const responseText = await result.text;
-      // Persist updated history for platforms without message history API
-      history.push({ role: "assistant", content: responseText });
-      await thread.setState({ history });
+      // Persist the assistant reply alongside the user message, so the next
+      // turn can read both sides of the conversation from the transcript.
+      if (message.userKey) {
+        await bot.transcripts.append(
+          thread,
+          { role: "assistant", text: responseText },
+          { userKey: message.userKey }
+        );
+      }
     } catch (err) {
       console.error("Error in AI response:", err);
       await thread.post(

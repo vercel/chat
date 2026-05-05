@@ -1,16 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
-
-import { MessageHistoryCache } from "./message-history";
 import type { MockStateAdapter } from "./mock-adapter";
 import { createMockState, createTestMessage } from "./mock-adapter";
+import { ThreadHistoryCache } from "./thread-history";
 
-describe("MessageHistoryCache", () => {
+describe("ThreadHistoryCache", () => {
   let state: MockStateAdapter;
-  let cache: MessageHistoryCache;
+  let cache: ThreadHistoryCache;
 
   beforeEach(() => {
     state = createMockState();
-    cache = new MessageHistoryCache(state);
+    cache = new ThreadHistoryCache(state);
   });
 
   it("should append and retrieve messages", async () => {
@@ -42,7 +41,7 @@ describe("MessageHistoryCache", () => {
   });
 
   it("should trim to maxMessages, keeping newest", async () => {
-    const smallCache = new MessageHistoryCache(state, { maxMessages: 3 });
+    const smallCache = new ThreadHistoryCache(state, { maxMessages: 3 });
 
     for (let i = 1; i <= 5; i++) {
       await smallCache.append(
@@ -102,5 +101,19 @@ describe("MessageHistoryCache", () => {
     expect(msgs1[0].text).toBe("Thread 1");
     expect(msgs2).toHaveLength(1);
     expect(msgs2[0].text).toBe("Thread 2");
+  });
+});
+
+describe("MessageHistoryCache (deprecated alias)", () => {
+  it("re-exports ThreadHistoryCache under the old name", async () => {
+    const { MessageHistoryCache } = await import("./message-history");
+    expect(MessageHistoryCache).toBe(ThreadHistoryCache);
+
+    const state = createMockState();
+    const cache = new MessageHistoryCache(state);
+    await cache.append("t-1", createTestMessage("m1", "hello"));
+    const msgs = await cache.getMessages("t-1");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].text).toBe("hello");
   });
 });

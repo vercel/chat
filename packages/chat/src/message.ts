@@ -145,6 +145,17 @@ export class Message<TRawMessage = unknown> {
    */
   isMention?: boolean;
 
+  /**
+   * Cross-platform user key for this message's author.
+   *
+   * Set by the Chat SDK before passing the message to handlers, when
+   * `ChatConfig.identity` is configured. `undefined` if no resolver is
+   * configured; `undefined` (i.e. absent) when the resolver returned null.
+   *
+   * Used by the Transcripts API to look up / append per-user transcripts.
+   */
+  userKey?: string;
+
   /** Links found in the message */
   links: LinkPreview[];
 

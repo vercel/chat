@@ -23,7 +23,9 @@ export {
   type SerializedMessage,
 } from "./message";
 export {
+  /** @deprecated Use `ThreadHistoryCache` instead. */
   MessageHistoryCache,
+  /** @deprecated Use `ThreadHistoryConfig` instead. */
   type MessageHistoryConfig,
 } from "./message-history";
 export type {
@@ -51,6 +53,10 @@ export {
   type StreamingPlanOptions,
 } from "./streaming-plan";
 export { type SerializedThread, ThreadImpl } from "./thread";
+export {
+  ThreadHistoryCache,
+  type ThreadHistoryConfig,
+} from "./thread-history";
 
 // Card builders - import then re-export to ensure values are properly exported
 import {
@@ -293,6 +299,8 @@ export type {
   ActionHandler,
   Adapter,
   AdapterPostableMessage,
+  AppendInput,
+  AppendOptions,
   AppHomeOpenedEvent,
   AppHomeOpenedHandler,
   AssistantContextChangedEvent,
@@ -308,8 +316,11 @@ export type {
   ChatInstance,
   ConcurrencyConfig,
   ConcurrencyStrategy,
+  CountQuery,
   CustomEmojiMap,
+  DeleteTarget,
   DirectMessageHandler,
+  DurationString,
   Emoji,
   EmojiFormats,
   EmojiMapConfig,
@@ -319,7 +330,10 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  IdentityContext,
+  IdentityResolver,
   LinkPreview,
+  ListQuery,
   ListThreadsOptions,
   ListThreadsResult,
   Lock,
@@ -373,6 +387,10 @@ export type {
   Thread,
   ThreadInfo,
   ThreadSummary,
+  TranscriptEntry,
+  TranscriptRole,
+  TranscriptsApi,
+  TranscriptsConfig,
   UserInfo,
   WebhookOptions,
   WellKnownEmoji,

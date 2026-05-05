@@ -14,9 +14,9 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message, type SerializedMessage } from "./message";
-import type { MessageHistoryCache } from "./message-history";
 import { isPostableObject, postPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
+import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -65,9 +65,9 @@ interface ThreadImplConfigWithAdapter {
   isDM?: boolean;
   isSubscribedContext?: boolean;
   logger?: Logger;
-  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
+  threadHistory?: ThreadHistoryCache;
 }
 
 /**
@@ -134,8 +134,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private readonly _fallbackStreamingPlaceholderText: string | null;
   /** Cached channel instance */
   private _channel?: Channel<TState>;
-  /** Message history cache (set only for adapters with persistMessageHistory) */
-  private readonly _messageHistory?: MessageHistoryCache;
+  /** Thread history cache (set only for adapters with persistThreadHistory) */
+  private readonly _threadHistory?: ThreadHistoryCache;
   private readonly _logger?: Logger;
 
   constructor(config: ThreadImplConfig) {
@@ -159,7 +159,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       // Direct mode - store adapter and state instances
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
-      this._messageHistory = config.messageHistory;
+      this._threadHistory = config.threadHistory;
     }
 
     if (config.initialMessage) {
@@ -261,7 +261,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         stateAdapter: this._stateAdapter,
         isDM: this.isDM,
         channelVisibility: this.channelVisibility,
-        messageHistory: this._messageHistory,
+        threadHistory: this._threadHistory,
       });
     }
     return this._channel;
@@ -274,7 +274,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const threadId = this.id;
-    const messageHistory = this._messageHistory;
+    const threadHistory = this._threadHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -303,8 +303,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && messageHistory) {
-          const cached = await messageHistory.getMessages(threadId);
+        if (!yieldedAny && threadHistory) {
+          const cached = await threadHistory.getMessages(threadId);
           // Yield newest first
           for (let i = cached.length - 1; i >= 0; i--) {
             yield cached[i];
@@ -317,7 +317,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   get allMessages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const threadId = this.id;
-    const messageHistory = this._messageHistory;
+    const threadHistory = this._threadHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -346,8 +346,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && messageHistory) {
-          const cached = await messageHistory.getMessages(threadId);
+        if (!yieldedAny && threadHistory) {
+          const cached = await threadHistory.getMessages(threadId);
           for (const message of cached) {
             yield message;
           }
@@ -469,8 +469,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
     );
 
     // Cache sent message for adapters with persistent history
-    if (this._messageHistory) {
-      await this._messageHistory.append(this.id, new Message(result));
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(result));
     }
 
     return result;
@@ -615,8 +615,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
         raw.threadId
       );
 
-      if (this._messageHistory) {
-        await this._messageHistory.append(this.id, new Message(sent));
+      if (this._threadHistory) {
+        await this._threadHistory.append(this.id, new Message(sent));
       }
 
       return sent;
@@ -808,8 +808,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       threadIdForEdits
     );
 
-    if (this._messageHistory) {
-      await this._messageHistory.append(this.id, new Message(sent));
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(sent));
     }
 
     return sent;
@@ -819,12 +819,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const result = await this.adapter.fetchMessages(this.id, { limit: 50 });
     if (result.messages.length > 0) {
       this._recentMessages = result.messages;
-    } else if (this._messageHistory) {
+    } else if (this._threadHistory) {
       // Fall back to cached history for adapters without native message APIs
-      this._recentMessages = await this._messageHistory.getMessages(
-        this.id,
-        50
-      );
+      this._recentMessages = await this._threadHistory.getMessages(this.id, 50);
     } else {
       this._recentMessages = [];
     }

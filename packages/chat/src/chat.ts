@@ -6,10 +6,11 @@ import {
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage } from "./message";
-import { MessageHistoryCache } from "./message-history";
 import type { ModalElement } from "./modals";
 import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
+import { ThreadHistoryCache } from "./thread-history";
+import { TranscriptsApiImpl } from "./transcripts";
 import type {
   ActionEvent,
   ActionHandler,
@@ -30,6 +31,7 @@ import type {
   DirectMessageHandler,
   EmojiValue,
   FormattedContent,
+  IdentityResolver,
   LinkPreview,
   Lock,
   LockScope,
@@ -56,6 +58,7 @@ import type {
   StateAdapter,
   SubscribedMessageHandler,
   Thread,
+  TranscriptsApi,
   UserInfo,
   WebhookOptions,
 } from "./types";
@@ -192,6 +195,22 @@ export class Chat<
   }
 
   /**
+   * Cross-platform per-user transcript store.
+   *
+   * Available only when `transcripts` is configured on the Chat instance
+   * (and an `identity` resolver is set). Throws on access otherwise so
+   * callers fail loudly rather than silently no-op'ing.
+   */
+  get transcripts(): TranscriptsApi {
+    if (!this._transcripts) {
+      throw new Error(
+        "chat.transcripts is not configured — pass `transcripts` and `identity` to ChatConfig to enable it"
+      );
+    }
+    return this._transcripts;
+  }
+
+  /**
    * Get the registered singleton Chat instance.
    * Throws if no singleton has been registered.
    */
@@ -214,7 +233,9 @@ export class Chat<
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
-  private readonly _messageHistory: MessageHistoryCache;
+  private readonly _threadHistory: ThreadHistoryCache;
+  private readonly _identity: IdentityResolver | undefined;
+  private readonly _transcripts: TranscriptsApiImpl | undefined;
   private readonly _concurrencyStrategy: ConcurrencyStrategy;
   private readonly _concurrencyConfig: Required<
     Omit<ConcurrencyConfig, "strategy">
@@ -324,10 +345,25 @@ export class Chat<
       };
     }
 
-    this._messageHistory = new MessageHistoryCache(
+    this._threadHistory = new ThreadHistoryCache(
       this._stateAdapter,
-      config.messageHistory
+      config.threadHistory ?? config.messageHistory
     );
+
+    if (config.transcripts) {
+      if (!config.identity) {
+        throw new Error(
+          "ChatConfig.transcripts requires ChatConfig.identity to be set — the cross-platform user key must be resolvable"
+        );
+      }
+      this._identity = config.identity;
+      this._transcripts = new TranscriptsApiImpl(
+        this._stateAdapter,
+        config.transcripts
+      );
+    } else {
+      this._identity = config.identity;
+    }
 
     // Register adapters and create webhook handlers
     const webhooks = {} as Record<string, WebhookHandler>;
@@ -1888,11 +1924,11 @@ export class Chat<
     // Persist incoming message BEFORE acquiring the lock.
     // If the lock is already held (e.g., bot is processing a previous message),
     // we still want to save this message to history so it's not lost.
-    if (adapter.persistMessageHistory) {
+    if (adapter.persistThreadHistory || adapter.persistMessageHistory) {
       const channelId = adapter.channelIdFromThreadId(threadId);
-      const appends = [this._messageHistory.append(threadId, message)];
+      const appends = [this._threadHistory.append(threadId, message)];
       if (channelId !== threadId) {
-        appends.push(this._messageHistory.append(channelId, message));
+        appends.push(this._threadHistory.append(channelId, message));
       }
       await Promise.all(appends);
     }
@@ -2286,6 +2322,29 @@ export class Chat<
       isSubscribed
     );
 
+    // Resolve cross-platform user key (Transcripts API). Cached on the Message
+    // instance so handlers and the Transcripts API see the same value without
+    // re-invoking the resolver.
+    if (this._identity && message.userKey === undefined) {
+      try {
+        const resolved = await this._identity({
+          adapter: adapter.name,
+          author: message.author,
+          message,
+        });
+        if (resolved) {
+          message.userKey = resolved;
+        }
+      } catch (err) {
+        this.logger.warn("Identity resolver threw; skipping userKey", {
+          error: err,
+          adapter: adapter.name,
+          threadId,
+          authorUserId: message.author.userId,
+        });
+      }
+    }
+
     // Check for DM first - always route to direct message handlers
     const isDM = adapter.isDM?.(threadId) ?? false;
     if (isDM && this.directMessageHandlers.length > 0) {
@@ -2391,9 +2450,10 @@ export class Chat<
       logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
-      messageHistory: adapter.persistMessageHistory
-        ? this._messageHistory
-        : undefined,
+      threadHistory:
+        adapter.persistThreadHistory || adapter.persistMessageHistory
+          ? this._threadHistory
+          : undefined,
     });
   }
 

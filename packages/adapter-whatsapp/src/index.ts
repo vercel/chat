@@ -117,7 +117,7 @@ export class WhatsAppAdapter
 {
   readonly name = "whatsapp";
   readonly lockScope = "channel" as const;
-  readonly persistMessageHistory = true;
+  readonly persistThreadHistory = true;
   readonly userName: string;
 
   private readonly accessToken: string;

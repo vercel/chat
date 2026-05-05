@@ -11,8 +11,8 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
-import type { MessageHistoryCache } from "./message-history";
 import { isPostableObject, postPostableObject } from "./postable-object";
+import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -53,8 +53,8 @@ interface ChannelImplConfigWithAdapter {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
-  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
+  threadHistory?: ThreadHistoryCache;
 }
 
 /**
@@ -95,7 +95,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
-  private readonly _messageHistory?: MessageHistoryCache;
+  private readonly _threadHistory?: ThreadHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
@@ -107,7 +107,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
-      this._messageHistory = config.messageHistory;
+      this._threadHistory = config.threadHistory;
     }
   }
 
@@ -175,7 +175,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
-    const messageHistory = this._messageHistory;
+    const threadHistory = this._threadHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -204,8 +204,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && messageHistory) {
-          const cached = await messageHistory.getMessages(channelId);
+        if (!yieldedAny && threadHistory) {
+          const cached = await threadHistory.getMessages(channelId);
           // Yield newest first
           for (let i = cached.length - 1; i >= 0; i--) {
             yield cached[i];
@@ -330,8 +330,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       rawMessage.threadId
     );
 
-    if (this._messageHistory) {
-      await this._messageHistory.append(this.id, new Message(sent));
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(sent));
     }
 
     return sent;

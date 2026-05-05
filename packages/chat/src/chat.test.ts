@@ -3700,8 +3700,38 @@ describe("Chat", () => {
     });
   });
 
-  describe("persistMessageHistory", () => {
-    it("should cache incoming messages when adapter has persistMessageHistory", async () => {
+  describe("persistThreadHistory", () => {
+    it("caches incoming messages when adapter sets persistThreadHistory", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello from WhatsApp");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      const stored = state.cache.get("msg-history:whatsapp:phone:user1");
+      expect(stored).toBeDefined();
+      expect(Array.isArray(stored)).toBe(true);
+      expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
+    });
+
+    it("caches incoming messages when adapter sets the deprecated persistMessageHistory flag", async () => {
       const adapter = createMockAdapter("whatsapp");
       (adapter as { persistMessageHistory: boolean }).persistMessageHistory =
         true;
@@ -3725,14 +3755,13 @@ describe("Chat", () => {
         message
       );
 
-      // Check that message was stored in state cache
       const stored = state.cache.get("msg-history:whatsapp:phone:user1");
       expect(stored).toBeDefined();
       expect(Array.isArray(stored)).toBe(true);
       expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
     });
 
-    it("should NOT cache incoming messages when adapter does not set persistMessageHistory", async () => {
+    it("does not cache when adapter sets neither flag", async () => {
       const message = createTestMessage("msg-2", "Hello from Slack");
       await chat.handleIncomingMessage(
         mockAdapter,
@@ -3740,13 +3769,108 @@ describe("Chat", () => {
         message
       );
 
-      // No msg-history key should exist
       const stored = (mockState as unknown as { cache: Map<string, unknown> })
         .cache;
       const historyKeys = [...stored.keys()].filter((k) =>
         k.startsWith("msg-history:")
       );
       expect(historyKeys).toHaveLength(0);
+    });
+
+    it("honors top-level config.messageHistory (deprecated alias) when threadHistory is not set", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+        messageHistory: { maxMessages: 5, ttlMs: 12_345 },
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      expect(state.appendToList).toHaveBeenCalledWith(
+        "msg-history:whatsapp:phone:user1",
+        expect.objectContaining({ id: "msg-1" }),
+        { maxLength: 5, ttlMs: 12_345 }
+      );
+    });
+
+    it("threadHistory takes precedence when both threadHistory and messageHistory are set", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+        threadHistory: { maxMessages: 5, ttlMs: 1_000 },
+        messageHistory: { maxMessages: 999, ttlMs: 999_999 },
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      expect(state.appendToList).toHaveBeenCalledWith(
+        "msg-history:whatsapp:phone:user1",
+        expect.objectContaining({ id: "msg-1" }),
+        { maxLength: 5, ttlMs: 1_000 }
+      );
+    });
+
+    it("persists when both persistThreadHistory and persistMessageHistory are set on the adapter", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+        true;
+      (adapter as { persistMessageHistory: boolean }).persistMessageHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      const stored = state.cache.get("msg-history:whatsapp:phone:user1");
+      expect(stored).toBeDefined();
+      expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
     });
   });
 });
