@@ -85,6 +85,14 @@ export interface ChatConfig<
    */
   fallbackStreamingPlaceholderText?: string | null;
   /**
+   * Resolves a stable cross-platform user key from inbound messages.
+   *
+   * Required when `messages` is configured. Called once per inbound
+   * message during dispatch; the result is attached to the Message
+   * instance as `message.userKey` for handlers to use.
+   */
+  identity?: IdentityResolver;
+  /**
    * Lock scope determines which messages contend for the same lock.
    *
    * - `'thread'`: lock per threadId (default for most adapters)
@@ -103,13 +111,12 @@ export interface ChatConfig<
    */
   logger?: Logger | LogLevel;
   /**
-   * Configuration for persistent message history.
-   * Only used by adapters that set `persistMessageHistory: true`.
+   * @deprecated Renamed to {@link ChatConfig.threadHistory}. Both fields are
+   * read for backwards compatibility; `threadHistory` takes precedence when
+   * both are set.
    */
   messageHistory?: {
-    /** Maximum messages to store per thread (default: 100) */
     maxMessages?: number;
-    /** TTL for cached history in milliseconds (default: 7 days) */
     ttlMs?: number;
   };
   /**
@@ -139,6 +146,28 @@ export interface ChatConfig<
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
+  /**
+   * Configuration for persistent per-thread message history backfill.
+   *
+   * Only used by adapters that set `persistThreadHistory: true` (e.g.
+   * Telegram, WhatsApp). Distinct from `messages` (the cross-platform
+   * per-user Messages API).
+   */
+  threadHistory?: {
+    /** Maximum messages to store per thread (default: 100) */
+    maxMessages?: number;
+    /** TTL for cached history in milliseconds (default: 7 days) */
+    ttlMs?: number;
+  };
+  /**
+   * Cross-platform per-user message persistence.
+   *
+   * When set, `chat.messages` is available for append/list/count/delete
+   * keyed by a resolved cross-platform user key.
+   *
+   * Requires `identity` to also be set; the constructor throws otherwise.
+   */
+  transcripts?: TranscriptsConfig;
   /** Default bot username across all adapters */
   userName: string;
 }
@@ -395,12 +424,19 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
 
   /** Parse platform message format to normalized format */
   parseMessage(raw: TRawMessage): Message<TRawMessage>;
-
   /**
-   * When true, the SDK persists message history in the state adapter for this platform.
-   * Use this for platforms that lack server-side message history APIs (e.g., WhatsApp, Telegram).
+   * @deprecated Renamed to {@link Adapter.persistThreadHistory}. Both flags
+   * are read for backwards compatibility; either being `true` enables
+   * persistence.
    */
   readonly persistMessageHistory?: boolean;
+
+  /**
+   * When true, the SDK persists per-thread message history in the state
+   * adapter for this platform. Use for platforms that lack server-side
+   * message history APIs (e.g. WhatsApp, Telegram).
+   */
+  readonly persistThreadHistory?: boolean;
 
   /**
    * Post a message to channel top-level (not in a thread).
@@ -2318,3 +2354,143 @@ export interface MemberJoinedChannelEvent {
 export type MemberJoinedChannelHandler = (
   event: MemberJoinedChannelEvent
 ) => void | Promise<void>;
+
+// =============================================================================
+// Messages API (cross-platform per-user message persistence)
+// =============================================================================
+
+/**
+ * Resolves a stable, cross-platform user key from an inbound message context.
+ *
+ * Return `null` to skip persistence for this event (unknown user, system
+ * message, or the bot itself). The SDK fails loudly rather than silently
+ * falling back to a platform-specific ID.
+ */
+export type IdentityResolver = (
+  context: IdentityContext
+) => string | null | Promise<string | null>;
+
+export interface IdentityContext {
+  /** Adapter name (e.g. "slack", "discord"). */
+  adapter: string;
+  author: Author;
+  message: Message;
+}
+
+/**
+ * Role tag on a stored message.
+ *
+ * - `user`: produced by the resolved end-user
+ * - `assistant`: produced by this bot
+ * - `system`: SDK-injected marker (handoff, summary). Adapters never produce it.
+ */
+export type TranscriptRole = "user" | "assistant" | "system";
+
+export interface TranscriptEntry {
+  /** mdast AST. Only present when `messages.storeFormatted` is true. */
+  formatted?: FormattedContent;
+  /** ULID assigned at append time. Lexicographically sortable; encodes ms timestamp. */
+  id: string;
+  /** Originating adapter name. */
+  platform: string;
+  /** Platform-native message ID, when known. */
+  platformMessageId?: string;
+  role: TranscriptRole;
+  /** Plain-text body — canonical field for prompt building. */
+  text: string;
+  /** Originating thread ID. */
+  threadId: string;
+  /** ms-since-epoch, set at append time on the SDK side. */
+  timestamp: number;
+  /** Cross-platform user key from the IdentityResolver. */
+  userKey: string;
+}
+
+/** Duration shorthand: e.g. `"7d"`, `"30m"`, `"2h"`, `"45s"`. */
+export type DurationString = `${number}${"s" | "m" | "h" | "d"}`;
+
+export interface TranscriptsConfig {
+  /** Hard cap; older messages evicted on append. Default 200. */
+  maxPerUser?: number;
+  /**
+   * Default retention applied as the list TTL. Refreshed on every append
+   * (matches `appendToList` semantics). Omit for no expiry.
+   */
+  retention?: number | DurationString;
+  /** Persist `formatted` (mdast). Default false to keep storage small. */
+  storeFormatted?: boolean;
+}
+
+/**
+ * Input shape for appending a non-Message (e.g. an assistant reply you
+ * just posted via `thread.post()`).
+ */
+export interface AppendInput {
+  formatted?: FormattedContent;
+  platformMessageId?: string;
+  role: TranscriptRole;
+  text: string;
+}
+
+export interface AppendOptions {
+  /**
+   * Required when appending an `AppendInput` (assistant/system role) — the
+   * SDK has no Message instance from which to read the resolved key.
+   *
+   * Ignored when appending a Message; the Message's own `userKey` is used.
+   */
+  userKey?: string;
+}
+
+export interface ListQuery {
+  /** Newest N kept (still returned in chronological order). Default 50. */
+  limit?: number;
+  /** Filter to a subset of adapter names. */
+  platforms?: string[];
+  /** Filter to specific roles. Default: all. */
+  roles?: TranscriptRole[];
+  /** Filter to a single thread. */
+  threadId?: string;
+  userKey: string;
+}
+
+/**
+ * Target for {@link TranscriptsApi.delete}. Wipes every stored message under
+ * the given user key.
+ */
+export interface DeleteTarget {
+  userKey: string;
+}
+
+/**
+ * Cross-platform per-user message store.
+ *
+ * Distinct from the existing per-thread `messageHistory` config (which exists
+ * to backfill thread context for adapters that lack server-side history APIs).
+ * The Messages API is keyed by a resolved cross-platform user key and is
+ * intended for transcript-style use cases (LLM context building, audit).
+ */
+export interface TranscriptsApi {
+  /**
+   * Persist a Message (or AppendInput) under the user key.
+   *
+   * - For Message: `userKey` is read from the Message instance (set by the
+   *   SDK during inbound dispatch via the configured IdentityResolver).
+   *   No-op if the Message has no `userKey` (resolver returned null).
+   * - For AppendInput: `options.userKey` is required.
+   */
+  append<TState = Record<string, unknown>, TRawMessage = unknown>(
+    thread: Postable<TState, TRawMessage>,
+    message: Message | AppendInput,
+    options?: AppendOptions
+  ): Promise<TranscriptEntry | null>;
+
+  /** Total stored count for a user key. */
+  count(query: { userKey: string }): Promise<number>;
+
+  /** GDPR / DSR delete — wipes every stored message under the user key. */
+  delete(target: DeleteTarget): Promise<{ deleted: number }>;
+
+  /** Returns messages in chronological order (oldest first). */
+  list(query: ListQuery): Promise<TranscriptEntry[]>;
+}

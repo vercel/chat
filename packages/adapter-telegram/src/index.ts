@@ -200,7 +200,7 @@ export class TelegramAdapter
 {
   readonly name = "telegram";
   readonly lockScope = "channel" as const;
-  readonly persistMessageHistory = true;
+  readonly persistThreadHistory = true;
 
   private readonly botToken: string;
   private readonly apiBaseUrl: string;

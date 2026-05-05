@@ -3700,8 +3700,38 @@ describe("Chat", () => {
     });
   });
 
-  describe("persistMessageHistory", () => {
-    it("should cache incoming messages when adapter has persistMessageHistory", async () => {
+  describe("persistThreadHistory", () => {
+    it("caches incoming messages when adapter sets persistThreadHistory", async () => {
+      const adapter = createMockAdapter("whatsapp");
+      (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+        true;
+      const state = createMockState();
+
+      const persistChat = new Chat({
+        userName: "testbot",
+        adapters: { whatsapp: adapter },
+        state,
+        logger: mockLogger,
+      });
+
+      await persistChat.webhooks.whatsapp(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const message = createTestMessage("msg-1", "Hello from WhatsApp");
+      await persistChat.handleIncomingMessage(
+        adapter,
+        "whatsapp:phone:user1",
+        message
+      );
+
+      const stored = state.cache.get("msg-history:whatsapp:phone:user1");
+      expect(stored).toBeDefined();
+      expect(Array.isArray(stored)).toBe(true);
+      expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
+    });
+
+    it("caches incoming messages when adapter sets the deprecated persistMessageHistory flag", async () => {
       const adapter = createMockAdapter("whatsapp");
       (adapter as { persistMessageHistory: boolean }).persistMessageHistory =
         true;
@@ -3725,14 +3755,13 @@ describe("Chat", () => {
         message
       );
 
-      // Check that message was stored in state cache
       const stored = state.cache.get("msg-history:whatsapp:phone:user1");
       expect(stored).toBeDefined();
       expect(Array.isArray(stored)).toBe(true);
       expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
     });
 
-    it("should NOT cache incoming messages when adapter does not set persistMessageHistory", async () => {
+    it("does not cache when adapter sets neither flag", async () => {
       const message = createTestMessage("msg-2", "Hello from Slack");
       await chat.handleIncomingMessage(
         mockAdapter,
@@ -3740,7 +3769,6 @@ describe("Chat", () => {
         message
       );
 
-      // No msg-history key should exist
       const stored = (mockState as unknown as { cache: Map<string, unknown> })
         .cache;
       const historyKeys = [...stored.keys()].filter((k) =>
