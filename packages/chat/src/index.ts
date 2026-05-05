@@ -316,6 +316,7 @@ export type {
   ChatInstance,
   ConcurrencyConfig,
   ConcurrencyStrategy,
+  CountQuery,
   CustomEmojiMap,
   DeleteTarget,
   DirectMessageHandler,

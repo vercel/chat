@@ -2322,8 +2322,8 @@ export class Chat<
       isSubscribed
     );
 
-    // Resolve cross-platform user key (Messages API). Cached on the Message
-    // instance so handlers and the Messages API see the same value without
+    // Resolve cross-platform user key (Transcripts API). Cached on the Message
+    // instance so handlers and the Transcripts API see the same value without
     // re-invoking the resolver.
     if (this._identity && message.userKey === undefined) {
       try {
@@ -2339,6 +2339,7 @@ export class Chat<
         this.logger.warn("Identity resolver threw; skipping userKey", {
           error: err,
           adapter: adapter.name,
+          threadId,
           authorUserId: message.author.userId,
         });
       }

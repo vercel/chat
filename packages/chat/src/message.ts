@@ -152,7 +152,7 @@ export class Message<TRawMessage = unknown> {
    * `ChatConfig.identity` is configured. `undefined` if no resolver is
    * configured; `undefined` (i.e. absent) when the resolver returned null.
    *
-   * Used by the Messages API to look up / append per-user transcripts.
+   * Used by the Transcripts API to look up / append per-user transcripts.
    */
   userKey?: string;
 

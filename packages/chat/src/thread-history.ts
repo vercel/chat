@@ -30,8 +30,8 @@ export interface ThreadHistoryConfig {
  * Telegram). Messages are atomically appended via `state.appendToList()`,
  * which is safe without holding a thread lock.
  *
- * Distinct from the cross-platform per-user [Messages API](./messages.ts) —
- * this cache is keyed by thread, not user.
+ * Distinct from the cross-platform per-user {@link TranscriptsApi} (see
+ * `transcripts.ts`) — this cache is keyed by thread, not user.
  */
 export class ThreadHistoryCache {
   private readonly state: StateAdapter;

@@ -6,7 +6,7 @@
 
 Rename `messageHistory` → `threadHistory` (with backwards compatibility).
 
-The per-thread history cache was previously named `messageHistory`, which collides conceptually with the new cross-platform per-user [Messages API](./messages.ts). Renamed to `threadHistory` to make the distinction clear.
+The per-thread history cache was previously named `messageHistory`, which collides conceptually with the new cross-platform per-user Transcripts API. Renamed to `threadHistory` to make the distinction clear.
 
 **Renamed:**
 

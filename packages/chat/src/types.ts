@@ -87,7 +87,7 @@ export interface ChatConfig<
   /**
    * Resolves a stable cross-platform user key from inbound messages.
    *
-   * Required when `messages` is configured. Called once per inbound
+   * Required when `transcripts` is configured. Called once per inbound
    * message during dispatch; the result is attached to the Message
    * instance as `message.userKey` for handlers to use.
    */
@@ -150,8 +150,8 @@ export interface ChatConfig<
    * Configuration for persistent per-thread message history backfill.
    *
    * Only used by adapters that set `persistThreadHistory: true` (e.g.
-   * Telegram, WhatsApp). Distinct from `messages` (the cross-platform
-   * per-user Messages API).
+   * Telegram, WhatsApp). Distinct from `transcripts` (the cross-platform
+   * per-user Transcripts API).
    */
   threadHistory?: {
     /** Maximum messages to store per thread (default: 100) */
@@ -162,7 +162,7 @@ export interface ChatConfig<
   /**
    * Cross-platform per-user message persistence.
    *
-   * When set, `chat.messages` is available for append/list/count/delete
+   * When set, `chat.transcripts` is available for append/list/count/delete
    * keyed by a resolved cross-platform user key.
    *
    * Requires `identity` to also be set; the constructor throws otherwise.
@@ -728,6 +728,13 @@ export interface ChatInstance {
     },
     options: WebhookOptions | undefined
   ): void;
+
+  /**
+   * Cross-platform per-user transcript store. Throws on access when
+   * `transcripts` is not configured on the Chat instance — callers should
+   * check `ChatConfig.transcripts` if they need a no-throw guard.
+   */
+  readonly transcripts: TranscriptsApi;
 }
 
 // =============================================================================
@@ -2356,7 +2363,7 @@ export type MemberJoinedChannelHandler = (
 ) => void | Promise<void>;
 
 // =============================================================================
-// Messages API (cross-platform per-user message persistence)
+// Transcripts API (cross-platform per-user message persistence)
 // =============================================================================
 
 /**
@@ -2387,9 +2394,14 @@ export interface IdentityContext {
 export type TranscriptRole = "user" | "assistant" | "system";
 
 export interface TranscriptEntry {
-  /** mdast AST. Only present when `messages.storeFormatted` is true. */
+  /** mdast AST. Only present when `transcripts.storeFormatted` is true. */
   formatted?: FormattedContent;
-  /** ULID assigned at append time. Lexicographically sortable; encodes ms timestamp. */
+  /**
+   * UUID assigned by the SDK at append time. Opaque — not lexicographically
+   * sortable. Entries are returned by `list()` in append order (the underlying
+   * list semantics of `state.appendToList`); use `timestamp` to reason about
+   * ordering across stores.
+   */
   id: string;
   /** Originating adapter name. */
   platform: string;
@@ -2462,12 +2474,17 @@ export interface DeleteTarget {
   userKey: string;
 }
 
+/** Query shape for {@link TranscriptsApi.count}. */
+export interface CountQuery {
+  userKey: string;
+}
+
 /**
  * Cross-platform per-user message store.
  *
- * Distinct from the existing per-thread `messageHistory` config (which exists
+ * Distinct from the existing per-thread `threadHistory` config (which exists
  * to backfill thread context for adapters that lack server-side history APIs).
- * The Messages API is keyed by a resolved cross-platform user key and is
+ * The Transcripts API is keyed by a resolved cross-platform user key and is
  * intended for transcript-style use cases (LLM context building, audit).
  */
 export interface TranscriptsApi {
@@ -2486,11 +2503,19 @@ export interface TranscriptsApi {
   ): Promise<TranscriptEntry | null>;
 
   /** Total stored count for a user key. */
-  count(query: { userKey: string }): Promise<number>;
+  count(query: CountQuery): Promise<number>;
 
   /** GDPR / DSR delete — wipes every stored message under the user key. */
   delete(target: DeleteTarget): Promise<{ deleted: number }>;
 
-  /** Returns messages in chronological order (oldest first). */
+  /**
+   * Returns the most recent entries in chronological order (oldest first),
+   * capped at `query.limit` (default 50).
+   *
+   * Pagination is intentionally not supported — the store keeps at most
+   * `transcripts.maxPerUser` entries per user. To widen the window, raise
+   * `maxPerUser`; to fetch a different slice, narrow with `threadId` /
+   * `platforms` / `roles`.
+   */
   list(query: ListQuery): Promise<TranscriptEntry[]>;
 }
