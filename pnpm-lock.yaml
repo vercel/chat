@@ -210,6 +210,9 @@ importers:
       '@chat-adapter/whatsapp':
         specifier: workspace:*
         version: link:../../packages/adapter-whatsapp
+      '@tailwindcss/postcss':
+        specifier: ^4.1.18
+        version: 4.1.18
       ai:
         specifier: ^6.0.174
         version: 6.0.174(zod@4.3.3)
@@ -228,6 +231,9 @@ importers:
       redis:
         specifier: ^5.11.0
         version: 5.11.0
+      tailwindcss:
+        specifier: ^4.1.18
+        version: 4.1.18
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -241,6 +247,9 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
+      postcss:
+        specifier: ^8.5.10
+        version: 8.5.10
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
