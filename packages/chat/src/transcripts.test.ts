@@ -334,6 +334,38 @@ describe("TranscriptsApiImpl", () => {
       expect(first.deleted).toBe(1);
       expect(second.deleted).toBe(0);
     });
+
+    it("preserves invariants when append/delete/append are interleaved without awaits", async () => {
+      const thread = createTestThread();
+      const before = createTestMessage("m0", "before");
+      before.userKey = "u1";
+      await api.append(thread, before);
+
+      const post1 = createTestMessage("m1", "post1");
+      post1.userKey = "u1";
+      const post2 = createTestMessage("m2", "post2");
+      post2.userKey = "u1";
+
+      await Promise.all([
+        api.append(thread, post1),
+        api.delete({ userKey: "u1" }),
+        api.append(thread, post2),
+      ]);
+
+      const list = await api.list({ userKey: "u1" });
+      const count = await api.count({ userKey: "u1" });
+
+      // count() and list() must agree — neither should leak the tombstone.
+      expect(count).toBe(list.length);
+      // Whatever survives is a real entry under the right userKey, and
+      // never the pre-delete entry (which delete() must have evicted).
+      for (const entry of list) {
+        expect(entry.userKey).toBe("u1");
+        expect(entry.text).not.toBe("before");
+      }
+      // Final size is bounded by the two post-delete appends.
+      expect(count).toBeLessThanOrEqual(2);
+    });
   });
 
   describe("maxPerUser eviction", () => {

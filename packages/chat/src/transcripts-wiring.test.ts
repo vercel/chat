@@ -126,8 +126,67 @@ describe("Chat — Transcripts API wiring", () => {
       expect(message.userKey).toBe("user@example.com");
     });
 
+    it("populates message.userKey from a sync resolver that returns a plain string", async () => {
+      const identity = vi.fn().mockReturnValue("sync-user@example.com");
+      const handler = vi.fn().mockResolvedValue(undefined);
+
+      const chat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        identity,
+        transcripts: {},
+      });
+      await chat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      chat.onSubscribedMessage(handler);
+      await mockState.subscribe("slack:C123:1234.5678");
+
+      const message = createTestMessage("msg-1", "hello");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(identity).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalled();
+      expect(message.userKey).toBe("sync-user@example.com");
+    });
+
     it("leaves userKey undefined when the resolver returns null", async () => {
       const identity = vi.fn().mockResolvedValue(null);
+      const handler = vi.fn().mockResolvedValue(undefined);
+
+      const chat = new Chat({
+        userName: "testbot",
+        adapters: { slack: mockAdapter },
+        state: mockState,
+        logger: mockLogger,
+        identity,
+        transcripts: {},
+      });
+      await chat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      chat.onSubscribedMessage(handler);
+      await mockState.subscribe("slack:C123:1234.5678");
+
+      const message = createTestMessage("msg-1", "hello");
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(handler).toHaveBeenCalled();
+      expect(message.userKey).toBeUndefined();
+    });
+
+    it("treats resolver returning empty string as no userKey", async () => {
+      const identity = vi.fn().mockResolvedValue("");
       const handler = vi.fn().mockResolvedValue(undefined);
 
       const chat = new Chat({
