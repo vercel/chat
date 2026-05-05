@@ -421,7 +421,7 @@ export class DynamoDBStateAdapter implements StateAdapter {
         new QueryCommand({
           TableName: this.tableName,
           KeyConditionExpression: "#partitionKey = :pk", // Change 'PK' to your actual Partition Key name
-          ExpressionAttributeValues: { ":pk": `${this.keyPrefix}${key}` },
+          ExpressionAttributeValues: { ":pk": `${this.keyPrefix}-${key}` },
           ExpressionAttributeNames: {
             "#partitionKey": this.partitionKeyName,
             "#sortKey": this.sortKeyName,
