@@ -624,7 +624,7 @@ bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
-// Demonstrate fetchMessages and allMessages
+// Demonstrate bot.transcripts.list / count / delete
 bot.onAction("transcripts", async (event) => {
   if (!event.thread) {
     return;
