@@ -1,0 +1,81 @@
+{
+  "name": "@chat-adapter/web",
+  "version": "4.27.0",
+  "description": "Web adapter for chat — browser chat UI via the AI SDK useChat protocol",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*"
+  },
+  "peerDependencies": {
+    "@ai-sdk/react": "^3",
+    "ai": "^6",
+    "react": "^19"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@ai-sdk/react": "^3.0.176",
+    "@chat-adapter/state-memory": "workspace:*",
+    "@types/node": "^25.3.2",
+    "@types/react": "^19.0.1",
+    "@vitest/coverage-v8": "^4.0.18",
+    "ai": "^6.0.174",
+    "react": "^19.0.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-web"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "web",
+    "react",
+    "useChat",
+    "ai-sdk",
+    "bot",
+    "adapter"
+  ],
+  "license": "MIT"
+}

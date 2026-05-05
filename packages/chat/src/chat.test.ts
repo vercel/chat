@@ -243,6 +243,43 @@ describe("Chat", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("should return an awaitable Promise from processMessage", async () => {
+    let resolveHandler: () => void = () => {
+      throw new Error("resolveHandler not assigned");
+    };
+    const handlerStarted = vi.fn();
+    chat.onNewMention(async () => {
+      handlerStarted();
+      await new Promise<void>((r) => {
+        resolveHandler = r;
+      });
+    });
+
+    const message = createTestMessage("msg-await-1", "Hey @slack-bot ping");
+    const task = chat.processMessage(
+      mockAdapter,
+      "slack:C123:await.1",
+      message
+    );
+
+    expect(task).toBeInstanceOf(Promise);
+
+    // Yield so the handler kicks off but cannot complete until we resolve.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(handlerStarted).toHaveBeenCalled();
+
+    let resolved = false;
+    const tracker = task.then(() => {
+      resolved = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(resolved).toBe(false);
+
+    resolveHandler();
+    await tracker;
+    expect(resolved).toBe(true);
+  });
+
   describe("message deduplication", () => {
     it("should skip duplicate messages with the same id", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);

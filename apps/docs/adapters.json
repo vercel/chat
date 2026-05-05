@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Web",
+    "slug": "web",
+    "type": "platform",
+    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol — works out of the box with @ai-sdk/react and ai-elements.",
+    "packageName": "@chat-adapter/web",
+    "icon": "web",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-web"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",

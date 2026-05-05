@@ -14,6 +14,7 @@ import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
+import { createWebAdapter, type WebAdapter } from "@chat-adapter/web";
 import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
@@ -32,6 +33,7 @@ export interface Adapters {
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
+  web?: WebAdapter;
   whatsapp?: WhatsAppAdapter;
 }
 
@@ -262,6 +264,15 @@ export function buildAdapters(): Adapters {
       );
     }
   }
+
+  // Web adapter — always available, no env vars required.
+  // Demo uses a fixed user id; replace `getUser` with your real auth
+  // (NextAuth, Clerk, signed cookie, etc.) in production.
+  adapters.web = createWebAdapter({
+    userName: "Chat SDK Bot",
+    logger: logger.child("web"),
+    getUser: () => ({ id: "demo", name: "Demo User" }),
+  });
 
   return adapters;
 }

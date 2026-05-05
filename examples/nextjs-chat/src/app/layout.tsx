@@ -1,3 +1,5 @@
+import "./globals.css";
+
 export default function RootLayout({
   children,
 }: {
@@ -5,7 +7,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body
+        className="antialiased"
+        style={{ background: "var(--background)", color: "var(--foreground)" }}
+      >
+        {children}
+      </body>
     </html>
   );
 }

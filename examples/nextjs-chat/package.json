@@ -11,6 +11,7 @@
     "recording:export": "tsx src/lib/recorder.ts"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.176",
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",
@@ -18,21 +19,25 @@
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
-    "@chat-adapter/telegram": "workspace:*",
     "@chat-adapter/teams": "workspace:*",
+    "@chat-adapter/telegram": "workspace:*",
+    "@chat-adapter/web": "workspace:*",
     "@chat-adapter/whatsapp": "workspace:*",
-    "ai": "^6.0.5",
+    "@tailwindcss/postcss": "^4.1.18",
+    "ai": "^6.0.174",
     "chat": "workspace:*",
     "next": "^16.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "redis": "^5.11.0"
+    "redis": "^5.11.0",
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "dotenv": "^17.2.3",
+    "postcss": "^8.5.10",
     "tsx": "^4.21.0",
     "typescript": "^5.7.2"
   }
