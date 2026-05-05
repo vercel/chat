@@ -51,7 +51,7 @@ export default function ChatPage() {
             Send a message to get started.
           </p>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
             const text = message.parts
               .filter((part) => part.type === "text")
               .map((part) => (part as { text: string }).text)
@@ -92,7 +92,40 @@ export default function ChatPage() {
                 </div>
               </div>
             );
-          })
+          }),
+          status === "submitted" && (
+            <div
+              key="thinking"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                marginBottom: "0.75rem",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "#888",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                assistant
+              </span>
+              <div
+                style={{
+                  background: "#fff",
+                  color: "#888",
+                  padding: "0.5rem 0.75rem",
+                  borderRadius: 8,
+                  border: "1px solid #e5e5e5",
+                }}
+              >
+                Thinking...
+              </div>
+            </div>
+          ),
         )}
       </div>
 
