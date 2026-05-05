@@ -253,5 +253,15 @@
     "packageName": "chat-adapter-mattermost",
     "author": "thiagoferolla",
     "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost/tree/70eb85321cba65d511f6e158b9a2f5aac2aa922c"
+  },
+    {
+    "name": "DynamoDB",
+    "slug": "dynamodb",
+    "type": "state",
+    "description": "DynamoDB state adapter for production environments.",
+    "packageName": "@chat-adapter/state-memory",
+    "icon": "dynamodb",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-dynamodb"
   }
 ]

@@ -48,6 +48,7 @@ const adapterLogos: Record<
     height: logoSize,
   },
   whatsapp: { component: logos.whatsapp, width: logoSize, height: logoSize },
+  dynamodb: { component: logos.whatsapp, width: logoSize, height: logoSize },
 };
 
 const fontsDir = "app/[lang]/og/[...slug]";
