@@ -126,6 +126,24 @@ describe("SlackFormatConverter", () => {
     });
   });
 
+  describe("toResponseUrlText", () => {
+    it("renders markdown to Slack mrkdwn text", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "**Bold** and [link](https://example.com)",
+        })
+      ).toBe("*Bold* and <https://example.com|link>");
+    });
+
+    it("renders markdown tables as ASCII code blocks", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "| A | B |\n|---|---|\n| 1 | 2 |",
+        })
+      ).toContain("```\n");
+    });
+  });
+
   describe("mentions", () => {
     it("does not double-wrap existing <@U123> mentions in plain strings", () => {
       expect(converter.toSlackPayload("Hey <@U12345>. Please select")).toEqual({

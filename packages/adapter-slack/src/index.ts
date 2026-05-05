@@ -4839,7 +4839,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } else {
         payload = {
           replace_original: true,
-          ...this.formatConverter.toSlackPayload(message),
+          text: this.formatConverter.toResponseUrlText(message),
         };
       }
       if (options?.threadTs) {
