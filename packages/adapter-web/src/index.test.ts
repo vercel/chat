@@ -199,6 +199,30 @@ describe("WebAdapter.handleWebhook — input validation", () => {
     expect(response.status).toBe(400);
   });
 
+  it("returns 400 when conversation id contains a colon", async () => {
+    const { chat } = buildChat({});
+    await chat.webhooks.web(makeWebRequest({ messages: [] }));
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: "bad:id", messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("conversation id");
+  });
+
+  it("returns 400 when user id contains a colon", async () => {
+    const { chat } = buildChat({
+      getUser: (() => ({ id: "user:bad" })) as never,
+    });
+    await chat.webhooks.web(makeWebRequest({ messages: [] }));
+    const response = await chat.webhooks.web(
+      makeWebRequest({ messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toContain("user id");
+  });
+
   it("returns 401 when getUser returns null", async () => {
     const { chat } = buildChat({ getUser: (() => null) as never });
     await chat.webhooks.web(makeWebRequest({ messages: [] })); // init

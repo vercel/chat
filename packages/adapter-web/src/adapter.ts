@@ -133,6 +133,9 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     }
 
     const conversationId = body.id ?? generateId();
+    if (conversationId.includes(":")) {
+      return jsonError(400, "Invalid conversation id");
+    }
     const threadId = this.threadIdFor({ user, conversationId });
 
     const lastUserMessage = findLastUserMessage(body.messages);
