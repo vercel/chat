@@ -94,7 +94,7 @@ When `message` is a `Message`, `userKey` is read from the instance. If it's `und
     },
     formatted: {
       description: 'Optional mdast AST. Only stored when `transcripts.storeFormatted` is true.',
-      type: 'Root | undefined',
+      type: 'FormattedContent | undefined',
     },
     platformMessageId: {
       description: 'Platform-native message ID, when known.',
@@ -153,10 +153,10 @@ list(query: ListQuery): Promise<TranscriptEntry[]>;
 ### count
 
 ```typescript
-count(query: { userKey: string }): Promise<number>;
+count(query: CountQuery): Promise<number>;
 ```
 
-Returns the total number of entries stored under the user key.
+Returns the total number of entries stored under the user key. `CountQuery` has a single field, `userKey: string`.
 
 ### delete
 
@@ -190,7 +190,7 @@ Returned by `append` and `list`.
     },
     formatted: {
       description: 'mdast AST. Only present when `transcripts.storeFormatted` is true.',
-      type: 'Root | undefined',
+      type: 'FormattedContent | undefined',
     },
     platform: {
       description: 'Originating adapter name.',
