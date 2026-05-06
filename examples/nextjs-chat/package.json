@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-sdk/react": "^3.0.176",
     "@chat-adapter/discord": "workspace:*",
+    "@chat-adapter/messenger": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",
     "@chat-adapter/linear": "workspace:*",

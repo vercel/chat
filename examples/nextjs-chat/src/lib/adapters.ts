@@ -8,6 +8,10 @@ import {
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
+import {
+  createMessengerAdapter,
+  type MessengerAdapter,
+} from "@chat-adapter/messenger";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
@@ -30,6 +34,7 @@ export interface Adapters {
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
+  messenger?: MessengerAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
@@ -93,6 +98,12 @@ const LINEAR_METHODS = [
   "addReaction",
   "fetchMessages",
 ];
+const MESSENGER_METHODS = [
+  "postMessage",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
 const TELEGRAM_METHODS = [
   "postMessage",
   "editMessage",
@@ -136,6 +147,18 @@ export function buildAdapters(): Adapters {
       }),
       "discord",
       DISCORD_METHODS
+    );
+  }
+
+  // Messenger adapter (optional) - env vars: FACEBOOK_APP_SECRET, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_VERIFY_TOKEN
+  if (process.env.FACEBOOK_APP_SECRET) {
+    adapters.messenger = withRecording(
+      createMessengerAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("messenger"),
+      }),
+      "messenger",
+      MESSENGER_METHODS
     );
   }
 
