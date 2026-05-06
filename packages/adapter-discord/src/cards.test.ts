@@ -1,3 +1,4 @@
+import { ValidationError } from "@chat-adapter/shared";
 import {
   Actions,
   Button,
@@ -13,7 +14,12 @@ import {
 } from "chat";
 import { ButtonStyle } from "discord-api-types/v10";
 import { describe, expect, it } from "vitest";
-import { cardToDiscordPayload, cardToFallbackText } from "./cards";
+import {
+  cardToDiscordPayload,
+  cardToFallbackText,
+  decodeDiscordCustomId,
+  encodeDiscordCustomId,
+} from "./cards";
 
 describe("cardToDiscordPayload", () => {
   it("converts a simple card with title", () => {
@@ -129,7 +135,7 @@ describe("cardToDiscordPayload", () => {
       type: 2,
       style: ButtonStyle.Danger,
       label: "Reject",
-      custom_id: "reject",
+      custom_id: "reject\ndata-123",
     });
 
     expect(buttons[2]).toEqual({
@@ -383,5 +389,75 @@ describe("cardToDiscordPayload with CardLink", () => {
     expect(payload.embeds[0].description).toBe(
       "[Click here](https://example.com)"
     );
+  });
+});
+
+describe("encodeDiscordCustomId / decodeDiscordCustomId", () => {
+  it("encodes actionId only when no value", () => {
+    expect(encodeDiscordCustomId("approve")).toBe("approve");
+  });
+
+  it("encodes actionId with value", () => {
+    expect(encodeDiscordCustomId("approve", "order-123")).toBe(
+      "approve\norder-123"
+    );
+  });
+
+  it("skips encoding when empty value", () => {
+    expect(encodeDiscordCustomId("approve", "")).toBe("approve");
+  });
+
+  it("throws when actionId is empty", () => {
+    expect(() => encodeDiscordCustomId("")).toThrow(ValidationError);
+  });
+
+  it("throws when actionId exceeds 100 chars", () => {
+    expect(() => encodeDiscordCustomId("x".repeat(101))).toThrow(
+      ValidationError
+    );
+  });
+
+  it("throws when encoded custom_id exceeds 100 chars", () => {
+    const longValue = "x".repeat(100);
+    expect(() => encodeDiscordCustomId("btn", longValue)).toThrow(
+      ValidationError
+    );
+  });
+
+  it("throws when a button value makes custom_id too long", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({
+            id: "x".repeat(90),
+            label: "Approve",
+            value: "__cb:1234567890abcdef",
+          }),
+        ]),
+      ],
+    });
+
+    expect(() => cardToDiscordPayload(card)).toThrow(ValidationError);
+  });
+
+  it("decodes actionId only", () => {
+    expect(decodeDiscordCustomId("approve")).toEqual({
+      actionId: "approve",
+      value: undefined,
+    });
+  });
+
+  it("decodes actionId with value", () => {
+    expect(decodeDiscordCustomId("approve\norder-123")).toEqual({
+      actionId: "approve",
+      value: "order-123",
+    });
+  });
+
+  it("round-trips encode/decode", () => {
+    const encoded = encodeDiscordCustomId("btn", "__cb:a1b2c3d4e5f6g7h8");
+    const decoded = decodeDiscordCustomId(encoded);
+    expect(decoded.actionId).toBe("btn");
+    expect(decoded.value).toBe("__cb:a1b2c3d4e5f6g7h8");
   });
 });
