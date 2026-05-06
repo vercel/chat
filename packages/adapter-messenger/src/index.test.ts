@@ -341,6 +341,61 @@ describe("MessengerAdapter", () => {
     ).rejects.toThrow(ValidationError);
   });
 
+  it("buffers stream chunks and sends as a single message", async () => {
+    const adapter = createAdapter();
+    const chat = createMockChat();
+
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ id: "PAGE_456", name: "Test Page" })
+    );
+    await adapter.initialize(chat);
+
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ recipient_id: "USER_123", message_id: "mid.streamed" })
+    );
+
+    async function* chunks() {
+      yield "Hello";
+      yield " ";
+      yield "world";
+    }
+
+    const result = await adapter.stream("messenger:USER_123", chunks());
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [, options] = mockFetch.mock.calls[1];
+    const body = JSON.parse(options?.body as string);
+    expect(body.message.text).toBe("Hello world");
+    expect(result.id).toBe("mid.streamed");
+  });
+
+  it("handles StreamChunk objects in stream", async () => {
+    const adapter = createAdapter();
+    const chat = createMockChat();
+
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ id: "PAGE_456", name: "Test Page" })
+    );
+    await adapter.initialize(chat);
+
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ recipient_id: "USER_123", message_id: "mid.streamed" })
+    );
+
+    async function* chunks() {
+      yield { type: "markdown_text" as const, text: "Structured " };
+      yield "plain ";
+      yield { type: "markdown_text" as const, text: "content" };
+    }
+
+    const result = await adapter.stream("messenger:USER_123", chunks());
+
+    const [, options] = mockFetch.mock.calls[1];
+    const body = JSON.parse(options?.body as string);
+    expect(body.message.text).toBe("Structured plain content");
+    expect(result.id).toBe("mid.streamed");
+  });
+
   it("always reports isDM as true", () => {
     const adapter = createAdapter();
     expect(adapter.isDM("messenger:USER_123")).toBe(true);

@@ -20,6 +20,8 @@ import type {
   FormattedContent,
   Logger,
   RawMessage,
+  StreamChunk,
+  StreamOptions,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
@@ -383,6 +385,26 @@ export class MessengerAdapter
       "messenger",
       "Messenger does not support editing messages"
     );
+  }
+
+  /**
+   * Buffer all stream chunks and send as a single message.
+   * Messenger doesn't support message editing, so we can't do incremental updates.
+   */
+  async stream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    _options?: StreamOptions
+  ): Promise<RawMessage<MessengerRawMessage>> {
+    let accumulated = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        accumulated += chunk;
+      } else if (chunk.type === "markdown_text") {
+        accumulated += chunk.text;
+      }
+    }
+    return this.postMessage(threadId, { markdown: accumulated });
   }
 
   async deleteMessage(_threadId: string, _messageId: string): Promise<void> {
