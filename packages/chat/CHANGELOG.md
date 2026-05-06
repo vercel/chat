@@ -1,5 +1,80 @@
 # chat
 
+## 4.28.0
+
+### Minor Changes
+
+- 46d183b: Rename `messageHistory` → `threadHistory` (with backwards compatibility).
+
+  The per-thread history cache was previously named `messageHistory`, which collides conceptually with the new cross-platform per-user Transcripts API. Renamed to `threadHistory` to make the distinction clear.
+
+  **Renamed:**
+
+  - `ChatConfig.messageHistory` → `ChatConfig.threadHistory`
+  - `Adapter.persistMessageHistory` → `Adapter.persistThreadHistory`
+  - `MessageHistoryCache` → `ThreadHistoryCache`
+  - `MessageHistoryConfig` → `ThreadHistoryConfig`
+  - File `message-history.ts` → `thread-history.ts`
+
+  **Backwards compatibility:**
+
+  - The old `ChatConfig.messageHistory` field is still read; `threadHistory` takes precedence when both are set.
+  - The old `Adapter.persistMessageHistory` flag is still read; either flag being `true` enables persistence.
+  - `MessageHistoryCache` and `MessageHistoryConfig` are re-exported as deprecated aliases of the new names.
+  - The state-adapter storage key prefix (`msg-history:`) is **unchanged** — renaming it would silently orphan existing data.
+
+  The `@chat-adapter/telegram` and `@chat-adapter/whatsapp` adapters now use `persistThreadHistory`. Custom adapters built against `persistMessageHistory` continue to work unchanged.
+
+- 46d183b: Add Transcripts API for cross-platform per-user message persistence.
+
+  `bot.transcripts` (when configured via `ChatConfig.transcripts` + `ChatConfig.identity`) provides `append` / `list` / `count` / `delete` keyed by a stable cross-platform user key. Backed by the existing `StateAdapter.appendToList` primitive, so every built-in state adapter (`memory`, `redis`, `ioredis`, `pg`) supports it with no changes.
+
+  - `IdentityResolver` runs once per inbound message during dispatch; the result is cached on the `Message` instance as `message.userKey`.
+  - Distinct from the existing per-thread `threadHistory` config (which backfills thread context for adapters that lack server-side history).
+  - `delete` wipes every stored entry under a user key. Single-entry and time-range deletes are not part of this API — the underlying `appendToList` primitive can't support them safely under concurrent writes.
+
+- 3490a8c: Add **`@chat-adapter/web`** — a new platform adapter that lets a chat-sdk bot serve a browser chat UI alongside Slack/Teams/Discord, without writing any client-side glue.
+
+  The adapter speaks the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so [`@ai-sdk/react`](https://www.npmjs.com/package/@ai-sdk/react)'s `useChat` and the [`ai-elements`](https://elements.ai-sdk.dev/) component library work out of the box. The same `bot.onDirectMessage(...)` handler fires for both web and other platforms — including stream-based replies via `thread.post(stream)`.
+
+  Two subpath exports:
+
+  - `@chat-adapter/web` — server-side `createWebAdapter({ userName, getUser })` that produces an `Adapter` for the `Chat` constructor.
+  - `@chat-adapter/web/react` — thin client wrapper exposing `useChat()` preconfigured with `DefaultChatTransport`. Re-exports `UIMessage` and `UseChatHelpers` types.
+
+  ```ts
+  // server
+  const bot = new Chat({
+    userName: "mybot",
+    adapters: {
+      web: createWebAdapter({
+        userName: "mybot",
+        getUser: (req) => ({ id: getUserIdFromCookie(req) }),
+      }),
+    },
+    state: createMemoryState(),
+  });
+  export const POST = bot.webhooks.web;
+  ```
+
+  ```tsx
+  // client
+  import { useChat } from "@chat-adapter/web/react";
+  const { messages, sendMessage, status } = useChat();
+  ```
+
+  v1 covers text + markdown, native streaming, DM-style routing (`isDM: true`), persisted message history (`persistMessageHistory: true` by default — required for `channel.messages` since web has no platform history API), and abort propagation via `request.signal`. Out of scope for v1: cards/JSX rendering, reactions, modals, file uploads, edit/delete, and multi-tab proactive push.
+
+### Patch Changes
+
+- 9824d33: Security fixes for HIGH-severity findings:
+
+  - **adapter-slack**: Replace timing-unsafe `!==` with `crypto.timingSafeEqual` when validating the `x-slack-socket-token` header on forwarded socket-mode events.
+  - **adapter-github**: In multi-tenant App mode, eagerly auto-detect the bot user ID on the first installation client / first webhook so `isMe` checks work and self-reply loops are prevented. Falls back to `apps.getAuthenticated` + `users.getByUsername` when `users.getAuthenticated` is unavailable for installation tokens.
+  - **adapter-linear**: Add optional `encryptionKey` config (or `LINEAR_ENCRYPTION_KEY` env var) that AES-256-GCM-encrypts `accessToken` and `refreshToken` at rest in the state store. Tolerates plaintext records for zero-downtime rollout.
+  - **adapter-gchat**: Fail-closed by default — the constructor now throws `ValidationError` if neither `googleChatProjectNumber` nor `pubsubAudience` is configured. To accept unverified webhooks (development only), set the new `disableSignatureVerification: true` flag (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`). Mirrors the Slack adapter's signing-secret requirement.
+  - **adapter-shared**: New `decodeKey` / `encryptToken` / `decryptToken` / `isEncryptedTokenData` utilities (AES-256-GCM, hex or base64 32-byte keys), shared by Slack and Linear.
+
 ## 4.27.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @chat-adapter/teams
 
+## 4.28.0
+
+### Patch Changes
+
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - @chat-adapter/shared@4.28.0
+  - chat@4.28.0
+
 ## 4.27.0
 
 ### Minor Changes
