@@ -1,5 +1,45 @@
 # @chat-adapter/slack
 
+## 4.28.0
+
+### Minor Changes
+
+- 3546b3f: use Slack's native `markdown_text` field for outgoing markdown messages
+
+  Slack now natively renders markdown via the `markdown_text` parameter on
+  `chat.postMessage`, `chat.postEphemeral`, `chat.update`, and
+  `chat.scheduleMessage`. The adapter passes markdown through directly instead
+  of converting to mrkdwn, so tables, headings, fenced code blocks, blockquotes,
+  and other rich formatting now render natively in Slack.
+
+  - Tables are rendered by Slack natively (no more ASCII-table fallback or
+    Block Kit `table` block fabrication).
+  - Plain `string` and `{ raw }` messages still go to the `text` field so
+    literal `*` / `_` characters are preserved.
+  - `markdown_text` has a 12,000 character limit (vs. ~40,000 for `text`).
+  - The deprecated `SlackMarkdownConverter` alias has been removed; use
+    `SlackFormatConverter` instead.
+  - `renderFormatted(ast)` now returns standard markdown instead of mrkdwn.
+  - Incoming `message` events are unchanged — they still arrive as mrkdwn
+    and are parsed as before.
+
+### Patch Changes
+
+- 9824d33: Security fixes for HIGH-severity findings:
+
+  - **adapter-slack**: Replace timing-unsafe `!==` with `crypto.timingSafeEqual` when validating the `x-slack-socket-token` header on forwarded socket-mode events.
+  - **adapter-github**: In multi-tenant App mode, eagerly auto-detect the bot user ID on the first installation client / first webhook so `isMe` checks work and self-reply loops are prevented. Falls back to `apps.getAuthenticated` + `users.getByUsername` when `users.getAuthenticated` is unavailable for installation tokens.
+  - **adapter-linear**: Add optional `encryptionKey` config (or `LINEAR_ENCRYPTION_KEY` env var) that AES-256-GCM-encrypts `accessToken` and `refreshToken` at rest in the state store. Tolerates plaintext records for zero-downtime rollout.
+  - **adapter-gchat**: Fail-closed by default — the constructor now throws `ValidationError` if neither `googleChatProjectNumber` nor `pubsubAudience` is configured. To accept unverified webhooks (development only), set the new `disableSignatureVerification: true` flag (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`). Mirrors the Slack adapter's signing-secret requirement.
+  - **adapter-shared**: New `decodeKey` / `encryptToken` / `decryptToken` / `isEncryptedTokenData` utilities (AES-256-GCM, hex or base64 32-byte keys), shared by Slack and Linear.
+
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - @chat-adapter/shared@4.28.0
+  - chat@4.28.0
+
 ## 4.27.0
 
 ### Minor Changes
