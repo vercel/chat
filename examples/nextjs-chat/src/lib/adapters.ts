@@ -3,15 +3,15 @@ import {
   type DiscordAdapter,
 } from "@chat-adapter/discord";
 import {
-  createMessengerAdapter,
-  type MessengerAdapter,
-} from "@chat-adapter/messenger";
-import {
   createGoogleChatAdapter,
   type GoogleChatAdapter,
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
+import {
+  createMessengerAdapter,
+  type MessengerAdapter,
+} from "@chat-adapter/messenger";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
@@ -31,10 +31,10 @@ const logger = new ConsoleLogger("info");
 
 export interface Adapters {
   discord?: DiscordAdapter;
-  messenger?: MessengerAdapter;
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
+  messenger?: MessengerAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;

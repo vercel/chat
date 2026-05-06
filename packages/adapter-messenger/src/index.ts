@@ -600,7 +600,9 @@ export class MessengerAdapter
     return Buffer.from(await response.arrayBuffer());
   }
 
-  private async fetchUserProfile(userId: string): Promise<MessengerUserProfile> {
+  private async fetchUserProfile(
+    userId: string
+  ): Promise<MessengerUserProfile> {
     const cached = this.userProfileCache.get(userId);
     if (cached) {
       return cached;

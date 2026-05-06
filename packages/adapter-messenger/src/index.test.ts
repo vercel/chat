@@ -1,14 +1,14 @@
 import { createHmac } from "node:crypto";
-import { ValidationError } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdapterRateLimitError,
   AuthenticationError,
   NetworkError,
   ResourceNotFoundError,
   ValidationError as SharedValidationError,
+  ValidationError,
 } from "@chat-adapter/shared";
+import type { ChatInstance, Logger } from "chat";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMessengerAdapter,
   MessengerAdapter,
@@ -518,7 +518,10 @@ describe("MessengerAdapter", () => {
     // Echo should not trigger processMessage
     expect(chat.processMessage).not.toHaveBeenCalled();
     // But should be cached and fetchable
-    const cached = await adapter.fetchMessage("messenger:USER_123", "mid.echo1");
+    const cached = await adapter.fetchMessage(
+      "messenger:USER_123",
+      "mid.echo1"
+    );
     expect(cached).not.toBeNull();
     expect(cached?.text).toBe("bot reply");
   });
@@ -921,7 +924,9 @@ describe("MessengerAdapter", () => {
 
   it("channelIdFromThreadId extracts the recipient ID", () => {
     const adapter = createAdapter();
-    expect(adapter.channelIdFromThreadId("messenger:USER_123")).toBe("USER_123");
+    expect(adapter.channelIdFromThreadId("messenger:USER_123")).toBe(
+      "USER_123"
+    );
   });
 
   it("openDM returns encoded thread ID", async () => {
@@ -1006,11 +1011,9 @@ describe("MessengerAdapter", () => {
       const attachment = parsed.attachments[0];
 
       const imageData = Buffer.from("fake-image-data");
-      mockFetch.mockResolvedValueOnce(
-        new Response(imageData, { status: 200 })
-      );
+      mockFetch.mockResolvedValueOnce(new Response(imageData, { status: 200 }));
 
-      const result = await attachment.fetchData!();
+      const result = await attachment.fetchData?.();
       expect(result).toBeInstanceOf(Buffer);
     });
 
@@ -1031,7 +1034,7 @@ describe("MessengerAdapter", () => {
 
       mockFetch.mockRejectedValueOnce(new Error("Network failure"));
 
-      await expect(attachment.fetchData!()).rejects.toThrow(NetworkError);
+      await expect(attachment.fetchData?.()).rejects.toThrow(NetworkError);
     });
 
     it("throws NetworkError when attachment download returns non-ok", async () => {
@@ -1053,7 +1056,7 @@ describe("MessengerAdapter", () => {
         new Response("Not Found", { status: 404 })
       );
 
-      await expect(attachment.fetchData!()).rejects.toThrow(NetworkError);
+      await expect(attachment.fetchData?.()).rejects.toThrow(NetworkError);
     });
   });
 
@@ -1129,9 +1132,9 @@ describe("MessengerAdapter", () => {
         })
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(AdapterRateLimitError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AdapterRateLimitError
+      );
     });
 
     it("throws AdapterRateLimitError on error code 4", async () => {
@@ -1151,9 +1154,9 @@ describe("MessengerAdapter", () => {
         )
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(AdapterRateLimitError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AdapterRateLimitError
+      );
     });
 
     it("throws AuthenticationError on 401", async () => {
@@ -1173,9 +1176,9 @@ describe("MessengerAdapter", () => {
         )
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(AuthenticationError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        AuthenticationError
+      );
     });
 
     it("throws ValidationError on 403 (permission error)", async () => {
@@ -1195,9 +1198,9 @@ describe("MessengerAdapter", () => {
         )
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(SharedValidationError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        SharedValidationError
+      );
     });
 
     it("throws ResourceNotFoundError on 404", async () => {
@@ -1209,15 +1212,14 @@ describe("MessengerAdapter", () => {
       await adapter.initialize(chat);
 
       mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ error: { message: "Not found" } }),
-          { status: 404 }
-        )
+        new Response(JSON.stringify({ error: { message: "Not found" } }), {
+          status: 404,
+        })
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(ResourceNotFoundError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        ResourceNotFoundError
+      );
     });
 
     it("throws NetworkError on generic API error", async () => {
@@ -1237,9 +1239,9 @@ describe("MessengerAdapter", () => {
         )
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(NetworkError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        NetworkError
+      );
     });
 
     it("throws NetworkError when fetch throws", async () => {
@@ -1252,9 +1254,9 @@ describe("MessengerAdapter", () => {
 
       mockFetch.mockRejectedValueOnce(new Error("DNS failure"));
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(NetworkError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        NetworkError
+      );
     });
 
     it("throws NetworkError when response is not valid JSON", async () => {
@@ -1272,9 +1274,9 @@ describe("MessengerAdapter", () => {
         })
       );
 
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(NetworkError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        NetworkError
+      );
     });
   });
 
@@ -1326,12 +1328,10 @@ describe("MessengerAdapter", () => {
       message: { mid: "mid.abc:1", text: "first" },
     });
 
-    return adapter
-      .fetchMessages("messenger:USER_123")
-      .then((result) => {
-        expect(result.messages[0].text).toBe("first");
-        expect(result.messages[1].text).toBe("second");
-      });
+    return adapter.fetchMessages("messenger:USER_123").then((result) => {
+      expect(result.messages[0].text).toBe("first");
+      expect(result.messages[1].text).toBe("second");
+    });
   });
 
   it("parseMessengerMessage uses event timestamp for ID when no mid", () => {
@@ -1392,14 +1392,18 @@ describe("MessengerAdapter", () => {
             id: "PAGE_456",
             time: 1735689600000,
             messaging: [
-              sampleMessagingEvent({ message: { mid: "mid.a", text: "from entry 1" } }),
+              sampleMessagingEvent({
+                message: { mid: "mid.a", text: "from entry 1" },
+              }),
             ],
           },
           {
             id: "PAGE_456",
             time: 1735689601000,
             messaging: [
-              sampleMessagingEvent({ message: { mid: "mid.b", text: "from entry 2" } }),
+              sampleMessagingEvent({
+                message: { mid: "mid.b", text: "from entry 2" },
+              }),
             ],
           },
         ],
@@ -1431,7 +1435,12 @@ describe("MessengerAdapter", () => {
         sampleMessagingEvent({ message: { mid: "mid.msg", text: "hello" } }),
         sampleMessagingEvent({
           message: undefined,
-          reaction: { mid: "mid.msg", action: "react", emoji: "👍", reaction: "like" },
+          reaction: {
+            mid: "mid.msg",
+            action: "react",
+            emoji: "👍",
+            reaction: "like",
+          },
         }),
         sampleMessagingEvent({
           message: undefined,
@@ -1471,7 +1480,11 @@ describe("MessengerAdapter", () => {
 
       const event = sampleMessagingEvent({
         message: undefined,
-        postback: { title: "Menu Item", payload: "MENU_1", mid: "mid.postback1" },
+        postback: {
+          title: "Menu Item",
+          payload: "MENU_1",
+          mid: "mid.postback1",
+        },
       });
       const payload = createWebhookPayload([event]);
       const body = JSON.stringify(payload);
@@ -1486,7 +1499,8 @@ describe("MessengerAdapter", () => {
       });
 
       await adapter.handleWebhook(request);
-      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       expect(actionArg.messageId).toBe("mid.postback1");
       expect(actionArg.actionId).toBe("MENU_1");
       expect(actionArg.value).toBe("MENU_1");
@@ -1518,7 +1532,8 @@ describe("MessengerAdapter", () => {
       });
 
       await adapter.handleWebhook(request);
-      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const actionArg = (chat.processAction as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
       expect(actionArg.messageId).toBe("postback:1735689999000");
     });
   });
@@ -1605,7 +1620,10 @@ describe("MessengerAdapter", () => {
 
       await adapter.postMessage("messenger:USER_123", "cached msg");
 
-      const fetched = await adapter.fetchMessage("messenger:USER_123", "mid.cached");
+      const fetched = await adapter.fetchMessage(
+        "messenger:USER_123",
+        "mid.cached"
+      );
       expect(fetched).not.toBeNull();
       expect(fetched?.text).toContain("cached msg");
       expect(fetched?.author.isMe).toBe(true);
@@ -1649,7 +1667,10 @@ describe("MessengerAdapter", () => {
         ast: {
           type: "root",
           children: [
-            { type: "paragraph", children: [{ type: "text", value: "ast content" }] },
+            {
+              type: "paragraph",
+              children: [{ type: "text", value: "ast content" }],
+            },
           ],
         },
       });
@@ -1819,10 +1840,7 @@ describe("MessengerAdapter", () => {
   });
 
   describe("Graph API error handling - additional error codes", () => {
-    async function initAndMockError(
-      responseBody: unknown,
-      status: number
-    ) {
+    async function initAndMockError(responseBody: unknown, status: number) {
       const adapter = createAdapter();
       const chat = createMockChat();
       mockFetch.mockResolvedValueOnce(
@@ -1878,13 +1896,10 @@ describe("MessengerAdapter", () => {
     });
 
     it("uses fallback message when error object has no message", async () => {
-      const adapter = await initAndMockError(
-        { error: { code: 999 } },
-        500
+      const adapter = await initAndMockError({ error: { code: 999 } }, 500);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        MESSENGER_API_PATTERN
       );
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(MESSENGER_API_PATTERN);
     });
 
     it("uses status as code when error object has no code", async () => {
@@ -1892,16 +1907,16 @@ describe("MessengerAdapter", () => {
         { error: { message: "Something failed" } },
         500
       );
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(NetworkError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        NetworkError
+      );
     });
 
     it("handles response with no error object at all", async () => {
       const adapter = await initAndMockError({}, 500);
-      await expect(
-        adapter.startTyping("messenger:USER_123")
-      ).rejects.toThrow(NetworkError);
+      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
+        NetworkError
+      );
     });
   });
 
@@ -1927,7 +1942,10 @@ describe("MessengerAdapter", () => {
           mid: "mid.loc",
           text: "location",
           attachments: [
-            { type: "location", payload: { url: "https://maps.example.com/loc" } },
+            {
+              type: "location",
+              payload: { url: "https://maps.example.com/loc" },
+            },
           ],
         },
       });
