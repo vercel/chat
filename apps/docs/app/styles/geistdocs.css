@@ -556,4 +556,10 @@
 div[data-streamdown="code-block-body"] {
   overflow-x: auto;
   overflow-y: hidden;
+  padding-right: 0;
+}
+
+/* Move right padding inside the scrollable element so it survives scroll-end. */
+div[data-streamdown="code-block-body"] > pre {
+  padding-right: 1rem;
 }
