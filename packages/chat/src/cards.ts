@@ -61,6 +61,8 @@ export type TextStyle = "plain" | "bold" | "muted";
 export interface ButtonElement {
   /** Whether this button triggers a regular action or opens a modal dialog. Default: "action" */
   actionType?: "action" | "modal";
+  /** URL to POST action data to when this button is clicked */
+  callbackUrl?: string;
   /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
   disabled?: boolean;
   /** Unique action ID for callback routing */
@@ -354,6 +356,8 @@ export function Actions(
 export interface ButtonOptions {
   /** Whether this button triggers a regular action or opens a modal dialog. Default: "action" */
   actionType?: "action" | "modal";
+  /** URL to POST action data to when this button is clicked */
+  callbackUrl?: string;
   /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
   disabled?: boolean;
   /** Unique action ID for callback routing */
@@ -384,6 +388,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     value: options.value,
     disabled: options.disabled,
     actionType: options.actionType,
+    callbackUrl: options.callbackUrl,
   };
 }
 
