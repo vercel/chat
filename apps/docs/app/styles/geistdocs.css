@@ -551,3 +551,9 @@
 :root {
   --color-fd-primary: var(--ds-gray-1000);
 }
+
+/* Streamdown clips long code lines with overflow-hidden — allow horizontal scroll. */
+div[data-streamdown="code-block-body"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
