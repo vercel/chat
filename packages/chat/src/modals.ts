@@ -27,6 +27,8 @@ export type ModalChild =
 
 export interface ModalElement {
   callbackId: string;
+  /** URL to POST form values to when this modal is submitted */
+  callbackUrl?: string;
   children: ModalChild[];
   closeLabel?: string;
   notifyOnClose?: boolean;
@@ -116,6 +118,8 @@ export function filterModalChildren(children: unknown[]): ModalChild[] {
 
 export interface ModalOptions {
   callbackId: string;
+  /** URL to POST form values to when this modal is submitted */
+  callbackUrl?: string;
   children?: ModalChild[];
   closeLabel?: string;
   notifyOnClose?: boolean;
@@ -129,6 +133,7 @@ export function Modal(options: ModalOptions): ModalElement {
   return {
     type: "modal",
     callbackId: options.callbackId,
+    callbackUrl: options.callbackUrl,
     title: options.title,
     submitLabel: options.submitLabel,
     closeLabel: options.closeLabel,
