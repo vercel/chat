@@ -25,6 +25,8 @@ import {
   type TranscriptEntry,
   toAiMessages,
 } from "chat";
+import { start } from "workflow/api";
+import { buttonWorkflow } from "../workflows/button";
 import { buildAdapters } from "./adapters";
 
 const AI_MENTION_REGEX = /\bAI\b/i;
@@ -157,6 +159,7 @@ bot.onNewMention(async (thread, message) => {
         <Button actionType="modal" id="report" value="bug">
           Report Bug
         </Button>
+        <Button id="workflow_button">Workflow Button</Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
@@ -445,6 +448,13 @@ bot.onAction("goodbye", async (event) => {
   await event.thread.post(
     `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
   );
+});
+
+bot.onAction("workflow_button", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await start(buttonWorkflow, [event.thread]);
 });
 
 bot.onAction("show-table", async (event) => {
