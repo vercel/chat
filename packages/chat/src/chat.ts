@@ -1,3 +1,8 @@
+import {
+  decodeCallbackValue,
+  postToCallbackUrl,
+  resolveCallbackUrl,
+} from "./callback-url";
 import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
   getChatSingleton,
@@ -81,6 +86,7 @@ const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
 interface StoredModalContext {
+  callbackUrl?: string;
   channel?: SerializedChannel;
   message?: SerializedMessage;
   thread?: SerializedThread;
@@ -1012,9 +1018,9 @@ export class Chat<
       "relatedThread" | "relatedMessage" | "relatedChannel"
     >,
     contextId?: string,
-    _options?: WebhookOptions
+    options?: WebhookOptions
   ): Promise<ModalResponse | undefined> {
-    const { relatedThread, relatedMessage, relatedChannel } =
+    const { callbackUrl, relatedThread, relatedMessage, relatedChannel } =
       await this.retrieveModalContext(event.adapter.name, contextId);
 
     const fullEvent: ModalSubmitEvent = {
@@ -1024,12 +1030,14 @@ export class Chat<
       relatedChannel,
     };
 
+    let result: ModalResponse | undefined;
     for (const { callbackIds, handler } of this.modalSubmitHandlers) {
       if (callbackIds.length === 0 || callbackIds.includes(event.callbackId)) {
         try {
           const response = await handler(fullEvent);
           if (response) {
-            return response;
+            result = response;
+            break;
           }
         } catch (err) {
           this.logger.error("Modal submit handler error", {
@@ -1039,6 +1047,35 @@ export class Chat<
         }
       }
     }
+
+    if (callbackUrl && result?.action !== "errors") {
+      const task = postToCallbackUrl(callbackUrl, {
+        type: "modal_submit",
+        callbackId: event.callbackId,
+        values: event.values,
+        user: { id: event.user.userId, name: event.user.userName },
+      })
+        .then(({ error }) => {
+          if (error) {
+            this.logger.error("Modal callbackUrl POST failed", {
+              callbackUrl,
+              error,
+            });
+          }
+        })
+        .catch((error) => {
+          this.logger.error("Modal callbackUrl POST failed", {
+            callbackUrl,
+            error,
+          });
+        });
+
+      if (options?.waitUntil) {
+        options.waitUntil(task);
+      }
+    }
+
+    return result;
   }
 
   processModalClose(
@@ -1241,7 +1278,8 @@ export class Chat<
           contextId,
           undefined,
           undefined,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1286,13 +1324,15 @@ export class Chat<
     contextId: string,
     thread?: ThreadImpl<TState>,
     message?: Message,
-    channel?: ChannelImpl<TState>
+    channel?: ChannelImpl<TState>,
+    callbackUrl?: string
   ): Promise<void> {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
       thread: thread?.toJSON(),
       message: message?.toJSON(),
       channel: channel?.toJSON(),
+      callbackUrl,
     };
     try {
       await this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS);
@@ -1312,12 +1352,14 @@ export class Chat<
     adapterName: string,
     contextId?: string
   ): Promise<{
+    callbackUrl: string | undefined;
     relatedThread: Thread | undefined;
     relatedMessage: SentMessage | undefined;
     relatedChannel: Channel | undefined;
   }> {
     if (!contextId) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1329,6 +1371,7 @@ export class Chat<
 
     if (!stored) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1361,7 +1404,12 @@ export class Chat<
       relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
     }
 
-    return { relatedThread, relatedMessage, relatedChannel };
+    return {
+      callbackUrl: stored.callbackUrl,
+      relatedThread,
+      relatedMessage,
+      relatedChannel,
+    };
   }
 
   /**
@@ -1386,6 +1434,39 @@ export class Chat<
         actionId: event.actionId,
       });
       return;
+    }
+
+    const { callbackToken } = decodeCallbackValue(event.value);
+
+    let resolved: { url: string; originalValue?: string } | null = null;
+    if (callbackToken) {
+      resolved = await resolveCallbackUrl(callbackToken, this._stateAdapter);
+    }
+
+    const actionEvent = resolved
+      ? { ...event, value: resolved.originalValue }
+      : event;
+
+    let callbackUrlPromise: Promise<void> | undefined;
+    if (resolved) {
+      const callbackUrl = resolved.url;
+      callbackUrlPromise = (async () => {
+        const { error } = await postToCallbackUrl(callbackUrl, {
+          type: "action",
+          actionId: event.actionId,
+          value: resolved.originalValue,
+          user: { id: event.user.userId, name: event.user.userName },
+          threadId: event.threadId,
+          messageId: event.messageId,
+        });
+        if (error) {
+          this.logger.error("Button callbackUrl POST failed", {
+            callbackUrl,
+            actionId: event.actionId,
+            error,
+          });
+        }
+      })();
     }
 
     const isSubscribed = false;
@@ -1414,7 +1495,7 @@ export class Chat<
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
-      ...event,
+      ...actionEvent,
       thread,
       openModal: async (modal) => {
         // Allow if onOpenModal is provided OR triggerId exists
@@ -1471,7 +1552,8 @@ export class Chat<
           contextId,
           thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1510,6 +1592,10 @@ export class Chat<
         });
         await handler(fullEvent);
       }
+    }
+
+    if (callbackUrlPromise) {
+      await callbackUrlPromise;
     }
   }
 
