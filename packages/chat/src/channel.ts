@@ -1,4 +1,5 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
+import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
 import { fromFullStream } from "./from-full-stream";
@@ -306,6 +307,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       postable = card;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     return this.postSingleMessage(postable);
   }
 
@@ -356,6 +359,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     if (this.adapter.postEphemeral) {
       return this.adapter.postEphemeral(this.id, userId, postable);
     }
@@ -393,6 +398,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     if (!this.adapter.scheduleMessage) {
       throw new NotImplementedError(
         "Scheduled messages are not supported by this adapter",
@@ -401,6 +408,30 @@ export class ChannelImpl<TState = Record<string, unknown>>
     }
 
     return this.adapter.scheduleMessage(this.id, postable, options);
+  }
+
+  private async processCallbackUrls(
+    postable: string | AdapterPostableMessage
+  ): Promise<string | AdapterPostableMessage> {
+    if (typeof postable === "string") {
+      return postable;
+    }
+
+    if ("type" in postable && postable.type === "card") {
+      return processCardCallbackUrls(postable, this._stateAdapter);
+    }
+
+    if ("card" in postable && postable.card?.type === "card") {
+      const processed = await processCardCallbackUrls(
+        postable.card,
+        this._stateAdapter
+      );
+      if (processed !== postable.card) {
+        return { ...postable, card: processed };
+      }
+    }
+
+    return postable;
   }
 
   async startTyping(status?: string): Promise<void> {
@@ -494,6 +525,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
           editPostable = card;
         }
+        editPostable = await self.processCallbackUrls(editPostable);
         await adapter.editMessage(threadId, messageId, editPostable);
         return self.createSentMessage(messageId, editPostable);
       },
