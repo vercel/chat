@@ -1,0 +1,68 @@
+name: Adapter Request
+description: Request a Chat SDK adapter for a new chat platform or state backend
+title: "I want to request a new adapter..."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to request support for a new platform or state backend. For changes to an existing adapter, use Feature Request or Bug Report instead.
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform name
+      description: Name of the chat platform or state backend.
+      placeholder: e.g., Mastodon, Zulip, MongoDB
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Adapter type
+      options:
+        - Platform adapter (chat platform integration)
+        - State adapter (storage backend)
+    validations:
+      required: true
+
+  - type: input
+    id: api-docs
+    attributes:
+      label: Platform API documentation
+      description: Link to the official API or webhook docs for this platform.
+      placeholder: https://...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Why do you want this adapter? What would you build with it?
+      placeholder: I want to build...
+    validations:
+      required: true
+
+  - type: input
+    id: existing
+    attributes:
+      label: Existing community work
+      description: Links to existing community adapters, prototypes, or related issues.
+      placeholder: https://github.com/...
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Community adapters live outside this monorepo and are listed in `apps/docs/adapters.json`. Maintainers may suggest the community-adapter route depending on the platform.
+      options:
+        - label: I am willing to help implement and maintain this adapter
+          required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      placeholder: Any additional information...

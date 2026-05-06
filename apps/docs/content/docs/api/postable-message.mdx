@@ -7,8 +7,13 @@ type: reference
 `PostableMessage` is the union of all message formats accepted by `thread.post()` and `sent.edit()`.
 
 ```typescript
-type PostableMessage = AdapterPostableMessage | AsyncIterable<string | StreamChunk | StreamEvent>;
+type PostableMessage =
+  | AdapterPostableMessage
+  | AsyncIterable<string | StreamChunk | StreamEvent>
+  | PostableObject;
 ```
+
+`PostableObject` covers `Plan` (mutable task lists) and `StreamingPlan` (streams with platform-specific options) — both documented below.
 
 ## String
 
@@ -133,6 +138,55 @@ await thread.post({
   }}
 />
 
+## Plan
+
+A `Plan` is a step-by-step task list that mutates after posting. Each `addTask` / `updateTask` / `complete` call re-renders the same message in place. See [Plan API](/docs/streaming#plan-api) for full usage.
+
+```typescript
+import { Plan } from "chat";
+
+const plan = new Plan({ initialMessage: "Researching options..." });
+await thread.post(plan);
+await plan.addTask({ title: "Look up records" });
+await plan.complete({ completeMessage: "Done!" });
+```
+
+Adapters that don't support `PostableObject` editing render the plan as fallback text and ignore subsequent mutations.
+
+## StreamingPlan
+
+Wraps an async iterable with platform-specific streaming options. Use this when you need to pass options like task grouping or stop blocks through `thread.post()`. See [Streaming with options](/docs/streaming#streaming-with-options).
+
+```typescript
+import { StreamingPlan } from "chat";
+
+const planned = new StreamingPlan(stream, {
+  groupTasks: "plan",
+  endWith: [feedbackBlock],
+  updateIntervalMs: 750,
+});
+
+await thread.post(planned);
+```
+
+<TypeTable
+  type={{
+    groupTasks: {
+      description: 'Slack: render task_update chunks as `"plan"` (single grouped block) or `"timeline"` (inline cards, default).',
+      type: '"plan" | "timeline" | undefined',
+    },
+    endWith: {
+      description: 'Slack: Block Kit elements appended when the stream stops (e.g. retry / feedback buttons).',
+      type: 'unknown[] | undefined',
+    },
+    updateIntervalMs: {
+      description: 'Fallback adapters: minimum interval between post+edit cycles in ms.',
+      type: 'number | undefined',
+      default: '500',
+    },
+  }}
+/>
+
 ## AsyncIterable (streaming)
 
 An async iterable of strings, `StreamChunk` objects, or stream events. The SDK streams the message in real time using platform-native APIs where available.
@@ -150,7 +204,7 @@ await thread.post(result.fullStream);
 await thread.post(result.textStream);
 ```
 
-When using `fullStream`, the SDK auto-detects `text-delta` and `step-finish` events, extracting text and inserting paragraph breaks between agent steps.
+When using `fullStream`, the SDK auto-detects `text-delta` and `finish-step` events, extracting text and inserting paragraph breaks between agent steps.
 
 ## FileUpload
 

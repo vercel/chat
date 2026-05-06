@@ -5,6 +5,6 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
-  sourcemap: true,
-  external: ["@slack/web-api"],
+  sourcemap: false,
+  external: ["@slack/web-api", "@slack/socket-mode"],
 });

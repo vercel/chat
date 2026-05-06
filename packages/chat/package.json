@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "4.20.1",
+  "version": "4.27.0",
   "description": "Unified chat abstraction for Slack, Teams, Google Chat, and Discord",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "resources"
   ],
   "scripts": {
     "build": "pnpm clean && tsup && cp -r ../../apps/docs/content/docs ./docs",

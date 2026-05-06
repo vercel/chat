@@ -400,13 +400,13 @@ function convertTableToBlocks(
   // First row is headers, subsequent rows are data
   const headerRow = element.headers.map((header) => ({
     type: "raw_text" as const,
-    text: convertEmoji(header),
+    text: convertEmoji(header) || " ",
   }));
 
   const dataRows = element.rows.map((row) =>
     row.map((cell) => ({
       type: "raw_text" as const,
-      text: convertEmoji(cell),
+      text: convertEmoji(cell) || " ",
     }))
   );
 

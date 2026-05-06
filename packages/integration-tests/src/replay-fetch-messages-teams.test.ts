@@ -28,7 +28,7 @@ import {
   type MockGraphClient,
 } from "./teams-utils";
 
-const REPLIES_SUFFIX_REGEX = /\/replies$/;
+const REPLIES_PATTERN = /\/replies/;
 
 describe("fetchMessages Replay Tests - Teams", () => {
   let ctx: TeamsTestContext;
@@ -64,7 +64,6 @@ describe("fetchMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()
@@ -102,12 +101,12 @@ describe("fetchMessages Replay Tests - Teams", () => {
       `/messages/${TEAMS_PARENT_MESSAGE_ID}`
     );
     // Should NOT end with /replies (that's the second call)
-    expect(mockGraphClient.apiCalls[0].url).not.toMatch(REPLIES_SUFFIX_REGEX);
+    expect(mockGraphClient.apiCalls[0].url).not.toMatch(REPLIES_PATTERN);
 
     // Second call: fetch replies
     expect(mockGraphClient.apiCalls[1].url).toContain("/teams/");
     expect(mockGraphClient.apiCalls[1].url).toContain("/channels/");
-    expect(mockGraphClient.apiCalls[1].url).toMatch(REPLIES_SUFFIX_REGEX);
+    expect(mockGraphClient.apiCalls[1].url).toMatch(REPLIES_PATTERN);
   });
 
   it("should return all messages in chronological order", async () => {
@@ -350,7 +349,6 @@ describe("allMessages Replay Tests - Teams", () => {
     const channelContext = {
       teamId: TEAMS_TEAM_ID,
       channelId: TEAMS_CHANNEL_ID,
-      tenantId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
     await ctx.chat
       .getState()

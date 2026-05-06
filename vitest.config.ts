@@ -11,6 +11,7 @@ export default defineConfig({
       "packages/adapter-shared",
       "packages/adapter-slack",
       "packages/adapter-teams",
+      "packages/adapter-web",
       "packages/state-ioredis",
       "packages/state-memory",
       "packages/state-redis",

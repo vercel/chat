@@ -5,6 +5,6 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
-  sourcemap: true,
+  sourcemap: false,
   external: ["@octokit/rest", "@octokit/webhooks", "@octokit/auth-app"],
 });

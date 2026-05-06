@@ -11,6 +11,7 @@ import type { FieldsElement, TextElement } from "./cards";
 export const VALID_MODAL_CHILD_TYPES = [
   "text_input",
   "select",
+  "external_select",
   "radio_select",
   "text",
   "fields",
@@ -19,6 +20,7 @@ export const VALID_MODAL_CHILD_TYPES = [
 export type ModalChild =
   | TextInputElement
   | SelectElement
+  | ExternalSelectElement
   | RadioSelectElement
   | TextElement
   | FieldsElement;
@@ -54,6 +56,16 @@ export interface SelectElement {
   options: SelectOptionElement[];
   placeholder?: string;
   type: "select";
+}
+
+export interface ExternalSelectElement {
+  id: string;
+  initialOption?: SelectOptionElement;
+  label: string;
+  minQueryLength?: number;
+  optional?: boolean;
+  placeholder?: string;
+  type: "external_select";
 }
 
 export interface SelectOptionElement {
@@ -173,6 +185,29 @@ export function Select(options: SelectOptions): SelectElement {
   };
 }
 
+export interface ExternalSelectOptions {
+  id: string;
+  initialOption?: SelectOptionElement;
+  label: string;
+  minQueryLength?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
+export function ExternalSelect(
+  options: ExternalSelectOptions
+): ExternalSelectElement {
+  return {
+    type: "external_select",
+    id: options.id,
+    initialOption: options.initialOption,
+    label: options.label,
+    placeholder: options.placeholder,
+    minQueryLength: options.minQueryLength,
+    optional: options.optional,
+  };
+}
+
 export function SelectOption(options: {
   label: string;
   value: string;
@@ -238,6 +273,7 @@ const modalComponentMap = new Map<unknown, string>([
   [Modal, "Modal"],
   [TextInput, "TextInput"],
   [Select, "Select"],
+  [ExternalSelect, "ExternalSelect"],
   [RadioSelect, "RadioSelect"],
   [SelectOption, "SelectOption"],
 ]);
@@ -302,6 +338,16 @@ export function fromReactModalElement(
             c !== null && "label" in c && "value" in c && !("type" in c)
         ),
         initialOption: props.initialOption as string | undefined,
+        optional: props.optional as boolean | undefined,
+      });
+
+    case "ExternalSelect":
+      return ExternalSelect({
+        id: props.id as string,
+        initialOption: props.initialOption as SelectOptionElement | undefined,
+        label: props.label as string,
+        placeholder: props.placeholder as string | undefined,
+        minQueryLength: props.minQueryLength as number | undefined,
         optional: props.optional as boolean | undefined,
       });
 

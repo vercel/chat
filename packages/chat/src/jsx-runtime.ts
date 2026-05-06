@@ -63,6 +63,9 @@ import {
 } from "./cards";
 
 import {
+  ExternalSelect,
+  type ExternalSelectElement,
+  type ExternalSelectOptions,
   filterModalChildren,
   isModalElement,
   Modal,
@@ -105,7 +108,9 @@ export interface TextProps {
 
 /** Props for Button component in JSX */
 export interface ButtonProps {
+  actionType?: "action" | "modal";
   children?: string | number | (string | number | undefined)[];
+  disabled?: boolean;
   id: string;
   label?: string;
   style?: ButtonStyle;
@@ -179,6 +184,16 @@ export interface SelectProps {
   placeholder?: string;
 }
 
+/** Props for ExternalSelect component in JSX */
+export interface ExternalSelectProps {
+  id: string;
+  initialOption?: { label: string; value: string };
+  label: string;
+  minQueryLength?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
 /** Props for SelectOption component in JSX */
 export interface SelectOptionProps {
   description?: string;
@@ -206,6 +221,7 @@ export type CardJSXProps =
   | ModalProps
   | TextInputProps
   | SelectProps
+  | ExternalSelectProps
   | SelectOptionProps
   | TableProps;
 
@@ -225,6 +241,7 @@ type CardComponentFunction =
   | typeof Modal
   | typeof TextInput
   | typeof Select
+  | typeof ExternalSelect
   | typeof RadioSelect
   | typeof SelectOption
   | typeof Table;
@@ -257,6 +274,7 @@ export type ChatElement =
   | ModalElement
   | TextInputElement
   | SelectElement
+  | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement
   | TableElement;
@@ -342,6 +360,11 @@ export interface SelectComponent {
   (props: SelectProps): ChatElement;
 }
 
+export interface ExternalSelectComponent {
+  (options: ExternalSelectOptions): ExternalSelectElement;
+  (props: ExternalSelectProps): ChatElement;
+}
+
 export interface SelectOptionComponent {
   (options: {
     label: string;
@@ -383,6 +406,7 @@ type CardChildOrNested =
   | LinkElement
   | FieldElement
   | SelectElement
+  | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement;
 
@@ -430,6 +454,7 @@ type AnyCardElement =
   | FieldElement
   | ModalElement
   | ModalChild
+  | ExternalSelectElement
   | SelectOptionElement
   | null;
 
@@ -523,6 +548,20 @@ function isSelectProps(props: CardJSXProps): props is SelectProps {
 }
 
 /**
+ * Type guard to check if props match ExternalSelectProps
+ */
+function isExternalSelectProps(
+  props: CardJSXProps
+): props is ExternalSelectProps {
+  return (
+    "id" in props &&
+    "label" in props &&
+    !("value" in props) &&
+    !("children" in props)
+  );
+}
+
+/**
  * Type guard to check if props match SelectOptionProps
  */
 function isSelectOptionProps(props: CardJSXProps): props is SelectOptionProps {
@@ -589,6 +628,8 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       label,
       style: props.style,
       value: props.value,
+      actionType: props.actionType,
+      disabled: props.disabled,
     });
   }
 
@@ -691,6 +732,20 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       initialOption: props.initialOption,
       optional: props.optional,
       options: processedChildren as SelectOptionElement[],
+    });
+  }
+
+  if (type === ExternalSelect) {
+    if (!isExternalSelectProps(props)) {
+      throw new Error("ExternalSelect requires 'id' and 'label' props");
+    }
+    return ExternalSelect({
+      id: props.id,
+      initialOption: props.initialOption,
+      label: props.label,
+      placeholder: props.placeholder,
+      minQueryLength: props.minQueryLength,
+      optional: props.optional,
     });
   }
 

@@ -527,6 +527,7 @@ describe("ChannelImpl", () => {
         _type: "chat:Channel",
         id: "slack:C123",
         adapterName: "slack",
+        channelVisibility: "unknown",
         isDM: false,
       });
     });
@@ -620,6 +621,50 @@ describe("thread.channel", () => {
     });
 
     expect(thread.channel.isDM).toBe(true);
+  });
+
+  it("should inherit channelVisibility from thread", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const thread = new ThreadImpl({
+      id: "slack:C123:1234.5678",
+      adapter: mockAdapter,
+      channelId: "C123",
+      stateAdapter: mockState,
+      channelVisibility: "external",
+    });
+
+    expect(thread.channel.channelVisibility).toBe("external");
+  });
+
+  it("should default channelVisibility to unknown", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const thread = new ThreadImpl({
+      id: "slack:C123:1234.5678",
+      adapter: mockAdapter,
+      channelId: "C123",
+      stateAdapter: mockState,
+    });
+
+    expect(thread.channel.channelVisibility).toBe("unknown");
+  });
+
+  it("should support private channel visibility", () => {
+    const mockAdapter = createMockAdapter();
+    const mockState = createMockState();
+
+    const thread = new ThreadImpl({
+      id: "slack:G123:1234.5678",
+      adapter: mockAdapter,
+      channelId: "G123",
+      stateAdapter: mockState,
+      channelVisibility: "private",
+    });
+
+    expect(thread.channel.channelVisibility).toBe("private");
   });
 });
 

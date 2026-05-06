@@ -116,7 +116,8 @@ export class WhatsAppAdapter
   implements Adapter<WhatsAppThreadId, WhatsAppRawMessage>
 {
   readonly name = "whatsapp";
-  readonly persistMessageHistory = true;
+  readonly lockScope = "channel" as const;
+  readonly persistThreadHistory = true;
   readonly userName: string;
 
   private readonly accessToken: string;
@@ -142,7 +143,8 @@ export class WhatsAppAdapter
     this.logger = config.logger;
     this.userName = config.userName;
     const apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
-    this.graphApiUrl = `https://graph.facebook.com/${apiVersion}`;
+    const baseUrl = config.apiUrl ?? "https://graph.facebook.com";
+    this.graphApiUrl = `${baseUrl}/${apiVersion}`;
   }
 
   /**
@@ -653,6 +655,18 @@ export class WhatsAppAdapter
       type,
       mimeType,
       name,
+      fetchMetadata: { mediaId },
+      fetchData: () => this.downloadMedia(mediaId),
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const mediaId = attachment.fetchMetadata?.mediaId;
+    if (!mediaId) {
+      return attachment;
+    }
+    return {
+      ...attachment,
       fetchData: () => this.downloadMedia(mediaId),
     };
   }
@@ -1176,6 +1190,7 @@ export class WhatsAppAdapter
  */
 export function createWhatsAppAdapter(config?: {
   accessToken?: string;
+  apiUrl?: string;
   apiVersion?: string;
   appSecret?: string;
   logger?: Logger;
@@ -1223,6 +1238,7 @@ export function createWhatsAppAdapter(config?: {
 
   return new WhatsAppAdapter({
     accessToken,
+    apiUrl: config?.apiUrl ?? process.env.WHATSAPP_API_URL,
     apiVersion: config?.apiVersion,
     appSecret,
     phoneNumberId,

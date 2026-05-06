@@ -9,7 +9,10 @@ import {
   Fields,
   Image,
   LinkButton,
+  RadioSelect,
   Section,
+  Select,
+  SelectOption,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToFallbackText, cardToGoogleCard } from "./cards";
@@ -293,6 +296,158 @@ describe("cardToGoogleCard", () => {
       },
       color: { red: 0.2, green: 0.5, blue: 0.9 }, // primary blue
     });
+  });
+
+  it("converts select actions to selectionInput dropdown widgets", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Select({
+            id: "priority",
+            label: "Priority",
+            options: [
+              SelectOption({
+                label: "High",
+                value: "high",
+                description: "Urgent",
+              }),
+              SelectOption({ label: "Normal", value: "normal" }),
+            ],
+            initialOption: "normal",
+          }),
+        ]),
+      ],
+    });
+
+    const gchatCard = cardToGoogleCard(card, {
+      endpointUrl: "https://example.com/api/webhooks/gchat",
+    });
+
+    const widgets = gchatCard.card.sections[0].widgets;
+    expect(widgets).toHaveLength(1);
+    expect(widgets[0]).toEqual({
+      selectionInput: {
+        name: "priority",
+        label: "Priority",
+        type: "DROPDOWN",
+        items: [
+          {
+            text: "High",
+            value: "high",
+          },
+          {
+            text: "Normal",
+            value: "normal",
+            selected: true,
+          },
+        ],
+        onChangeAction: {
+          function: "https://example.com/api/webhooks/gchat",
+          parameters: [{ key: "actionId", value: "priority" }],
+        },
+      },
+    });
+  });
+
+  it("converts radio select actions to selectionInput radio widgets", () => {
+    const card = Card({
+      children: [
+        Actions([
+          RadioSelect({
+            id: "status",
+            label: "Status",
+            options: [
+              SelectOption({ label: "Open", value: "open" }),
+              SelectOption({ label: "Closed", value: "closed" }),
+            ],
+            initialOption: "open",
+          }),
+        ]),
+      ],
+    });
+
+    const gchatCard = cardToGoogleCard(card);
+    const widgets = gchatCard.card.sections[0].widgets;
+
+    expect(widgets).toHaveLength(1);
+    expect(widgets[0]).toEqual({
+      selectionInput: {
+        name: "status",
+        label: "Status",
+        type: "RADIO_BUTTON",
+        items: [
+          {
+            text: "Open",
+            value: "open",
+            selected: true,
+          },
+          {
+            text: "Closed",
+            value: "closed",
+          },
+        ],
+        onChangeAction: {
+          function: "status",
+          parameters: [{ key: "actionId", value: "status" }],
+        },
+      },
+    });
+  });
+
+  it("preserves action order for mixed buttons and selection inputs", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({ id: "refresh", label: "Refresh" }),
+          Select({
+            id: "category",
+            label: "Category",
+            options: [
+              SelectOption({ label: "Alpha", value: "alpha" }),
+              SelectOption({ label: "Beta", value: "beta" }),
+            ],
+          }),
+          LinkButton({ url: "https://example.com/docs", label: "Docs" }),
+          RadioSelect({
+            id: "view",
+            label: "View",
+            options: [
+              SelectOption({ label: "Summary", value: "summary" }),
+              SelectOption({ label: "Detailed", value: "detailed" }),
+            ],
+          }),
+        ]),
+      ],
+    });
+
+    const gchatCard = cardToGoogleCard(card);
+    const widgets = gchatCard.card.sections[0].widgets;
+
+    expect(widgets).toHaveLength(4);
+    expect(widgets[0].buttonList?.buttons).toHaveLength(1);
+    expect(widgets[0].buttonList?.buttons[0]).toEqual({
+      text: "Refresh",
+      onClick: {
+        action: {
+          function: "refresh",
+          parameters: [{ key: "actionId", value: "refresh" }],
+        },
+      },
+    });
+    expect(widgets[1].selectionInput?.name).toBe("category");
+    expect(widgets[1].selectionInput?.type).toBe("DROPDOWN");
+    expect(widgets[2].buttonList?.buttons).toEqual([
+      {
+        text: "Docs",
+        onClick: {
+          openLink: {
+            url: "https://example.com/docs",
+          },
+        },
+      },
+    ]);
+    expect(widgets[3].selectionInput?.name).toBe("view");
+    expect(widgets[3].selectionInput?.type).toBe("RADIO_BUTTON");
   });
 
   it("converts fields to decoratedText widgets", () => {

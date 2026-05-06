@@ -654,6 +654,7 @@ const mockChat = {
   processMessage: vi.fn(),
   processReaction: vi.fn(),
   processAction: vi.fn(),
+  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
   processModalSubmit: vi.fn(),
   processModalClose: vi.fn(),
   processSlashCommand: vi.fn(),
@@ -1095,5 +1096,69 @@ describe("createWhatsAppAdapter", () => {
         }
       }
     }
+  });
+
+  it("uses apiUrl config to override base URL", () => {
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      apiUrl: "https://custom-graph.example.com",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    });
+    expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
+      "https://custom-graph.example.com/v21.0"
+    );
+  });
+
+  it("uses WHATSAPP_API_URL env var via factory", () => {
+    const originalEnv = { ...process.env };
+    for (const [key, value] of Object.entries(requiredEnvVars)) {
+      process.env[key] = value;
+    }
+    process.env.WHATSAPP_API_URL = "https://custom-graph.example.com";
+
+    try {
+      const adapter = createWhatsAppAdapter();
+      expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
+        "https://custom-graph.example.com/v21.0"
+      );
+    } finally {
+      for (const key of [...Object.keys(requiredEnvVars), "WHATSAPP_API_URL"]) {
+        if (key in originalEnv) {
+          process.env[key] = originalEnv[key];
+        } else {
+          delete process.env[key];
+        }
+      }
+    }
+  });
+
+  it("uses apiUrl with custom apiVersion", () => {
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      apiUrl: "https://custom-graph.example.com",
+      apiVersion: "v19.0",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    });
+    expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
+      "https://custom-graph.example.com/v19.0"
+    );
   });
 });

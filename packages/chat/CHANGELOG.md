@@ -1,5 +1,85 @@
 # chat
 
+## 4.27.0
+
+### Minor Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- b0ab804: Bundle guide markdown and a templates manifest with the package so AI agents can discover Chat SDK resources without fetching at runtime. Guides are written to `resources/guides/*.md` and templates to `resources/templates.json` by the root-level `pnpm sync-resources` script.
+- b9a1961: Switch Telegram adapter's outbound `parse_mode` from legacy `Markdown` to `MarkdownV2`, and replace the standard-markdown passthrough renderer with a proper AST → MarkdownV2 renderer. Standard markdown (`**bold**`) and legacy `Markdown` (`*bold*`) use different syntaxes and have no shared escape rules, so any message containing `.`, `!`, `(`, `)`, `-`, `_` in regular text — which is virtually every LLM-generated message — was being rejected with `can't parse entities`. The new renderer walks the mdast tree and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), uniformly applies MarkdownV2 `parse_mode` to every format-converter output (including AST messages, which previously shipped without `parse_mode` and rendered asterisks literally), and escapes card fallback text.
+
+  Also fix silent message truncation that the MarkdownV2 migration widened from a rare bug into a reliable 400. The previous truncator sliced messages at 4096/1024 chars and appended literal `...`, but in MarkdownV2 `.` is a reserved character that must be escaped, the slice can leave an orphan trailing `\`, and it can cut through a paired entity (`*bold*`, `` `code` ``) leaving it unclosed — all of which cause `can't parse entities`. The two truncate methods are unified into `truncateForTelegram(text, limit, parseMode)`, which appends an escaped `\.\.\.` for MarkdownV2 and walks back past unbalanced entity delimiters or orphan backslashes before appending. Plain-text messages keep literal `...`.
+
+  Internal typing hardening: `renderMarkdownV2` is now typed exhaustively on mdast's `Nodes` union with a `never` assertion, so new mdast node types fail the build rather than silently falling through. Introduce `TelegramParseMode = "MarkdownV2" | "plain"` replacing the previous `string | undefined` at call sites, with `toBotApiParseMode` mapping to the Bot API wire format at the boundary. The `chat` package gains a re-export of mdast's `Nodes` union so adapters can build exhaustively typed renderers without importing mdast directly.
+
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+- 70281dc: add initialOption and option_groups support for ExternalSelect
+- 9093292: add streaming options to thread.post() with platform-specific namespacing
+- 7e90d9c: Add Socket Mode support for environments behind firewalls that can't expose public HTTP endpoints, and add `{ action: "clear" }` modal response to close the entire modal view stack
+- bca4792: Allow `task_update` streaming chunks to include optional `details` text for Slack task cards
+- 37dbb4a: Add `thread.getParticipants()` to get unique human participants in a thread
+- 608d5f0: Add `chat.thread(threadId)` method to create Thread handles outside of webhook contexts
+- a179b29: Implement external_select block kit for Slack
+- a8f2aab: Allow `plan.updateTask()` to target a specific task by ID via `{ id: taskId }` instead of always updating the last in_progress task
+
+### Patch Changes
+
+- 8a0c7b3: Fix Slack structured streaming when `thread.post(stream)` is called from a handler created by an interactive (`block_actions`) payload.
+  The team ID is now resolved from `team.id` in addition to `team_id` / `team`.
+- d630e6c: fix(chat): honor `concurrency.maxConcurrent` in the `concurrent` strategy. The cap was documented but never applied, so handlers dispatched unbounded. Also warns when `maxConcurrent` is paired with a non-`concurrent` strategy (previously ignored silently) and throws on `maxConcurrent < 1` to prevent a deadlock.
+
+## 4.26.0
+
+### Minor Changes
+
+- 2235c16: export standalone reviver for workflow-safe deserialization without adapter dependencies
+
+### Patch Changes
+
+- ddb084b: guard fallback streaming against empty post and edit calls
+
+## 4.25.0
+
+### Minor Changes
+
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+
+## 4.24.0
+
+### Minor Changes
+
+- 4f5d200: Add Teams dialog (task module) support with `actionType: "modal"` on buttons and `onOpenModal` webhook hook
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 27b34e1: Use adapter to parse channel id for `thread.channelId`
+
+## 4.23.0
+
+### Minor Changes
+
+- 4166e09: Add `channelVisibility` enum to distinguish private, workspace, external, and unknown channel scopes. Implements `getChannelVisibility()` on the Adapter interface and Slack adapter, replacing the previous `isExternalChannel` boolean.
+
+## 4.22.0
+
+### Minor Changes
+
+- f2d8957: Implement new concurrency strategies for overlapping messages
+
+## 4.21.0
+
+### Minor Changes
+
+- e45a67f: Add optional `disconnect()` hook to the Adapter interface, called during `chat.shutdown()` for resource cleanup
+
+### Patch Changes
+
+- 13ba1c7: Fix `fromFullStream()` step separator detection for AI SDK v5+: rename `step-finish` event check to `finish-step`
+- 95fd8ce: Add missing `toJSON()` method declarations to `Thread` and `Channel` interfaces to match their implementations.
+
+## 4.20.2
+
 ## 4.20.1
 
 ### Patch Changes

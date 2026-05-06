@@ -193,7 +193,7 @@ export async function toAiMessages(
           : msg.text;
 
       // Append link metadata when available
-      if (msg.links.length > 0) {
+      if (msg.links && msg.links.length > 0) {
         const linkParts = msg.links
           .map((link) => {
             const parts = link.fetchMessage
@@ -218,7 +218,7 @@ export async function toAiMessages(
       let aiMessage: AiMessage;
       if (role === "user") {
         const attachmentParts: AiMessagePart[] = [];
-        for (const att of msg.attachments) {
+        for (const att of msg.attachments ?? []) {
           const part = await attachmentToPart(att);
           if (part) {
             attachmentParts.push(part);

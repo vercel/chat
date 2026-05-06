@@ -1,10 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreBinaries": ["vercel"],
+  "ignoreBinaries": ["vercel", "tsx"],
   "ignoreDependencies": ["@biomejs/biome"],
   "ignore": ["apps/docs/**/*"],
   "rules": {
     "duplicates": "off",
-    "types": "off"
+    "types": "off",
+    "optionalPeerDependencies": "off"
   }
 }

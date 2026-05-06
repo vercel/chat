@@ -13,6 +13,15 @@ related:
 
 A `Thread` represents a conversation thread on any platform. It provides methods for posting messages, managing subscriptions, and accessing message history.
 
+Thread instances are most often supplied by the SDK to your event handlers. You can also construct one explicitly from a thread ID — useful for cron jobs, workflow steps, or any other context outside an inbound webhook:
+
+```typescript title="lib/bot.ts" lineNumbers
+const thread = bot.thread("slack:C123ABC:1234567890.123456");
+await thread.post("Reminder from a cron job");
+```
+
+For DM-style conversations, use [`bot.openDM(adapter, userId)`](/docs/direct-messages) instead — it resolves the right channel and thread on each platform.
+
 ### Post a message
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -39,6 +48,33 @@ await thread.unsubscribe();
 
 const subscribed = await thread.isSubscribed();
 ```
+
+### Participants
+
+Get the unique human participants in a thread. Returns deduplicated authors, excluding all bots. Useful for deciding whether to subscribe based on how many humans are in the conversation.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread) => {
+  const participants = await thread.getParticipants();
+  if (participants.length === 1) {
+    await thread.subscribe();
+    await thread.post("I'm here to help!");
+  }
+});
+
+bot.onSubscribedMessage(async (thread) => {
+  const participants = await thread.getParticipants();
+  if (participants.length > 1) {
+    await thread.unsubscribe();
+    return;
+  }
+  // respond...
+});
+```
+
+<Callout type="warn">
+  Each call fetches the full message history to find all participants. On threads with long history this makes multiple API calls to the platform. Consider checking `message.author` against a known set before calling `getParticipants()` on every incoming message.
+</Callout>
 
 ### Typing indicator
 
@@ -142,6 +178,13 @@ interface Author {
   isBot: boolean | "unknown";
   isMe: boolean; // true if message is from the bot itself
 }
+```
+
+For richer user info (email, avatar), use [`chat.getUser()`](/docs/api/chat#getuser):
+
+```typescript title="lib/bot.ts"
+const user = await bot.getUser(message.author);
+console.log(user?.email); // "alice@company.com"
 ```
 
 ### Sent messages

@@ -1,5 +1,101 @@
 # @chat-adapter/gchat
 
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+
+### Patch Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- 53ee151: Clear cardsV2 when editing a message to plain text so old cards don't persist underneath the new text
+- 1c12d33: Support `Select` and `RadioSelect` card actions in Google Chat by rendering them as `selectionInput` widgets and reading selected values from form inputs on action events.
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- 4cc87dd: Preserve custom link labels in Google Chat text messages by rendering Markdown links with Google Chat's supported `<url|text>` syntax.
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
+## 4.24.0
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - @chat-adapter/shared@4.24.0
+  - chat@4.24.0
+
+## 4.23.0
+
+### Patch Changes
+
+- Updated dependencies [4166e09]
+  - chat@4.23.0
+  - @chat-adapter/shared@4.23.0
+
+## 4.22.0
+
+### Patch Changes
+
+- Updated dependencies [f2d8957]
+  - chat@4.22.0
+  - @chat-adapter/shared@4.22.0
+
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- 000792b: Introduce optional gchat signature verification
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
+## 4.20.2
+
+### Patch Changes
+
+- chat@4.20.2
+- @chat-adapter/shared@4.20.2
+
 ## 4.20.1
 
 ### Patch Changes

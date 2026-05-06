@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.20.1",
+  "version": "4.27.0",
   "description": "Slack adapter for chat",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
+    "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.14.0",
     "chat": "workspace:*"
   },

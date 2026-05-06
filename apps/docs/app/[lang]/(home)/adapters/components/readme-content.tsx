@@ -2,25 +2,21 @@
 
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
 import { Streamdown } from "streamdown";
 
 interface ReadmeContentProps {
   children: string;
 }
 
-const stripImages = (markdown: string): string =>
-  markdown
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/^\s*\[?\s*\]?\s*$/gm, "");
-
+// Streamdown's `linkSafety` defaults to `true`, which replaces <a> with <button>
+// and breaks cmd-click/middle-click/"copy link" — explicit `false` is required.
 export const ReadmeContent = ({ children }: ReadmeContentProps) => (
   <Streamdown
+    disallowedElements={["img", "picture", "source"]}
     linkSafety={{ enabled: false }}
     mode="static"
-    plugins={{ cjk, code, math, mermaid }}
+    plugins={{ cjk, code }}
   >
-    {stripImages(children)}
+    {children}
   </Streamdown>
 );

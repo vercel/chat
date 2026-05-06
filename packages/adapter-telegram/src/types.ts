@@ -10,6 +10,8 @@ import type { Logger } from "chat";
 export interface TelegramAdapterConfig {
   /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
+  /** Override the Telegram API base URL. Alias for apiBaseUrl — apiUrl takes precedence if both are set. Defaults to TELEGRAM_API_BASE_URL env var. */
+  apiUrl?: string;
   /** Telegram bot token from BotFather. Defaults to TELEGRAM_BOT_TOKEN env var. */
   botToken?: string;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
@@ -99,9 +101,11 @@ export interface TelegramChat {
  * @see https://core.telegram.org/bots/api#messageentity
  */
 export interface TelegramMessageEntity {
+  language?: string;
   length: number;
   offset: number;
   type: string;
+  url?: string;
   user?: TelegramUser;
 }
 

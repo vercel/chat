@@ -1,8 +1,20 @@
 import { createHmac } from "node:crypto";
+import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  LinearAgentSessionCommentRawMessage,
+  LinearCommentRawMessage,
+  LinearInstallation,
+} from "./index";
 import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
+const BYTES_32_PATTERN = /32 bytes/;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 /** Mock logger that captures calls */
 function createMockLogger() {
@@ -14,34 +26,320 @@ function createMockLogger() {
   };
 }
 
+function createRawCommentMessage(
+  overrides?: Partial<LinearCommentRawMessage["comment"]> & {
+    user?: Partial<LinearCommentRawMessage["comment"]["user"]>;
+  }
+): LinearCommentRawMessage {
+  const user = overrides?.user ?? {};
+  return {
+    kind: "comment",
+    organizationId: "org-123",
+    comment: {
+      id: overrides?.id ?? "comment-abc123",
+      body: overrides?.body ?? "Hello from Linear!",
+      issueId: overrides?.issueId ?? "issue-123",
+      user: {
+        id: user.id ?? "user-456",
+        displayName: user.displayName ?? "Test User",
+        fullName: user.fullName ?? "Test User",
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        type: user.type ?? "user",
+      },
+      parentId: overrides?.parentId,
+      createdAt: overrides?.createdAt ?? "2025-01-29T12:00:00.000Z",
+      updatedAt: overrides?.updatedAt ?? "2025-01-29T12:00:00.000Z",
+      url: overrides?.url,
+    },
+  };
+}
+
+function attachLegacyClientAlias(adapter: LinearAdapter): LinearAdapter {
+  Object.defineProperty(adapter, "linearClient", {
+    configurable: true,
+    get() {
+      return (adapter as unknown as { defaultClient: unknown }).defaultClient;
+    },
+    set(value: unknown) {
+      (adapter as unknown as { defaultClient: unknown }).defaultClient = value;
+    },
+  });
+
+  return adapter;
+}
+
+function setDefaultClient(adapter: LinearAdapter, client: unknown): void {
+  (adapter as unknown as { defaultClient: unknown }).defaultClient = client;
+}
+
+function setBotUserId(adapter: LinearAdapter, botUserId: string): void {
+  (adapter as unknown as { defaultBotUserId: string }).defaultBotUserId =
+    botUserId;
+}
+
+function setDefaultOrganizationId(
+  adapter: LinearAdapter,
+  organizationId: string
+): void {
+  (
+    adapter as unknown as {
+      defaultOrganizationId: string;
+    }
+  ).defaultOrganizationId = organizationId;
+}
+
+function setClientCredentialsState(
+  adapter: LinearAdapter,
+  clientCredentials: {
+    clientId: string;
+    clientSecret: string;
+    scopes?: string[];
+  },
+  accessTokenExpiry?: number | null
+): void {
+  (
+    adapter as unknown as {
+      clientCredentials: {
+        clientId: string;
+        clientSecret: string;
+        scopes: string[];
+      };
+      accessTokenExpiry: number | null;
+    }
+  ).clientCredentials = {
+    clientId: clientCredentials.clientId,
+    clientSecret: clientCredentials.clientSecret,
+    scopes: clientCredentials.scopes ?? [
+      "read",
+      "write",
+      "comments:create",
+      "issues:create",
+    ],
+  };
+
+  if (accessTokenExpiry !== undefined) {
+    (
+      adapter as unknown as {
+        accessTokenExpiry: number | null;
+      }
+    ).accessTokenExpiry = accessTokenExpiry;
+  }
+}
+
+function expectCommentRawMessage(raw: {
+  kind: string;
+}): LinearCommentRawMessage {
+  if (raw.kind !== "comment") {
+    throw new Error(`Expected a comment raw message, got ${raw.kind}`);
+  }
+
+  return raw as LinearCommentRawMessage;
+}
+
+function expectAgentSessionCommentRawMessage(raw: {
+  kind: string;
+}): LinearAgentSessionCommentRawMessage {
+  if (raw.kind !== "agent_session_comment") {
+    throw new Error(
+      `Expected an agent session comment raw message, got ${raw.kind}`
+    );
+  }
+
+  return raw as LinearAgentSessionCommentRawMessage;
+}
+
+function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
+  const cache = new Map<string, unknown>();
+  return {
+    cache,
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    unsubscribe: vi.fn().mockResolvedValue(undefined),
+    isSubscribed: vi.fn().mockResolvedValue(false),
+    acquireLock: vi.fn().mockResolvedValue(null),
+    releaseLock: vi.fn().mockResolvedValue(undefined),
+    extendLock: vi.fn().mockResolvedValue(true),
+    get: vi.fn().mockImplementation((key: string) => {
+      return Promise.resolve(cache.get(key) ?? null);
+    }),
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
+      cache.set(key, value);
+      return Promise.resolve();
+    }),
+    delete: vi.fn().mockImplementation((key: string) => {
+      cache.delete(key);
+      return Promise.resolve();
+    }),
+    appendToList: vi.fn().mockResolvedValue(undefined),
+    getList: vi.fn().mockResolvedValue([]),
+  };
+}
+
+function createMockChatInstance(
+  state: StateAdapter,
+  logger = createMockLogger(),
+  userName = "test-bot"
+): ChatInstance {
+  return {
+    processMessage: vi.fn(),
+    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
+    processReaction: vi.fn(),
+    processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
+    processModalSubmit: vi.fn().mockResolvedValue(undefined),
+    processModalClose: vi.fn(),
+    processSlashCommand: vi.fn(),
+    processMemberJoinedChannel: vi.fn(),
+    getState: () => state,
+    getUserName: () => userName,
+    getLogger: () => logger,
+  };
+}
+
 /**
  * Create a minimal LinearAdapter for testing thread ID methods.
  * We pass a dummy apiKey - it won't be used for encoding/decoding.
  */
-function createTestAdapter(): LinearAdapter {
-  return new LinearAdapter({
-    apiKey: "test-api-key",
-    webhookSecret: "test-secret",
-    userName: "test-bot",
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  });
+function createTestAdapter(
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
+  const adapter = attachLegacyClientAlias(
+    new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+      ...(mode ? { mode } : {}),
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    })
+  );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
+}
+
+function createMultiTenantAdapter(
+  logger = createMockLogger(),
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
+  const adapter = attachLegacyClientAlias(
+    new LinearAdapter({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      ...(mode ? { mode } : {}),
+      logger,
+    })
+  );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
+}
+
+function createClientCredentialsAdapter(
+  logger = createMockLogger(),
+  scopes?: string[]
+): LinearAdapter {
+  const adapter = attachLegacyClientAlias(
+    new LinearAdapter({
+      clientCredentials: {
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+        scopes,
+      },
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      logger,
+    })
+  );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
+}
+
+function createInstallation(
+  overrides?: Partial<LinearInstallation>
+): LinearInstallation {
+  return {
+    organizationId: "org-123",
+    accessToken: "org-token",
+    refreshToken: "refresh-token",
+    expiresAt: Date.now() + 600_000,
+    botUserId: "bot-user-id",
+    ...overrides,
+  };
+}
+
+function createMockAgentActivityPayload(
+  id: string,
+  content: Record<string, unknown>,
+  createdAt = "2025-06-01T12:00:01.000Z"
+) {
+  return {
+    success: true,
+    agentActivity: Promise.resolve({
+      id,
+      agentSessionId: "session-789",
+      createdAt,
+      updatedAt: createdAt,
+      content,
+      sourceComment: Promise.resolve({
+        id: `comment-${id}`,
+        body: typeof content.body === "string" ? content.body : "",
+        parentId: "comment-root",
+        createdAt: new Date(createdAt),
+        updatedAt: new Date(createdAt),
+        url: `https://linear.app/comment/${id}`,
+        user: Promise.resolve(undefined),
+        botActor: Promise.resolve({
+          id: "bot-user-id",
+          name: "Test Bot",
+          userDisplayName: "Test Bot",
+        }),
+      }),
+    }),
+  };
+}
+
+function buildOAuthCallbackRequest(
+  params: Record<string, string | undefined>
+): Request {
+  const url = new URL("https://example.com/api/linear/install/callback");
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  return new Request(url, { method: "GET" });
 }
 
 /**
  * Create an adapter with the known webhook secret and a mock logger.
  */
-function createWebhookAdapter(logger = createMockLogger()): LinearAdapter {
-  return new LinearAdapter({
-    apiKey: "test-api-key",
-    webhookSecret: WEBHOOK_SECRET,
-    userName: "test-bot",
-    logger,
-  });
+function createWebhookAdapter(
+  logger = createMockLogger(),
+  mode?: "agent-sessions" | "comments"
+): LinearAdapter {
+  const adapter = attachLegacyClientAlias(
+    new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      ...(mode ? { mode } : {}),
+      logger,
+    })
+  );
+
+  setBotUserId(adapter, "bot-user-id");
+  return adapter;
 }
 
 /**
@@ -93,6 +391,13 @@ function createCommentPayload(overrides?: {
       body: overrides?.body ?? "Hello from webhook",
       issueId: overrides?.issueId ?? "issue-123",
       userId: overrides?.userId ?? "user-456",
+      user: {
+        id: overrides?.userId ?? "user-456",
+        name: "Test User",
+        email: undefined,
+        avatarUrl: undefined,
+        url: "https://linear.app/gitbook-x/profiles/Test User",
+      },
       createdAt: "2025-06-01T12:00:00.000Z",
       updatedAt: "2025-06-01T12:00:00.000Z",
       parentId: overrides?.parentId,
@@ -127,6 +432,100 @@ function createReactionPayload(overrides?: {
       commentId: overrides?.commentId ?? "comment-abc",
       userId: "user-456",
     },
+    actor: {
+      id: "user-456",
+      name: "Test User",
+      type: "user" as const,
+    },
+  };
+}
+
+function createAgentSessionPayload(overrides?: {
+  action?: "created" | "prompted";
+  activityBody?: string;
+  activityId?: string;
+  appUserId?: string;
+  commentId?: string;
+  creator?: {
+    avatarUrl?: string;
+    email?: string;
+    id: string;
+    name: string;
+    url: string;
+  } | null;
+  creatorId?: string;
+  creatorName?: string;
+  issueId?: string;
+  promptContext?: string;
+  sessionId?: string;
+  sourceCommentBody?: string;
+  sourceCommentId?: string | null;
+}) {
+  const sourceCommentId =
+    overrides && "sourceCommentId" in overrides
+      ? overrides.sourceCommentId
+      : "comment-source";
+  const creator =
+    overrides && "creator" in overrides
+      ? overrides.creator
+      : {
+          id: overrides?.creatorId ?? "user-456",
+          name: overrides?.creatorName ?? "Test User",
+          email: undefined,
+          avatarUrl: undefined,
+          url: "https://linear.app/test/profiles/test-user",
+        };
+
+  return {
+    type: "AgentSessionEvent",
+    action: overrides?.action ?? "created",
+    createdAt: "2025-06-01T12:00:00.000Z",
+    appUserId: overrides?.appUserId ?? "bot-user-id",
+    oauthClientId: "oauth-client-123",
+    organizationId: "org-123",
+    webhookId: "webhook-agent-1",
+    webhookTimestamp: Date.now(),
+    promptContext:
+      overrides?.promptContext ?? "Issue TEST-1\n\n@get-bot Hello there",
+    agentSession: {
+      id: overrides?.sessionId ?? "agent-session-1",
+      appUserId: overrides?.appUserId ?? "bot-user-id",
+      issueId: overrides?.issueId ?? "issue-123",
+      commentId: overrides?.commentId ?? "comment-root",
+      sourceCommentId,
+      comment: {
+        id: overrides?.commentId ?? "comment-root",
+        body: overrides?.sourceCommentBody ?? "@test-bot Hello there",
+        userId: creator?.id,
+      },
+      creator,
+      sourceMetadata: {
+        type: "comment",
+        agentSessionMetadata: {
+          sourceCommentId:
+            sourceCommentId ?? overrides?.commentId ?? "comment-source",
+        },
+      },
+      status: "active",
+      summary: "Help with the issue",
+    },
+    agentActivity: {
+      id: overrides?.activityId ?? "agent-activity-1",
+      body: overrides?.activityBody ?? "Hello from app actor",
+      createdAt: "2025-06-01T12:00:00.000Z",
+      updatedAt: "2025-06-01T12:00:00.000Z",
+      content: {
+        type: overrides?.action === "prompted" ? "prompt" : "prompt",
+        body: overrides?.activityBody ?? "Hello from app actor",
+      },
+    },
+    previousComments: [
+      {
+        id: "previous-comment-1",
+        body: "Previous discussion",
+      },
+    ],
+    guidance: [{ body: "Be concise" }],
     actor: {
       id: "user-456",
       name: "Test User",
@@ -171,6 +570,25 @@ describe("encodeThreadId", () => {
       "linear:2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9:c:a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     );
   });
+
+  it("should encode an agent-session issue thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.encodeThreadId({
+      issueId: "issue-123",
+      agentSessionId: "session-789",
+    });
+    expect(result).toBe("linear:issue-123:s:session-789");
+  });
+
+  it("should encode an agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.encodeThreadId({
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
+    });
+    expect(result).toBe("linear:issue-123:c:comment-456:s:session-789");
+  });
 });
 
 describe("decodeThreadId", () => {
@@ -207,6 +625,27 @@ describe("decodeThreadId", () => {
     expect(result).toEqual({
       issueId: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
       commentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    });
+  });
+
+  it("should decode an agent-session issue thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.decodeThreadId("linear:issue-123:s:session-789");
+    expect(result).toEqual({
+      issueId: "issue-123",
+      agentSessionId: "session-789",
+    });
+  });
+
+  it("should decode an agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const result = adapter.decodeThreadId(
+      "linear:issue-123:c:comment-456:s:session-789"
+    );
+    expect(result).toEqual({
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
     });
   });
 
@@ -251,6 +690,18 @@ describe("encodeThreadId / decodeThreadId roundtrip", () => {
     const decoded = adapter.decodeThreadId(encoded);
     expect(decoded).toEqual(original);
   });
+
+  it("should round-trip agent-session comment thread ID", () => {
+    const adapter = createTestAdapter();
+    const original = {
+      issueId: "issue-123",
+      commentId: "comment-456",
+      agentSessionId: "session-789",
+    };
+    const encoded = adapter.encodeThreadId(original);
+    const decoded = adapter.decodeThreadId(encoded);
+    expect(decoded).toEqual(original);
+  });
 });
 
 describe("renderFormatted", () => {
@@ -274,16 +725,7 @@ describe("renderFormatted", () => {
 describe("parseMessage", () => {
   it("should parse a raw Linear message", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-abc123",
-        body: "Hello from Linear!",
-        issueId: "issue-123",
-        userId: "user-456",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage();
     const message = adapter.parseMessage(raw);
     expect(message.id).toBe("comment-abc123");
     expect(message.text).toBe("Hello from Linear!");
@@ -292,32 +734,22 @@ describe("parseMessage", () => {
 
   it("should detect edited messages", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-abc123",
-        body: "Edited message",
-        issueId: "issue-123",
-        userId: "user-456",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T13:00:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage({
+      body: "Edited message",
+      updatedAt: "2025-01-29T13:00:00.000Z",
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
   });
 
   it("should handle empty body", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-empty",
-        body: "",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-empty",
+      body: "",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.text).toBe("");
     expect(message.metadata.edited).toBe(false);
@@ -325,16 +757,13 @@ describe("parseMessage", () => {
 
   it("should set editedAt when message is edited", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-edited",
-        body: "Updated text",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T14:30:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-edited",
+      body: "Updated text",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+      updatedAt: "2025-01-29T14:30:00.000Z",
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.edited).toBe(true);
     expect(message.metadata.editedAt).toEqual(
@@ -344,35 +773,48 @@ describe("parseMessage", () => {
 
   it("should not set editedAt when message is not edited", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-unedited",
-        body: "Original text",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-unedited",
+      body: "Original text",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.metadata.editedAt).toBeUndefined();
   });
 
   it("should set isBot to false and isMe to false for regular users", () => {
     const adapter = createTestAdapter();
-    const raw = {
-      comment: {
-        id: "comment-1",
-        body: "test",
-        issueId: "issue-1",
-        userId: "user-1",
-        createdAt: "2025-01-29T12:00:00.000Z",
-        updatedAt: "2025-01-29T12:00:00.000Z",
-      },
-    };
+    const raw = createRawCommentMessage({
+      id: "comment-1",
+      body: "test",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
     const message = adapter.parseMessage(raw);
     expect(message.author.isBot).toBe(false);
     expect(message.author.isMe).toBe(false);
+  });
+
+  it("should parse an agent session comment raw message like a comment", () => {
+    const adapter = createTestAdapter("agent-sessions");
+    const raw = {
+      kind: "agent_session_comment" as const,
+      organizationId: "org-123",
+      agentSessionId: "session-123",
+      comment: {
+        ...createRawCommentMessage({
+          body: "Hello from an agent session",
+        }).comment,
+      },
+    };
+
+    const message = adapter.parseMessage(raw);
+
+    expect(message.id).toBe("comment-abc123");
+    expect(message.text).toBe("Hello from an agent session");
+    expect(message.author.userId).toBe("user-456");
+    expect(message.raw.kind).toBe("agent_session_comment");
   });
 });
 
@@ -424,9 +866,17 @@ describe("constructor", () => {
     ).toThrow("Authentication is required");
   });
 
-  it("should have undefined botUserId before initialization", () => {
-    const adapter = createTestAdapter();
-    expect(adapter.botUserId).toBeUndefined();
+  it("should throw when botUserId is accessed before initialization", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "test-api-key",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(() => adapter.botUserId).toThrow(
+      "No bot user ID available in context"
+    );
   });
 });
 
@@ -467,8 +917,8 @@ describe("handleWebhook - signature verification", () => {
     const body = JSON.stringify(createCommentPayload());
     const request = buildWebhookRequest(body, null);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Invalid signature");
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Missing webhook signature");
   });
 
   it("should reject requests with an invalid signature", async () => {
@@ -476,8 +926,8 @@ describe("handleWebhook - signature verification", () => {
     const body = JSON.stringify(createCommentPayload());
     const request = buildWebhookRequest(body, "invalid-hex-signature");
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Invalid signature");
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
   it("should reject requests with wrong signature (different secret)", async () => {
@@ -486,7 +936,8 @@ describe("handleWebhook - signature verification", () => {
     const wrongSig = signPayload(body, "wrong-secret");
     const request = buildWebhookRequest(body, wrongSig);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
   it("should accept requests with a valid signature", async () => {
@@ -504,9 +955,8 @@ describe("handleWebhook - signature verification", () => {
 // =============================================================================
 
 describe("handleWebhook - timestamp validation", () => {
-  it("should reject webhooks with timestamps older than 5 minutes", async () => {
-    const logger = createMockLogger();
-    const adapter = createWebhookAdapter(logger);
+  it("should reject webhooks with timestamps older than 1 minute", async () => {
+    const adapter = createWebhookAdapter();
     const payload = createCommentPayload();
     // Set timestamp to 10 minutes ago
     payload.webhookTimestamp = Date.now() - 10 * 60 * 1000;
@@ -514,19 +964,14 @@ describe("handleWebhook - timestamp validation", () => {
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-    expect(await response.text()).toBe("Webhook expired");
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Linear webhook timestamp too old",
-      expect.objectContaining({ webhookTimestamp: payload.webhookTimestamp })
-    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid webhook");
   });
 
-  it("should accept webhooks within 5-minute window", async () => {
+  it("should accept webhooks within the SDK verification window", async () => {
     const adapter = createWebhookAdapter();
     const payload = createCommentPayload();
-    // Set timestamp to 2 minutes ago
-    payload.webhookTimestamp = Date.now() - 2 * 60 * 1000;
+    payload.webhookTimestamp = Date.now() - 30 * 1000;
     const body = JSON.stringify(payload);
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
@@ -553,18 +998,13 @@ describe("handleWebhook - timestamp validation", () => {
 
 describe("handleWebhook - invalid JSON", () => {
   it("should return 400 for invalid JSON body", async () => {
-    const logger = createMockLogger();
-    const adapter = createWebhookAdapter(logger);
+    const adapter = createWebhookAdapter();
     const body = "not-valid-json{{{";
     const sig = signPayload(body);
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(400);
-    expect(await response.text()).toBe("Invalid JSON");
-    expect(logger.error).toHaveBeenCalledWith(
-      "Linear webhook invalid JSON",
-      expect.any(Object)
-    );
+    expect(await response.text()).toBe("Invalid webhook");
   });
 });
 
@@ -576,15 +1016,7 @@ describe("handleWebhook - comment created", () => {
   it("should process comment create events via chat.processMessage", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
-    await (adapter as unknown as { chat: unknown }).constructor;
-    // Set chat instance via initialize-like assignment
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -608,13 +1040,7 @@ describe("handleWebhook - comment created", () => {
   it("should use parentId as root comment when present (threaded reply)", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({
@@ -685,19 +1111,12 @@ describe("handleWebhook - comment created", () => {
     );
   });
 
-  it("should skip bot's own messages", async () => {
+  it("should mark bot-authored comments as self", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
-    // Set bot user ID
-    (adapter as unknown as { _botUserId: string })._botUserId = "bot-user-id";
+    setBotUserId(adapter, "bot-user-id");
 
     const payload = createCommentPayload({ userId: "bot-user-id" });
     const body = JSON.stringify(payload);
@@ -706,11 +1125,10 @@ describe("handleWebhook - comment created", () => {
     const response = await adapter.handleWebhook(request);
 
     expect(response.status).toBe(200);
-    expect(mockChat.processMessage).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(
-      "Ignoring message from self",
-      expect.any(Object)
-    );
+    expect(mockChat.processMessage).toHaveBeenCalledTimes(1);
+    const message = mockChat.processMessage.mock.calls[0][2];
+    expect(message.author.userId).toBe("bot-user-id");
+    expect(message.author.isMe).toBe(true);
   });
 
   it("should ignore comments when chat is not initialized", async () => {
@@ -728,6 +1146,236 @@ describe("handleWebhook - comment created", () => {
     expect(logger.warn).toHaveBeenCalledWith(
       "Chat instance not initialized, ignoring comment"
     );
+  });
+});
+
+describe("handleWebhook - agent session events", () => {
+  it("ignores agent session events in comment mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "comments");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Received AgentSessionEvent webhook but adapter is not in agent-sessions mode, ignoring"
+    );
+  });
+
+  it("dispatches created events in agent-session mode when owned by this bot", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.threadId).toBe(
+      "linear:issue-123:c:comment-root:s:agent-session-1"
+    );
+    expect(message.author.userId).toBe("user-456");
+    expect(message.author.userName).toBe("test-user");
+    expect(message.author.isBot).toBe(false);
+    expect(message.author.isMe).toBe(false);
+  });
+
+  it("routes prompted events to the same session thread without mention flag", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      action: "prompted",
+      activityBody: "Can you elaborate?",
+    });
+    const body = JSON.stringify(payload);
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the bot author when a created session has no creator", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      creator: null,
+    });
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.author.userId).toBe("bot-user-id");
+    expect(message.author.userName).toBe("test-bot");
+    expect(message.author.isBot).toBe(true);
+    expect(message.author.isMe).toBe(true);
+  });
+
+  it("ignores comment webhooks in agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const commentPayload = createCommentPayload({
+      commentId: "comment-source",
+      body: "@test-bot hello",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not emit an automatic acknowledgement for created events", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockRawRequest = vi.fn();
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    const payload = createAgentSessionPayload();
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    expect(mockRawRequest).not.toHaveBeenCalled();
+  });
+
+  it("ignores created events that belong to another bot", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger, "agent-sessions");
+    const chat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof chat }).chat = chat;
+
+    const payload = createAgentSessionPayload({
+      appUserId: "other-bot-id",
+    });
+    const body = JSON.stringify(payload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(body, signPayload(body))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Ignoring agent session event from another bot",
+      expect.objectContaining({
+        agentSessionId: "agent-session-1",
+        appUserId: "other-bot-id",
+      })
+    );
+  });
+
+  it("dispatches created events in multi-tenant agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger, "agent-sessions");
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const sessionPayload = createAgentSessionPayload({
+      commentId: "comment-abc",
+      sourceCommentBody: "@test-bot hello",
+      sourceCommentId: null,
+    });
+    const sessionBody = JSON.stringify(sessionPayload);
+    const sessionResponse = await adapter.handleWebhook(
+      buildWebhookRequest(sessionBody, signPayload(sessionBody))
+    );
+
+    expect(sessionResponse.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const message = chat.processMessage.mock.calls[0][2];
+    expect(message.threadId).toBe(
+      "linear:issue-123:c:comment-abc:s:agent-session-1"
+    );
+  });
+
+  it("ignores comment webhooks in multi-tenant agent-session mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger, "agent-sessions");
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const commentPayload = createCommentPayload({
+      body: "@test-bot hello",
+      commentId: "comment-abc",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores comment webhooks in agent-session mode even if they mention chat userName", async () => {
+    const logger = createMockLogger();
+    const adapter = attachLegacyClientAlias(
+      new LinearAdapter({
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+        mode: "agent-sessions",
+        webhookSecret: WEBHOOK_SECRET,
+        logger,
+      })
+    );
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger, "getsquad-dev-samy");
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const commentPayload = createCommentPayload({
+      body: "@getsquad-dev-samy hello",
+      commentId: "comment-abc",
+    });
+    const commentBody = JSON.stringify(commentPayload);
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(commentBody, signPayload(commentBody))
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -803,7 +1451,7 @@ describe("handleWebhook - unknown event types", () => {
     const request = buildWebhookRequest(body, sig);
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
+    expect(await response.text()).toBe("OK");
   });
 });
 
@@ -812,16 +1460,10 @@ describe("handleWebhook - unknown event types", () => {
 // =============================================================================
 
 describe("buildMessage via webhook", () => {
-  it("should set author fields from actor", async () => {
+  it("should set author fields from webhook comment user", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "user" });
@@ -837,16 +1479,10 @@ describe("buildMessage via webhook", () => {
     expect(message.author.isMe).toBe(false);
   });
 
-  it("should set isBot true for application actors", async () => {
+  it("should ignore application actor type for comment authors", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "application" });
@@ -856,19 +1492,13 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.author.isBot).toBe(true);
+    expect(message.author.isBot).toBe(false);
   });
 
-  it("should set isBot true for integration actors", async () => {
+  it("should ignore integration actor type for comment authors", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ actorType: "integration" });
@@ -878,19 +1508,13 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.author.isBot).toBe(true);
+    expect(message.author.isBot).toBe(false);
   });
 
   it("should set dateSent from createdAt", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -911,13 +1535,7 @@ describe("buildMessage via webhook", () => {
   it("should detect edited messages from differing createdAt/updatedAt", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload();
@@ -938,13 +1556,7 @@ describe("buildMessage via webhook", () => {
   it("should include raw comment data in message", async () => {
     const logger = createMockLogger();
     const adapter = createWebhookAdapter(logger);
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "test-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    const mockChat = createMockChatInstance(createMockState(), logger);
     (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
 
     const payload = createCommentPayload({ body: "Some text" });
@@ -954,8 +1566,10 @@ describe("buildMessage via webhook", () => {
     await adapter.handleWebhook(request);
 
     const message = mockChat.processMessage.mock.calls[0][2];
-    expect(message.raw.comment.body).toBe("Some text");
-    expect(message.raw.comment.issueId).toBe("issue-123");
+    const raw = expectCommentRawMessage(message.raw);
+    expect(raw.comment.body).toBe("Some text");
+    expect(raw.comment.issueId).toBe("issue-123");
+    expect(raw.organizationId).toBe("org-123");
   });
 });
 
@@ -966,6 +1580,7 @@ describe("buildMessage via webhook", () => {
 describe("postMessage", () => {
   it("should create comment via linearClient.createComment", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "new-comment-1",
       body: "Bot reply",
@@ -996,11 +1611,12 @@ describe("postMessage", () => {
     });
     expect(result.id).toBe("new-comment-1");
     expect(result.threadId).toBe("linear:issue-123:c:parent-comment");
-    expect(result.raw.comment.body).toBe("Bot reply");
+    expect(expectCommentRawMessage(result.raw).comment.body).toBe("Bot reply");
   });
 
   it("should create top-level comment for issue-level threads", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "top-comment-1",
       body: "Top-level comment",
@@ -1030,6 +1646,7 @@ describe("postMessage", () => {
 
   it("should throw when comment creation returns null", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockCreateComment = vi.fn().mockResolvedValue({
       comment: Promise.resolve(null),
     });
@@ -1048,6 +1665,7 @@ describe("postMessage", () => {
 
   it("should handle AST message format", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "ast-comment-1",
       body: "AST text",
@@ -1082,6 +1700,7 @@ describe("postMessage", () => {
 
   it("should call ensureValidToken before posting", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "token-check-1",
       body: "test",
@@ -1119,6 +1738,7 @@ describe("postMessage", () => {
 describe("editMessage", () => {
   it("should update comment via linearClient.updateComment", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockComment = {
       id: "edited-comment-1",
       body: "Updated body",
@@ -1147,12 +1767,14 @@ describe("editMessage", () => {
       body: "Updated body",
     });
     expect(result.id).toBe("edited-comment-1");
-    expect(result.raw.comment.body).toBe("Updated body");
-    expect(result.raw.comment.issueId).toBe("issue-123");
+    const raw = expectCommentRawMessage(result.raw);
+    expect(raw.comment.body).toBe("Updated body");
+    expect(raw.comment.issueId).toBe("issue-123");
   });
 
   it("should throw when comment update returns null", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
     const mockUpdateComment = vi.fn().mockResolvedValue({
       comment: Promise.resolve(null),
     });
@@ -1336,6 +1958,7 @@ describe("startTyping", () => {
 describe("fetchMessages", () => {
   it("should fetch issue-level comments when no commentId in thread", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Alice",
@@ -1345,6 +1968,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-1",
         body: "First comment",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T10:00:00.000Z"),
         url: "https://linear.app/comment/1",
@@ -1353,6 +1977,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-2",
         body: "Second comment",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T11:00:00.000Z"),
         updatedAt: new Date("2025-06-01T11:00:00.000Z"),
         url: "https://linear.app/comment/2",
@@ -1360,6 +1985,7 @@ describe("fetchMessages", () => {
       },
     ];
     const mockIssue = {
+      organizationId: "org-xyz",
       comments: vi.fn().mockResolvedValue({
         nodes: mockComments,
         pageInfo: { hasNextPage: false, endCursor: null },
@@ -1379,11 +2005,13 @@ describe("fetchMessages", () => {
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].text).toBe("First comment");
     expect(result.messages[1].text).toBe("Second comment");
+    expect(result.messages[0].raw.organizationId).toBe("org-xyz");
     expect(result.nextCursor).toBeUndefined();
   });
 
   it("should fetch comment thread (root + children) when commentId present", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Bob",
@@ -1392,26 +2020,29 @@ describe("fetchMessages", () => {
     const mockRootComment = {
       id: "root-comment",
       body: "Root comment",
+      userId: "user-1",
       createdAt: new Date("2025-06-01T10:00:00.000Z"),
       updatedAt: new Date("2025-06-01T10:00:00.000Z"),
       url: "https://linear.app/comment/root",
       user: Promise.resolve(mockUser),
-      children: vi.fn().mockResolvedValue({
-        nodes: [
-          {
-            id: "child-1",
-            body: "Reply",
-            createdAt: new Date("2025-06-01T11:00:00.000Z"),
-            updatedAt: new Date("2025-06-01T11:00:00.000Z"),
-            url: "https://linear.app/comment/child-1",
-            user: Promise.resolve(mockUser),
-          },
-        ],
-        pageInfo: { hasNextPage: false, endCursor: null },
-      }),
+    };
+    const mockChildrenConnection = {
+      nodes: [
+        {
+          id: "child-1",
+          body: "Reply",
+          userId: "user-1",
+          createdAt: new Date("2025-06-01T11:00:00.000Z"),
+          updatedAt: new Date("2025-06-01T11:00:00.000Z"),
+          url: "https://linear.app/comment/child-1",
+          user: Promise.resolve(mockUser),
+        },
+      ],
+      pageInfo: { hasNextPage: false, endCursor: null },
     };
     const mockLinearClient = {
       comment: vi.fn().mockResolvedValue(mockRootComment),
+      comments: vi.fn().mockResolvedValue(mockChildrenConnection),
     };
     (
       adapter as unknown as { linearClient: typeof mockLinearClient }
@@ -1424,30 +2055,134 @@ describe("fetchMessages", () => {
     expect(mockLinearClient.comment).toHaveBeenCalledWith({
       id: "root-comment",
     });
+    expect(mockLinearClient.comments).toHaveBeenCalledWith({
+      filter: {
+        parent: { id: { eq: "root-comment" } },
+      },
+      last: 50,
+    });
     // Root comment + 1 child
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].text).toBe("Root comment");
     expect(result.messages[1].text).toBe("Reply");
   });
 
-  it("should return empty messages when root comment not found", async () => {
-    const adapter = createWebhookAdapter();
+  it("should fetch agent session threads as visible comments only", async () => {
+    const adapter = createWebhookAdapter(undefined, "agent-sessions");
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
+
+    const mockRootComment = {
+      id: "root-comment",
+      body: "@test-bot Hello",
+      parentId: undefined,
+      userId: "user-1",
+      createdAt: new Date("2025-06-01T10:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+      url: "https://linear.app/comment/root",
+      user: Promise.resolve({
+        id: "user-1",
+        displayName: "Alice",
+        name: "Alice Smith",
+      }),
+    };
+    const mockChildrenConnection = {
+      nodes: [
+        {
+          id: "bot-comment",
+          body: "Hi there",
+          parentId: "root-comment",
+          createdAt: new Date("2025-06-01T10:01:00.000Z"),
+          updatedAt: new Date("2025-06-01T10:01:00.000Z"),
+          url: "https://linear.app/comment/bot",
+          user: Promise.resolve(undefined),
+          botActor: Promise.resolve({
+            id: "bot-id",
+            name: "Test Bot",
+            userDisplayName: "Test Bot",
+          }),
+        },
+        {
+          id: "user-follow-up",
+          body: "What is Argos?",
+          parentId: "root-comment",
+          userId: "user-1",
+          createdAt: new Date("2025-06-01T10:02:00.000Z"),
+          updatedAt: new Date("2025-06-01T10:02:00.000Z"),
+          url: "https://linear.app/comment/user-follow-up",
+          user: Promise.resolve({
+            id: "user-1",
+            displayName: "Alice",
+            name: "Alice Smith",
+          }),
+        },
+      ],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
     const mockLinearClient = {
-      comment: vi.fn().mockResolvedValue(null),
+      agentSession: vi.fn().mockResolvedValue({
+        id: "session-789",
+        issueId: "issue-abc",
+        commentId: "root-comment",
+        comment: Promise.resolve(mockRootComment),
+      }),
+      comments: vi.fn().mockResolvedValue(mockChildrenConnection),
     };
     (
       adapter as unknown as { linearClient: typeof mockLinearClient }
     ).linearClient = mockLinearClient as never;
 
     const result = await adapter.fetchMessages(
-      "linear:issue-abc:c:nonexistent"
+      "linear:issue-abc:c:root-comment:s:session-789"
     );
 
-    expect(result.messages).toHaveLength(0);
+    expect(mockLinearClient.agentSession).toHaveBeenCalledWith("session-789");
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages.map((message) => message.raw.kind)).toEqual([
+      "agent_session_comment",
+      "agent_session_comment",
+      "agent_session_comment",
+    ]);
+    expect(result.messages[1].author.isBot).toBe(true);
+    expect(result.messages[1].author.isMe).toBe(true);
+    expect(result.messages[2].text).toBe("What is Argos?");
+    expect(
+      expectAgentSessionCommentRawMessage(result.messages[1].raw).agentSessionId
+    ).toBe("session-789");
+  });
+
+  it("should surface root comment lookup failures", async () => {
+    const adapter = createWebhookAdapter();
+    const mockLinearClient = {
+      comment: vi
+        .fn()
+        .mockRejectedValue(new Error("Could not find referenced comment")),
+      comments: vi.fn().mockResolvedValue({
+        nodes: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
+    };
+    (
+      adapter as unknown as { linearClient: typeof mockLinearClient }
+    ).linearClient = mockLinearClient as never;
+
+    await expect(
+      adapter.fetchMessages("linear:issue-abc:c:nonexistent")
+    ).rejects.toThrow("Could not find referenced comment");
+    expect(mockLinearClient.comment).toHaveBeenCalledWith({
+      id: "nonexistent",
+    });
+    expect(mockLinearClient.comments).toHaveBeenCalledWith({
+      filter: {
+        parent: { id: { eq: "nonexistent" } },
+      },
+      last: 50,
+    });
   });
 
   it("should pass limit option to API", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockIssue = {
       comments: vi.fn().mockResolvedValue({
         nodes: [],
@@ -1468,6 +2203,7 @@ describe("fetchMessages", () => {
 
   it("should return nextCursor when hasNextPage is true", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockIssue = {
       comments: vi.fn().mockResolvedValue({
         nodes: [],
@@ -1488,6 +2224,7 @@ describe("fetchMessages", () => {
 
   it("should detect edited messages in fetched comments", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockUser = {
       id: "user-1",
       displayName: "Alice",
@@ -1497,6 +2234,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-edited",
         body: "Edited text",
+        userId: "user-1",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T12:00:00.000Z"),
         url: "https://linear.app/comment/1",
@@ -1526,7 +2264,8 @@ describe("fetchMessages", () => {
 
   it("should set isMe true when user matches botUserId", async () => {
     const adapter = createWebhookAdapter();
-    (adapter as unknown as { _botUserId: string })._botUserId = "bot-id";
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
 
     const mockUser = {
       id: "bot-id",
@@ -1537,6 +2276,7 @@ describe("fetchMessages", () => {
       {
         id: "comment-bot",
         body: "Bot message",
+        userId: "bot-id",
         createdAt: new Date("2025-06-01T10:00:00.000Z"),
         updatedAt: new Date("2025-06-01T10:00:00.000Z"),
         url: "https://linear.app/comment/bot",
@@ -1562,8 +2302,49 @@ describe("fetchMessages", () => {
     expect(result.messages[0].author.userId).toBe("bot-id");
   });
 
-  it("should handle comments with no user", async () => {
+  it("should resolve bot-authored comments from botActor when userId is missing", async () => {
     const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
+    setBotUserId(adapter, "bot-id");
+    const mockComments = [
+      {
+        id: "comment-bot-actor",
+        body: "Delegated reply",
+        createdAt: new Date("2025-06-01T10:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+        url: "https://linear.app/comment/delegated",
+        user: Promise.resolve(undefined),
+        botActor: Promise.resolve({
+          id: "bot-id",
+          name: "Delegation Bot",
+          userDisplayName: "Delegation Bot",
+        }),
+      },
+    ];
+    const mockIssue = {
+      comments: vi.fn().mockResolvedValue({
+        nodes: mockComments,
+        pageInfo: { hasNextPage: false },
+      }),
+    };
+    const mockLinearClient = {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+    };
+    (
+      adapter as unknown as { linearClient: typeof mockLinearClient }
+    ).linearClient = mockLinearClient as never;
+
+    const result = await adapter.fetchMessages("linear:issue-abc");
+
+    expect(result.messages[0].author.userId).toBe("bot-id");
+    expect(result.messages[0].author.userName).toBe("Delegation Bot");
+    expect(result.messages[0].author.isBot).toBe(true);
+    expect(result.messages[0].author.isMe).toBe(true);
+  });
+
+  it("should throw when a comment has neither userId nor botActor", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
     const mockComments = [
       {
         id: "comment-no-user",
@@ -1587,11 +2368,9 @@ describe("fetchMessages", () => {
       adapter as unknown as { linearClient: typeof mockLinearClient }
     ).linearClient = mockLinearClient as never;
 
-    const result = await adapter.fetchMessages("linear:issue-abc");
-
-    expect(result.messages[0].author.userId).toBe("unknown");
-    expect(result.messages[0].author.userName).toBe("unknown");
-    expect(result.messages[0].author.fullName).toBe("unknown");
+    await expect(adapter.fetchMessages("linear:issue-abc")).rejects.toThrow(
+      "Comment comment-no-user has no userId and no botActor, cannot determine author."
+    );
   });
 });
 
@@ -1656,34 +2435,26 @@ describe("fetchThread", () => {
 describe("initialize", () => {
   it("should fetch bot user ID on initialize", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      apiKey: "test-api-key",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
+    const adapter = createWebhookAdapter(logger);
+
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        viewer: {
+          id: "viewer-id-123",
+          displayName: "My Bot",
+          organization: {
+            id: "org-123",
+          },
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      client: { rawRequest: mockRawRequest },
     });
 
-    const mockViewer = {
-      id: "viewer-id-123",
-      displayName: "My Bot",
-    };
-    (
-      adapter as unknown as {
-        linearClient: { viewer: Promise<typeof mockViewer> };
-      }
-    ).linearClient = {
-      viewer: Promise.resolve(mockViewer),
-    } as never;
+    const mockChat = createMockChatInstance(createMockState(), logger);
 
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
-
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     expect(adapter.botUserId).toBe("viewer-id-123");
     expect(logger.info).toHaveBeenCalledWith(
@@ -1691,40 +2462,37 @@ describe("initialize", () => {
       expect.objectContaining({
         botUserId: "viewer-id-123",
         displayName: "My Bot",
+        organizationId: "org-123",
       })
     );
   });
 
   it("should warn when viewer fetch fails", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      apiKey: "test-api-key",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
-    });
-
-    // Make viewer reject
-    Object.defineProperty(
-      (adapter as unknown as { linearClient: Record<string, unknown> })
-        .linearClient,
-      "viewer",
-      {
-        get: () => Promise.reject(new Error("Auth failed")),
-      }
+    const adapter = attachLegacyClientAlias(
+      new LinearAdapter({
+        apiKey: "test-api-key",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot",
+        logger,
+      })
     );
 
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
+    const failingClient: Record<string, unknown> = {
+      client: { rawRequest: vi.fn() },
     };
+    Object.defineProperty(failingClient, "viewer", {
+      get: () => Promise.reject(new Error("Auth failed")),
+    });
+    setDefaultClient(adapter, failingClient);
 
-    await adapter.initialize(mockChat as never);
+    const mockChat = createMockChatInstance(createMockState(), logger);
 
-    expect(adapter.botUserId).toBeUndefined();
+    await adapter.initialize(mockChat);
+
+    expect(() => adapter.botUserId).toThrow(
+      "No bot user ID available in context"
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       "Could not fetch Linear bot user ID",
       expect.any(Object)
@@ -1733,13 +2501,7 @@ describe("initialize", () => {
 
   it("should refresh token for client credentials mode", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client-id",
-      clientSecret: "test-client-secret",
-      webhookSecret: "secret",
-      userName: "my-bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter(logger);
 
     // Mock the fetch call for token refresh
     const mockFetch = vi.fn().mockResolvedValue({
@@ -1752,31 +2514,22 @@ describe("initialize", () => {
     });
     vi.stubGlobal("fetch", mockFetch);
 
-    const mockChat = {
-      getLogger: () => logger,
-      getState: vi.fn(),
-      getUserName: () => "my-bot",
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
+      botUserId: "viewer-id-123",
+      displayName: "My Bot",
+      organizationId: "org-123",
+    } as never);
 
-    // We need to catch the viewer call that happens after token refresh
-    // since a new LinearClient is created
-    try {
-      await adapter.initialize(mockChat as never);
-    } catch {
-      // Viewer fetch may fail with mocked client, that's ok
-    }
+    const mockChat = createMockChatInstance(createMockState(), logger);
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.linear.app/oauth/token",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.any(URLSearchParams),
-      })
-    );
+    await adapter.initialize(mockChat);
 
-    vi.unstubAllGlobals();
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe("read,write,comments:create,issues:create");
   });
 });
 
@@ -1787,117 +2540,66 @@ describe("initialize", () => {
 describe("ensureValidToken", () => {
   it("should not refresh when no client credentials", async () => {
     const adapter = createWebhookAdapter();
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    (
-      adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
-      }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
+    const refreshSpy = vi.spyOn(
+      adapter as never,
+      "refreshClientCredentialsToken" as never
+    );
 
-    // Should not throw - just calls through
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
-    expect(mockDeleteComment).toHaveBeenCalled();
+    await (
+      adapter as unknown as {
+        ensureValidToken: () => Promise<void>;
+      }
+    ).ensureValidToken();
+
+    expect(refreshSpy).not.toHaveBeenCalled();
   });
 
   it("should refresh when token is expired", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client",
+        clientSecret: "test-secret",
+      },
+      Date.now() - 1000
+    );
 
-    // Set expiry in the past
-    (adapter as unknown as { accessTokenExpiry: number }).accessTokenExpiry =
-      Date.now() - 1000;
-    (
-      adapter as unknown as {
-        clientCredentials: { clientId: string; clientSecret: string };
-      }
-    ).clientCredentials = {
-      clientId: "test-client",
-      clientSecret: "test-secret",
-    };
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          access_token: "refreshed-token",
-          expires_in: 2592000,
-        }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    // Now try to delete a message which calls ensureValidToken
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    // After refresh, a new client is created, so we need to set it up right
-    // The ensureValidToken call will create a new LinearClient
-    // We'll spy on refreshClientCredentialsToken instead
     const refreshSpy = vi
       .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
       .mockResolvedValue(undefined as never);
 
-    (
+    await (
       adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
+        ensureValidToken: () => Promise<void>;
       }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
-
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    ).ensureValidToken();
 
     expect(refreshSpy).toHaveBeenCalled();
-
-    refreshSpy.mockRestore();
-    vi.unstubAllGlobals();
   });
 
   it("should not refresh when token is still valid", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
-
-    // Set expiry far in the future
-    (adapter as unknown as { accessTokenExpiry: number }).accessTokenExpiry =
-      Date.now() + 86400000;
-    (
-      adapter as unknown as {
-        clientCredentials: { clientId: string; clientSecret: string };
-      }
-    ).clientCredentials = {
-      clientId: "test-client",
-      clientSecret: "test-secret",
-    };
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client",
+        clientSecret: "test-secret",
+      },
+      Date.now() + 86400000
+    );
 
     const refreshSpy = vi
       .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
       .mockResolvedValue(undefined as never);
 
-    const mockDeleteComment = vi.fn().mockResolvedValue({});
-    (
+    await (
       adapter as unknown as {
-        linearClient: { deleteComment: typeof mockDeleteComment };
+        ensureValidToken: () => Promise<void>;
       }
-    ).linearClient = {
-      deleteComment: mockDeleteComment,
-    } as never;
-
-    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    ).ensureValidToken();
 
     expect(refreshSpy).not.toHaveBeenCalled();
-
-    refreshSpy.mockRestore();
   });
 });
 
@@ -1907,14 +2609,7 @@ describe("ensureValidToken", () => {
 
 describe("refreshClientCredentialsToken", () => {
   it("should throw on failed token fetch", async () => {
-    const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter();
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -1932,8 +2627,6 @@ describe("refreshClientCredentialsToken", () => {
     ).rejects.toThrow(
       "Failed to fetch Linear client credentials token: 401 Unauthorized"
     );
-
-    vi.unstubAllGlobals();
   });
 
   it("should be a no-op when clientCredentials is null", async () => {
@@ -1949,13 +2642,7 @@ describe("refreshClientCredentialsToken", () => {
 
   it("should set accessTokenExpiry with 1 hour buffer", async () => {
     const logger = createMockLogger();
-    const adapter = new LinearAdapter({
-      clientId: "test-client",
-      clientSecret: "test-secret",
-      webhookSecret: "secret",
-      userName: "bot",
-      logger,
-    });
+    const adapter = createClientCredentialsAdapter(logger);
 
     const expiresIn = 2592000; // 30 days in seconds
     const mockFetch = vi.fn().mockResolvedValue({
@@ -1988,8 +2675,963 @@ describe("refreshClientCredentialsToken", () => {
       "Linear client credentials token obtained",
       expect.objectContaining({ expiresIn: "30 days" })
     );
+  });
 
-    vi.unstubAllGlobals();
+  it("should use custom scopes for client credentials token fetch", async () => {
+    const logger = createMockLogger();
+    const adapter = createClientCredentialsAdapter(logger, [
+      "read",
+      "write",
+      "comments:create",
+      "app:mentionable",
+    ]);
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2592000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await (
+      adapter as unknown as {
+        refreshClientCredentialsToken: () => Promise<void>;
+      }
+    ).refreshClientCredentialsToken();
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe(
+      "read,write,comments:create,app:mentionable"
+    );
+  });
+});
+
+// =============================================================================
+// Updated runtime/auth coverage
+// =============================================================================
+
+describe("runtime operations", () => {
+  it("postMessage uses the default client and preserves organizationId", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockComment = {
+      id: "new-comment-1",
+      body: "Bot reply",
+      createdAt: new Date("2025-06-01T12:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+      url: "https://linear.app/test/comment/new-comment-1",
+    };
+    const mockClient = {
+      createComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(mockComment),
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.postMessage(
+      "linear:issue-123:c:parent-comment",
+      "Hello from bot"
+    );
+
+    expect(mockClient.createComment).toHaveBeenCalledWith({
+      issueId: "issue-123",
+      body: "Hello from bot",
+      parentId: "parent-comment",
+    });
+    expect(result.raw.organizationId).toBe("org-123");
+    expect(expectCommentRawMessage(result.raw).comment.user.id).toBe(
+      "bot-user-id"
+    );
+  });
+
+  it("editMessage uses the default client and preserves organizationId", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const mockComment = {
+      id: "edited-comment-1",
+      body: "Updated body",
+      createdAt: new Date("2025-06-01T12:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T13:00:00.000Z"),
+      url: "https://linear.app/test/comment/edited-comment-1",
+    };
+    const mockClient = {
+      updateComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(mockComment),
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.editMessage(
+      "linear:issue-123:c:parent-comment",
+      "edited-comment-1",
+      "Updated body"
+    );
+
+    expect(mockClient.updateComment).toHaveBeenCalledWith("edited-comment-1", {
+      body: "Updated body",
+    });
+    expect(result.raw.organizationId).toBe("org-123");
+  });
+
+  it("deleteMessage and addReaction use the current client", async () => {
+    const adapter = createWebhookAdapter();
+    const mockClient = {
+      deleteComment: vi.fn().mockResolvedValue(undefined),
+      createReaction: vi.fn().mockResolvedValue(undefined),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    await adapter.deleteMessage("linear:issue-123", "comment-1");
+    await adapter.addReaction("linear:issue-123", "comment-1", "rocket");
+
+    expect(mockClient.deleteComment).toHaveBeenCalledWith("comment-1");
+    expect(mockClient.createReaction).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      emoji: "\u{1F680}",
+    });
+  });
+
+  it("fetchMessages uses the current client for issue threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-xyz");
+    const mockUser = {
+      id: "user-1",
+      displayName: "Alice",
+      name: "Alice Smith",
+    };
+    const mockIssue = {
+      comments: vi.fn().mockResolvedValue({
+        nodes: [
+          {
+            id: "comment-1",
+            body: "First comment",
+            userId: "user-1",
+            createdAt: new Date("2025-06-01T10:00:00.000Z"),
+            updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+            url: "https://linear.app/comment/1",
+            user: Promise.resolve(mockUser),
+          },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
+    };
+    const mockClient = {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.fetchMessages("linear:issue-abc");
+
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-abc");
+    expect(result.messages[0].raw.organizationId).toBe("org-xyz");
+    expect(result.messages[0].author.userName).toBe("Alice");
+  });
+
+  it("fetchThread uses the current client", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockClient = {
+      issue: vi.fn().mockResolvedValue({
+        identifier: "TEST-42",
+        title: "Fix the thing",
+        url: "https://linear.app/test/issue/TEST-42",
+      }),
+    };
+    setDefaultClient(adapter, mockClient);
+
+    const result = await adapter.fetchThread("linear:issue-uuid-123");
+
+    expect(result.channelName).toBe("TEST-42: Fix the thing");
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-uuid-123");
+  });
+
+  it("postMessage uses agentActivityCreate for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
+      success: true,
+      agentActivity: Promise.resolve({
+        id: "activity-123",
+        agentSessionId: "session-789",
+        createdAt: "2025-06-01T12:00:00.000Z",
+        updatedAt: "2025-06-01T12:00:00.000Z",
+        content: {
+          type: "response",
+          body: "Agent response",
+        },
+        sourceComment: Promise.resolve({
+          id: "comment-activity-123",
+          body: "Agent response",
+          parentId: "comment-root",
+          createdAt: new Date("2025-06-01T12:00:01.000Z"),
+          updatedAt: new Date("2025-06-01T12:00:01.000Z"),
+          url: "https://linear.app/comment/comment-activity-123",
+          user: Promise.resolve(undefined),
+          botActor: Promise.resolve({
+            id: "bot-user-id",
+            name: "Test Bot",
+            userDisplayName: "Test Bot",
+          }),
+        }),
+      }),
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+    });
+
+    const result = await adapter.postMessage(
+      "linear:issue-123:c:comment-root:s:session-789",
+      "Agent response"
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "Agent response",
+      },
+    });
+    expect(result.id).toBe("comment-activity-123");
+    expect(result.raw.kind).toBe("agent_session_comment");
+    expect(result.raw.organizationId).toBe("org-123");
+    expect(result.author.isBot).toBe(true);
+    expect(result.author.isMe).toBe(true);
+    expect(expectAgentSessionCommentRawMessage(result.raw).agentSessionId).toBe(
+      "session-789"
+    );
+  });
+
+  it("startTyping uses ephemeral thought activities for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue({
+      success: true,
+      agentActivity: {
+        id: "activity-thinking",
+        createdAt: "2025-06-01T12:00:00.000Z",
+        updatedAt: "2025-06-01T12:00:00.000Z",
+        content: {
+          type: "thought",
+          body: "Looking things up...",
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+    });
+
+    await adapter.startTyping(
+      "linear:issue-123:c:comment-root:s:session-789",
+      "Looking things up..."
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      ephemeral: true,
+      content: {
+        type: "thought",
+        body: "Looking things up...",
+      },
+    });
+  });
+
+  it("stream creates action activities for task updates and returns the final response activity", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-opening", {
+          type: "response",
+          body: "Hello\n",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-task", {
+          type: "action",
+          action: "Search docs",
+          result: "Started",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-final", {
+          type: "response",
+          body: "world",
+        })
+      );
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+      updateAgentSession: mockUpdateAgentSession,
+    });
+
+    async function* textStream() {
+      yield "Hello\n";
+      yield {
+        type: "task_update" as const,
+        id: "task-1",
+        title: "Search docs",
+        status: "in_progress" as const,
+        output: "Started",
+      };
+      yield { type: "markdown_text" as const, text: "world" };
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(1, {
+      agentSessionId: "session-789",
+      content: {
+        type: "thought",
+        body: "Hello",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(2, {
+      agentSessionId: "session-789",
+      content: {
+        type: "action",
+        action: "Search docs",
+        result: "Started",
+        parameter: "",
+      },
+      ephemeral: true,
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(3, {
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "world",
+      },
+    });
+    expect(mockUpdateAgentSession).not.toHaveBeenCalled();
+    expect(result.id).toBe("comment-activity-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
+  });
+
+  it("stream creates error activities for failed task updates", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-opening", {
+          type: "response",
+          body: "Hello\n",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-error", {
+          type: "error",
+          body: "Search docs\nBoom",
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockAgentActivityPayload("activity-final", {
+          type: "response",
+          body: "world",
+        })
+      );
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+      updateAgentSession: mockUpdateAgentSession,
+    });
+
+    async function* textStream() {
+      yield "Hello\n";
+      yield {
+        type: "task_update" as const,
+        id: "task-1",
+        title: "Search docs",
+        status: "error" as const,
+        output: "Boom",
+      };
+      yield { type: "markdown_text" as const, text: "world" };
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(1, {
+      agentSessionId: "session-789",
+      content: {
+        type: "thought",
+        body: "Hello",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(2, {
+      agentSessionId: "session-789",
+      content: {
+        type: "error",
+        body: "Search docs\nBoom",
+      },
+    });
+    expect(mockCreateAgentActivity).toHaveBeenNthCalledWith(3, {
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "world",
+      },
+    });
+    expect(mockUpdateAgentSession).not.toHaveBeenCalled();
+    expect(result.id).toBe("comment-activity-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
+  });
+
+  it("stream updates the session plan for plan updates and posts a final response", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockCreateAgentActivity = vi.fn().mockResolvedValue(
+      createMockAgentActivityPayload("activity-final", {
+        type: "response",
+        body: "Hello world",
+      })
+    );
+    const mockUpdateAgentSession = vi.fn().mockResolvedValue({
+      success: true,
+    });
+    setDefaultClient(adapter, {
+      createAgentActivity: mockCreateAgentActivity,
+      updateAgentSession: mockUpdateAgentSession,
+    });
+
+    async function* textStream() {
+      yield {
+        type: "plan_update" as const,
+        title: "Search docs",
+      };
+      yield "Hello world";
+    }
+
+    const result = await adapter.stream(
+      "linear:issue-123:c:comment-root:s:session-789",
+      textStream()
+    );
+
+    expect(mockUpdateAgentSession).toHaveBeenCalledWith("session-789", {
+      plan: [
+        {
+          content: "Search docs",
+          status: "completed",
+        },
+      ],
+    });
+    expect(mockCreateAgentActivity).toHaveBeenCalledWith({
+      agentSessionId: "session-789",
+      content: {
+        type: "response",
+        body: "Hello world",
+      },
+    });
+    expect(result.id).toBe("comment-activity-final");
+    expect(result.raw.kind).toBe("agent_session_comment");
+  });
+
+  it("editMessage and deleteMessage throw for agent-session threads", async () => {
+    const adapter = createWebhookAdapter();
+
+    await expect(
+      adapter.editMessage(
+        "linear:issue-123:c:comment-root:s:session-789",
+        "activity-1",
+        "Updated"
+      )
+    ).rejects.toThrow("append-only");
+
+    await expect(
+      adapter.deleteMessage(
+        "linear:issue-123:c:comment-root:s:session-789",
+        "activity-1"
+      )
+    ).rejects.toThrow("append-only");
+  });
+
+  it("fetchThread includes issue metadata for session threads", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockIssue = {
+      identifier: "TEST-42",
+      title: "Fix the thing",
+      url: "https://linear.app/test/issue/TEST-42",
+    };
+    setDefaultClient(adapter, {
+      issue: vi.fn().mockResolvedValue(mockIssue),
+    });
+
+    const result = await adapter.fetchThread(
+      "linear:issue-123:c:comment-root:s:session-789"
+    );
+
+    expect(result.metadata).toEqual(
+      expect.objectContaining({
+        issueId: "issue-123",
+        agentSessionId: "session-789",
+        identifier: "TEST-42",
+        title: "Fix the thing",
+        url: "https://linear.app/test/issue/TEST-42",
+      })
+    );
+  });
+
+  it("throws when organizationId is unavailable", async () => {
+    const adapter = createWebhookAdapter();
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultClient(adapter, {
+      createComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve({
+          id: "new-comment-1",
+          body: "Bot reply",
+          createdAt: new Date("2025-06-01T12:00:00.000Z"),
+          updatedAt: new Date("2025-06-01T12:00:00.000Z"),
+          url: "https://linear.app/test/comment/new-comment-1",
+        }),
+      }),
+    });
+
+    await expect(
+      adapter.postMessage("linear:issue-123", "Hello from bot")
+    ).rejects.toThrow("No Linear organization ID available");
+  });
+});
+
+describe("initialize", () => {
+  it("fetches bot identity in default-client mode", async () => {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger);
+    const mockState = createMockState();
+    const chat = createMockChatInstance(mockState, logger);
+    const mockRawRequest = vi.fn().mockResolvedValue({
+      data: {
+        viewer: {
+          id: "viewer-id-123",
+          displayName: "My Bot",
+          organization: {
+            id: "org-123",
+          },
+        },
+      },
+    });
+    setDefaultClient(adapter, {
+      client: {
+        rawRequest: mockRawRequest,
+      },
+    });
+
+    await adapter.initialize(chat);
+
+    expect(adapter.botUserId).toBe("viewer-id-123");
+    expect(logger.info).toHaveBeenCalledWith(
+      "Linear auth completed",
+      expect.objectContaining({
+        botUserId: "viewer-id-123",
+        organizationId: "org-123",
+      })
+    );
+  });
+
+  it("initializes client credentials mode and requests default scopes", async () => {
+    const logger = createMockLogger();
+    const adapter = createClientCredentialsAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2_592_000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
+      botUserId: "viewer-id-123",
+      displayName: "My Bot",
+      organizationId: "org-123",
+    } as never);
+
+    await adapter.initialize(chat);
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("grant_type")).toBe("client_credentials");
+    expect(body.get("scope")).toBe("read,write,comments:create,issues:create");
+    expect(adapter.botUserId).toBe("viewer-id-123");
+  });
+});
+
+describe("client credentials auth", () => {
+  it("refreshClientCredentialsToken throws on token fetch failure", async () => {
+    const adapter = createClientCredentialsAdapter();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve("Unauthorized"),
+      })
+    );
+
+    await expect(
+      (
+        adapter as unknown as {
+          refreshClientCredentialsToken: () => Promise<void>;
+        }
+      ).refreshClientCredentialsToken()
+    ).rejects.toThrow(
+      "Failed to fetch Linear client credentials token: 401 Unauthorized"
+    );
+  });
+
+  it("ensureValidToken refreshes expired client credentials tokens", async () => {
+    const adapter = createWebhookAdapter();
+    setClientCredentialsState(
+      adapter,
+      {
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+      },
+      Date.now() - 1_000
+    );
+
+    const refreshSpy = vi
+      .spyOn(adapter as never, "refreshClientCredentialsToken" as never)
+      .mockResolvedValue(undefined as never);
+
+    await (
+      adapter as unknown as {
+        ensureValidToken: () => Promise<void>;
+      }
+    ).ensureValidToken();
+
+    expect(refreshSpy).toHaveBeenCalled();
+  });
+
+  it("refreshClientCredentialsToken honors custom scopes", async () => {
+    const adapter = createClientCredentialsAdapter(createMockLogger(), [
+      "read",
+      "write",
+      "comments:create",
+      "app:mentionable",
+    ]);
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "token-123",
+          expires_in: 2_592_000,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await (
+      adapter as unknown as {
+        refreshClientCredentialsToken: () => Promise<void>;
+      }
+    ).refreshClientCredentialsToken();
+
+    const [, requestInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = requestInit.body as URLSearchParams;
+    expect(body.get("scope")).toBe(
+      "read,write,comments:create,app:mentionable"
+    );
+  });
+});
+
+describe("multi-tenant installations", () => {
+  it("handleOAuthCallback exchanges code and stores the installation", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: "oauth-token",
+          refresh_token: "refresh-token",
+          expires_in: 3600,
+        }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    vi.spyOn(
+      adapter as never,
+      "fetchClientIdentity" as never
+    ).mockResolvedValue({
+      botUserId: "bot-user-id",
+      displayName: "Linear App",
+      organizationId: "org-123",
+    } as never);
+
+    const result = await adapter.handleOAuthCallback(
+      buildOAuthCallbackRequest({ code: "test-code" }),
+      { redirectUri: "https://example.com/api/linear/install/callback" }
+    );
+
+    expect(result.organizationId).toBe("org-123");
+    expect(result.installation.accessToken).toBe("oauth-token");
+    expect(await adapter.getInstallation("org-123")).toEqual(
+      expect.objectContaining({
+        organizationId: "org-123",
+        accessToken: "oauth-token",
+        refreshToken: "refresh-token",
+        botUserId: "bot-user-id",
+      })
+    );
+  });
+
+  it("handleOAuthCallback rejects callback errors and missing codes", async () => {
+    const adapter = createMultiTenantAdapter();
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+
+    await expect(
+      adapter.handleOAuthCallback(
+        buildOAuthCallbackRequest({
+          error: "access_denied",
+          error_description: "user denied access",
+        }),
+        { redirectUri: "https://example.com/api/linear/install/callback" }
+      )
+    ).rejects.toThrow(
+      "Linear OAuth failed: access_denied - user denied access"
+    );
+
+    await expect(
+      adapter.handleOAuthCallback(buildOAuthCallbackRequest({}), {
+        redirectUri: "https://example.com/api/linear/install/callback",
+      })
+    ).rejects.toThrow("Missing 'code' query parameter");
+  });
+
+  it("withInstallation refreshes expired installations and seeds request context", async () => {
+    const adapter = createMultiTenantAdapter();
+    const state = createMockState();
+    await adapter.initialize(createMockChatInstance(state));
+    await adapter.setInstallation(
+      "org-123",
+      createInstallation({
+        accessToken: "expired-token",
+        expiresAt: Date.now() - 1_000,
+      })
+    );
+
+    vi.spyOn(adapter as never, "fetchOAuthToken" as never).mockResolvedValue({
+      access_token: "refreshed-token",
+      refresh_token: "rotated-refresh-token",
+      expires_in: 3600,
+    } as never);
+
+    await adapter.withInstallation("org-123", async () => {
+      expect(adapter.botUserId).toBe("bot-user-id");
+      expect(
+        (
+          adapter as unknown as {
+            organizationId: string;
+          }
+        ).organizationId
+      ).toBe("org-123");
+    });
+
+    expect(await adapter.getInstallation("org-123")).toEqual(
+      expect.objectContaining({
+        accessToken: "refreshed-token",
+        refreshToken: "rotated-refresh-token",
+      })
+    );
+  });
+
+  it("handleWebhook resolves installations by organizationId", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+    await adapter.setInstallation("org-123", createInstallation());
+
+    const body = JSON.stringify(createCommentPayload());
+    const request = buildWebhookRequest(body, signPayload(body));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-abc",
+      expect.objectContaining({
+        raw: expect.objectContaining({ organizationId: "org-123" }),
+      }),
+      undefined
+    );
+  });
+
+  it("handleWebhook skips missing installations and deletes revoked ones", async () => {
+    const logger = createMockLogger();
+    const adapter = createMultiTenantAdapter(logger);
+    const state = createMockState();
+    const chat = createMockChatInstance(state, logger);
+    await adapter.initialize(chat);
+
+    const missingBody = JSON.stringify(createCommentPayload());
+    const missingResponse = await adapter.handleWebhook(
+      buildWebhookRequest(missingBody, signPayload(missingBody))
+    );
+    expect(missingResponse.status).toBe(200);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "No Linear installation found for organization",
+      { organizationId: "org-123" }
+    );
+
+    await adapter.setInstallation("org-123", createInstallation());
+    const revokedBody = JSON.stringify({
+      type: "OAuthApp",
+      action: "revoked",
+      createdAt: "2025-06-01T12:00:00.000Z",
+      organizationId: "org-123",
+      webhookId: "webhook-3",
+      webhookTimestamp: Date.now(),
+    });
+    const revokedResponse = await adapter.handleWebhook(
+      buildWebhookRequest(revokedBody, signPayload(revokedBody))
+    );
+
+    expect(revokedResponse.status).toBe(200);
+    expect(await adapter.getInstallation("org-123")).toBeNull();
+  });
+
+  describe("token encryption", () => {
+    // 32-byte AES-256 key as 64-char hex
+    const TEST_KEY_HEX =
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    it("encrypts accessToken and refreshToken at rest in the state store", async () => {
+      const state = createMockState();
+      const adapter = attachLegacyClientAlias(
+        new LinearAdapter({
+          clientId: "test-client-id",
+          clientSecret: "test-client-secret",
+          webhookSecret: WEBHOOK_SECRET,
+          userName: "test-bot",
+          logger: createMockLogger(),
+          encryptionKey: TEST_KEY_HEX,
+        })
+      );
+      await adapter.initialize(createMockChatInstance(state));
+
+      await adapter.setInstallation(
+        "org-123",
+        createInstallation({
+          accessToken: "plaintext-access",
+          refreshToken: "plaintext-refresh",
+        })
+      );
+
+      const raw = state.cache.get("linear:installation:org-123") as {
+        accessToken: unknown;
+        refreshToken: unknown;
+      };
+      // Tokens must NOT be present in plaintext on disk.
+      expect(raw.accessToken).not.toBe("plaintext-access");
+      expect(raw.refreshToken).not.toBe("plaintext-refresh");
+      // They must be encrypted envelopes ({ iv, data, tag }).
+      expect(raw.accessToken).toEqual(
+        expect.objectContaining({
+          iv: expect.any(String),
+          data: expect.any(String),
+          tag: expect.any(String),
+        })
+      );
+      expect(raw.refreshToken).toEqual(
+        expect.objectContaining({
+          iv: expect.any(String),
+          data: expect.any(String),
+          tag: expect.any(String),
+        })
+      );
+
+      // Round-trip: getInstallation must return plaintext to callers.
+      const fetched = await adapter.getInstallation("org-123");
+      expect(fetched?.accessToken).toBe("plaintext-access");
+      expect(fetched?.refreshToken).toBe("plaintext-refresh");
+    });
+
+    it("stores plaintext when no encryptionKey is configured (legacy behavior)", async () => {
+      const state = createMockState();
+      const adapter = createMultiTenantAdapter();
+      await adapter.initialize(createMockChatInstance(state));
+      await adapter.setInstallation(
+        "org-123",
+        createInstallation({ accessToken: "leak-me" })
+      );
+
+      const raw = state.cache.get("linear:installation:org-123") as {
+        accessToken: unknown;
+      };
+      expect(raw.accessToken).toBe("leak-me");
+    });
+
+    it("getInstallation tolerates legacy plaintext records when encryption is enabled (zero-downtime key rotation in)", async () => {
+      const state = createMockState();
+      // Pre-populate state with a plaintext (legacy) install before encryption
+      // is enabled.
+      state.cache.set("linear:installation:org-123", {
+        organizationId: "org-123",
+        accessToken: "legacy-plaintext",
+        refreshToken: "legacy-refresh",
+        expiresAt: Date.now() + 600_000,
+        botUserId: "bot-user-id",
+      });
+
+      const adapter = attachLegacyClientAlias(
+        new LinearAdapter({
+          clientId: "test-client-id",
+          clientSecret: "test-client-secret",
+          webhookSecret: WEBHOOK_SECRET,
+          userName: "test-bot",
+          logger: createMockLogger(),
+          encryptionKey: TEST_KEY_HEX,
+        })
+      );
+      await adapter.initialize(createMockChatInstance(state));
+
+      const fetched = await adapter.getInstallation("org-123");
+      expect(fetched?.accessToken).toBe("legacy-plaintext");
+      expect(fetched?.refreshToken).toBe("legacy-refresh");
+    });
+
+    it("rejects an encryption key of the wrong length", () => {
+      expect(
+        () =>
+          new LinearAdapter({
+            clientId: "test-client-id",
+            clientSecret: "test-client-secret",
+            webhookSecret: WEBHOOK_SECRET,
+            userName: "test-bot",
+            logger: createMockLogger(),
+            encryptionKey: "tooshort",
+          })
+      ).toThrow(BYTES_32_PATTERN);
+    });
   });
 });
 
@@ -2034,6 +3676,16 @@ describe("createLinearAdapter", () => {
     const adapter = createLinearAdapter({
       clientId: "client-id",
       clientSecret: "client-secret",
+      mode: "agent-sessions",
+      webhookSecret: "secret",
+    });
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should accept explicit comment mode", () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_123",
+      mode: "comments",
       webhookSecret: "secret",
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
@@ -2070,6 +3722,19 @@ describe("createLinearAdapter", () => {
     process.env.LINEAR_CLIENT_ID = "env-client-id";
     process.env.LINEAR_CLIENT_SECRET = "env-client-secret";
     const adapter = createLinearAdapter();
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should use LINEAR_CLIENT_CREDENTIALS env vars before LINEAR_CLIENT_ID/SECRET", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID = "env-cc-client-id";
+    process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET =
+      "env-cc-client-secret";
+    process.env.LINEAR_CLIENT_ID = "env-oauth-client-id";
+    process.env.LINEAR_CLIENT_SECRET = "env-oauth-client-secret";
+
+    const adapter = createLinearAdapter();
+
     expect(adapter).toBeInstanceOf(LinearAdapter);
   });
 
@@ -2119,5 +3784,124 @@ describe("createLinearAdapter", () => {
       logger: customLogger,
     });
     expect(adapter).toBeInstanceOf(LinearAdapter);
+  });
+
+  it("should accept apiUrl config", () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_123",
+      webhookSecret: "secret",
+      apiUrl: "https://custom-linear.example.com",
+    });
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://custom-linear.example.com"
+    );
+  });
+
+  it("should resolve apiUrl from LINEAR_API_URL env var", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_API_KEY = "env-key";
+    process.env.LINEAR_API_URL = "https://custom-linear.example.com";
+    const adapter = createLinearAdapter();
+    expect(adapter).toBeInstanceOf(LinearAdapter);
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://custom-linear.example.com"
+    );
+  });
+
+  it("should prefer apiUrl config over LINEAR_API_URL env var", () => {
+    process.env.LINEAR_WEBHOOK_SECRET = "env-secret";
+    process.env.LINEAR_API_KEY = "env-key";
+    process.env.LINEAR_API_URL = "https://env-linear.example.com";
+    const adapter = createLinearAdapter({
+      apiKey: "key",
+      apiUrl: "https://config-linear.example.com",
+    });
+    expect((adapter as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://config-linear.example.com"
+    );
+  });
+});
+
+describe("getUser", () => {
+  it("should return user info from Linear API", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-123",
+        name: "Alice Smith",
+        displayName: "alice",
+        email: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    };
+
+    const user = await adapter.getUser("user-123");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.email).toBe("alice@example.com");
+    expect(user?.avatarUrl).toBe("https://example.com/alice.png");
+    expect(user?.isBot).toBe(false);
+  });
+
+  it("should return null on error", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockRejectedValue(new Error("Not found")),
+    };
+
+    const user = await adapter.getUser("unknown");
+    expect(user).toBeNull();
+  });
+
+  it("should include userId in the response", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-123",
+        name: "Alice Smith",
+        displayName: "alice",
+        email: "alice@example.com",
+        avatarUrl: "https://example.com/alice.png",
+      }),
+    };
+
+    const user = await adapter.getUser("user-123");
+    expect(user).not.toBeNull();
+    expect(user?.userId).toBe("user-123");
+  });
+
+  it("should call Linear SDK with the correct user ID", async () => {
+    const adapter = createWebhookAdapter();
+    const userMock = vi.fn().mockResolvedValue({
+      id: "user-123",
+      name: "Alice Smith",
+      displayName: "alice",
+      email: "alice@example.com",
+      avatarUrl: "https://example.com/alice.png",
+    });
+    (adapter as any).defaultClient = { user: userMock };
+
+    await adapter.getUser("user-123");
+    expect(userMock).toHaveBeenCalledWith("user-123");
+  });
+
+  it("should return undefined for null optional fields", async () => {
+    const adapter = createWebhookAdapter();
+    (adapter as any).defaultClient = {
+      user: vi.fn().mockResolvedValue({
+        id: "user-456",
+        name: "Bob",
+        displayName: "bob",
+        email: null,
+        avatarUrl: null,
+      }),
+    };
+
+    const user = await adapter.getUser("user-456");
+    expect(user).not.toBeNull();
+    expect(user?.email).toBeUndefined();
+    expect(user?.avatarUrl).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 /**
  * Teams test utilities for creating mock adapters, activities, and webhook requests.
+ * Updated for TeamsSDK (@microsoft/teams.apps) migration.
  */
 
 import type { TeamsAdapter } from "@chat-adapter/teams";
@@ -112,9 +113,10 @@ export function createTeamsWebhookRequest(
 }
 
 /**
- * Create mock Bot Framework CloudAdapter
+ * Create mock TeamsSDK App for testing.
+ * Mocks the API client layer (conversations, reactions) and tracks sent activities.
  */
-export function createMockBotAdapter() {
+export function createMockTeamsApp() {
   const sentActivities: unknown[] = [];
   const updatedActivities: unknown[] = [];
   const deletedActivities: string[] = [];
@@ -123,86 +125,69 @@ export function createMockBotAdapter() {
     userId: string;
   }> = [];
 
-  // Counter for generated conversation IDs
   let conversationCounter = 0;
 
-  // Mock createConversationAsync that calls the callback with a turn context
-  // The conversation ID is captured from within the callback, not the return value
-  const mockCreateConversationAsync = vi.fn(async (...args: unknown[]) => {
-    conversationCounter++;
-    const conversationId = `dm-conversation-${conversationCounter}`;
+  const mockSend = vi.fn(async (_convId: string, activity: unknown) => {
+    sentActivities.push(activity);
+    return { id: `response-${Date.now()}`, type: "message" };
+  });
 
-    // The callback is the last argument
-    const callback = args.at(-1) as
-      | ((context: unknown) => Promise<void>)
-      | undefined;
+  const mockActivitiesUpdate = vi.fn(async (_id: string, activity: unknown) => {
+    updatedActivities.push(activity);
+    return { id: _id };
+  });
 
-    // The params (members) is the 5th argument (index 4)
-    const params = args[4] as { members?: Array<{ id: string }> } | undefined;
-    const userId = params?.members?.[0]?.id || "unknown";
-    createdConversations.push({ conversationId, userId });
+  const mockActivitiesDelete = vi.fn(async (id: string) => {
+    deletedActivities.push(id);
+  });
 
-    // Call the callback with a mock turn context containing the conversation ID
-    const mockTurnContext = {
-      activity: {
-        conversation: { id: conversationId },
-        id: `activity-${conversationCounter}`,
-      },
-    };
-
-    if (typeof callback === "function") {
-      await callback(mockTurnContext);
+  const mockConversationCreate = vi.fn(
+    async (params: { members?: Array<{ id: string }> }) => {
+      conversationCounter++;
+      const conversationId = `dm-conversation-${conversationCounter}`;
+      const userId = params?.members?.[0]?.id || "unknown";
+      createdConversations.push({ conversationId, userId });
+      return { id: conversationId };
     }
-  });
+  );
 
-  // Create reusable mock context factory
-  const createMockContext = (activity: unknown) => ({
-    activity,
-    sendActivity: vi.fn((act: unknown) => {
-      sentActivities.push(act);
-      return { id: `response-${Date.now()}` };
-    }),
-    updateActivity: vi.fn((act: unknown) => {
-      updatedActivities.push(act);
-    }),
-    deleteActivity: vi.fn((id: string) => {
-      deletedActivities.push(id);
-    }),
-    // For openDM - provides access to adapter.createConversationAsync
-    adapter: {
-      createConversationAsync: mockCreateConversationAsync,
+  const mockApi = {
+    conversations: {
+      activities: vi.fn(() => ({
+        create: vi.fn(async (_convId: string, activity: unknown) => {
+          sentActivities.push(activity);
+          return { id: `response-${Date.now()}` };
+        }),
+        update: mockActivitiesUpdate,
+        delete: mockActivitiesDelete,
+      })),
+      create: mockConversationCreate,
     },
-  });
+    reactions: {
+      add: vi.fn(async () => undefined),
+      remove: vi.fn(async () => undefined),
+    },
+    teams: {
+      getById: vi.fn(async () => ({})),
+    },
+    serviceUrl: "https://smba.trafficmanager.net/teams/",
+  };
+
+  const mockGraph = {
+    call: vi.fn(async () => ({ value: [] })),
+  };
 
   return {
     sentActivities,
     updatedActivities,
     deletedActivities,
     createdConversations,
-    // Mock the handleActivity method - called during webhook handling
-    handleActivity: vi.fn(
-      async (
-        _authHeader: string,
-        activity: unknown,
-        handler: (context: unknown) => Promise<void>
-      ) => {
-        const mockContext = createMockContext(activity);
-        await handler(mockContext);
-      }
-    ),
-    // Mock continueConversationAsync - called for posting messages
-    continueConversationAsync: vi.fn(
-      async (
-        _appId: string,
-        _ref: unknown,
-        handler: (context: unknown) => Promise<void>
-      ) => {
-        const mockContext = createMockContext({});
-        await handler(mockContext);
-      }
-    ),
-    // Direct access to createConversationAsync mock for assertions
-    createConversationAsync: mockCreateConversationAsync,
+    send: mockSend,
+    api: mockApi,
+    graph: mockGraph,
+    initialize: vi.fn(async () => undefined),
+    /** Backwards-compat alias for api.conversations.create */
+    createConversationAsync: mockConversationCreate,
     clearMocks: () => {
       sentActivities.length = 0;
       updatedActivities.length = 0;
@@ -213,17 +198,109 @@ export function createMockBotAdapter() {
   };
 }
 
-export type MockBotAdapter = ReturnType<typeof createMockBotAdapter>;
+export type MockTeamsApp = ReturnType<typeof createMockTeamsApp>;
 
 /**
- * Inject mock bot adapter into Teams adapter
+ * Inject mock TeamsSDK App into Teams adapter.
+ * Replaces the internal `app` and `bridgeAdapter` with mocks.
  */
-export function injectMockBotAdapter(
+export function injectMockTeamsApp(
   adapter: TeamsAdapter,
-  mockAdapter: MockBotAdapter
+  mockApp: MockTeamsApp
 ): void {
-  // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
-  (adapter as any).botAdapter = mockAdapter;
+  const adapterInternal = adapter as unknown as {
+    app: unknown;
+    bridgeAdapter: unknown;
+  };
+
+  // Replace the app with a mock that has the right API surface
+  const config = (adapter as unknown as { config: { appId?: string } }).config;
+  adapterInternal.app = {
+    id: config.appId || TEAMS_APP_ID,
+    send: mockApp.send,
+    api: mockApp.api,
+    graph: mockApp.graph,
+    initialize: mockApp.initialize,
+    on: vi.fn(),
+    use: vi.fn(),
+  };
+
+  // Create a mock bridge adapter that dispatches activities through the handlers
+  const webhookOptionsMap = new Map<string, unknown>();
+  adapterInternal.bridgeAdapter = {
+    getWebhookOptions: (activityId: string | undefined) =>
+      activityId ? webhookOptionsMap.get(activityId) : undefined,
+    dispatch: vi.fn(
+      async (
+        request: Request,
+        options?: { waitUntil?: (promise: Promise<unknown>) => void }
+      ) => {
+        const body = await request.text();
+        const parsed = JSON.parse(body);
+        const activity = parsed as {
+          id?: string;
+          type: string;
+          text?: string;
+          from?: { id: string };
+          value?: unknown;
+        };
+
+        if (activity.id && options) {
+          webhookOptionsMap.set(activity.id, options);
+        }
+
+        // For message activities, simulate the TeamsSDK pipeline
+        // by calling the adapter's internal methods
+        if (
+          activity.type === "message" ||
+          activity.type === "messageReaction" ||
+          activity.type === "invoke"
+        ) {
+          // The adapter's event handlers were registered on the real app,
+          // but we replaced the app. Instead, we trigger the handler logic
+          // by accessing the adapter's private methods directly.
+          const adapterAny = adapter as unknown as {
+            cacheUserContext: (activity: unknown) => void;
+            handleMessageActivity: (ctx: unknown) => Promise<void>;
+            handleReactionFromContext: (ctx: unknown) => void;
+            handleAdaptiveCardAction: (ctx: unknown) => Promise<void>;
+          };
+
+          // Create a mock context matching IActivityContext shape
+          const mockCtx = {
+            activity,
+            api: mockApp.api,
+            stream: { emit: vi.fn(), close: vi.fn(async () => undefined) },
+            send: vi.fn(async (act: unknown) => {
+              mockApp.sentActivities.push(act);
+              return { id: `ctx-response-${Date.now()}`, type: "message" };
+            }),
+            next: vi.fn(),
+          };
+
+          // Mirror the inline caching that registerEventHandlers does
+          adapterAny.cacheUserContext(activity);
+
+          if (activity.type === "message") {
+            await adapterAny.handleMessageActivity(mockCtx);
+          } else if (activity.type === "messageReaction") {
+            adapterAny.handleReactionFromContext(mockCtx);
+          } else if (activity.type === "invoke") {
+            await adapterAny.handleAdaptiveCardAction(mockCtx);
+          }
+        }
+
+        if (activity.id) {
+          webhookOptionsMap.delete(activity.id);
+        }
+
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    ),
+  };
 }
 
 /**
@@ -247,7 +324,6 @@ export const DEFAULT_TEAMS_SERVICE_URL =
 
 /**
  * Response type for mock Graph client
- * Can be either a paginated response with `value` array, or a single object
  */
 export type MockGraphResponse =
   | { value: unknown[]; "@odata.nextLink"?: string }
@@ -259,57 +335,45 @@ export type MockGraphResponse =
 export function createMockGraphClient() {
   let mockResponses: MockGraphResponse[] = [];
   let callIndex = 0;
-  let currentTop: number | undefined;
-  const apiCalls: Array<{ url: string; top?: number }> = [];
-
-  const mockRequest = {
-    top: vi.fn((n: number) => {
-      const lastCall = apiCalls.at(-1);
-      if (lastCall) {
-        lastCall.top = n;
-      }
-      currentTop = n;
-      return mockRequest;
-    }),
-    orderby: vi.fn(() => mockRequest),
-    filter: vi.fn(() => mockRequest),
-    get: vi.fn(() => {
-      const response = mockResponses[callIndex] || { value: [] };
-      callIndex++;
-      // Respect the top() limit if set (only for paginated responses with value array)
-      if (currentTop && "value" in response && Array.isArray(response.value)) {
-        return {
-          ...response,
-          value: response.value.slice(0, currentTop),
-        };
-      }
-      return response;
-    }),
-  };
-
-  const mockClient = {
-    api: vi.fn((url: string) => {
-      apiCalls.push({ url });
-      currentTop = undefined; // Reset for each new request chain
-      return mockRequest;
-    }),
-  };
+  const apiCalls: Array<{ url: string }> = [];
 
   return {
-    client: mockClient,
     apiCalls,
-    mockRequest,
     setResponses: (responses: MockGraphResponse[]) => {
       mockResponses = responses;
       callIndex = 0;
     },
+    // Mock the graph.call() pattern — the adapter calls graph.call(endpointFn, params)
+    call: vi.fn(
+      async (
+        endpointFn: (...args: unknown[]) => {
+          method: string;
+          path: string;
+          params?: Record<string, unknown>;
+          paramDefs?: Record<string, string[]>;
+        },
+        ...args: unknown[]
+      ) => {
+        const endpoint = endpointFn(...args);
+        // Resolve path template params like {team-id} → actual values
+        let resolvedPath = endpoint.path;
+        if (endpoint.params && endpoint.paramDefs) {
+          for (const param of endpoint.paramDefs.path || []) {
+            const val = endpoint.params[param];
+            if (val !== undefined) {
+              resolvedPath = resolvedPath.replace(`{${param}}`, String(val));
+            }
+          }
+        }
+        apiCalls.push({ url: resolvedPath });
+        const response = mockResponses[callIndex] || { value: [] };
+        callIndex++;
+        return response;
+      }
+    ),
     reset: () => {
       callIndex = 0;
-      currentTop = undefined;
       apiCalls.length = 0;
-      mockClient.api.mockClear();
-      mockRequest.get.mockClear();
-      mockRequest.top.mockClear();
     },
   };
 }
@@ -323,6 +387,10 @@ export function injectMockGraphClient(
   adapter: TeamsAdapter,
   mockClient: MockGraphClient
 ): void {
-  // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
-  (adapter as any).graphClient = mockClient.client;
+  const adapterInternal = adapter as unknown as {
+    app: { graph: unknown };
+    graphReader: { deps: { graph: unknown } };
+  };
+  adapterInternal.app.graph = mockClient;
+  adapterInternal.graphReader.deps.graph = mockClient;
 }

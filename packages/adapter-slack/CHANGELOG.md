@@ -1,5 +1,114 @@
 # @chat-adapter/slack
 
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+- 70281dc: add initialOption and option_groups support for ExternalSelect
+- 2531e9c: Add dynamic `botToken` resolver and custom `webhookVerifier` to Slack adapter config. `botToken` now accepts `string | (() => string | Promise<string>)` so apps can rotate or lazily fetch tokens — the function is invoked per API call. `webhookVerifier: (request: Request) => string | Promise<string>` is used in place of `signingSecret` when set (and `signingSecret` is not provided), letting hosts verify incoming requests with their own logic and return the verified body text; the adapter responds 401 if the verifier throws.
+- 7e90d9c: Add Socket Mode support for environments behind firewalls that can't expose public HTTP endpoints, and add `{ action: "clear" }` modal response to close the entire modal view stack
+- a179b29: Implement external_select block kit for Slack
+
+### Patch Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- 53c6b68: Fix DM messages failing with `invalid_thread_ts` by guarding Slack API calls with `threadTs || undefined`
+- ded6f78: enrich link previews with title, description, and image from Slack unfurl attachments
+- c26ee6c: Fix `@mention` rewrite regex so email addresses (e.g. `user@example.com`) and `<mailto:…>` links are no longer mangled into broken Slack user mentions. The lookbehind now excludes any word character before `@`, which also means mentions immediately following a word character (e.g. `prefix@user`) are no longer rewritten — a bare `@user` still converts as before.
+- 0f8b2b1: Fix self-mention detection in multi-workspace installs by using the request-scoped bot user ID instead of the adapter-level default
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- 8955e71: Patches bug with conversion of markdown tables to Slack table blocks
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- 1856198: Fix Slack OAuth callbacks by allowing `redirectUri` to be passed explicitly during the token exchange while preserving the callback query param as a backward-compatible fallback.
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
+## 4.24.0
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- e8dbef2: Fix empty table cells causing `invalid_blocks` error from Slack API. Empty cells now fall back to a single space to satisfy the Block Kit requirement that cell text must be more than 0 characters.
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - @chat-adapter/shared@4.24.0
+  - chat@4.24.0
+
+## 4.23.0
+
+### Minor Changes
+
+- 4166e09: Add `channelVisibility` enum to distinguish private, workspace, external, and unknown channel scopes. Implements `getChannelVisibility()` on the Adapter interface and Slack adapter, replacing the previous `isExternalChannel` boolean.
+
+### Patch Changes
+
+- Updated dependencies [4166e09]
+  - chat@4.23.0
+  - @chat-adapter/shared@4.23.0
+
+## 4.22.0
+
+### Patch Changes
+
+- Updated dependencies [f2d8957]
+  - chat@4.22.0
+  - @chat-adapter/shared@4.22.0
+
+## 4.21.0
+
+### Minor Changes
+
+- d778f72: Switch adapters from optional dep to full dep on chat
+
+### Patch Changes
+
+- Updated dependencies [e45a67f]
+- Updated dependencies [13ba1c7]
+- Updated dependencies [95fd8ce]
+  - chat@4.21.0
+  - @chat-adapter/shared@4.21.0
+
+## 4.20.2
+
+### Patch Changes
+
+- f612b44: Fix duplicate mention resolution by using the replace callback offset instead of indexOf. Invalidate user cache on Slack user_change events so display name updates are picked up immediately.
+  - chat@4.20.2
+  - @chat-adapter/shared@4.20.2
+
 ## 4.20.1
 
 ### Patch Changes

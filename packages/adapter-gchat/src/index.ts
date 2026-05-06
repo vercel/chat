@@ -27,6 +27,7 @@ import type {
   StateAdapter,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -70,12 +71,30 @@ export interface ServiceAccountCredentials {
 
 /** Base config options shared by all auth methods */
 export interface GoogleChatAdapterBaseConfig {
+  /** Override the Google Chat API root URL. Defaults to GOOGLE_CHAT_API_URL env var. */
+  apiUrl?: string;
+  /**
+   * Explicit opt-in to disable webhook signature verification. Required to
+   * accept incoming webhooks when neither `googleChatProjectNumber` nor
+   * `pubsubAudience` is configured. Without this flag set the constructor
+   * throws — fail-closed by default. Only enable in development or when an
+   * upstream layer (e.g. Cloud Run authenticated invocations) is providing
+   * equivalent guarantees.
+   */
+  disableSignatureVerification?: boolean;
   /**
    * HTTP endpoint URL for button click actions.
    * Required for HTTP endpoint apps - button clicks will be routed to this URL.
    * Should be the full URL of your webhook endpoint (e.g., "https://your-app.vercel.app/api/webhooks/gchat")
    */
   endpointUrl?: string;
+  /**
+   * Google Cloud project number for verifying direct webhook JWTs.
+   * When set, the adapter verifies the Bearer token on incoming Google Chat webhooks
+   * by checking the JWT audience matches this project number.
+   * Defaults to GOOGLE_CHAT_PROJECT_NUMBER env var.
+   */
+  googleChatProjectNumber?: string;
   /**
    * User email to impersonate for Workspace Events API calls.
    * Required when using domain-wide delegation.
@@ -85,6 +104,13 @@ export interface GoogleChatAdapterBaseConfig {
   impersonateUser?: string;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
+  /**
+   * Expected audience for Pub/Sub push message JWT verification.
+   * Typically the push endpoint URL configured in your Pub/Sub subscription.
+   * When set, the adapter verifies the Authorization Bearer token on Pub/Sub messages.
+   * Defaults to GOOGLE_CHAT_PUBSUB_AUDIENCE env var.
+   */
+  pubsubAudience?: string;
   /**
    * Pub/Sub topic for receiving all messages via Workspace Events.
    * When set, the adapter will automatically create subscriptions when added to a space.
@@ -171,6 +197,7 @@ export interface GoogleChatMessage {
   formattedText?: string;
   name: string;
   sender: {
+    avatarUrl?: string;
     name: string;
     displayName: string;
     type: string;
@@ -207,6 +234,14 @@ export interface GoogleChatUser {
   type: string;
 }
 
+interface GoogleChatFormInput {
+  stringInputs?: {
+    value?: string[];
+  };
+}
+
+type GoogleChatFormInputs = Record<string, GoogleChatFormInput>;
+
 /**
  * Google Workspace Add-ons event format.
  * This is the format used when configuring the app via Google Cloud Console.
@@ -235,6 +270,7 @@ export interface GoogleChatEvent {
     };
   };
   commonEventObject?: {
+    formInputs?: GoogleChatFormInputs;
     userLocale?: string;
     hostApp?: string;
     platform?: string;
@@ -277,6 +313,17 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   private readonly impersonatedChatApi?: chat_v1.Chat;
   /** HTTP endpoint URL for button click actions */
   private endpointUrl?: string;
+  /** Google Cloud project number for verifying direct webhook JWTs */
+  private readonly googleChatProjectNumber?: string;
+  /** Expected audience for Pub/Sub push message JWT verification */
+  private readonly pubsubAudience?: string;
+  /** Explicit opt-in to skip JWT verification (fail-open). */
+  private readonly disableSignatureVerification: boolean;
+  /** OAuth2 client for verifying Google-signed JWTs */
+  private readonly oauth2Client = new auth.OAuth2();
+  /** Track whether we've already warned about missing verification config */
+  private warnedNoWebhookVerification = false;
+  private warnedNoPubsubVerification = false;
   /** User info cache for display name lookups - initialized later in initialize() */
   private userInfoCache: UserInfoCache;
 
@@ -292,6 +339,31 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.impersonateUser =
       config.impersonateUser ?? process.env.GOOGLE_CHAT_IMPERSONATE_USER;
     this.endpointUrl = config.endpointUrl;
+    this.googleChatProjectNumber =
+      config.googleChatProjectNumber ?? process.env.GOOGLE_CHAT_PROJECT_NUMBER;
+    this.pubsubAudience =
+      config.pubsubAudience ?? process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE;
+    this.disableSignatureVerification =
+      config.disableSignatureVerification ??
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION === "true";
+
+    // Fail-closed: refuse to start if no verification config is provided and
+    // the operator has not explicitly opted into the unsafe path. Previously
+    // the adapter accepted any webhook in this state, allowing forged
+    // payloads to impersonate users / trigger handlers.
+    if (
+      !(
+        this.googleChatProjectNumber ||
+        this.pubsubAudience ||
+        this.disableSignatureVerification
+      )
+    ) {
+      throw new ValidationError(
+        "gchat",
+        "Webhook signature verification is required. Set googleChatProjectNumber (or GOOGLE_CHAT_PROJECT_NUMBER) for direct webhooks and/or pubsubAudience (or GOOGLE_CHAT_PUBSUB_AUDIENCE) for Pub/Sub. To accept unverified webhooks (NOT recommended in production), set disableSignatureVerification: true."
+      );
+    }
+    const apiRootUrl = config.apiUrl ?? process.env.GOOGLE_CHAT_API_URL;
 
     let authClient: Parameters<typeof chat>[0]["auth"];
 
@@ -350,7 +422,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     this.authClient = authClient;
-    this.chatApi = chat({ version: "v1", auth: authClient });
+    this.chatApi = chat({
+      version: "v1",
+      auth: authClient,
+      ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
+    });
 
     // Create impersonated Chat API for user-context operations (DMs)
     // Domain-wide delegation requires setting the `subject` claim to the impersonated user
@@ -369,6 +445,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       } else if (this.useADC) {
         // ADC with impersonation (requires clientOptions.subject support)
@@ -385,6 +462,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         this.impersonatedChatApi = chat({
           version: "v1",
           auth: impersonatedAuth,
+          ...(apiRootUrl ? { rootUrl: apiRootUrl } : {}),
         });
       }
     }
@@ -628,6 +706,66 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     return null;
   }
 
+  /**
+   * Verify a Google-signed JWT Bearer token from the Authorization header.
+   * Used for both direct Google Chat webhooks and Pub/Sub push messages.
+   *
+   * @param request - The incoming HTTP request
+   * @param expectedAudience - The expected audience claim in the JWT
+   * @returns true if verification succeeds or is not configured
+   */
+  private async verifyBearerToken(
+    request: Request,
+    expectedAudience: string
+  ): Promise<boolean> {
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      this.logger.warn("Missing or invalid Authorization header");
+      return false;
+    }
+
+    const token = authHeader.slice(7);
+    try {
+      const ticket = await this.oauth2Client.verifyIdToken({
+        idToken: token,
+        audience: expectedAudience,
+      });
+      const payload = ticket.getPayload();
+      if (!payload) {
+        this.logger.warn("JWT verification returned no payload");
+        return false;
+      }
+      this.logger.debug("JWT verified", {
+        iss: payload.iss,
+        aud: payload.aud,
+        email: payload.email,
+      });
+      return true;
+    } catch (error) {
+      this.logger.warn("JWT verification failed", { error });
+      return false;
+    }
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const cached = await this.userInfoCache.get(userId);
+      if (!cached) {
+        return null;
+      }
+      return {
+        avatarUrl: cached.avatarUrl,
+        email: cached.email,
+        fullName: cached.displayName,
+        isBot: cached.isBot ?? false,
+        userId,
+        userName: cached.displayName,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async handleWebhook(
     request: Request,
     options?: WebhookOptions
@@ -660,7 +798,62 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Check if this is a Pub/Sub push message (from Workspace Events subscription)
     const maybePubSub = parsed as PubSubPushMessage;
     if (maybePubSub.message?.data && maybePubSub.subscription) {
+      // Verify Pub/Sub JWT if audience is configured. The two transports
+      // share a single endpoint, so each shape must be independently
+      // verified — otherwise an attacker could send the unconfigured shape
+      // to bypass the configured verifier. The constructor's "at least one
+      // verifier OR disableSignatureVerification" check is not sufficient
+      // here for that reason.
+      if (this.pubsubAudience) {
+        const valid = await this.verifyBearerToken(
+          request,
+          this.pubsubAudience
+        );
+        if (!valid) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+      } else if (this.disableSignatureVerification) {
+        if (!this.warnedNoPubsubVerification) {
+          this.warnedNoPubsubVerification = true;
+          this.logger.warn(
+            "Pub/Sub webhook verification is disabled. Set GOOGLE_CHAT_PUBSUB_AUDIENCE or pubsubAudience to verify incoming requests."
+          );
+        }
+      } else {
+        // Direct webhook verifier may be configured but Pub/Sub verifier is
+        // not — reject rather than silently process an unverified payload
+        // that a peer transport's config does nothing to authenticate.
+        this.logger.warn(
+          "Rejected Pub/Sub webhook: pubsubAudience is not configured. Set GOOGLE_CHAT_PUBSUB_AUDIENCE, or set disableSignatureVerification to accept unverified Pub/Sub payloads."
+        );
+        return new Response("Unauthorized", { status: 401 });
+      }
       return this.handlePubSubMessage(maybePubSub, options);
+    }
+
+    // Verify direct Google Chat webhook JWT if project number is configured.
+    // Same reasoning as the Pub/Sub branch: each shape requires its own
+    // verifier (or explicit opt-out) to prevent cross-transport bypass.
+    if (this.googleChatProjectNumber) {
+      const valid = await this.verifyBearerToken(
+        request,
+        this.googleChatProjectNumber
+      );
+      if (!valid) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+    } else if (this.disableSignatureVerification) {
+      if (!this.warnedNoWebhookVerification) {
+        this.warnedNoWebhookVerification = true;
+        this.logger.warn(
+          "Google Chat webhook verification is disabled. Set GOOGLE_CHAT_PROJECT_NUMBER or googleChatProjectNumber to verify incoming requests."
+        );
+      }
+    } else {
+      this.logger.warn(
+        "Rejected direct Google Chat webhook: googleChatProjectNumber is not configured. Set GOOGLE_CHAT_PROJECT_NUMBER, or set disableSignatureVerification to accept unverified payloads."
+      );
+      return new Response("Unauthorized", { status: 401 });
     }
 
     // Otherwise, treat as a direct Google Chat webhook event
@@ -1018,8 +1211,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    // Get value from parameters
-    const value = commonEvent?.parameters?.value;
+    // Buttons send value via parameters, while selection inputs return
+    // the chosen option through formInputs under the action ID.
+    const value =
+      commonEvent?.parameters?.value ??
+      this.getFormInputValue(commonEvent?.formInputs, actionId);
 
     // Get space and message info from buttonClickedPayload
     const space = buttonPayload?.space;
@@ -1063,6 +1259,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     });
 
     this.chat.processAction(actionEvent, options);
+  }
+
+  private getFormInputValue(
+    formInputs: GoogleChatFormInputs | undefined,
+    actionId: string
+  ): string | undefined {
+    return formInputs?.[actionId]?.stringInputs?.value?.[0];
   }
 
   /**
@@ -1127,7 +1330,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     const displayName = message.sender?.displayName || "unknown";
     if (userId !== "unknown" && displayName !== "unknown") {
       this.userInfoCache
-        .set(userId, displayName, message.sender?.email)
+        .set(
+          userId,
+          displayName,
+          message.sender?.email,
+          message.sender?.type === "BOT",
+          message.sender?.avatarUrl
+        )
         .catch((error) => {
           this.logger.error("Failed to cache user info", { userId, error });
         });
@@ -1341,9 +1550,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }): Attachment {
     const url = att.downloadUri || undefined;
     const resourceName = att.attachmentDataRef?.resourceName || undefined;
-    const chatApi = this.chatApi;
 
-    // Determine type based on contentType
     let type: Attachment["type"] = "file";
     if (att.contentType?.startsWith("image/")) {
       type = "image";
@@ -1353,59 +1560,82 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       type = "audio";
     }
 
-    // Capture auth client for use in fetchData closure (used for URL fallback)
-    const auth = this.authClient;
+    const fetchMeta: Record<string, string> = {};
+    if (resourceName) {
+      fetchMeta.resourceName = resourceName;
+    }
+    if (url) {
+      fetchMeta.url = url;
+    }
 
     return {
       type,
       url,
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
+      fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData:
         resourceName || url
-          ? async () => {
-              // Prefer media.download API (correct method for chat apps)
-              if (resourceName) {
-                const res = await chatApi.media.download(
-                  { resourceName },
-                  { responseType: "arraybuffer" }
-                );
-                return Buffer.from(res.data as ArrayBuffer);
-              }
-
-              // Fallback to direct URL fetch (downloadUri)
-              if (typeof auth === "string" || !auth) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Cannot fetch file: no auth client configured"
-                );
-              }
-              const tokenResult = await auth.getAccessToken();
-              const token =
-                typeof tokenResult === "string"
-                  ? tokenResult
-                  : tokenResult?.token;
-              if (!token) {
-                throw new AuthenticationError(
-                  "gchat",
-                  "Failed to get access token"
-                );
-              }
-              const response = await fetch(url as string, {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              });
-              if (!response.ok) {
-                throw new NetworkError(
-                  "gchat",
-                  `Failed to fetch file: ${response.status} ${response.statusText}`
-                );
-              }
-              const arrayBuffer = await response.arrayBuffer();
-              return Buffer.from(arrayBuffer);
-            }
+          ? () => this.fetchAttachmentData(resourceName, url)
           : undefined,
+    };
+  }
+
+  private async fetchAttachmentData(
+    resourceName?: string,
+    url?: string
+  ): Promise<Buffer> {
+    // Prefer media.download API (correct method for chat apps)
+    if (resourceName) {
+      const res = await this.chatApi.media.download(
+        { resourceName },
+        { responseType: "arraybuffer" }
+      );
+      return Buffer.from(res.data as ArrayBuffer);
+    }
+
+    // Fallback to direct URL fetch (downloadUri)
+    if (!url) {
+      throw new NetworkError("gchat", "No URL or resourceName available");
+    }
+
+    const auth = this.authClient;
+    if (typeof auth === "string" || !auth) {
+      throw new AuthenticationError(
+        "gchat",
+        "Cannot fetch file: no auth client configured"
+      );
+    }
+    const tokenResult = await auth.getAccessToken();
+    const token =
+      typeof tokenResult === "string" ? tokenResult : tokenResult?.token;
+    if (!token) {
+      throw new AuthenticationError("gchat", "Failed to get access token");
+    }
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new NetworkError(
+        "gchat",
+        `Failed to fetch file: ${response.status} ${response.statusText}`
+      );
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const resourceName = attachment.fetchMetadata?.resourceName;
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!(resourceName || url)) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: () => this.fetchAttachmentData(resourceName, url),
     };
   }
 
@@ -1466,9 +1696,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
       const response = await this.chatApi.spaces.messages.update({
         name: messageId,
-        updateMask: "text",
+        updateMask: "text,cardsV2",
         requestBody: {
           text,
+          cardsV2: [],
         },
       });
 
@@ -2548,7 +2779,6 @@ export {
   listSpaceSubscriptions,
   type PubSubPushMessage,
   type SpaceSubscriptionResult,
-  verifyPubSubRequest,
   type WorkspaceEventNotification,
   type WorkspaceEventsAuthOptions,
 } from "./workspace-events";

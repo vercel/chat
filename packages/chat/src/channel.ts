@@ -11,15 +11,18 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
-import type { MessageHistoryCache } from "./message-history";
+import { isPostableObject, postPostableObject } from "./postable-object";
+import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   AdapterPostableMessage,
   Author,
   Channel,
   ChannelInfo,
+  ChannelVisibility,
   EphemeralMessage,
   PostableMessage,
+  PostableObject,
   PostEphemeralOptions,
   ScheduledMessage,
   SentMessage,
@@ -37,6 +40,7 @@ const CHANNEL_STATE_KEY_PREFIX = "channel-state:";
 export interface SerializedChannel {
   _type: "chat:Channel";
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM: boolean;
 }
@@ -46,10 +50,11 @@ export interface SerializedChannel {
  */
 interface ChannelImplConfigWithAdapter {
   adapter: Adapter;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
-  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
+  threadHistory?: ThreadHistoryCache;
 }
 
 /**
@@ -57,6 +62,7 @@ interface ChannelImplConfigWithAdapter {
  */
 interface ChannelImplConfigLazy {
   adapterName: string;
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
 }
@@ -83,23 +89,25 @@ export class ChannelImpl<TState = Record<string, unknown>>
 {
   readonly id: string;
   readonly isDM: boolean;
+  readonly channelVisibility: ChannelVisibility;
 
   private _adapter?: Adapter;
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
-  private readonly _messageHistory?: MessageHistoryCache;
+  private readonly _threadHistory?: ThreadHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
     this.isDM = config.isDM ?? false;
+    this.channelVisibility = config.channelVisibility ?? "unknown";
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
-      this._messageHistory = config.messageHistory;
+      this._threadHistory = config.threadHistory;
     }
   }
 
@@ -167,7 +175,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
-    const messageHistory = this._messageHistory;
+    const threadHistory = this._threadHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -196,8 +204,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && messageHistory) {
-          const cached = await messageHistory.getMessages(channelId);
+        if (!yieldedAny && threadHistory) {
+          const cached = await threadHistory.getMessages(channelId);
           // Yield newest first
           for (let i = cached.length - 1; i >= 0; i--) {
             yield cached[i];
@@ -257,9 +265,22 @@ export class ChannelImpl<TState = Record<string, unknown>>
     };
   }
 
+  async post<T extends PostableObject>(message: T): Promise<T>;
+  async post(
+    message:
+      | string
+      | AdapterPostableMessage
+      | AsyncIterable<string>
+      | ChatElement
+  ): Promise<SentMessage>;
   async post(
     message: string | PostableMessage | ChatElement
-  ): Promise<SentMessage> {
+  ): Promise<SentMessage | PostableObject> {
+    if (isPostableObject(message)) {
+      await this.handlePostableObject(message);
+      return message;
+    }
+
     // Handle AsyncIterable (streaming) — not supported at channel level,
     // fall through to postMessage
     if (isAsyncIterable(message)) {
@@ -288,6 +309,14 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return this.postSingleMessage(postable);
   }
 
+  private async handlePostableObject(obj: PostableObject): Promise<void> {
+    await postPostableObject(obj, this.adapter, this.id, (threadId, message) =>
+      this.adapter.postChannelMessage
+        ? this.adapter.postChannelMessage(threadId, message)
+        : this.adapter.postMessage(threadId, message)
+    );
+  }
+
   private async postSingleMessage(
     postable: AdapterPostableMessage
   ): Promise<SentMessage> {
@@ -301,8 +330,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       rawMessage.threadId
     );
 
-    if (this._messageHistory) {
-      await this._messageHistory.append(this.id, new Message(sent));
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(sent));
     }
 
     return sent;
@@ -386,7 +415,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return {
       _type: "chat:Channel",
       id: this.id,
-      adapterName: this.adapter.name,
+      adapterName: this._adapterName ?? this.adapter.name,
+      channelVisibility: this.channelVisibility,
       isDM: this.isDM,
     };
   }
@@ -398,6 +428,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     const channel = new ChannelImpl<TState>({
       id: json.id,
       adapterName: json.adapterName,
+      channelVisibility: json.channelVisibility,
       isDM: json.isDM,
     });
     if (adapter) {

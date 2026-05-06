@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ExternalSelect,
   filterModalChildren,
   fromReactModalElement,
   isModalElement,
@@ -105,6 +106,28 @@ describe("Builder Functions", () => {
     });
   });
 
+  describe("ExternalSelect", () => {
+    it("should create with required fields", () => {
+      const externalSelect = ExternalSelect({ id: "person", label: "Person" });
+      expect(externalSelect.type).toBe("external_select");
+      expect(externalSelect.id).toBe("person");
+      expect(externalSelect.label).toBe("Person");
+    });
+
+    it("should include optional fields", () => {
+      const externalSelect = ExternalSelect({
+        id: "person",
+        label: "Person",
+        placeholder: "Search people",
+        minQueryLength: 1,
+        optional: true,
+      });
+      expect(externalSelect.placeholder).toBe("Search people");
+      expect(externalSelect.minQueryLength).toBe(1);
+      expect(externalSelect.optional).toBe(true);
+    });
+  });
+
   describe("SelectOption", () => {
     it("should create with label and value", () => {
       const opt = SelectOption({ label: "Option A", value: "a" });
@@ -160,6 +183,7 @@ describe("Type Guards", () => {
     it("should keep valid child types", () => {
       const children = [
         TextInput({ id: "t1", label: "Name" }),
+        ExternalSelect({ id: "person", label: "Person" }),
         Select({
           id: "s1",
           label: "Pick",
@@ -167,7 +191,7 @@ describe("Type Guards", () => {
         }),
       ];
       const result = filterModalChildren(children);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(3);
     });
 
     it("should filter invalid children and warn", () => {
@@ -238,6 +262,20 @@ describe("JSX Support", () => {
       expect(result).not.toBeNull();
       if (result && "type" in result && result.type === "select") {
         expect(result.options).toHaveLength(1);
+      }
+    });
+
+    it("should convert an ExternalSelect react element", () => {
+      const el = makeReactElement(ExternalSelect, {
+        id: "person",
+        label: "Person",
+        placeholder: "Search people",
+        minQueryLength: 1,
+      });
+      const result = fromReactModalElement(el);
+      expect(result).not.toBeNull();
+      if (result && "type" in result) {
+        expect(result.type).toBe("external_select");
       }
     });
 

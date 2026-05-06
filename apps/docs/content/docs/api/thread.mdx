@@ -4,7 +4,7 @@ description: Represents a conversation thread with methods for posting, subscrib
 type: reference
 ---
 
-A `Thread` is provided to your event handlers and represents a conversation thread on any platform. You don't create threads directly — they come from handler callbacks or `chat.openDM()`.
+A `Thread` is provided to your event handlers and represents a conversation thread on any platform. You can also create thread handles directly using `chat.thread()` or `chat.openDM()`.
 
 ## Properties
 
@@ -39,7 +39,7 @@ A `Thread` is provided to your event handlers and represents a conversation thre
 
 ## post
 
-Post a message to the thread. Accepts strings, structured messages, cards, and streams.
+Post a message to the thread. Accepts strings, structured messages, cards, streams, and `PostableObject` instances (`Plan`, `StreamingPlan`).
 
 ```typescript
 // Plain text
@@ -56,11 +56,19 @@ await thread.post(Card({ title: "Hi", children: [Text("Hello")] }));
 
 // Stream (fullStream recommended for multi-step agents)
 await thread.post(result.fullStream);
+
+// Plan (mutable task list)
+const plan = new Plan({ initialMessage: "Working..." });
+await thread.post(plan);
+await plan.addTask({ title: "Step 1" });
+
+// Streaming with platform options
+await thread.post(new StreamingPlan(stream, { groupTasks: "plan" }));
 ```
 
 **Parameters:** `message: string | PostableMessage | CardJSXElement`
 
-**Returns:** `Promise<SentMessage>` — the sent message with `edit()`, `delete()`, `addReaction()`, and `removeReaction()` methods.
+**Returns:** `Promise<SentMessage | PostableObject>` — for plain messages and streams, a `SentMessage` with `edit()`, `delete()`, `addReaction()`, and `removeReaction()` methods; for `Plan` / `StreamingPlan` inputs, the same object is returned so you can keep mutating it.
 
 See [Posting Messages](/docs/posting-messages) for details on each format.
 
@@ -112,6 +120,28 @@ await scheduled.cancel();
 
 <Callout type="warn">
 Streaming and file uploads are not supported in scheduled messages.
+</Callout>
+
+## getParticipants
+
+Get the unique human participants in a thread. Returns deduplicated authors, excluding all bots. Useful for subscribing only to 1:1 conversations and unsubscribing when others join.
+
+```typescript
+const participants = await thread.getParticipants();
+
+// Subscribe only when one person is talking to the bot
+if (participants.length === 1) {
+  await thread.subscribe();
+}
+
+// Unsubscribe when the thread becomes a group conversation
+if (participants.length > 1) {
+  await thread.unsubscribe();
+}
+```
+
+<Callout type="warn">
+  Each call fetches the full message history to find all participants. On threads with long history this makes multiple API calls to the platform. Consider checking `message.author` against a known set before calling `getParticipants()` on every incoming message.
 </Callout>
 
 ## subscribe / unsubscribe

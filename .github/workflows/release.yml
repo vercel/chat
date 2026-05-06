@@ -13,6 +13,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
 
 jobs:
   release:
@@ -23,11 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
@@ -36,18 +38,14 @@ jobs:
         env:
           REDIS_URL: "redis://placeholder"
 
-      - name: Create Release Pull Request or Publish
+      - name: Create release PR or publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf
         with:
           publish: pnpm changeset publish
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+          commitMode: github-api
         env:
+          NPM_CONFIG_PROVENANCE: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Deploy to Vercel
-        if: steps.changesets.outputs.published == 'true'
-        run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

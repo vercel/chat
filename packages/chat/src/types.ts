@@ -4,10 +4,31 @@
 
 import type { Root } from "mdast";
 import type { CardElement } from "./cards";
+import type { SerializedChannel } from "./channel";
 import type { ChatElement } from "./jsx-runtime";
 import type { Logger, LogLevel } from "./logger";
 import type { Message } from "./message";
-import type { ModalElement } from "./modals";
+import type { ModalElement, SelectOptionElement } from "./modals";
+import type { PostableObject } from "./postable-object";
+import type { SerializedThread } from "./thread";
+
+// =============================================================================
+// Channel Visibility
+// =============================================================================
+
+/**
+ * Represents the visibility scope of a channel.
+ *
+ * - `private`: Channel is only visible to invited members (e.g., private Slack channels)
+ * - `workspace`: Channel is visible to all workspace members (e.g., public Slack channels)
+ * - `external`: Channel is shared with external organizations (e.g., Slack Connect)
+ * - `unknown`: Visibility cannot be determined
+ */
+export type ChannelVisibility =
+  | "private"
+  | "workspace"
+  | "external"
+  | "unknown";
 
 // =============================================================================
 // Re-exports from extracted modules
@@ -36,6 +57,20 @@ export interface ChatConfig<
   /** Map of adapter name to adapter instance */
   adapters: TAdapters;
   /**
+   * How to handle messages that arrive while a handler is already
+   * processing on the same thread.
+   *
+   * - `'drop'` (default) — discard the message (throw `LockError`)
+   * - `'queue'` — queue the message; when the current handler finishes,
+   *   process only the latest queued message with `context.skipped` containing
+   *   all intermediate messages
+   * - `'debounce'` — all messages start/reset a debounce timer; only the
+   *   final message in a burst is processed
+   * - `'concurrent'` — no locking; all messages processed in parallel
+   * - `ConcurrencyConfig` — fine-grained control over strategy and parameters
+   */
+  concurrency?: ConcurrencyStrategy | ConcurrencyConfig;
+  /**
    * TTL for message deduplication entries in milliseconds.
    * Defaults to 300000 (5 minutes). Increase if your webhook cold starts
    * cause platform retries that arrive after the default TTL expires.
@@ -50,21 +85,43 @@ export interface ChatConfig<
    */
   fallbackStreamingPlaceholderText?: string | null;
   /**
+   * Resolves a stable cross-platform user key from inbound messages.
+   *
+   * Required when `transcripts` is configured. Called once per inbound
+   * message during dispatch; the result is attached to the Message
+   * instance as `message.userKey` for handlers to use.
+   */
+  identity?: IdentityResolver;
+  /**
+   * Lock scope determines which messages contend for the same lock.
+   *
+   * - `'thread'`: lock per threadId (default for most adapters)
+   * - `'channel'`: lock per channelId (default for WhatsApp, Telegram)
+   * - function: resolve scope dynamically per message (async supported)
+   *
+   * When not set, falls back to the adapter's `lockScope` property,
+   * then to `'thread'`.
+   */
+  lockScope?:
+    | LockScope
+    | ((context: LockScopeContext) => LockScope | Promise<LockScope>);
+  /**
    * Logger instance or log level.
    * Pass "silent" to disable all logging.
    */
   logger?: Logger | LogLevel;
   /**
-   * Configuration for persistent message history.
-   * Only used by adapters that set `persistMessageHistory: true`.
+   * @deprecated Renamed to {@link ChatConfig.threadHistory}. Both fields are
+   * read for backwards compatibility; `threadHistory` takes precedence when
+   * both are set.
    */
   messageHistory?: {
-    /** Maximum messages to store per thread (default: 100) */
     maxMessages?: number;
-    /** TTL for cached history in milliseconds (default: 7 days) */
     ttlMs?: number;
   };
   /**
+   * @deprecated Use `concurrency` instead.
+   *
    * Behavior when a thread lock cannot be acquired (another handler is processing).
    * - `'drop'` (default) — throw `LockError`, preserving current behavior
    * - `'force'` — force-release the existing lock and re-acquire
@@ -89,6 +146,28 @@ export interface ChatConfig<
    * Defaults to 500ms. Lower values provide smoother updates but may hit rate limits.
    */
   streamingUpdateIntervalMs?: number;
+  /**
+   * Configuration for persistent per-thread message history backfill.
+   *
+   * Only used by adapters that set `persistThreadHistory: true` (e.g.
+   * Telegram, WhatsApp). Distinct from `transcripts` (the cross-platform
+   * per-user Transcripts API).
+   */
+  threadHistory?: {
+    /** Maximum messages to store per thread (default: 100) */
+    maxMessages?: number;
+    /** TTL for cached history in milliseconds (default: 7 days) */
+    ttlMs?: number;
+  };
+  /**
+   * Cross-platform per-user message persistence.
+   *
+   * When set, `chat.transcripts` is available for append/list/count/delete
+   * keyed by a resolved cross-platform user key.
+   *
+   * Requires `identity` to also be set; the constructor throws otherwise.
+   */
+  transcripts?: TranscriptsConfig;
   /** Default bot username across all adapters */
   userName: string;
 }
@@ -97,6 +176,19 @@ export interface ChatConfig<
  * Options for webhook handling.
  */
 export interface WebhookOptions {
+  /**
+   * Override the default modal-opening behavior to handle it inline
+   * within the current webhook response cycle.
+   * When provided, called instead of adapter.openModal().
+   * Used by Teams to return modal content in the HTTP invoke response.
+   *
+   * The returned `viewId` is platform-specific (e.g. Slack's view ID).
+   * Adapters that don't produce a view ID may return void.
+   */
+  onOpenModal?: (
+    modal: ModalElement,
+    contextId: string
+  ) => Promise<{ viewId: string } | undefined>;
   /**
    * Function to run message handling in the background.
    * Use this to ensure fast webhook responses while processing continues.
@@ -146,11 +238,30 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Delete a message */
   deleteMessage(threadId: string, messageId: string): Promise<void>;
 
+  /** Cleanup hook called when Chat instance is shutdown */
+  disconnect?(): Promise<void>;
+
   /** Edit an existing message */
   editMessage(
     threadId: string,
     messageId: string,
     message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Edit a previously posted object (Plan, Poll, etc.).
+   * If not implemented, object updates will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread containing the message
+   * @param messageId - The message ID to edit
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  editObject?(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
   ): Promise<RawMessage<TRawMessage>>;
 
   /** Encode platform-specific data into a thread ID string */
@@ -223,6 +334,26 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
 
+  /**
+   * Get the visibility scope of a channel containing the thread.
+   *
+   * This distinguishes between private channels, workspace-visible channels,
+   * and externally shared channels (e.g., Slack Connect).
+   *
+   * @param threadId - The thread ID to check
+   * @returns The channel visibility scope
+   */
+  getChannelVisibility?(threadId: string): ChannelVisibility;
+
+  /**
+   * Look up user information by user ID.
+   * Optional — not all platforms support this.
+   *
+   * @param userId - Platform-specific user ID
+   * @returns User info, or null if user not found
+   */
+  getUser?(userId: string): Promise<UserInfo | null>;
+
   /** Handle incoming webhook request */
   handleWebhook(request: Request, options?: WebhookOptions): Promise<Response>;
 
@@ -244,6 +375,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     channelId: string,
     options?: ListThreadsOptions
   ): Promise<ListThreadsResult<TRawMessage>>;
+
+  /**
+   * Default lock scope for this adapter.
+   * - `'thread'` (default): lock per threadId
+   * - `'channel'`: lock per channelId (for channel-based platforms like WhatsApp, Telegram)
+   *
+   * Can be overridden by `ChatConfig.lockScope`.
+   */
+  readonly lockScope?: LockScope;
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -284,12 +424,19 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
 
   /** Parse platform message format to normalized format */
   parseMessage(raw: TRawMessage): Message<TRawMessage>;
-
   /**
-   * When true, the SDK persists message history in the state adapter for this platform.
-   * Use this for platforms that lack server-side message history APIs (e.g., WhatsApp, Telegram).
+   * @deprecated Renamed to {@link Adapter.persistThreadHistory}. Both flags
+   * are read for backwards compatibility; either being `true` enables
+   * persistence.
    */
   readonly persistMessageHistory?: boolean;
+
+  /**
+   * When true, the SDK persists per-thread message history in the state
+   * adapter for this platform. Use for platforms that lack server-side
+   * message history APIs (e.g. WhatsApp, Telegram).
+   */
+  readonly persistThreadHistory?: boolean;
 
   /**
    * Post a message to channel top-level (not in a thread).
@@ -321,6 +468,27 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Post a special object (Plan, Poll, etc.) as a single message.
+   * If not implemented, posting such objects will throw PlanNotSupportedError.
+   *
+   * @param threadId - The thread to post to
+   * @param kind - The object kind (e.g., "plan")
+   * @param data - The object data (type depends on kind)
+   */
+  postObject?(
+    threadId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<TRawMessage>>;
+
+  /**
+   * Reconstruct fetchData on an attachment after deserialization.
+   * Called during message rehydration for queue/debounce strategies.
+   * Uses fetchMetadata and adapter auth context to rebuild the download closure.
+   */
+  rehydrateAttachment?(attachment: Attachment): Attachment;
 
   /** Remove a reaction from a message */
   removeReaction(
@@ -395,6 +563,7 @@ export interface MarkdownTextChunk {
 }
 
 export interface TaskUpdateChunk {
+  details?: string;
   id: string;
   output?: string;
   status: "pending" | "in_progress" | "complete" | "error";
@@ -454,8 +623,8 @@ export interface ChatInstance {
    */
   processAction(
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
-    options?: WebhookOptions
-  ): void;
+    options: WebhookOptions | undefined
+  ): Promise<void>;
 
   processAppHomeOpened(
     event: AppHomeOpenedEvent,
@@ -490,7 +659,7 @@ export interface ChatInstance {
     threadId: string,
     message: Message | (() => Promise<Message>),
     options?: WebhookOptions
-  ): void;
+  ): Promise<void>;
 
   /**
    * Process a modal close event from an adapter.
@@ -525,6 +694,15 @@ export interface ChatInstance {
   ): Promise<ModalResponse | undefined>;
 
   /**
+   * Process an interactive options load event from an adapter.
+   * Returns normalized select options for the adapter to render.
+   */
+  processOptionsLoad(
+    event: OptionsLoadEvent,
+    options?: WebhookOptions
+  ): Promise<OptionsLoadResult | undefined>;
+
+  /**
    * Process an incoming reaction event from an adapter.
    * Handles waitUntil registration and error catching internally.
    *
@@ -548,8 +726,76 @@ export interface ChatInstance {
       adapter: Adapter;
       channelId: string;
     },
-    options?: WebhookOptions
+    options: WebhookOptions | undefined
   ): void;
+
+  /**
+   * Cross-platform per-user transcript store. Throws on access when
+   * `transcripts` is not configured on the Chat instance — callers should
+   * check `ChatConfig.transcripts` if they need a no-throw guard.
+   */
+  readonly transcripts: TranscriptsApi;
+}
+
+// =============================================================================
+// Concurrency
+// =============================================================================
+
+/** Lock scope determines which messages contend for the same lock. */
+export type LockScope = "thread" | "channel";
+
+/** Context provided to the lockScope resolver function. */
+export interface LockScopeContext {
+  adapter: Adapter;
+  channelId: string;
+  isDM: boolean;
+  threadId: string;
+}
+
+/** Concurrency strategy for overlapping messages on the same thread. */
+export type ConcurrencyStrategy = "drop" | "queue" | "debounce" | "concurrent";
+
+/** Fine-grained concurrency configuration. */
+export interface ConcurrencyConfig {
+  /** Debounce window in milliseconds (debounce strategy). Default: 1500. */
+  debounceMs?: number;
+  /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
+  maxConcurrent?: number;
+  /** Max queued messages per thread (queue/debounce strategy). Default: 10. */
+  maxQueueSize?: number;
+  /** What to do when queue is full. Default: 'drop-oldest'. */
+  onQueueFull?: "drop-oldest" | "drop-newest";
+  /** TTL for queued entries in milliseconds. Default: 90000 (90s). */
+  queueEntryTtlMs?: number;
+  /** The concurrency strategy to use. */
+  strategy: ConcurrencyStrategy;
+}
+
+/**
+ * An entry in the per-thread message queue.
+ * Used by the `queue` and `debounce` concurrency strategies.
+ */
+export interface QueueEntry {
+  /** When this entry was enqueued (Unix ms). */
+  enqueuedAt: number;
+  /** When this entry expires (Unix ms). Stale entries are discarded on dequeue. */
+  expiresAt: number;
+  /** The queued message. */
+  message: Message;
+}
+
+/**
+ * Context provided to message handlers when messages were queued
+ * while a previous handler was running.
+ */
+export interface MessageContext {
+  /**
+   * Messages that arrived while the previous handler was running,
+   * in chronological order, excluding the current message (which is the latest).
+   */
+  skipped: Message[];
+  /** Total messages received since last handler ran (skipped.length + 1). */
+  totalSinceLastHandler: number;
 }
 
 // =============================================================================
@@ -573,8 +819,18 @@ export interface StateAdapter {
   /** Delete a cached value */
   delete(key: string): Promise<void>;
 
+  /** Pop the next message from the thread's queue. Returns null if empty. */
+  dequeue(threadId: string): Promise<QueueEntry | null>;
+
   /** Disconnect from the state backend */
   disconnect(): Promise<void>;
+
+  /** Atomically append a message to the thread's pending queue. Returns new queue depth. */
+  enqueue(
+    threadId: string,
+    entry: QueueEntry,
+    maxSize: number
+  ): Promise<number>;
 
   /** Extend a lock's TTL */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
@@ -594,6 +850,9 @@ export interface StateAdapter {
 
   /** Check if subscribed to a thread */
   isSubscribed(threadId: string): Promise<boolean>;
+
+  /** Get the current queue depth for a thread. */
+  queueDepth(threadId: string): Promise<number>;
 
   /** Release a lock */
   releaseLock(lock: Lock): Promise<void>;
@@ -634,6 +893,8 @@ export interface Postable<
 > {
   /** The adapter this entity belongs to */
   readonly adapter: Adapter;
+  /** The visibility scope of this channel */
+  readonly channelVisibility: ChannelVisibility;
   /** Unique ID */
   readonly id: string;
   /** Whether this is a direct message conversation */
@@ -653,6 +914,7 @@ export interface Postable<
   /**
    * Post a message.
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -735,6 +997,12 @@ export interface Channel<
    * Empty iterable on threadless platforms.
    */
   threads(): AsyncIterable<ThreadSummary<TRawMessage>>;
+
+  /**
+   * Serialize the channel to a plain JSON object.
+   * Use this to pass channel data to external systems like workflow engines.
+   */
+  toJSON(): SerializedChannel;
 }
 
 /**
@@ -755,6 +1023,8 @@ export interface ThreadSummary<TRawMessage = unknown> {
  * Channel metadata returned by fetchInfo().
  */
 export interface ChannelInfo {
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
   memberCount?: number;
@@ -818,6 +1088,41 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   ): SentMessage<TRawMessage>;
 
   /**
+   * Get the unique human participants in this thread.
+   *
+   * Scans all messages in the thread and returns deduplicated authors,
+   * excluding the bot itself. Useful for deciding whether to subscribe
+   * based on how many humans are participating — subscribe when it's a
+   * 1:1 conversation, unsubscribe when others join so humans can talk
+   * without the bot replying to every message.
+   *
+   * @returns Array of unique non-bot authors
+   *
+   * @example
+   * ```typescript
+   * // Subscribe only when one person is talking to the bot
+   * bot.onNewMention(async (thread, message) => {
+   *   const participants = await thread.getParticipants();
+   *   if (participants.length === 1) {
+   *     await thread.subscribe();
+   *     await thread.post("I'm here to help!");
+   *   }
+   * });
+   *
+   * // Unsubscribe when the thread becomes a group conversation
+   * bot.onSubscribedMessage(async (thread, message) => {
+   *   const participants = await thread.getParticipants();
+   *   if (participants.length > 1) {
+   *     await thread.unsubscribe();
+   *     return;
+   *   }
+   *   await thread.post("Still here to help!");
+   * });
+   * ```
+   */
+  getParticipants(): Promise<Author[]>;
+
+  /**
    * Check if this thread is currently subscribed.
    *
    * In subscribed message handlers, this is optimized to return true immediately
@@ -866,8 +1171,22 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * // Stream from AI SDK
    * const result = await agent.stream({ prompt: message.text });
    * await thread.post(result.textStream);
+   *
+   * // Stream with options via StreamingPlan PostableObject
+   * const stream = new StreamingPlan(result.fullStream, {
+   *   groupTasks: "plan",
+   *   endWith: [feedbackBlocks],
+   * });
+   * await thread.post(stream);
+   *
+   * // Plan with live updates
+   * const plan = new Plan({ initialMessage: "Working..." });
+   * await thread.post(plan);
+   * await plan.addTask({ title: "Step 1" });
+   * await plan.complete({ completeMessage: "Done!" });
    * ```
    */
+  post<T extends PostableObject>(message: T): Promise<T>;
   post(
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage<TRawMessage>>;
@@ -941,6 +1260,12 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   subscribe(): Promise<void>;
 
   /**
+   * Serialize the thread to a plain JSON object.
+   * Use this to pass thread data to external systems like workflow engines.
+   */
+  toJSON(): SerializedThread;
+
+  /**
    * Unsubscribe from this thread.
    *
    * Future messages will no longer trigger `onSubscribedMessage` handlers.
@@ -948,9 +1273,30 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   unsubscribe(): Promise<void>;
 }
 
+// =============================================================================
+// Postable Objects
+// =============================================================================
+
+// Re-export Plan types from plan.ts for backwards compatibility
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+// Re-export PostableObject types from plan.ts for backwards compatibility
+export type { PostableObject, PostableObjectContext } from "./postable-object";
+
 export interface ThreadInfo {
   channelId: string;
   channelName?: string;
+  /** The visibility scope of this channel */
+  channelVisibility?: ChannelVisibility;
   id: string;
   /** Whether this is a direct message conversation */
   isDM?: boolean;
@@ -1060,6 +1406,22 @@ export interface Author {
   /** Unique user ID */
   userId: string;
   /** Username/handle for @-mentions */
+  userName: string;
+}
+
+/** User information returned by adapter.getUser() */
+export interface UserInfo {
+  /** URL to the user's avatar/profile image */
+  avatarUrl?: string;
+  /** User's email address (requires appropriate scopes on some platforms) */
+  email?: string;
+  /** User's display name / full name */
+  fullName: string;
+  /** Whether the user is a bot */
+  isBot: boolean;
+  /** Platform-specific user ID */
+  userId: string;
+  /** Username/handle */
   userName: string;
 }
 
@@ -1177,7 +1539,8 @@ export type AdapterPostableMessage =
  */
 export type PostableMessage =
   | AdapterPostableMessage
-  | AsyncIterable<string | StreamChunk | StreamEvent>;
+  | AsyncIterable<string | StreamChunk | StreamEvent>
+  | PostableObject;
 
 /**
  * Duck-typed stream event compatible with AI SDK's `fullStream`.
@@ -1235,6 +1598,12 @@ export interface Attachment {
    * this method handles the auth automatically.
    */
   fetchData?: () => Promise<Buffer>;
+  /**
+   * Platform-specific metadata needed to reconstruct fetchData after serialization.
+   * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that
+   * fetchData can be rebuilt when a message is rehydrated from the queue.
+   */
+  fetchMetadata?: Record<string, string>;
   /** Image/video height (if applicable) */
   height?: number;
   /** MIME type */
@@ -1317,7 +1686,8 @@ export interface FileUpload {
  */
 export type MentionHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1331,7 +1701,8 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 export type DirectMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
   message: Message,
-  channel: Channel<TState>
+  channel: Channel<TState>,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1342,7 +1713,8 @@ export type DirectMessageHandler<TState = Record<string, unknown>> = (
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 /**
@@ -1370,7 +1742,8 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  */
 export type SubscribedMessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  context?: MessageContext
 ) => void | Promise<void>;
 
 // =============================================================================
@@ -1682,6 +2055,37 @@ export interface ActionEvent<TRawMessage = unknown> {
 export type ActionHandler = (event: ActionEvent) => void | Promise<void>;
 
 // =============================================================================
+// Options Load Events
+// =============================================================================
+
+/**
+ * Event emitted when an adapter needs dynamic options for an external select.
+ */
+export interface OptionsLoadEvent {
+  /** The action ID of the select requesting options */
+  actionId: string;
+  /** The adapter that received this event */
+  adapter: Adapter;
+  /** The current user-entered query text */
+  query: string;
+  /** Raw platform-specific payload */
+  raw: unknown;
+  /** The user requesting options */
+  user: Author;
+}
+
+export interface OptionsLoadGroup {
+  label: string;
+  options: SelectOptionElement[];
+}
+
+export type OptionsLoadResult = SelectOptionElement[] | OptionsLoadGroup[];
+
+export type OptionsLoadHandler = (
+  event: OptionsLoadEvent
+) => OptionsLoadResult | Promise<OptionsLoadResult | undefined> | undefined;
+
+// =============================================================================
 // Modal Events (Form Submissions)
 // =============================================================================
 
@@ -1780,8 +2184,13 @@ export interface ModalCloseResponse {
   action: "close";
 }
 
+export interface ModalClearResponse {
+  action: "clear";
+}
+
 export type ModalResponse =
   | ModalCloseResponse
+  | ModalClearResponse
   | ModalErrorsResponse
   | ModalUpdateResponse
   | ModalPushResponse;
@@ -1789,7 +2198,7 @@ export type ModalResponse =
 export type ModalSubmitHandler = (
   event: ModalSubmitEvent
   // biome-ignore lint/suspicious/noConfusingVoidType: void is needed for sync handlers that return nothing
-) => void | Promise<ModalResponse | undefined>;
+) => void | Promise<ModalResponse | void | undefined>;
 
 export type ModalCloseHandler = (
   event: ModalCloseEvent
@@ -1952,3 +2361,161 @@ export interface MemberJoinedChannelEvent {
 export type MemberJoinedChannelHandler = (
   event: MemberJoinedChannelEvent
 ) => void | Promise<void>;
+
+// =============================================================================
+// Transcripts API (cross-platform per-user message persistence)
+// =============================================================================
+
+/**
+ * Resolves a stable, cross-platform user key from an inbound message context.
+ *
+ * Return `null` to skip persistence for this event (unknown user, system
+ * message, or the bot itself). The SDK fails loudly rather than silently
+ * falling back to a platform-specific ID.
+ */
+export type IdentityResolver = (
+  context: IdentityContext
+) => string | null | Promise<string | null>;
+
+export interface IdentityContext {
+  /** Adapter name (e.g. "slack", "discord"). */
+  adapter: string;
+  author: Author;
+  message: Message;
+}
+
+/**
+ * Role tag on a stored message.
+ *
+ * - `user`: produced by the resolved end-user
+ * - `assistant`: produced by this bot
+ * - `system`: SDK-injected marker (handoff, summary). Adapters never produce it.
+ */
+export type TranscriptRole = "user" | "assistant" | "system";
+
+export interface TranscriptEntry {
+  /** mdast AST. Only present when `transcripts.storeFormatted` is true. */
+  formatted?: FormattedContent;
+  /**
+   * UUID assigned by the SDK at append time. Opaque — not lexicographically
+   * sortable. Entries are returned by `list()` in append order (the underlying
+   * list semantics of `state.appendToList`); use `timestamp` to reason about
+   * ordering across stores.
+   */
+  id: string;
+  /** Originating adapter name. */
+  platform: string;
+  /** Platform-native message ID, when known. */
+  platformMessageId?: string;
+  role: TranscriptRole;
+  /** Plain-text body — canonical field for prompt building. */
+  text: string;
+  /** Originating thread ID. */
+  threadId: string;
+  /** ms-since-epoch, set at append time on the SDK side. */
+  timestamp: number;
+  /** Cross-platform user key from the IdentityResolver. */
+  userKey: string;
+}
+
+/** Duration shorthand: e.g. `"7d"`, `"30m"`, `"2h"`, `"45s"`. */
+export type DurationString = `${number}${"s" | "m" | "h" | "d"}`;
+
+export interface TranscriptsConfig {
+  /** Hard cap; older messages evicted on append. Default 200. */
+  maxPerUser?: number;
+  /**
+   * Default retention applied as the list TTL. Refreshed on every append
+   * (matches `appendToList` semantics). Omit for no expiry.
+   */
+  retention?: number | DurationString;
+  /** Persist `formatted` (mdast). Default false to keep storage small. */
+  storeFormatted?: boolean;
+}
+
+/**
+ * Input shape for appending a non-Message (e.g. an assistant reply you
+ * just posted via `thread.post()`).
+ */
+export interface AppendInput {
+  formatted?: FormattedContent;
+  platformMessageId?: string;
+  role: TranscriptRole;
+  text: string;
+}
+
+export interface AppendOptions {
+  /**
+   * Required when appending an `AppendInput` (assistant/system role) — the
+   * SDK has no Message instance from which to read the resolved key.
+   *
+   * Ignored when appending a Message; the Message's own `userKey` is used.
+   */
+  userKey?: string;
+}
+
+export interface ListQuery {
+  /** Newest N kept (still returned in chronological order). Default 50. */
+  limit?: number;
+  /** Filter to a subset of adapter names. */
+  platforms?: string[];
+  /** Filter to specific roles. Default: all. */
+  roles?: TranscriptRole[];
+  /** Filter to a single thread. */
+  threadId?: string;
+  userKey: string;
+}
+
+/**
+ * Target for {@link TranscriptsApi.delete}. Wipes every stored message under
+ * the given user key.
+ */
+export interface DeleteTarget {
+  userKey: string;
+}
+
+/** Query shape for {@link TranscriptsApi.count}. */
+export interface CountQuery {
+  userKey: string;
+}
+
+/**
+ * Cross-platform per-user message store.
+ *
+ * Distinct from the existing per-thread `threadHistory` config (which exists
+ * to backfill thread context for adapters that lack server-side history APIs).
+ * The Transcripts API is keyed by a resolved cross-platform user key and is
+ * intended for transcript-style use cases (LLM context building, audit).
+ */
+export interface TranscriptsApi {
+  /**
+   * Persist a Message (or AppendInput) under the user key.
+   *
+   * - For Message: `userKey` is read from the Message instance (set by the
+   *   SDK during inbound dispatch via the configured IdentityResolver).
+   *   No-op if the Message has no `userKey` (resolver returned null).
+   * - For AppendInput: `options.userKey` is required.
+   */
+  append<TState = Record<string, unknown>, TRawMessage = unknown>(
+    thread: Postable<TState, TRawMessage>,
+    message: Message | AppendInput,
+    options?: AppendOptions
+  ): Promise<TranscriptEntry | null>;
+
+  /** Total stored count for a user key. */
+  count(query: CountQuery): Promise<number>;
+
+  /** GDPR / DSR delete — wipes every stored message under the user key. */
+  delete(target: DeleteTarget): Promise<{ deleted: number }>;
+
+  /**
+   * Returns the most recent entries in chronological order (oldest first),
+   * capped at `query.limit` (default 50).
+   *
+   * Pagination is intentionally not supported — the store keeps at most
+   * `transcripts.maxPerUser` entries per user. To widen the window, raise
+   * `maxPerUser`; to fetch a different slice, narrow with `threadId` /
+   * `platforms` / `roles`.
+   */
+  list(query: ListQuery): Promise<TranscriptEntry[]>;
+}

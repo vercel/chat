@@ -15,6 +15,8 @@ import type {
  * Discord adapter configuration.
  */
 export interface DiscordAdapterConfig {
+  /** Override the Discord API base URL. Defaults to DISCORD_API_URL env var or "https://discord.com/api/v10". */
+  apiUrl?: string;
   /** Discord application ID. Defaults to DISCORD_APPLICATION_ID env var. */
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */

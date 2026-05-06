@@ -159,3 +159,36 @@ You should see your exported symbols (`createMatrixAdapter`, `MatrixAdapter`, et
 - Watch the [Chat SDK changelog](https://github.com/vercel/chat/releases) for new features and breaking changes
 - Run your test suite against new Chat SDK releases before they ship to catch compatibility issues early
 - When the `Adapter` interface adds new optional methods, consider implementing them to keep your adapter feature-complete
+
+## Listing on chat-sdk.dev
+
+Community adapters can be listed on the [Adapters](https://chat-sdk.dev/adapters) page by opening a PR that adds an entry to `apps/docs/adapters.json` in the [Chat SDK repo](https://github.com/vercel/chat). Your adapter's README is fetched from GitHub at build time and rendered on its dedicated page.
+
+### Pin your README to a commit or tag
+
+<Callout type="warn">
+  The `readme` field **must** reference a specific commit SHA or tag — not a branch name like `main`.
+</Callout>
+
+The docs site re-renders on every deploy, so an unpinned `readme` would serve whatever currently sits at your default branch — including edits made after the listing PR was reviewed. Pinning freezes the rendered content at the state we approved; new content goes live through a follow-up PR that bumps the ref.
+
+```json title="apps/docs/adapters.json"
+{
+  "name": "My Adapter",
+  "slug": "my-adapter",
+  "type": "platform",
+  "community": true,
+  "packageName": "chat-adapter-my-thing",
+  "readme": "https://github.com/your-org/chat-adapter-my-thing/tree/v1.2.0"
+}
+```
+
+Accepted `readme` formats:
+
+| Format | Example |
+|--------|---------|
+| Repo root at a tag | `https://github.com/owner/repo/tree/v1.0.0` |
+| Repo root at a commit | `https://github.com/owner/repo/tree/abc1234...` |
+| Subpath in a monorepo | `https://github.com/owner/repo/tree/<ref>/packages/adapter` |
+
+Unpinned refs (e.g., `tree/main`, or omitting `/tree/<ref>` entirely) will emit a build warning and are rejected during PR review.

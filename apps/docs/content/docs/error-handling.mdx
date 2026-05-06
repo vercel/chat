@@ -16,7 +16,19 @@ import { ChatError, RateLimitError, NotImplementedError, LockError } from "chat"
 
 ### ChatError
 
-Base error class for all SDK errors. Every error below extends `ChatError`.
+Base error class for all SDK errors. Every error below extends `ChatError`. The `code` property carries a machine-readable identifier you can branch on:
+
+| Code | Thrown by | Meaning |
+|------|-----------|---------|
+| `NOT_SUPPORTED` | `bot.openDM`, `bot.getUser` | The resolved adapter doesn't implement this method |
+| `INVALID_THREAD_ID` | `bot.thread`, internal routing | Thread ID does not match the `adapter:channel:thread` shape |
+| `INVALID_CHANNEL_ID` | `bot.channel` | Channel ID does not match the `adapter:channel` shape |
+| `ADAPTER_NOT_FOUND` | `bot.thread`, `bot.channel` | Thread/channel ID references an adapter that wasn't registered on this `Chat` instance |
+| `AMBIGUOUS_USER_ID` | `bot.getUser`, `bot.openDM` | Numeric user ID could match more than one registered adapter (Discord/Telegram/GitHub) |
+| `UNKNOWN_USER_ID_FORMAT` | `bot.getUser`, `bot.openDM` | The `userId` doesn't match any platform's known ID format |
+| `RATE_LIMITED` | Any platform call | Platform returned 429; see `RateLimitError` below |
+| `NOT_IMPLEMENTED` | Any platform call | The adapter doesn't implement this feature; see `NotImplementedError` below |
+| `LOCK_FAILED` | Inbound message routing | Distributed lock was busy; see `LockError` below |
 
 <TypeTable
   type={{
@@ -25,7 +37,7 @@ Base error class for all SDK errors. Every error below extends `ChatError`.
       type: 'string',
     },
     code: {
-      description: 'Machine-readable error code.',
+      description: 'Machine-readable error code (see table above).',
       type: 'string',
     },
     cause: {

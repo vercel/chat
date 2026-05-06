@@ -87,9 +87,6 @@ function inferDocType(url: string, explicitType?: string): string {
   if (url.includes("/reference")) {
     return "Reference";
   }
-  if (url.includes("/guides/")) {
-    return "Guide";
-  }
   return "Conceptual";
 }
 

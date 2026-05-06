@@ -24,13 +24,15 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 
 | Export | Description |
 |--------|-------------|
-| [`toAiMessages`](/docs/streaming#toaimessagesmessages-options) | Convert `Message[]` to AI SDK `{ role, content }[]` format |
+| [`toAiMessages`](/docs/api/to-ai-messages) | Convert `Message[]` to AI SDK `{ role, content }[]` format |
 
 ## Message formats
 
 | Export | Description |
 |--------|-------------|
 | [`PostableMessage`](/docs/api/postable-message) | Union type accepted by `thread.post()` |
+| [`Plan`](/docs/api/postable-message#plan) | Step-by-step task list that mutates after posting |
+| [`StreamingPlan`](/docs/api/postable-message#streamingplan) | Wraps an async iterable with platform-specific streaming options |
 | [`Cards`](/docs/api/cards) | Rich card components — `Card`, `Text`, `Button`, `Actions`, etc. |
 | [`Markdown`](/docs/api/markdown) | AST builder functions — `root`, `paragraph`, `text`, `strong`, etc. |
 | [`Modals`](/docs/api/modals) | Modal form components — `Modal`, `TextInput`, `Select`, etc. |
