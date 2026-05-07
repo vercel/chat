@@ -232,6 +232,8 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    */
   channelIdFromThreadId(threadId: string): string;
 
+  readonly client?: unknown;
+
   /** Decode thread ID string back to platform-specific data */
   decodeThreadId(threadId: string): TThreadId;
 
@@ -330,6 +332,8 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     threadId: string,
     options?: FetchOptions
   ): Promise<FetchResult<TRawMessage>>;
+
+  fetchSubject?(raw: TRawMessage): Promise<MessageSubject | null>;
 
   /** Fetch thread metadata */
   fetchThread(threadId: string): Promise<ThreadInfo>;
@@ -1292,6 +1296,19 @@ export type {
 // Re-export PostableObject types from plan.ts for backwards compatibility
 export type { PostableObject, PostableObjectContext } from "./postable-object";
 
+export interface MessageSubject {
+  assignee?: { id: string; name: string };
+  author?: { id: string; name: string };
+  description?: string;
+  id: string;
+  labels?: string[];
+  raw: unknown;
+  status?: string;
+  title?: string;
+  type: string;
+  url?: string;
+}
+
 export interface ThreadInfo {
   channelId: string;
   channelName?: string;
@@ -1439,7 +1456,7 @@ export interface MessageMetadata {
 // =============================================================================
 
 export interface SentMessage<TRawMessage = unknown>
-  extends Message<TRawMessage> {
+  extends Omit<Message<TRawMessage>, "subject"> {
   /** Add a reaction to this message */
   addReaction(emoji: EmojiValue | string): Promise<void>;
   /** Delete this message */
