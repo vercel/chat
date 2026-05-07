@@ -2617,3 +2617,181 @@ describe("getUser", () => {
     expect(user?.userId).toBe("12345");
   });
 });
+
+describe("fetchSubject", () => {
+  it("should return issue data from issue_comment raw", async () => {
+    const mockOctokit = {
+      rest: {
+        issues: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 42,
+              title: "Add feature",
+              body: "Feature description",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/issues/42",
+              user: { id: 123, login: "dancer" },
+              assignees: [{ id: 456, login: "alice" }],
+              labels: [{ name: "enhancement" }],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 42,
+      threadType: "issue" as const,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("issue");
+    expect(result?.id).toBe("42");
+    expect(result?.title).toBe("Add feature");
+    expect(result?.status).toBe("open");
+    expect(result?.labels).toEqual(["enhancement"]);
+  });
+
+  it("should return pull_request data for PR comments", async () => {
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 10,
+              title: "Fix bug",
+              body: "Bug fix",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/pull/10",
+              user: { id: 123, login: "dancer" },
+              assignees: [],
+              labels: [{ name: "fix" }],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 10,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("pull_request");
+    expect(result?.id).toBe("10");
+    expect(result?.title).toBe("Fix bug");
+  });
+
+  it("should return pull_request data for review_comment type", async () => {
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 15,
+              title: "Refactor auth",
+              body: "Refactoring",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/pull/15",
+              user: { id: 789, login: "bob" },
+              assignees: [],
+              labels: [],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+
+    const raw = {
+      type: "review_comment" as const,
+      comment: { id: 1, body: "nit" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 15,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("pull_request");
+    expect(result?.id).toBe("15");
+    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith({
+      owner: "vercel",
+      repo: "chat",
+      pull_number: 15,
+    });
+  });
+
+  it("should return null on API error", async () => {
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { octokit: unknown }).octokit = {
+      rest: {
+        issues: {
+          get: vi.fn().mockRejectedValue(new Error("Not Found")),
+        },
+      },
+    };
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 99,
+      threadType: "issue" as const,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).toBeNull();
+  });
+});
