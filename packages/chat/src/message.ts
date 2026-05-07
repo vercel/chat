@@ -5,12 +5,20 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
 import type {
+  Adapter,
   Attachment,
   Author,
   FormattedContent,
   LinkPreview,
   MessageMetadata,
+  MessageSubject,
 } from "./types";
+
+const adapterMap = new WeakMap<Message, Adapter>();
+
+export function setMessageAdapter(message: Message, adapter: Adapter): void {
+  adapterMap.set(message, adapter);
+}
 
 /**
  * Input data for creating a Message instance.
@@ -158,6 +166,21 @@ export class Message<TRawMessage = unknown> {
 
   /** Links found in the message */
   links: LinkPreview[];
+
+  private _subjectPromise?: Promise<MessageSubject | null>;
+
+  get subject(): Promise<MessageSubject | null> {
+    if (this._subjectPromise) {
+      return this._subjectPromise;
+    }
+    const adapter = adapterMap.get(this);
+    if (!adapter?.fetchSubject) {
+      this._subjectPromise = Promise.resolve(null);
+      return this._subjectPromise;
+    }
+    this._subjectPromise = adapter.fetchSubject(this.raw).catch(() => null);
+    return this._subjectPromise;
+  }
 
   constructor(data: MessageData<TRawMessage>) {
     this.id = data.id;
