@@ -1,5 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
+import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import { getChatSingleton } from "./chat-singleton";
@@ -459,6 +460,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = card;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     const rawMessage = await this.adapter.postMessage(this.id, postable);
 
     // Create a SentMessage with edit/delete capabilities
@@ -507,6 +510,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     // Try native ephemeral if adapter supports it
     if (this.adapter.postEphemeral) {
       return this.adapter.postEphemeral(this.id, userId, postable);
@@ -533,6 +538,30 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return null;
   }
 
+  private async processCallbackUrls(
+    postable: string | AdapterPostableMessage
+  ): Promise<string | AdapterPostableMessage> {
+    if (typeof postable === "string") {
+      return postable;
+    }
+
+    if ("type" in postable && postable.type === "card") {
+      return processCardCallbackUrls(postable, this._stateAdapter);
+    }
+
+    if ("card" in postable && postable.card?.type === "card") {
+      const processed = await processCardCallbackUrls(
+        postable.card,
+        this._stateAdapter
+      );
+      if (processed !== postable.card) {
+        return { ...postable, card: processed };
+      }
+    }
+
+    return postable;
+  }
+
   async schedule(
     message: AdapterPostableMessage | ChatElement,
     options: { postAt: Date }
@@ -548,6 +577,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     } else {
       postable = message as AdapterPostableMessage;
     }
+
+    postable = (await this.processCallbackUrls(
+      postable
+    )) as AdapterPostableMessage;
 
     if (!this.adapter.scheduleMessage) {
       throw new NotImplementedError(
@@ -948,8 +981,6 @@ export class ThreadImpl<TState = Record<string, unknown>>
       async edit(
         newContent: string | PostableMessage | ChatElement
       ): Promise<SentMessage> {
-        // Auto-convert JSX elements to CardElement
-        // edit doesn't support streaming, so use AdapterPostableMessage
         let postable: string | AdapterPostableMessage = newContent as
           | string
           | AdapterPostableMessage;
@@ -960,6 +991,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           }
           postable = card;
         }
+        postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
         return self.createSentMessage(messageId, postable);
       },
@@ -1015,6 +1047,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           }
           postable = card;
         }
+        postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
         return self.createSentMessage(messageId, postable, threadId);
       },

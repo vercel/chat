@@ -57,7 +57,7 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload } from "./cards";
+import { cardToDiscordPayload, decodeDiscordCustomId } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
@@ -396,11 +396,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           channelId: interactionChannelId,
         });
 
+    const decoded = decodeDiscordCustomId(customId);
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
     } = {
-      actionId: customId,
-      value: customId, // Discord custom_id often contains the value
+      actionId: decoded.actionId,
+      value: decoded.value ?? decoded.actionId,
       user: {
         userId: user.id,
         userName: user.username,
@@ -2512,7 +2513,12 @@ export function createDiscordAdapter(
 }
 
 // Re-export card converter for advanced use
-export { cardToDiscordPayload, cardToFallbackText } from "./cards";
+export {
+  cardToDiscordPayload,
+  cardToFallbackText,
+  decodeDiscordCustomId,
+  encodeDiscordCustomId,
+} from "./cards";
 
 // Re-export format converter for advanced use
 export {

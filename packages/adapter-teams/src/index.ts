@@ -696,7 +696,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       contextId,
     });
 
-    const response = await this.chat.processModalSubmit(event, contextId);
+    const response = await this.chat.processModalSubmit(
+      event,
+      contextId,
+      this.bridgeAdapter.getWebhookOptions(activity.id)
+    );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
 

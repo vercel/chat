@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Card } from "./cards";
+import { decodeCallbackValue } from "./callback-url";
+import { Actions, Button, Card } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
 import {
   createMockAdapter,
@@ -1229,6 +1230,57 @@ describe("thread.messages (newest first)", () => {
 
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
       expect(mockAdapter.postChannelMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("callbackUrl processing", () => {
+    let channel: ChannelImpl;
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+
+      channel = new ChannelImpl({
+        id: "slack:C123",
+        adapter: mockAdapter,
+        stateAdapter: mockState,
+      });
+    });
+
+    it("should encode callbackUrl tokens when posting a card", async () => {
+      const card = Card({
+        title: "Test",
+        children: [
+          Actions([
+            Button({
+              id: "approve",
+              label: "Approve",
+              callbackUrl: "https://example.com/hook",
+            }),
+          ]),
+        ],
+      });
+
+      await channel.post(card);
+
+      const postedCard = (
+        mockAdapter.postChannelMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1];
+      const actions = postedCard.children.find(
+        (c: { type: string }) => c.type === "actions"
+      );
+      const button = actions.children[0];
+
+      const decoded = decodeCallbackValue(button.value);
+      expect(decoded.callbackToken).toBeDefined();
+      expect(button.callbackUrl).toBeUndefined();
+
+      const stored = await mockState.get<{ url: string }>(
+        `chat:callback:${decoded.callbackToken}`
+      );
+      expect(stored?.url).toBe("https://example.com/hook");
     });
   });
 });

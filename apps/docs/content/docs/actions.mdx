@@ -94,5 +94,56 @@ bot.onAction("feedback", async (event) => {
 ```
 
 <Callout type="info">
-Modals are currently supported on Slack. Other platforms will receive a no-op or fallback behavior.
+  Modals are currently supported on Slack. Other platforms will receive a no-op
+  or fallback behavior.
 </Callout>
+
+## Callback URLs
+
+Buttons accept a `callbackUrl` prop. When clicked, the action data is POSTed to that URL in addition to firing any `onAction` handler. This pairs naturally with webhook-based workflow engines to build approval flows without any `onAction` handler at all:
+
+```tsx title="lib/bot.tsx" lineNumbers
+bot.onNewMention(async (thread) => {
+  const approveUrl = "https://example.com/webhook/approve";
+  const denyUrl = "https://example.com/webhook/deny";
+
+  await thread.post(
+    <Card title="Deploy v2.4.1?">
+      <Actions>
+        <Button callbackUrl={approveUrl} id="approve" style="primary">
+          Approve
+        </Button>
+        <Button callbackUrl={denyUrl} id="deny" style="danger">
+          Deny
+        </Button>
+      </Actions>
+    </Card>
+  );
+});
+```
+
+### Callback payload
+
+The POST body sent to the `callbackUrl`:
+
+```json
+{
+  "type": "action",
+  "actionId": "approve",
+  "user": { "id": "U123", "name": "alice" },
+  "threadId": "slack:C123:1234567890.123",
+  "messageId": "1234567890.456"
+}
+```
+
+If the button also has a `value` prop, it is included in the payload as `"value"`.
+
+<Callout type="info">
+  Platform limits apply to encoded button data. Discord's `custom_id` has a 100
+  character limit - if the action ID plus callback token exceed this, posting
+  the card throws a `ValidationError`. Telegram's `callback_data` has a 64 byte
+  limit - buttons that exceed this will throw a `ValidationError`. Keep action
+  IDs short when using `callbackUrl` on these platforms.
+</Callout>
+
+For modals, see [callbackUrl on modals](/docs/modals#callback-urls).
