@@ -341,7 +341,11 @@ export class MessengerAdapter
     if (card) {
       const cardResult = cardToMessenger(card);
       if (cardResult.type === "template") {
-        return this.sendTemplateMessage(threadId, cardResult.payload);
+        // Convert emoji placeholders in the template payload
+        const convertedPayload = JSON.parse(
+          convertEmojiPlaceholders(JSON.stringify(cardResult.payload), "messenger")
+        ) as MessengerTemplatePayload;
+        return this.sendTemplateMessage(threadId, convertedPayload);
       }
       // Fallback to text
       return this.sendTextMessage(
