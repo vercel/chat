@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
-  cardToFallbackText,
   extractCard,
   NetworkError,
   ResourceNotFoundError,
@@ -28,15 +27,17 @@ import type {
 import {
   ConsoleLogger,
   convertEmojiPlaceholders,
-  getEmoji,
+  defaultEmojiResolver,
   Message,
 } from "chat";
+import { cardToMessenger, decodeMessengerCallbackData } from "./cards";
 import { MessengerFormatConverter } from "./markdown";
 import type {
   MessengerAdapterConfig,
   MessengerMessagingEvent,
   MessengerRawMessage,
   MessengerSendApiResponse,
+  MessengerTemplatePayload,
   MessengerThreadId,
   MessengerUserProfile,
   MessengerWebhookPayload,
@@ -257,11 +258,16 @@ export class MessengerAdapter
       recipientId: event.sender.id,
     });
 
+    // Decode the callback data (handles both chat: prefixed and legacy payloads)
+    const { actionId, value } = decodeMessengerCallbackData(
+      event.postback.payload
+    );
+
     this.chat.processAction(
       {
         adapter: this,
-        actionId: event.postback.payload,
-        value: event.postback.payload,
+        actionId,
+        value,
         messageId: event.postback.mid ?? `postback:${event.timestamp}`,
         threadId,
         user: {
@@ -309,7 +315,7 @@ export class MessengerAdapter
         adapter: this,
         threadId,
         messageId: event.reaction.mid,
-        emoji: getEmoji(event.reaction.emoji),
+        emoji: defaultEmojiResolver.fromGChat(event.reaction.emoji),
         rawEmoji: event.reaction.emoji,
         added,
         user: {
@@ -329,19 +335,40 @@ export class MessengerAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<MessengerRawMessage>> {
-    const { recipientId } = this.resolveThreadId(threadId);
-
     const card = extractCard(message);
-    const text = this.truncateMessage(
-      convertEmojiPlaceholders(
-        card
-          ? cardToFallbackText(card)
-          : this.formatConverter.renderPostable(message),
-        "messenger"
-      )
-    );
 
-    if (!text.trim()) {
+    // If it's a card, try to convert to native Messenger template
+    if (card) {
+      const cardResult = cardToMessenger(card);
+      if (cardResult.type === "template") {
+        return this.sendTemplateMessage(threadId, cardResult.payload);
+      }
+      // Fallback to text
+      return this.sendTextMessage(
+        threadId,
+        convertEmojiPlaceholders(cardResult.text, "messenger")
+      );
+    }
+
+    // Regular text message
+    const text = convertEmojiPlaceholders(
+      this.formatConverter.renderPostable(message),
+      "messenger"
+    );
+    return this.sendTextMessage(threadId, text);
+  }
+
+  /**
+   * Send a plain text message.
+   */
+  private async sendTextMessage(
+    threadId: string,
+    text: string
+  ): Promise<RawMessage<MessengerRawMessage>> {
+    const { recipientId } = this.resolveThreadId(threadId);
+    const truncatedText = this.truncateMessage(text);
+
+    if (!truncatedText.trim()) {
       throw new ValidationError("messenger", "Message text cannot be empty");
     }
 
@@ -350,7 +377,7 @@ export class MessengerAdapter
       "POST",
       {
         recipient: { id: recipientId },
-        message: { text },
+        message: { text: truncatedText },
         messaging_type: "RESPONSE",
       }
     );
@@ -361,7 +388,51 @@ export class MessengerAdapter
       timestamp: Date.now(),
       message: {
         mid: result.message_id,
-        text,
+        text: truncatedText,
+        is_echo: true,
+      },
+    };
+
+    const parsedMessage = this.parseMessengerMessage(rawMessage, threadId);
+    this.cacheMessage(parsedMessage);
+
+    return {
+      id: result.message_id,
+      threadId,
+      raw: rawMessage,
+    };
+  }
+
+  /**
+   * Send a template message (Generic or Button template).
+   */
+  private async sendTemplateMessage(
+    threadId: string,
+    payload: MessengerTemplatePayload
+  ): Promise<RawMessage<MessengerRawMessage>> {
+    const { recipientId } = this.resolveThreadId(threadId);
+
+    const result = await this.graphApiFetch<MessengerSendApiResponse>(
+      "me/messages",
+      "POST",
+      {
+        recipient: { id: recipientId },
+        message: {
+          attachment: {
+            type: "template",
+            payload,
+          },
+        },
+        messaging_type: "RESPONSE",
+      }
+    );
+
+    const rawMessage: MessengerMessagingEvent = {
+      sender: { id: this._botUserId ?? "" },
+      recipient: { id: recipientId },
+      timestamp: Date.now(),
+      message: {
+        mid: result.message_id,
         is_echo: true,
       },
     };
@@ -876,13 +947,22 @@ export function createMessengerAdapter(
   });
 }
 
+export type { MessengerCardResult } from "./cards";
+export {
+  cardToMessenger,
+  cardToMessengerText,
+  decodeMessengerCallbackData,
+  encodeMessengerCallbackData,
+} from "./cards";
 export { MessengerFormatConverter } from "./markdown";
 export type {
   MessengerAdapterConfig,
+  MessengerButton,
   MessengerMessagingEvent,
   MessengerRawMessage,
   MessengerReaction,
   MessengerSendApiResponse,
+  MessengerTemplatePayload,
   MessengerThreadId,
   MessengerUserProfile,
   MessengerWebhookPayload,

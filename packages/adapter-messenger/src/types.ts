@@ -96,3 +96,32 @@ export interface MessengerUserProfile {
 }
 
 export type MessengerRawMessage = MessengerMessagingEvent;
+
+export interface MessengerButton {
+  payload?: string;
+  title: string;
+  type: "postback" | "web_url";
+  url?: string;
+}
+
+export interface MessengerTemplateElement {
+  buttons?: MessengerButton[];
+  image_url?: string;
+  subtitle?: string;
+  title: string;
+}
+
+export interface MessengerGenericTemplatePayload {
+  elements: MessengerTemplateElement[];
+  template_type: "generic";
+}
+
+export interface MessengerButtonTemplatePayload {
+  buttons: MessengerButton[];
+  template_type: "button";
+  text: string;
+}
+
+export type MessengerTemplatePayload =
+  | MessengerGenericTemplatePayload
+  | MessengerButtonTemplatePayload;
