@@ -3020,7 +3020,7 @@ describe("Chat", () => {
   });
 
   describe("concurrency: queue subject rehydration", () => {
-    it("should restore message.subject after JSON roundtrip in queue", async () => {
+    it("should wire adapter on queued message so fetchSubject works after JSON roundtrip", async () => {
       const state = createMockState();
       const realEnqueue = state.enqueue.getMockImplementation();
       if (!realEnqueue) {
@@ -3034,6 +3034,14 @@ describe("Chat", () => {
       );
 
       const adapter = createMockAdapter("slack");
+      const mockSubject = {
+        type: "issue",
+        id: "ENG-1",
+        title: "Queue test",
+        raw: {},
+      };
+      adapter.fetchSubject = vi.fn().mockResolvedValue(mockSubject);
+
       const queueChat = new Chat({
         userName: "testbot",
         adapters: { slack: adapter },
@@ -3070,7 +3078,8 @@ describe("Chat", () => {
         trigger
       );
 
-      expect(receivedSubject).toBeNull();
+      expect(receivedSubject).toEqual(mockSubject);
+      expect(adapter.fetchSubject).toHaveBeenCalledTimes(2);
     });
   });
 
