@@ -54,6 +54,10 @@ import { Message } from "chat";
       description: 'Whether the bot was @-mentioned in this message.',
       type: 'boolean | undefined',
     },
+    subject: {
+      description: 'Resolves the parent resource (issue, PR) this message is about. Returns null on chat platforms. See [Message Subject](/docs/subject).',
+      type: 'Promise<MessageSubject | null>',
+    },
   }}
 />
 

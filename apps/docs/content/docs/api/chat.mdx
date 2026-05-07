@@ -464,10 +464,13 @@ bot.webhooks.teams(request, { waitUntil });
 
 ### getAdapter
 
-Get an adapter instance by name.
+Get a typed adapter instance by name. Use `.client` to access the platform's native API client (available on Linear and GitHub).
 
 ```typescript
 const slack = bot.getAdapter("slack");
+
+const linear = bot.getAdapter("linear").client; // LinearClient
+const github = bot.getAdapter("github").client; // Octokit
 ```
 
 ### openDM
