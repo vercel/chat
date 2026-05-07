@@ -128,6 +128,8 @@ Card components:
 Modal components:
 - `Modal`, `TextInput`, `Select`, `SelectOption`, `RadioSelect`
 
+`Button` and `Modal` accept a `callbackUrl` prop — when triggered, the SDK POSTs the action payload to that URL in addition to firing any `onAction` / `onModalSubmit` handler. Use this for webhook-based workflow flows. See `node_modules/chat/docs/actions.mdx` and `node_modules/chat/docs/modals.mdx`.
+
 ```tsx
 await thread.post(
   <Card title="Order #1234">
