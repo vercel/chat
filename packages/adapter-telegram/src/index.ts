@@ -1181,6 +1181,16 @@ export class TelegramAdapter
       );
     }
 
+    if (raw.video_note) {
+      attachments.push(
+        this.createAttachment("video", raw.video_note.file_id, {
+          size: raw.video_note.file_size,
+          width: raw.video_note.length,
+          height: raw.video_note.length,
+        })
+      );
+    }
+
     return attachments;
   }
 
