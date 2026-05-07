@@ -1897,6 +1897,45 @@ describe("TelegramAdapter", () => {
     expect(attachment?.mimeType).toBe("video/mp4");
   });
 
+  it("extracts video_note attachments from round video messages", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const videoNoteMessage = sampleMessage({
+      video_note: {
+        file_id: "vn1",
+        file_unique_id: "uvn1",
+        length: 240,
+        duration: 10,
+        file_size: 512000,
+      },
+    });
+
+    const parsed = adapter.parseMessage(videoNoteMessage);
+
+    expect(parsed.attachments).toHaveLength(1);
+    const attachment = parsed.attachments[0];
+    expect(attachment?.type).toBe("video");
+    expect(attachment?.width).toBe(240);
+    expect(attachment?.height).toBe(240);
+    expect(attachment?.size).toBe(512000);
+  });
+
   it("isDM returns true for private chats (positive chat ID)", async () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
