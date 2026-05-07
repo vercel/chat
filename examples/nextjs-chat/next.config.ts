@@ -25,4 +25,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withWorkflow(nextConfig);
+const workflowPort = Number(process.env.PORT) || 3000;
+
+export default withWorkflow(nextConfig, {
+  workflows: { local: { port: workflowPort } },
+});

@@ -27,7 +27,19 @@ import {
 } from "chat";
 import { start } from "workflow/api";
 import { buttonWorkflow } from "../workflows/button";
+import { modalWorkflow } from "../workflows/modal";
 import { buildAdapters } from "./adapters";
+
+function getBaseUrl(): string {
+  const fromEnv =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL;
+  if (fromEnv) {
+    return fromEnv.startsWith("http") ? fromEnv : `https://${fromEnv}`;
+  }
+  return "http://localhost:3000";
+}
 
 const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
@@ -160,6 +172,9 @@ bot.onNewMention(async (thread, message) => {
           Report Bug
         </Button>
         <Button id="workflow_button">Workflow Button</Button>
+        <Button actionType="modal" id="workflow_modal">
+          Workflow Modal
+        </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
           Goodbye
@@ -455,6 +470,36 @@ bot.onAction("workflow_button", async (event) => {
     return;
   }
   await start(buttonWorkflow, [event.thread]);
+});
+
+bot.onAction("workflow_modal", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const token = `modal-${event.user.userId}-${Date.now()}`;
+  const callbackUrl = `${getBaseUrl()}/api/modal-callback/${token}`;
+
+  // Open modal FIRST — Slack's trigger_id expires after ~3 seconds, so we
+  // can't afford to wait on workflow startup before this call.
+  await event.openModal(
+    <Modal
+      callbackId="workflow_modal_form"
+      callbackUrl={callbackUrl}
+      submitLabel="Submit"
+      title="Workflow Modal Demo"
+    >
+      <TextInput
+        id="message"
+        label="Your message"
+        placeholder="Anything you'd like..."
+      />
+    </Modal>
+  );
+
+  // Start the workflow that awaits the modal submission via the hook token.
+  // User typing + clicking Submit takes seconds, plenty of time for the
+  // workflow to register the hook.
+  await start(modalWorkflow, [event.thread, token, event.user.fullName]);
 });
 
 bot.onAction("show-table", async (event) => {

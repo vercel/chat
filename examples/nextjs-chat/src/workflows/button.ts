@@ -1,5 +1,6 @@
 import { Actions, Button, Card, CardText, emoji, type Thread } from "chat";
 import { createWebhook } from "workflow";
+import { bot } from "../lib/bot";
 
 export async function buttonWorkflow(thread: Thread<unknown>) {
   "use workflow";
@@ -16,6 +17,7 @@ export async function buttonWorkflow(thread: Thread<unknown>) {
 
 async function postButtonCard(thread: Thread<unknown>, callbackUrl: string) {
   "use step";
+  bot.registerSingleton();
   await thread.post(
     Card({
       title: `${emoji.rocket} Workflow Button Demo`,
@@ -38,6 +40,7 @@ async function postButtonCard(thread: Thread<unknown>, callbackUrl: string) {
 
 async function postConfirmation(thread: Thread<unknown>, userName: string) {
   "use step";
+  bot.registerSingleton();
   await thread.post(
     `${emoji.check} **${userName}** clicked the workflow button!`
   );
