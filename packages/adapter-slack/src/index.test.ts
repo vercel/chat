@@ -1910,8 +1910,8 @@ describe("handleOAuthCallback", () => {
     });
 
     // Mock the oauth.v2.access call on the internal client
-    const mockClient = (adapter as unknown as { webClient: { oauth: unknown } })
-      .webClient;
+    const mockClient = (adapter as unknown as { client: { oauth: unknown } })
+      .client;
     const mockAccess = vi.fn().mockResolvedValue({
       ok: true,
       access_token: "xoxb-oauth-bot-token",
@@ -2657,7 +2657,7 @@ interface MockableClient {
 }
 
 function getClient(adapter: SlackAdapter): MockableClient {
-  return (adapter as unknown as { webClient: MockableClient }).webClient;
+  return (adapter as unknown as { client: MockableClient }).client;
 }
 
 function mockClientMethod(
@@ -5444,8 +5444,8 @@ describe("reverse user lookup", () => {
 
       // Mock Slack API
       const mockClient = (
-        adapter as unknown as { webClient: { users: { info: unknown } } }
-      ).webClient;
+        adapter as unknown as { client: { users: { info: unknown } } }
+      ).client;
       mockClient.users.info = vi.fn().mockResolvedValue({
         user: {
           profile: { display_name: "dominik", real_name: "Dominik G" },
@@ -5688,8 +5688,8 @@ describe("reverse user lookup", () => {
 
       // Mock Slack API so lookupUser doesn't hit real API
       const mockClient = (
-        adapter as unknown as { webClient: { users: { info: unknown } } }
-      ).webClient;
+        adapter as unknown as { client: { users: { info: unknown } } }
+      ).client;
       mockClient.users.info = vi.fn().mockResolvedValue({
         user: {
           profile: { display_name: "sender", real_name: "Sender One" },

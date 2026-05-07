@@ -232,8 +232,6 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    */
   channelIdFromThreadId(threadId: string): string;
 
-  readonly client?: unknown;
-
   /** Decode thread ID string back to platform-specific data */
   decodeThreadId(threadId: string): TThreadId;
 

@@ -251,7 +251,7 @@ export function injectMockSlackClient(
   mockClient: MockSlackClient
 ): void {
   // biome-ignore lint/suspicious/noExplicitAny: accessing private field for testing
-  (adapter as any).webClient = mockClient;
+  (adapter as any).client = mockClient;
 }
 
 /**
