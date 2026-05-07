@@ -181,7 +181,7 @@ bot.onMemberJoinedChannel(async (event) => {
 
 // Handle direct messages — AI conversation by default
 // This fires on every DM, regardless of subscription status
-bot.onDirectMessage(async (_thread, message, channel) => {
+bot.onDirectMessage(async (thread, message, channel) => {
   await channel.startTyping("Thinking...");
   let history: AiMessage[];
   try {
@@ -201,7 +201,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
   }
   try {
     const result = await agent.stream({ prompt: history });
-    await channel.post(result.fullStream);
+    await thread.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
     await channel.post(
