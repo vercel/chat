@@ -1282,5 +1282,139 @@ describe("thread.messages (newest first)", () => {
       );
       expect(stored?.url).toBe("https://example.com/hook");
     });
+
+    it("should encode callbackUrl when posting via postEphemeral", async () => {
+      const mockPostEphemeral = vi.fn().mockResolvedValue({
+        id: "e1",
+        threadId: "slack:C123",
+        usedFallback: false,
+        raw: {},
+      });
+      mockAdapter.postEphemeral = mockPostEphemeral;
+
+      await channel.postEphemeral(
+        "U1",
+        Card({
+          children: [
+            Actions([
+              Button({
+                id: "ack",
+                label: "Ack",
+                callbackUrl: "https://example.com/eph",
+              }),
+            ]),
+          ],
+        }),
+        { fallbackToDM: false }
+      );
+
+      const sentCard = mockPostEphemeral.mock.calls[0][2];
+      const button = sentCard.children[0].children[0];
+      const { callbackToken } = decodeCallbackValue(button.value);
+      expect(callbackToken).toBeDefined();
+      const stored = await mockState.get<{ url: string }>(
+        `chat:callback:${callbackToken}`
+      );
+      expect(stored?.url).toBe("https://example.com/eph");
+    });
+
+    it("should encode callbackUrl when scheduling", async () => {
+      const futureDate = new Date("2030-01-01T00:00:00Z");
+      mockAdapter.scheduleMessage = vi.fn().mockResolvedValue({
+        scheduledMessageId: "Q1",
+        channelId: "C123",
+        postAt: futureDate,
+        raw: {},
+        cancel: vi.fn(),
+      });
+
+      await channel.schedule(
+        Card({
+          children: [
+            Actions([
+              Button({
+                id: "later",
+                label: "Later",
+                callbackUrl: "https://example.com/sch",
+              }),
+            ]),
+          ],
+        }),
+        { postAt: futureDate }
+      );
+
+      const sentCard = (mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>)
+        .mock.calls[0][1];
+      const button = sentCard.children[0].children[0];
+      const { callbackToken } = decodeCallbackValue(button.value);
+      expect(callbackToken).toBeDefined();
+      const stored = await mockState.get<{ url: string }>(
+        `chat:callback:${callbackToken}`
+      );
+      expect(stored?.url).toBe("https://example.com/sch");
+    });
+
+    it("should encode callbackUrl when editing a sent card", async () => {
+      const sent = await channel.post("Hello");
+      await sent.edit(
+        Card({
+          children: [
+            Actions([
+              Button({
+                id: "redo",
+                label: "Redo",
+                callbackUrl: "https://example.com/edit",
+              }),
+            ]),
+          ],
+        })
+      );
+
+      const editedCard = (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
+        .mock.calls[0][2];
+      const button = editedCard.children[0].children[0];
+      const { callbackToken } = decodeCallbackValue(button.value);
+      expect(callbackToken).toBeDefined();
+      const stored = await mockState.get<{ url: string }>(
+        `chat:callback:${callbackToken}`
+      );
+      expect(stored?.url).toBe("https://example.com/edit");
+    });
+
+    it("should pass plain string posts through unchanged", async () => {
+      await channel.post("Just text");
+
+      expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith(
+        "slack:C123",
+        "Just text"
+      );
+      const setCalls = (mockState.set as ReturnType<typeof vi.fn>).mock.calls;
+      expect(
+        setCalls.some(
+          ([key]) => typeof key === "string" && key.startsWith("chat:callback:")
+        )
+      ).toBe(false);
+    });
+
+    it("should leave cards without callback buttons untouched", async () => {
+      await channel.post(
+        Card({
+          children: [
+            Actions([Button({ id: "ok", label: "OK", value: "keep" })]),
+          ],
+        })
+      );
+
+      const postedCard = (
+        mockAdapter.postChannelMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1];
+      expect(postedCard.children[0].children[0].value).toBe("keep");
+      const setCalls = (mockState.set as ReturnType<typeof vi.fn>).mock.calls;
+      expect(
+        setCalls.some(
+          ([key]) => typeof key === "string" && key.startsWith("chat:callback:")
+        )
+      ).toBe(false);
+    });
   });
 });

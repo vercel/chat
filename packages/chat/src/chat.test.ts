@@ -2856,6 +2856,188 @@ describe("Chat", () => {
         vi.unstubAllGlobals();
       }
     });
+
+    it("should fire-and-forget modal callbackUrl when no waitUntil is provided", async () => {
+      let resolveFetch: ((value: Response) => void) | undefined;
+      const mockFetch = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          })
+      );
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set(
+          "modal-context:slack:ctx-noWait",
+          { callbackUrl: "https://example.com/webhook/modal-noWait" }
+        );
+
+        chat.onModalSubmit("feedback_modal", async () => ({ action: "clear" }));
+
+        const response = await chat.processModalSubmit(
+          {
+            callbackId: "feedback_modal",
+            viewId: "V789",
+            values: { msg: "ok" },
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            adapter: mockAdapter,
+            raw: {},
+          },
+          "ctx-noWait"
+        );
+
+        expect(response).toEqual({ action: "clear" });
+        expect(mockFetch).toHaveBeenCalledWith(
+          "https://example.com/webhook/modal-noWait",
+          expect.objectContaining({ method: "POST" })
+        );
+        resolveFetch?.(new Response("ok"));
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should not POST when modal context has no callbackUrl", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set(
+          "modal-context:slack:ctx-nocallback",
+          {}
+        );
+
+        chat.onModalSubmit("feedback_modal", async () => ({ action: "clear" }));
+
+        await chat.processModalSubmit(
+          {
+            callbackId: "feedback_modal",
+            viewId: "V789",
+            values: {},
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            adapter: mockAdapter,
+            raw: {},
+          },
+          "ctx-nocallback"
+        );
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should log error when modal callbackUrl POST returns non-2xx", async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(new Response("nope", { status: 500 }));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
+        errorSpy.mockClear();
+        const tasks: Promise<unknown>[] = [];
+
+        (mockState as MockStateAdapter).cache.set(
+          "modal-context:slack:ctx-fail",
+          { callbackUrl: "https://example.com/webhook/fail" }
+        );
+
+        chat.onModalSubmit("feedback_modal", async () => ({ action: "clear" }));
+
+        await chat.processModalSubmit(
+          {
+            callbackId: "feedback_modal",
+            viewId: "V789",
+            values: {},
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            adapter: mockAdapter,
+            raw: {},
+          },
+          "ctx-fail",
+          {
+            waitUntil: (task) => {
+              tasks.push(task);
+            },
+          }
+        );
+        await Promise.all(tasks);
+
+        expect(
+          errorSpy.mock.calls.some(
+            ([msg]) => msg === "Modal callbackUrl POST failed"
+          )
+        ).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  describe("action callbackUrl error logging", () => {
+    it("should log error when action callbackUrl POST returns non-2xx", async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(new Response("nope", { status: 500 }));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
+        errorSpy.mockClear();
+
+        chat.onAction("approve", vi.fn().mockResolvedValue(undefined));
+
+        (mockState as MockStateAdapter).cache.set("chat:callback:bad-token", {
+          url: "https://example.com/webhook/will-fail",
+        });
+
+        await chat.processAction(
+          {
+            actionId: "approve",
+            value: "__cb:bad-token",
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            messageId: "msg-1",
+            threadId: "slack:C123:1234.5678",
+            adapter: mockAdapter,
+            raw: {},
+          },
+          undefined
+        );
+
+        expect(
+          errorSpy.mock.calls.some(
+            ([msg]) => msg === "Button callbackUrl POST failed"
+          )
+        ).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   describe("onLockConflict", () => {

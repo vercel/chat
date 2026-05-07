@@ -460,4 +460,49 @@ describe("encodeDiscordCustomId / decodeDiscordCustomId", () => {
     expect(decoded.actionId).toBe("btn");
     expect(decoded.value).toBe("__cb:a1b2c3d4e5f6g7h8");
   });
+
+  it("preserves embedded delimiter chars in the value (decoder splits on first only)", () => {
+    const decoded = decodeDiscordCustomId("btn\nfirst\nsecond");
+    expect(decoded.actionId).toBe("btn");
+    expect(decoded.value).toBe("first\nsecond");
+  });
+
+  it("treats explicitly null value as no value", () => {
+    expect(encodeDiscordCustomId("approve", undefined)).toBe("approve");
+  });
+
+  it("encodes a custom_id at the 100 char boundary", () => {
+    const actionId = "a".repeat(50);
+    const value = "b".repeat(49);
+    const encoded = encodeDiscordCustomId(actionId, value);
+    expect(encoded).toHaveLength(100);
+    expect(decodeDiscordCustomId(encoded)).toEqual({ actionId, value });
+  });
+
+  it("rejects a custom_id one char past the boundary", () => {
+    const actionId = "a".repeat(50);
+    const value = "b".repeat(50);
+    expect(() => encodeDiscordCustomId(actionId, value)).toThrow(
+      ValidationError
+    );
+  });
+
+  it("renders cards with values into Discord button payloads", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({ id: "approve", label: "Approve", value: "order-99" }),
+          Button({ id: "deny", label: "Deny" }),
+        ]),
+      ],
+    });
+
+    const payload = cardToDiscordPayload(card);
+    const buttons = (
+      payload.components?.[0] as { components: { custom_id: string }[] }
+    ).components;
+
+    expect(buttons[0].custom_id).toBe("approve\norder-99");
+    expect(buttons[1].custom_id).toBe("deny");
+  });
 });
