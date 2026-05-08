@@ -69,9 +69,7 @@
     {
       "name": "state-package-must-export-required-symbols",
       "description": "Every state package must have specific files that export a specific set of symbols.",
-      "paths": [
-        "packages/state-{stateAdapterId}/src/index.ts"
-      ],
+      "paths": ["packages/state-{stateAdapterId}/src/index.ts"],
       "must": [
         {
           "name": "state-package-must-export-provider-creator-and-settings",
@@ -96,7 +94,9 @@
                 "returnValueOfType": "${stateAdapterId.toPascalCase()}StateAdapter"
               }
             ],
-            "exportTypes": ["${stateAdapterId.toPascalCase()}StateAdapterOptions"]
+            "exportTypes": [
+              "${stateAdapterId.toPascalCase()}StateAdapterOptions"
+            ]
           }
         }
       ]
