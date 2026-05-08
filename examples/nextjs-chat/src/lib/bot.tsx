@@ -31,6 +31,7 @@ const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
+const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
 
 // Hardcoded user key for testing the Transcripts API — every inbound message
 // is persisted under this single key, so you can exercise append/list/delete
@@ -181,7 +182,26 @@ bot.onMemberJoinedChannel(async (event) => {
 
 // Handle direct messages — AI conversation by default
 // This fires on every DM, regardless of subscription status
-bot.onDirectMessage(async (_thread, message, channel) => {
+bot.onDirectMessage(async (thread, message, channel) => {
+  if (POSTCARD_TRIGGER_REGEX.test(message.text.trim())) {
+    await thread.post(
+      <Card title={`${emoji.sparkles} Test Menu`}>
+        <Text>Test these button actions:</Text>
+        <Actions>
+          <Button id="hello" style="primary">
+            Say Hello
+          </Button>
+          <Button id="info">Show Info</Button>
+          <Button id="who-am-i">Who Am I</Button>
+          <Button id="goodbye" style="danger">
+            Goodbye
+          </Button>
+        </Actions>
+      </Card>
+    );
+    return;
+  }
+
   await channel.startTyping("Thinking...");
   let history: AiMessage[];
   try {
@@ -201,7 +221,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
   }
   try {
     const result = await agent.stream({ prompt: history });
-    await channel.post(result.fullStream);
+    await thread.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
     await channel.post(
@@ -987,9 +1007,13 @@ bot.onReaction(["thumbs_up", "heart", "fire", "rocket"], async (event) => {
     return;
   }
 
-  // GChat and Teams bots cannot add reactions via their APIs
+  // GChat, Teams, and Messenger bots cannot add reactions via their APIs
   // Respond with a message instead
-  if (event.adapter.name === "gchat" || event.adapter.name === "teams") {
+  if (
+    event.adapter.name === "gchat" ||
+    event.adapter.name === "teams" ||
+    event.adapter.name === "messenger"
+  ) {
     await event.adapter.postMessage(
       event.threadId,
       `Thanks for the ${event.rawEmoji}!`

@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Messenger",
+    "slug": "messenger",
+    "type": "platform",
+    "description": "Build bots for Facebook Messenger with support for templates, buttons, reactions, and postbacks.",
+    "packageName": "@chat-adapter/messenger",
+    "icon": "messenger",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-messenger"
+  },
+  {
     "name": "Web",
     "slug": "web",
     "type": "platform",

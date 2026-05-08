@@ -281,14 +281,14 @@ export class ChannelImpl<TState = Record<string, unknown>>
       return message;
     }
 
-    // Handle AsyncIterable (streaming) — not supported at channel level,
-    // fall through to postMessage
+    // Handle AsyncIterable (streaming) — accumulate and post as single message
     if (isAsyncIterable(message)) {
-      // For channel-level streaming, accumulate and post as single message
       let accumulated = "";
       for await (const chunk of fromFullStream(message)) {
         if (typeof chunk === "string") {
           accumulated += chunk;
+        } else if (chunk.type === "markdown_text") {
+          accumulated += chunk.text;
         }
       }
       return this.postSingleMessage({ markdown: accumulated });
