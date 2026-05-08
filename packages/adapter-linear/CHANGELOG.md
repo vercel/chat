@@ -1,5 +1,13 @@
 # @chat-adapter/linear
 
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+  - @chat-adapter/shared@4.28.1
+
 ## 4.28.0
 
 ### Minor Changes
