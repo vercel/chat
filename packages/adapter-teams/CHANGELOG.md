@@ -1,5 +1,22 @@
 # @chat-adapter/teams
 
+## 4.28.0
+
+### Patch Changes
+
+- c1cd9b5: Add `callbackUrl` to `Button` and `Modal`. When a button is clicked or a modal is submitted, the SDK POSTs the action payload to `callbackUrl` in addition to firing any registered `onAction` / `onModalSubmit` handler. This pairs naturally with webhook-based workflow engines for awaitable button/modal flows.
+
+  Supported platforms: Slack, Teams, Google Chat, WhatsApp, Telegram, and Discord.
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+  - @chat-adapter/shared@4.28.0
+
 ## 4.27.0
 
 ### Minor Changes
