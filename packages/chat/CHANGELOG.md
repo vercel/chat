@@ -1,5 +1,11 @@
 # chat
 
+## 4.28.1
+
+### Patch Changes
+
+- 0cc3d06: fix StreamEvent type from step-finish to finish-step
+
 ## 4.28.0
 
 ### Minor Changes
