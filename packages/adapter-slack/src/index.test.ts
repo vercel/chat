@@ -1787,6 +1787,305 @@ describe("multi-workspace mode", () => {
 });
 
 // ============================================================================
+// External Installation Provider Tests
+// ============================================================================
+
+describe("installationProvider", () => {
+  const secret = "test-signing-secret";
+
+  it("uses installationProvider for token resolution in event_callback", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-external-token",
+        botUserId: "U_BOT_EXT",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_EXTERNAL_1",
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_EXTERNAL_1",
+      false
+    );
+  });
+
+  it("uses enterprise_id when is_enterprise_install is true", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-enterprise-token",
+        botUserId: "U_BOT_ENT",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_WORKSPACE_1",
+      enterprise_id: "E_ENTERPRISE_1",
+      is_enterprise_install: true,
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        text: "hello from enterprise",
+        ts: "1234567890.123456",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "E_ENTERPRISE_1",
+      true
+    );
+  });
+
+  it("uses team_id when is_enterprise_install is false", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-team-token",
+        botUserId: "U_BOT_TEAM",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_TEAM_ONLY",
+      enterprise_id: "E_SHOULD_IGNORE",
+      is_enterprise_install: false,
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_TEAM_ONLY",
+      false
+    );
+  });
+
+  it("returns 200 ok when installationProvider returns null", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue(null),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_UNKNOWN",
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_UNKNOWN",
+      false
+    );
+  });
+
+  it("uses installationProvider for slash commands", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-slash-token",
+        botUserId: "U_BOT_SLASH",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
+
+    const params = new URLSearchParams({
+      command: "/test",
+      text: "hello",
+      team_id: "T_SLASH_TEAM",
+      channel_id: "C_SLASH",
+      user_id: "U_SLASHER",
+      response_url: "https://hooks.slack.com/commands/xxx",
+    });
+
+    const request = createWebhookRequest(params.toString(), secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+    await adapter.handleWebhook(request);
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_SLASH_TEAM",
+      false
+    );
+  });
+
+  it("uses enterprise_id for slash commands in Enterprise Grid", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-ent-slash-token",
+        botUserId: "U_BOT_ENT_SLASH",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
+
+    const params = new URLSearchParams({
+      command: "/test",
+      text: "hello",
+      team_id: "T_ENT_WORKSPACE",
+      enterprise_id: "E_ENT_ORG",
+      is_enterprise_install: "true",
+      channel_id: "C_SLASH",
+      user_id: "U_SLASHER",
+      response_url: "https://hooks.slack.com/commands/xxx",
+    });
+
+    const request = createWebhookRequest(params.toString(), secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+    await adapter.handleWebhook(request);
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "E_ENT_ORG",
+      true
+    );
+  });
+
+  it("does not fall back to state when installationProvider is set", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue(null),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    // Set an installation in state - should NOT be used
+    await adapter.setInstallation("T_STATE_TEAM", {
+      botToken: "xoxb-state-token",
+      botUserId: "U_BOT_STATE",
+    });
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_STATE_TEAM",
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalled();
+    // Event should not be processed because provider returned null
+    expect(chatInstance.handleIncomingMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // Multi-workspace Mode with Encryption Tests
 // ============================================================================
 
