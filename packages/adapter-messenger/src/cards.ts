@@ -210,7 +210,9 @@ function buildGenericTemplate(
     elements: [
       {
         title: truncate(title, MAX_TITLE_LENGTH),
-        ...(subtitle ? { subtitle: truncate(subtitle, MAX_SUBTITLE_LENGTH) } : {}),
+        ...(subtitle
+          ? { subtitle: truncate(subtitle, MAX_SUBTITLE_LENGTH) }
+          : {}),
         ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
         buttons,
       },

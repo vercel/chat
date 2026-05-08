@@ -343,7 +343,10 @@ export class MessengerAdapter
       if (cardResult.type === "template") {
         // Convert emoji placeholders in the template payload
         const convertedPayload = JSON.parse(
-          convertEmojiPlaceholders(JSON.stringify(cardResult.payload), "messenger")
+          convertEmojiPlaceholders(
+            JSON.stringify(cardResult.payload),
+            "messenger"
+          )
         ) as MessengerTemplatePayload;
         return this.sendTemplateMessage(threadId, convertedPayload);
       }
@@ -542,9 +545,10 @@ export class MessengerAdapter
     const profile = await this.fetchUserProfile(recipientId);
     const displayName = this.profileDisplayName(profile);
 
+    // On Messenger, every conversation is a 1:1 DM, so channel === thread
     return {
       id: threadId,
-      channelId: recipientId,
+      channelId: threadId,
       channelName: displayName,
       isDM: true,
       metadata: { profile },
@@ -552,7 +556,9 @@ export class MessengerAdapter
   }
 
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
-    const profile = await this.fetchUserProfile(channelId);
+    // channelId is the same as threadId on Messenger (DM platform)
+    const { recipientId } = this.resolveThreadId(channelId);
+    const profile = await this.fetchUserProfile(recipientId);
     const displayName = this.profileDisplayName(profile);
 
     return {
@@ -563,8 +569,11 @@ export class MessengerAdapter
     };
   }
 
+  /**
+   * On Messenger every conversation is a 1:1 DM, so channel === thread.
+   */
   channelIdFromThreadId(threadId: string): string {
-    return this.resolveThreadId(threadId).recipientId;
+    return threadId;
   }
 
   async openDM(userId: string): Promise<string> {

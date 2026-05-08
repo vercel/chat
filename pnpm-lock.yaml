@@ -632,6 +632,9 @@ importers:
       '@chat-adapter/gchat':
         specifier: workspace:*
         version: link:../adapter-gchat
+      '@chat-adapter/messenger':
+        specifier: workspace:*
+        version: link:../adapter-messenger
       '@chat-adapter/slack':
         specifier: workspace:*
         version: link:../adapter-slack

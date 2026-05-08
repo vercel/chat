@@ -135,6 +135,20 @@ describe("cardToMessengerText", () => {
     expect(result).toContain("Example image: https://example.com/image.png");
   });
 
+  it("should render image URL without alt text", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "image",
+          url: "https://example.com/photo.jpg",
+        },
+      ],
+    };
+    const result = cardToMessengerText(card);
+    expect(result).toBe("https://example.com/photo.jpg");
+  });
+
   it("should render card with divider", () => {
     const card: CardElement = {
       type: "card",
@@ -369,9 +383,143 @@ describe("cardToMessenger - Button Template", () => {
       }
     }
   });
+
+  it("should build body text from fields element for button template", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "fields",
+          children: [
+            { type: "field", label: "Status", value: "Active" },
+            { type: "field", label: "Priority", value: "High" },
+          ],
+        },
+        {
+          type: "actions",
+          children: [{ type: "button", id: "ok", label: "OK" }],
+        },
+      ],
+    };
+    const result = cardToMessenger(card);
+    expect(result.type).toBe("template");
+    if (result.type === "template") {
+      expect(result.payload.template_type).toBe("button");
+      if (result.payload.template_type === "button") {
+        expect(result.payload.text).toContain("Status: Active");
+        expect(result.payload.text).toContain("Priority: High");
+      }
+    }
+  });
+
+  it("should build body text from link element for button template", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "link",
+          url: "https://example.com/docs",
+          label: "Documentation",
+        },
+        {
+          type: "actions",
+          children: [{ type: "button", id: "view", label: "View" }],
+        },
+      ],
+    };
+    const result = cardToMessenger(card);
+    expect(result.type).toBe("template");
+    if (result.type === "template") {
+      expect(result.payload.template_type).toBe("button");
+      if (result.payload.template_type === "button") {
+        expect(result.payload.text).toContain(
+          "Documentation: https://example.com/docs"
+        );
+      }
+    }
+  });
+
+  it("should build body text from section containing fields", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "section",
+          children: [
+            {
+              type: "fields",
+              children: [{ type: "field", label: "Name", value: "Test" }],
+            },
+          ],
+        },
+        {
+          type: "actions",
+          children: [{ type: "button", id: "submit", label: "Submit" }],
+        },
+      ],
+    };
+    const result = cardToMessenger(card);
+    expect(result.type).toBe("template");
+    if (result.type === "template") {
+      expect(result.payload.template_type).toBe("button");
+      if (result.payload.template_type === "button") {
+        expect(result.payload.text).toContain("Name: Test");
+      }
+    }
+  });
 });
 
 describe("cardToMessenger - Constraints and Fallbacks", () => {
+  it("should fall back to text for table nested in section", () => {
+    const card: CardElement = {
+      type: "card",
+      title: "Nested Table",
+      children: [
+        {
+          type: "section",
+          children: [
+            {
+              type: "table",
+              headers: ["A", "B"],
+              rows: [["1", "2"]],
+            },
+          ],
+        },
+        {
+          type: "actions",
+          children: [{ type: "button", id: "btn", label: "Click" }],
+        },
+      ],
+    };
+    const result = cardToMessenger(card);
+    expect(result.type).toBe("text");
+  });
+
+  it("should fall back to text when actions contain only select (no buttons)", () => {
+    const card: CardElement = {
+      type: "card",
+      title: "Select Only",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "select",
+              id: "sel1",
+              label: "Choose one",
+              options: [
+                { label: "Option A", value: "a" },
+                { label: "Option B", value: "b" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const result = cardToMessenger(card);
+    expect(result.type).toBe("text");
+  });
+
   it("should limit to 3 buttons max", () => {
     const card: CardElement = {
       type: "card",

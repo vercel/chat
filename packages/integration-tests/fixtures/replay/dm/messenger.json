@@ -1,0 +1,215 @@
+{
+  "botName": "Messenger Test Bot",
+  "pageId": "100000000000001",
+  "firstMessage": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998024000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998024000,
+            "message": {
+              "mid": "m_FAKE_MSG_ID_001",
+              "text": "What is Vercel?"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "secondMessage": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998054000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998054000,
+            "message": {
+              "mid": "m_FAKE_MSG_ID_002",
+              "text": "Tell me more"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "deliveryConfirmation": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998034000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998034000,
+            "delivery": {
+              "mids": ["m_SENT_MSG_001"],
+              "watermark": 1772998034000
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "readConfirmation": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998044000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998044000,
+            "read": {
+              "watermark": 1772998044000
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "reactionAdded": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998064000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998064000,
+            "reaction": {
+              "mid": "m_FAKE_MSG_ID_001",
+              "action": "react",
+              "emoji": "❤",
+              "reaction": "love"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "reactionRemoved": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998074000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998074000,
+            "reaction": {
+              "mid": "m_FAKE_MSG_ID_001",
+              "action": "unreact",
+              "emoji": "❤",
+              "reaction": "love"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "postbackClick": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998084000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998084000,
+            "postback": {
+              "title": "Say Hello",
+              "payload": "chat:{\"a\":\"hello\"}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "legacyPostback": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998094000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998094000,
+            "postback": {
+              "title": "Get Started",
+              "payload": "GET_STARTED"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "imageAttachment": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998104000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "100000000000001" },
+            "timestamp": 1772998104000,
+            "message": {
+              "mid": "m_FAKE_IMG_001",
+              "attachments": [
+                {
+                  "type": "image",
+                  "payload": {
+                    "url": "https://example.com/image.jpg"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "echoMessage": {
+    "object": "page",
+    "entry": [
+      {
+        "id": "100000000000001",
+        "time": 1772998114000,
+        "messaging": [
+          {
+            "sender": { "id": "100000000000001" },
+            "recipient": { "id": "200000000000001" },
+            "timestamp": 1772998114000,
+            "message": {
+              "mid": "m_ECHO_MSG_001",
+              "text": "Bot response",
+              "is_echo": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -977,10 +977,11 @@ describe("MessengerAdapter", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("channelIdFromThreadId extracts the recipient ID", () => {
+  it("channelIdFromThreadId returns the thread ID for DMs", () => {
+    // On Messenger, every conversation is a 1:1 DM, so channel === thread
     const adapter = createAdapter();
     expect(adapter.channelIdFromThreadId("messenger:USER_123")).toBe(
-      "USER_123"
+      "messenger:USER_123"
     );
   });
 
@@ -1776,6 +1777,105 @@ describe("MessengerAdapter", () => {
       const body = JSON.parse(options?.body as string);
       expect(body.message.text.length).toBe(2000);
       expect(body.message.text).toMatch(TRAILING_ELLIPSIS_PATTERN);
+    });
+
+    it("sends a Generic Template for cards with title and buttons", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.template" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", {
+        type: "card",
+        title: "Welcome",
+        children: [
+          { type: "text", content: "Hello!" },
+          {
+            type: "actions",
+            children: [
+              { type: "button", id: "start", label: "Start" },
+              { type: "button", id: "help", label: "Help" },
+            ],
+          },
+        ],
+      });
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.attachment).toBeDefined();
+      expect(body.message.attachment.type).toBe("template");
+      expect(body.message.attachment.payload.template_type).toBe("generic");
+      expect(body.message.attachment.payload.elements).toHaveLength(1);
+      expect(body.message.attachment.payload.elements[0].title).toBe("Welcome");
+      expect(body.message.attachment.payload.elements[0].buttons).toHaveLength(
+        2
+      );
+    });
+
+    it("sends a Button Template for cards without title but with text and buttons", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.btntemplate" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", {
+        type: "card",
+        children: [
+          { type: "text", content: "Please choose:" },
+          {
+            type: "actions",
+            children: [{ type: "button", id: "opt1", label: "Option 1" }],
+          },
+        ],
+      });
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.attachment.payload.template_type).toBe("button");
+      expect(body.message.attachment.payload.text).toBe("Please choose:");
+    });
+
+    it("falls back to text for cards with unsupported elements", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ recipient_id: "USER_123", message_id: "mid.textfallback" })
+      );
+
+      await adapter.postMessage("messenger:USER_123", {
+        type: "card",
+        title: "With Table",
+        children: [
+          {
+            type: "table",
+            headers: ["A", "B"],
+            rows: [["1", "2"]],
+          },
+        ],
+      });
+
+      const [, options] = mockFetch.mock.calls[1];
+      const body = JSON.parse(options?.body as string);
+      expect(body.message.text).toBeDefined();
+      expect(body.message.attachment).toBeUndefined();
+      expect(body.message.text).toContain("With Table");
     });
   });
 
