@@ -164,6 +164,19 @@ Once installed with `actor=app`, set `mode: "agent-sessions"` so the adapter tre
 
 See the [Linear Agents docs](https://linear.app/developers/agents) for full details.
 
+## Direct API client
+
+For anything beyond the unified SDK, access the underlying [LinearClient](https://github.com/linear/linear/tree/master/packages/sdk) via `.client`:
+
+```typescript
+const linear = bot.getAdapter("linear").client;
+
+const issue = await linear.issue("ENG-123");
+const project = await issue.project;
+```
+
+API key, access token, and single-tenant client-credentials modes return the same client anywhere. Multi-tenant OAuth mode requires webhook handler context to resolve the per-org token — calling `.client` outside a handler throws.
+
 ## Webhook setup
 
 > **Note:** Webhook management requires workspace admin access. If you don't see the API settings page, ask a workspace admin to create the webhook for you.

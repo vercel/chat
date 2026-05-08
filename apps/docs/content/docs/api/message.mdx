@@ -204,6 +204,55 @@ When using [`toAiMessages()`](/docs/api/to-ai-messages), link metadata is automa
 | Slack | URLs from `rich_text` blocks or `<url>` text patterns | Slack message links (`*.slack.com/archives/...`) |
 | Others | Not yet — `links` is always `[]` | — |
 
+## MessageSubject
+
+Returned by `message.subject` on platforms with parent resources. See [Message Subject](/docs/subject) for usage.
+
+<TypeTable
+  type={{
+    type: {
+      description: 'Resource kind, e.g. "issue" or "pull_request".',
+      type: 'string',
+    },
+    id: {
+      description: 'Resource identifier (e.g. "ENG-123" or "42").',
+      type: 'string',
+    },
+    title: {
+      description: 'Resource title.',
+      type: 'string | undefined',
+    },
+    description: {
+      description: 'Full description/body in markdown.',
+      type: 'string | undefined',
+    },
+    status: {
+      description: 'Current status (e.g. "In Progress", "open").',
+      type: 'string | undefined',
+    },
+    url: {
+      description: 'Web URL to the resource.',
+      type: 'string | undefined',
+    },
+    author: {
+      description: 'Resource creator.',
+      type: '{ id: string; name: string } | undefined',
+    },
+    assignee: {
+      description: 'Current assignee.',
+      type: '{ id: string; name: string } | undefined',
+    },
+    labels: {
+      description: 'Labels/tags.',
+      type: 'string[] | undefined',
+    },
+    raw: {
+      description: 'Full platform API response.',
+      type: 'unknown',
+    },
+  }}
+/>
+
 ## Serialization
 
 Messages can be serialized for workflow engines and external systems.

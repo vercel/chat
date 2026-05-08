@@ -89,6 +89,15 @@ await slack.setSuggestedPrompts(channelId, threadTs, [
 ]);
 ```
 
+For typed access to the platform's native API client (Linear, GitHub), use `.client`:
+
+```typescript title="lib/bot.ts" lineNumbers
+const linear = bot.getAdapter("linear").client; // LinearClient
+const github = bot.getAdapter("github").client; // Octokit
+```
+
+See [`getAdapter`](/docs/api/chat#getadapter) for multi-tenant constraints.
+
 ## Webhook routing
 
 The `webhooks` property provides type-safe handlers for each registered adapter. Wire these up to your HTTP framework's routes:

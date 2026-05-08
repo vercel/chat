@@ -1,6 +1,6 @@
 ---
 title: Message Subject
-description: Fetch the parent resource (issue, PR) that a message is about, or access the platform API client directly.
+description: Fetch the parent resource that a message is about.
 type: guide
 prerequisites:
   - /docs/handling-events
@@ -10,7 +10,7 @@ related:
 
 When your bot receives a comment on a Linear issue or GitHub PR, `message.subject` resolves the parent resource so your handler knows what the conversation is about.
 
-## Resolve with message.subject
+## Usage
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onNewMention(async (thread, message) => {
@@ -24,24 +24,9 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-`message.subject` returns a `MessageSubject` on platforms with parent resources (Linear, GitHub), or `null` on chat platforms (Slack, Discord, Teams, Google Chat, Telegram, WhatsApp).
+On Linear and GitHub, comment webhooks deliver the comment text but not the parent issue or pull request — `message.subject` fetches it from the platform API on first access. The result is cached on the message instance. On chat platforms (which have no parent-resource concept), or if the API call fails, it returns `null`.
 
-`message.subject` makes a network call to the platform API (e.g. Linear GraphQL, GitHub REST) on first access. The result is cached on the message instance - subsequent calls return the cached value without another API request. If the API call fails, `null` is returned.
-
-### MessageSubject
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `type` | `string` | `"issue"` or `"pull_request"` |
-| `id` | `string` | Resource identifier (e.g. `"ENG-123"` or `"42"`) |
-| `title` | `string` (optional) | Resource title |
-| `description` | `string` (optional) | Full description/body in markdown |
-| `status` | `string` (optional) | Current status (e.g. `"In Progress"`, `"open"`) |
-| `url` | `string` (optional) | Web URL to the resource |
-| `author` | `{ id, name }` (optional) | Resource creator |
-| `assignee` | `{ id, name }` (optional) | Current assignee |
-| `labels` | `string[]` (optional) | Labels/tags |
-| `raw` | `unknown` | Full platform API response |
+See [`MessageSubject`](/docs/api/message#messagesubject) for the full type shape.
 
 ### Platform support
 
@@ -49,16 +34,12 @@ bot.onNewMention(async (thread, message) => {
 |----------|--------------------------|
 | Linear | Parent issue (from comment webhooks) |
 | GitHub | Parent issue or PR (from comment webhooks) |
-| Slack | `null` |
-| Discord | `null` |
-| Teams | `null` |
-| Google Chat | `null` |
-| Telegram | `null` |
-| WhatsApp | `null` |
+
+All other platforms return `null`.
 
 ## User info
 
-For author/user profile details, use `bot.getUser()`:
+For user profile details, use [`bot.getUser`](/docs/api/chat#getuser):
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onNewMention(async (thread, message) => {
@@ -69,42 +50,4 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-Returns `UserInfo` with `fullName`, `userName`, `userId`, `email`, `avatarUrl`, and `isBot`. Works on all platforms that support user lookup (Slack, Teams, Discord, Linear, GitHub, Google Chat, Telegram).
-
-## Direct client access
-
-For anything beyond `message.subject`, access the platform's typed API client directly:
-
-```typescript title="lib/bot.ts" lineNumbers
-// Linear - full LinearClient from @linear/sdk
-const linear = bot.getAdapter("linear").client;
-const issue = await linear.issue("ENG-123");
-const project = await issue.project;
-
-// GitHub - full Octokit from @octokit/rest
-const github = bot.getAdapter("github").client;
-const { data: pulls } = await github.rest.pulls.list({
-  owner: "vercel",
-  repo: "chat",
-  state: "open",
-});
-```
-
-The client uses the credentials from your adapter config. For multi-tenant adapters (Linear, GitHub), it returns the client for the current webhook request context.
-
-<Callout type="warn">
-  For multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth), `client` requires webhook handler context to resolve credentials. Calling it outside a handler throws. Single-tenant adapters (PAT, API key) work anywhere.
-</Callout>
-
-### Available clients
-
-| Adapter | `client` type |
-|---------|---------------|
-| Linear | `LinearClient` from `@linear/sdk` |
-| GitHub | `Octokit` from `@octokit/rest` |
-| Slack | not exposed yet |
-| Discord | not available |
-| Teams | not available |
-| Google Chat | not available |
-| Telegram | not available |
-| WhatsApp | not available |
+For anything beyond `message.subject`, access the platform's typed API client via [`bot.getAdapter(...).client`](/docs/api/chat#getadapter).
