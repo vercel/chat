@@ -98,11 +98,11 @@ Messenger uses two webhook mechanisms:
 import { bot } from "@/lib/bot";
 
 export async function GET(request: Request) {
-  return bot.adapters.messenger.handleWebhook(request);
+  return bot.webhooks.messenger(request);
 }
 
 export async function POST(request: Request) {
-  return bot.adapters.messenger.handleWebhook(request);
+  return bot.webhooks.messenger(request);
 }
 ```
 

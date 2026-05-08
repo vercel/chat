@@ -102,7 +102,9 @@ export async function GET(request: Request): Promise<Response> {
 
   await bot.initialize();
 
-  return bot.adapters.discord.startGatewayListener(
+  const discord = bot.getAdapter("discord");
+
+  return discord.startGatewayListener(
     { waitUntil: (task) => after(() => task) },
     durationMs,
     undefined,

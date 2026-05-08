@@ -230,7 +230,7 @@ GITHUB_API_URL=https://github.example.com/api/v3
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | No |
-| Streaming | No |
+| Streaming | Buffered (accumulates then sends) |
 
 ### Rich content
 

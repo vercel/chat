@@ -168,7 +168,9 @@ Fires when a user clicks a button or selects an option in a card.
 ```typescript
 // Single action
 bot.onAction("approve", async (event) => {
-  await event.thread.post("Approved!");
+  if (event.thread) {
+    await event.thread.post("Approved!");
+  }
 });
 
 // Multiple actions
@@ -193,8 +195,8 @@ bot.onAction(async (event) => { /* ... */ });
       type: 'Author',
     },
     'event.thread': {
-      description: 'The thread containing the card.',
-      type: 'Thread',
+      description: 'The thread containing the card, or null for view-based actions.',
+      type: 'Thread | null',
     },
     'event.triggerId': {
       description: 'Trigger ID for opening modals (platform-specific, may expire quickly).',
@@ -301,7 +303,7 @@ Return an array of `OptionsLoadGroup` (`{ label, options }[]`) instead of a flat
 
 ### onSlashCommand
 
-Fires when a user invokes a `/command` in the message composer. Currently supported on Slack.
+Fires when a user invokes a `/command` in the message composer. Currently supported on Slack and Discord.
 
 ```typescript
 // Specific command

@@ -20,7 +20,7 @@ const thread = bot.thread("slack:C123ABC:1234567890.123456");
 await thread.post("Reminder from a cron job");
 ```
 
-For DM-style conversations, use [`bot.openDM(adapter, userId)`](/docs/direct-messages) instead — it resolves the right channel and thread on each platform.
+For DM-style conversations, use [`bot.openDM(userIdOrAuthor)`](/docs/direct-messages) instead. It resolves the right channel and thread for user ID formats the SDK can infer.
 
 ### Post a message
 

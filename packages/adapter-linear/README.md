@@ -286,7 +286,7 @@ LINEAR_API_URL=...
 | Edit message | Partial |
 | Delete message | Partial |
 | File uploads | No |
-| Streaming | Agent sessions only |
+| Streaming | Agent sessions / Post+Edit fallback |
 
 ### Rich content
 
