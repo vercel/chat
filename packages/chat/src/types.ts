@@ -1560,12 +1560,12 @@ export type PostableMessage =
 /**
  * Duck-typed stream event compatible with AI SDK's `fullStream`.
  * - `text-delta` events are extracted as text output.
- * - `step-finish` events trigger paragraph separators between steps.
+ * - `finish-step` events trigger paragraph separators between steps.
  * - All other event types (tool-call, tool-result, etc.) are silently skipped.
  */
 export type StreamEvent =
   | { textDelta: string; type: "text-delta" }
-  | { type: "step-finish" }
+  | { type: "finish-step" }
   | { type: string };
 
 export interface PostableRaw {

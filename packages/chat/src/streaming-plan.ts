@@ -19,7 +19,7 @@ export interface StreamingPlanOptions {
   groupTasks?: "plan" | "timeline";
   /**
    * Minimum interval between updates in ms (default: 500).
-   * Used for fallback mode (post+edit on adapters without native streaming).
+   * Used by post+edit streaming paths.
    */
   updateIntervalMs?: number;
 }

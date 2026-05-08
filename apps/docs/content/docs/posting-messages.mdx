@@ -139,7 +139,7 @@ See the [Cards](/docs/cards) page for the full list of card components.
 
 ## Streaming
 
-Pass an AI SDK stream to `thread.post()` to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit on other platforms.
+Pass an AI SDK stream to `thread.post()` to stream a message in real time. The SDK uses platform-native streaming where available and falls back to post-then-edit or buffered delivery depending on the platform.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { ToolLoopAgent } from "ai";

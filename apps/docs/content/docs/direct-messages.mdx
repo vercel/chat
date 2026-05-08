@@ -6,7 +6,7 @@ prerequisites:
   - /docs/usage
 ---
 
-Open direct message conversations with users using `bot.openDM()`. The adapter is automatically inferred from the user ID format.
+Open direct message conversations with users using `bot.openDM()`. For globally recognizable user IDs, the adapter is automatically inferred from the ID format.
 
 ## DM behavior
 
@@ -40,10 +40,19 @@ const dmThread = await bot.openDM("U1234567890"); // Slack
 
 | Format | Platform |
 |--------|----------|
-| `U...` | Slack |
+| `U...` / `W...` | Slack |
 | `29:...` | Teams |
 | `users/...` | Google Chat |
-| Snowflake (numeric) | Discord |
+| Numeric ID | Discord or Telegram |
+
+<Callout type="info">
+  Numeric IDs can be ambiguous when multiple numeric-ID adapters are registered. For platforms whose user IDs are not globally distinguishable, call the adapter directly and wrap the returned thread ID with `bot.thread()`.
+</Callout>
+
+```typescript title="lib/bot.ts"
+const threadId = await bot.getAdapter("whatsapp").openDM("15551234567");
+const dmThread = bot.thread(threadId);
+```
 
 ## Check if a thread is a DM
 

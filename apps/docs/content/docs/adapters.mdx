@@ -19,10 +19,10 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Feature | [Slack](/adapters/slack) | [Teams](/adapters/teams) | [Google Chat](/adapters/google-chat) | [Discord](/adapters/discord) | [Telegram](/adapters/telegram) | [GitHub](/adapters/github) | [Linear](/adapters/linear) | [WhatsApp](/adapters/whatsapp) | [Messenger](/adapters/messenger) |
 |---------|-------|-------|-------------|---------|---------|--------|--------|-----------|-----------|
 | Post message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
-| Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
-| Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
+| Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Partial | <Cross /> | <Cross /> |
+| Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Partial | <Cross /> | <Cross /> |
 | File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file | <Cross /> | <Cross /> | <Check /> Images, audio, docs | <Cross /> |
-| Streaming | <Check /> Native | <Warn /> Native (DMs) / Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Streaming | <Check /> Native | <Warn /> Native (DMs) / Buffered | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Buffered | <Warn /> Agent sessions / Post+Edit | <Warn /> Buffered | <Warn /> Buffered |
 | Scheduled messages | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 
 ### Rich content
@@ -44,12 +44,12 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 |---------|-------|-------|-------------|---------|----------|--------|--------|-----------|-----------|
 | Slash commands | <Check /> | <Cross /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 | Mentions | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> |
-| Add reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
-| Remove reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Warn /> | <Warn /> | <Cross /> | <Cross /> |
-| Typing indicator | <Cross /> | <Check /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Check /> |
+| Add reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
+| Remove reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Warn /> | <Warn /> | <Check /> | <Cross /> |
+| Typing indicator | <Check /> | <Check /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Warn /> Agent sessions | <Cross /> | <Check /> |
 | DMs | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> | <Check /> |
 | Ephemeral messages | <Check /> Native | <Cross /> | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
-| User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> | <Warn /> Cached |
+| User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> | <Cross /> |
 | Parent subject ([`message.subject`](/docs/subject)) | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
 | Native client ([`.client`](/docs/api/chat#getadapter)) | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
 | Custom API endpoint (`apiUrl`) | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
@@ -59,9 +59,9 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp | Messenger |
 |---------|-------|-------|-------------|---------|----------|--------|--------|-----------|-----------|
 | Fetch messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Check /> | <Warn /> Cached sent messages only | <Warn /> Cached sent messages only |
-| Fetch single message | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Warn /> Cached | <Cross /> | <Cross /> | <Warn /> Cached sent messages only | <Warn /> Cached |
-| Fetch thread info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> |
-| Fetch channel messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Cross /> | <Warn /> Cached sent messages only | <Warn /> Cached |
+| Fetch single message | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Warn /> Cached | <Cross /> | <Cross /> | <Cross /> | <Warn /> Cached |
+| Fetch thread info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
+| Fetch channel messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Cross /> | <Cross /> | <Warn /> Cached |
 | List threads | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> |
 | Fetch channel info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> |
 | Post channel message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> | <Check /> |

@@ -148,7 +148,7 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | Yes |
-| Streaming | Native (DMs) / Post+Edit fallback (group chats) |
+| Streaming | Native (DMs) / Buffered fallback (group chats) |
 
 ### Rich content
 

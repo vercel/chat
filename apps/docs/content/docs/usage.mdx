@@ -34,7 +34,7 @@ bot.onNewMention(async (thread) => {
 ```
 
 <Callout type="info">
-  This example uses Redis. Chat SDK also supports [PostgreSQL](/docs/state/postgres) and [ioredis](/docs/state/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
+  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/postgres) and [ioredis](/adapters/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
 </Callout>
 
 Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
@@ -148,7 +148,7 @@ const bot = Chat.getSingleton();
 Open a DM thread with a user by passing their platform user ID or an `Author` object:
 
 ```typescript title="lib/bot.ts" lineNumbers
-const dm = await bot.openDM("slack:U123ABC");
+const dm = await bot.openDM("U123ABC");
 await dm.post("Hey! Just wanted to follow up on your request.");
 ```
 

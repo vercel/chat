@@ -6,7 +6,7 @@ prerequisites:
   - /docs/usage
 ---
 
-Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time streaming of AI responses and other incremental content to chat platforms. For platforms with native streaming support (Slack), you can also stream structured `StreamChunk` objects for rich content like task progress cards and plan updates.
+Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time streaming of AI responses and other incremental content to chat platforms. For platforms with native or structured streaming support, you can also stream `StreamChunk` objects for rich content like task progress cards and plan updates.
 
 ## AI SDK integration
 
@@ -59,10 +59,14 @@ await thread.post(stream);
 | Platform | Method | Description |
 |----------|--------|-------------|
 | Slack | Native streaming API | Uses Slack's `chatStream` for smooth, real-time updates |
-| Teams | Native (DMs) / Post + Edit (group chats) | Uses the Teams SDK's native `stream.emit()` for direct messages; falls back to post+edit in group chats |
+| Teams | Native (DMs) / Buffered (group chats) | Uses the Teams SDK's native `stream.emit()` for direct messages; accumulates chunks and posts one final message when no native streamer is active |
 | Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |
 | Telegram | Post + Edit | Posts a message then edits it as chunks arrive |
+| GitHub | Buffered | Accumulates chunks and posts one final comment |
+| Linear | Agent sessions / Post + Edit | Uses agent session activities in agent-session threads; falls back to post+edit comments in issue threads |
+| WhatsApp | Buffered | Accumulates chunks and sends one final message |
+| Messenger | Buffered | Accumulates chunks and sends one final message |
 
 The post+edit fallback throttles edits to avoid rate limits. Configure the update interval when creating your `Chat` instance:
 
@@ -105,9 +109,9 @@ When streaming content that contains GFM tables (e.g. from an LLM), the SDK auto
 
 This happens transparently — no configuration needed.
 
-## Structured streaming chunks (Slack only)
+## Structured streaming chunks
 
-For Slack's native streaming API, you can yield `StreamChunk` objects alongside plain text for rich content:
+For Slack native streams and Linear agent-session streams, you can yield `StreamChunk` objects alongside plain text for rich progress updates:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import type { StreamChunk } from "chat";
@@ -145,8 +149,8 @@ await thread.post(stream);
 | Type | Fields | Description |
 |------|--------|-------------|
 | `markdown_text` | `text` | Streamed text content |
-| `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress cards (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
-| `plan_update` | `title` | Plan title updates |
+| `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress updates (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
+| `plan_update` | `title` | Plan title updates on supported platforms |
 
 ### Streaming with options
 
@@ -158,7 +162,7 @@ import { StreamingPlan } from "chat";
 const planned = new StreamingPlan(stream, {
   groupTasks: "plan",         // Slack: render task cards as a single grouped block
   endWith: [feedbackBlock],   // Slack: Block Kit elements appended after stream stops
-  updateIntervalMs: 750,      // Fallback mode: post+edit cadence on non-native adapters
+  updateIntervalMs: 750,      // Post+edit cadence on supported adapters
 });
 
 await thread.post(planned);
@@ -168,7 +172,7 @@ await thread.post(planned);
 |--------|----------|-------------|
 | `groupTasks` | Slack | `"timeline"` (default) renders task cards inline; `"plan"` groups them into one plan block |
 | `endWith` | Slack | Block Kit elements attached when the stream stops (e.g. retry / feedback buttons) |
-| `updateIntervalMs` | Fallback adapters (Teams, Google Chat, Telegram) | Minimum interval between post+edit cycles in ms (default `500`) |
+| `updateIntervalMs` | Post+edit adapters | Minimum interval between post+edit cycles in ms (default `500`) |
 
 Adapters without structured chunk support extract text from `markdown_text` chunks and ignore other types. Slack-only options are silently ignored on other platforms.
 
