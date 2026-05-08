@@ -595,7 +595,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   /**
    * Handle streaming from an AsyncIterable.
    * Normalizes the stream (supports both textStream and fullStream from AI SDK),
-   * then uses adapter's native streaming if available, otherwise falls back to post+edit.
+   * then uses the adapter's stream implementation if available, otherwise falls back to post+edit.
    */
   private async handleStream(
     rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
@@ -615,7 +615,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       );
     }
 
-    // Use native streaming if adapter supports it
+    // Use adapter-provided streaming if available.
     if (this.adapter.stream) {
       // Wrap stream to collect accumulated text while passing through to adapter.
       // StreamChunk objects are passed through; only plain strings are accumulated.

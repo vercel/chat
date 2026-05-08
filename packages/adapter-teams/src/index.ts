@@ -1172,7 +1172,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   /**
    * Stream responses using the Teams SDK's native streaming protocol when
-   * an active IStreamer exists (DMs), falling back to post+edit otherwise.
+   * an active IStreamer exists (DMs), falling back to a buffered final message otherwise.
    */
   async stream(
     threadId: string,
