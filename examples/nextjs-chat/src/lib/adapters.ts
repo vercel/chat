@@ -151,15 +151,26 @@ export function buildAdapters(): Adapters {
   }
 
   // Messenger adapter (optional) - env vars: FACEBOOK_APP_SECRET, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_VERIFY_TOKEN
-  if (process.env.FACEBOOK_APP_SECRET) {
-    adapters.messenger = withRecording(
-      createMessengerAdapter({
-        userName: "Chat SDK Bot",
-        logger: logger.child("messenger"),
-      }),
-      "messenger",
-      MESSENGER_METHODS
-    );
+  if (
+    process.env.FACEBOOK_APP_SECRET &&
+    process.env.FACEBOOK_PAGE_ACCESS_TOKEN &&
+    process.env.FACEBOOK_VERIFY_TOKEN
+  ) {
+    try {
+      adapters.messenger = withRecording(
+        createMessengerAdapter({
+          userName: "Chat SDK Bot",
+          logger: logger.child("messenger"),
+        }),
+        "messenger",
+        MESSENGER_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create messenger adapter:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
