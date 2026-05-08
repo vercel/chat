@@ -16,53 +16,53 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 
 ### Messaging
 
-| Feature | [Slack](/adapters/slack) | [Teams](/adapters/teams) | [Google Chat](/adapters/google-chat) | [Discord](/adapters/discord) | [Telegram](/adapters/telegram) | [GitHub](/adapters/github) | [Linear](/adapters/linear) | [WhatsApp](/adapters/whatsapp) |
-|---------|-------|-------|-------------|---------|---------|--------|--------|-----------|
-| Post message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
-| Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
-| Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
-| File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file | <Cross /> | <Cross /> | <Check /> Images, audio, docs |
-| Streaming | <Check /> Native | <Warn /> Native (DMs) / Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Cross /> | <Cross /> | <Cross /> |
-| Scheduled messages | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Feature | [Slack](/adapters/slack) | [Teams](/adapters/teams) | [Google Chat](/adapters/google-chat) | [Discord](/adapters/discord) | [Telegram](/adapters/telegram) | [GitHub](/adapters/github) | [Linear](/adapters/linear) | [WhatsApp](/adapters/whatsapp) | [Messenger](/adapters/messenger) |
+|---------|-------|-------|-------------|---------|---------|--------|--------|-----------|-----------|
+| Post message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
+| Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
+| Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
+| File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file | <Cross /> | <Cross /> | <Check /> Images, audio, docs | <Cross /> |
+| Streaming | <Check /> Native | <Warn /> Native (DMs) / Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Scheduled messages | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 
 ### Rich content
 
-| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
-|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
-| Card format | Block Kit | Adaptive Cards | Google Chat Cards | Embeds | Markdown + inline keyboard buttons | GFM Markdown | Markdown | WhatsApp templates |
-| Buttons | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Inline keyboard callbacks | <Cross /> | <Cross /> | <Check /> Interactive replies |
-| Link buttons | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Inline keyboard URLs | <Cross /> | <Cross /> | <Cross /> |
-| Select menus | <Check /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
-| Tables | <Check /> Block Kit | <Check /> GFM | <Warn /> ASCII | <Check /> GFM | <Warn /> ASCII | <Check /> GFM | <Check /> GFM | <Cross /> |
-| Fields | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Template variables |
-| Images in cards | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> | <Cross /> | <Check /> |
-| Modals | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp | Messenger |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|-----------|
+| Card format | Block Kit | Adaptive Cards | Google Chat Cards | Embeds | Markdown + inline keyboard buttons | GFM Markdown | Markdown | WhatsApp templates | Generic/Button Templates |
+| Buttons | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Inline keyboard callbacks | <Cross /> | <Cross /> | <Check /> Interactive replies | <Warn /> Max 3, postback |
+| Link buttons | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Inline keyboard URLs | <Cross /> | <Cross /> | <Cross /> | <Check /> |
+| Select menus | <Check /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Tables | <Check /> Block Kit | <Check /> GFM | <Warn /> ASCII | <Check /> GFM | <Warn /> ASCII | <Check /> GFM | <Check /> GFM | <Cross /> | <Warn /> ASCII |
+| Fields | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Template variables | <Warn /> ASCII |
+| Images in cards | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> | <Cross /> | <Check /> | <Check /> |
+| Modals | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 
 ### Conversations
 
-| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
-|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
-| Slash commands | <Check /> | <Cross /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
-| Mentions | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
-| Add reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
-| Remove reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Warn /> | <Warn /> | <Cross /> |
-| Typing indicator | <Cross /> | <Check /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> |
-| DMs | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> |
-| Ephemeral messages | <Check /> Native | <Cross /> | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
-| User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> |
-| Custom API endpoint (`apiUrl`) | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp | Messenger |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|-----------|
+| Slash commands | <Check /> | <Cross /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| Mentions | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> |
+| Add reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
+| Remove reactions | <Check /> | <Cross /> | <Check /> | <Check /> | <Check /> | <Warn /> | <Warn /> | <Cross /> | <Cross /> |
+| Typing indicator | <Cross /> | <Check /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Check /> |
+| DMs | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> | <Check /> |
+| Ephemeral messages | <Check /> Native | <Cross /> | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
+| User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> | <Warn /> Cached |
+| Custom API endpoint (`apiUrl`) | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
 
 ### Message history
 
-| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp |
-|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|
-| Fetch messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Check /> | <Warn /> Cached sent messages only |
-| Fetch single message | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Warn /> Cached | <Cross /> | <Cross /> | <Warn /> Cached sent messages only |
-| Fetch thread info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> |
-| Fetch channel messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Cross /> | <Warn /> Cached sent messages only |
-| List threads | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> | <Cross /> | <Cross /> |
-| Fetch channel info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
-| Post channel message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> |
+| Feature | Slack | Teams | Google Chat | Discord | Telegram | GitHub | Linear | WhatsApp | Messenger |
+|---------|-------|-------|-------------|---------|----------|--------|--------|-----------|-----------|
+| Fetch messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Check /> | <Warn /> Cached sent messages only | <Warn /> Cached sent messages only |
+| Fetch single message | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Warn /> Cached | <Cross /> | <Cross /> | <Warn /> Cached sent messages only | <Warn /> Cached |
+| Fetch thread info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> |
+| Fetch channel messages | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Cached | <Check /> | <Cross /> | <Warn /> Cached sent messages only | <Warn /> Cached |
+| List threads | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Check /> | <Cross /> | <Cross /> | <Cross /> |
+| Fetch channel info | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> |
+| Post channel message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Cross /> | <Cross /> | <Check /> | <Check /> |
 
 <Callout type="info">
 <Warn /> indicates partial support — the feature works with limitations. See individual adapter pages for details.

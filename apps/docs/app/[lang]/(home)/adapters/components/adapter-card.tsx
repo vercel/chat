@@ -15,6 +15,7 @@ import {
   ioredis,
   linear,
   memory,
+  messenger,
   postgres,
   redis,
   slack,
@@ -41,6 +42,7 @@ const iconMap: Record<
   postgres,
   memory,
   whatsapp,
+  messenger,
 };
 
 interface AdapterCardProps {
