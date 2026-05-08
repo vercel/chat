@@ -129,6 +129,22 @@ bot.onNewMention(async (thread, message) => {
 - PAT mode returns `undefined`.
 - Multi-tenant mode only succeeds after the adapter has received a webhook for that repository and cached the installation mapping. Use a persistent state adapter so the mapping survives restarts.
 
+## Direct API client
+
+For anything beyond the unified SDK, access the underlying [Octokit](https://github.com/octokit/octokit.js) instance via `.client`:
+
+```typescript
+const github = bot.getAdapter("github").client;
+
+const { data: pulls } = await github.rest.pulls.list({
+  owner: "vercel",
+  repo: "chat",
+  state: "open",
+});
+```
+
+PAT and single-tenant GitHub App modes (with a fixed `installationId`) return the same client anywhere. Multi-tenant mode requires webhook handler context to resolve the right installation — calling `.client` outside a handler throws.
+
 ## Webhook setup
 
 For repository or organization webhooks:

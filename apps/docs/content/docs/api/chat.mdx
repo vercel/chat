@@ -464,11 +464,41 @@ bot.webhooks.teams(request, { waitUntil });
 
 ### getAdapter
 
-Get an adapter instance by name.
+Get a typed adapter instance by name.
 
 ```typescript
 const slack = bot.getAdapter("slack");
 ```
+
+#### Direct client access
+
+Use `.client` to access the platform's typed native API client directly — available on Linear and GitHub:
+
+```typescript
+// Linear - full LinearClient from @linear/sdk
+const linear = bot.getAdapter("linear").client;
+const issue = await linear.issue("ENG-123");
+const project = await issue.project;
+
+// GitHub - full Octokit from @octokit/rest
+const github = bot.getAdapter("github").client;
+const { data: pulls } = await github.rest.pulls.list({
+  owner: "vercel",
+  repo: "chat",
+  state: "open",
+});
+```
+
+The client uses the credentials from your adapter config. For multi-tenant adapters (Linear, GitHub), it returns the client for the current webhook request context.
+
+<Callout type="warn">
+  For multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth), `client` requires webhook handler context to resolve credentials. Calling it outside a handler throws. Single-tenant adapters (PAT, API key) work anywhere.
+</Callout>
+
+| Adapter | `client` type |
+|---------|---------------|
+| Linear | `LinearClient` from `@linear/sdk` |
+| GitHub | `Octokit` from `@octokit/rest` |
 
 ### openDM
 

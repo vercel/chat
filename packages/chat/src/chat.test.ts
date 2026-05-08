@@ -49,6 +49,27 @@ describe("Chat", () => {
     expect(mockState.connect).toHaveBeenCalled();
   });
 
+  it("should return adapter by name", () => {
+    expect(chat.getAdapter("slack")).toBe(mockAdapter);
+  });
+
+  it("should wire adapter on message for subject access", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMention(handler);
+
+    const message = createTestMessage("msg-subject", "Hey @slack-bot test");
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      message
+    );
+
+    expect(handler).toHaveBeenCalled();
+    const receivedMessage = handler.mock.calls[0][1];
+    expect(receivedMessage.subject).toBeDefined();
+    expect(await receivedMessage.subject).toBeNull();
+  });
+
   it("should disconnect adapters during shutdown", async () => {
     await chat.shutdown();
 
@@ -2995,6 +3016,70 @@ describe("Chat", () => {
         url: "https://example.com/f.pdf",
       });
       expect(queuedAttachments[0].fetchData).toBeUndefined();
+    });
+  });
+
+  describe("concurrency: queue subject rehydration", () => {
+    it("should wire adapter on queued message so fetchSubject works after JSON roundtrip", async () => {
+      const state = createMockState();
+      const realEnqueue = state.enqueue.getMockImplementation();
+      if (!realEnqueue) {
+        throw new Error("Expected enqueue mock");
+      }
+      vi.mocked(state.enqueue).mockImplementation(
+        async (threadId, entry, maxSize) => {
+          const serialized = JSON.parse(JSON.stringify(entry));
+          return realEnqueue(threadId, serialized, maxSize);
+        }
+      );
+
+      const adapter = createMockAdapter("slack");
+      const mockSubject = {
+        type: "issue",
+        id: "ENG-1",
+        title: "Queue test",
+        raw: {},
+      };
+      adapter.fetchSubject = vi.fn().mockResolvedValue(mockSubject);
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      let receivedSubject: unknown = "not-called";
+      queueChat.onNewMention(
+        vi.fn().mockImplementation(async (_thread, message) => {
+          receivedSubject = await message.subject;
+        })
+      );
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      const msg = createTestMessage("msg-sub-q", "Hey @slack-bot test");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        msg
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      const trigger = createTestMessage("msg-sub-trigger", "Hey @slack-bot go");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        trigger
+      );
+
+      expect(receivedSubject).toEqual(mockSubject);
+      expect(adapter.fetchSubject).toHaveBeenCalledTimes(2);
     });
   });
 

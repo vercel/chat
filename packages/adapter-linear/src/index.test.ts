@@ -3905,3 +3905,155 @@ describe("getUser", () => {
     expect(user?.avatarUrl).toBeUndefined();
   });
 });
+
+describe("fetchSubject", () => {
+  it("should return issue data from a comment raw message", async () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_test",
+      webhookSecret: "test-secret",
+    });
+
+    const mockIssue = {
+      id: "issue-uuid",
+      identifier: "ENG-123",
+      title: "Fix login bug",
+      description: "Users cannot log in",
+      url: "https://linear.app/team/ENG-123",
+      state: Promise.resolve({ name: "In Progress" }),
+      assignee: Promise.resolve({
+        id: "user-1",
+        displayName: "Alice",
+      }),
+      labels: () =>
+        Promise.resolve({ nodes: [{ name: "bug" }, { name: "urgent" }] }),
+    };
+
+    const mockClient = { issue: vi.fn().mockResolvedValue(mockIssue) };
+    (adapter as unknown as { defaultClient: unknown }).defaultClient =
+      mockClient;
+
+    const raw = {
+      kind: "comment" as const,
+      comment: {
+        id: "comment-1",
+        body: "test",
+        issueId: "issue-uuid",
+        parentId: undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        url: undefined,
+        user: {
+          type: "user" as const,
+          id: "user-1",
+          displayName: "Alice",
+          fullName: "Alice Smith",
+          email: undefined,
+          avatarUrl: undefined,
+        },
+      },
+      organizationId: "org-1",
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("issue");
+    expect(result?.id).toBe("ENG-123");
+    expect(result?.title).toBe("Fix login bug");
+    expect(result?.status).toBe("In Progress");
+    expect(result?.labels).toEqual(["bug", "urgent"]);
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-uuid");
+  });
+
+  it("should return null when raw has no issueId", async () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_test",
+      webhookSecret: "test-secret",
+    });
+
+    const raw = {
+      kind: "comment" as const,
+      comment: {
+        id: "comment-1",
+        body: "test",
+        issueId: undefined,
+      },
+      organizationId: "org-1",
+    };
+
+    const result = await adapter.fetchSubject(raw as unknown);
+    expect(result).toBeNull();
+  });
+
+  it("should return issue data from an agent_session_comment raw message", async () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_test",
+      webhookSecret: "test-secret",
+    });
+
+    const mockIssue = {
+      id: "issue-uuid",
+      identifier: "ENG-456",
+      title: "Agent session issue",
+      description: null,
+      url: "https://linear.app/team/ENG-456",
+      state: Promise.resolve({ name: "Started" }),
+      assignee: Promise.resolve(null),
+      labels: () => Promise.resolve({ nodes: [] }),
+    };
+
+    const mockClient = { issue: vi.fn().mockResolvedValue(mockIssue) };
+    (adapter as unknown as { defaultClient: unknown }).defaultClient =
+      mockClient;
+
+    const raw = {
+      kind: "agent_session_comment" as const,
+      agentSessionId: "session-1",
+      comment: {
+        id: "comment-2",
+        body: "agent response",
+        issueId: "issue-uuid",
+        parentId: undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        url: undefined,
+        user: {
+          type: "user" as const,
+          id: "user-1",
+          displayName: "Alice",
+          fullName: "Alice Smith",
+          email: undefined,
+          avatarUrl: undefined,
+        },
+      },
+      organizationId: "org-1",
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("issue");
+    expect(result?.id).toBe("ENG-456");
+    expect(mockClient.issue).toHaveBeenCalledWith("issue-uuid");
+  });
+
+  it("should return null on API error", async () => {
+    const adapter = createLinearAdapter({
+      apiKey: "lin_api_test",
+      webhookSecret: "test-secret",
+    });
+
+    const mockClient = {
+      issue: vi.fn().mockRejectedValue(new Error("API error")),
+    };
+    (adapter as unknown as { defaultClient: unknown }).defaultClient =
+      mockClient;
+
+    const raw = {
+      kind: "comment" as const,
+      comment: { id: "c-1", body: "test", issueId: "issue-1" },
+      organizationId: "org-1",
+    };
+
+    const result = await adapter.fetchSubject(raw as unknown);
+    expect(result).toBeNull();
+  });
+});

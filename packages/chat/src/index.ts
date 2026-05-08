@@ -348,6 +348,7 @@ export type {
   MessageContext,
   MessageHandler,
   MessageMetadata,
+  MessageSubject,
   ModalClearResponse,
   ModalCloseEvent,
   ModalCloseHandler,

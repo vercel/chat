@@ -26,6 +26,7 @@ import type {
   FetchResult,
   FormattedContent,
   Logger,
+  MessageSubject,
   RawMessage,
   StreamChunk,
   StreamOptions,
@@ -159,6 +160,10 @@ export class LinearAdapter
 {
   readonly name = "linear";
   readonly userName: string;
+
+  get client(): LinearClient {
+    return this.getClient();
+  }
 
   private readonly mode: LinearAdapterMode;
   private readonly webhookSecret: string;
@@ -2055,6 +2060,39 @@ export class LinearAdapter
     };
 
     return mapping[emojiName] || emojiName;
+  }
+
+  async fetchSubject(raw: LinearRawMessage): Promise<MessageSubject | null> {
+    const linearRaw = raw;
+    const issueId = linearRaw.comment?.issueId;
+    if (!issueId) {
+      return null;
+    }
+
+    try {
+      await this.ensureValidToken();
+      const issue = await this.getClient().issue(issueId);
+      const state = await issue.state;
+      const assignee = await issue.assignee;
+      const labelsConnection = await issue.labels();
+
+      return {
+        type: "issue",
+        id: issue.identifier,
+        title: issue.title,
+        description: issue.description ?? undefined,
+        status: state?.name,
+        url: issue.url,
+        assignee: assignee
+          ? { id: assignee.id, name: assignee.displayName }
+          : undefined,
+        labels: labelsConnection.nodes.map((l) => l.name),
+        raw: issue,
+      };
+    } catch (error) {
+      this.logger.debug("Failed to fetch subject", { issueId, error });
+      return null;
+    }
   }
 }
 

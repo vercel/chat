@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { extractCard, ValidationError } from "@chat-adapter/shared";
 import { createAppAuth } from "@octokit/auth-app";
@@ -15,6 +16,7 @@ import type {
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
+  MessageSubject,
   RawMessage,
   StreamChunk,
   StreamOptions,
@@ -104,6 +106,17 @@ export class GitHubAdapter
 {
   readonly name = "github";
   readonly userName: string;
+
+  private readonly requestContext = new AsyncLocalStorage<{
+    installationId?: number;
+  }>();
+
+  get client(): Octokit {
+    const ctx = this.requestContext.getStore();
+    return this.getOctokit(
+      ctx?.installationId ?? this.fixedInstallationId ?? undefined
+    );
+  }
 
   // Single Octokit instance for PAT or single-tenant app mode
   private readonly octokit: Octokit | null = null;
@@ -514,15 +527,20 @@ export class GitHubAdapter
     }
 
     // Handle events
+    const ctx = { installationId };
     if (eventType === "issue_comment") {
       const issuePayload = payload as IssueCommentWebhookPayload;
       if (issuePayload.action === "created") {
-        this.handleIssueComment(issuePayload, installationId, options);
+        this.requestContext.run(ctx, () => {
+          this.handleIssueComment(issuePayload, installationId, options);
+        });
       }
     } else if (eventType === "pull_request_review_comment") {
       const reviewPayload = payload as PullRequestReviewCommentWebhookPayload;
       if (reviewPayload.action === "created") {
-        this.handleReviewComment(reviewPayload, installationId, options);
+        this.requestContext.run(ctx, () => {
+          this.handleReviewComment(reviewPayload, installationId, options);
+        });
       }
     }
 
@@ -1475,6 +1493,80 @@ export class GitHubAdapter
    */
   renderFormatted(content: FormattedContent): string {
     return this.formatConverter.fromAst(content);
+  }
+
+  async fetchSubject(raw: GitHubRawMessage): Promise<MessageSubject | null> {
+    const githubRaw = raw;
+    const { repository, prNumber } = githubRaw;
+    const [owner, repo] = repository.full_name.split("/");
+    const isIssue =
+      githubRaw.type === "issue_comment" && githubRaw.threadType === "issue";
+
+    try {
+      const octokit = this.client;
+
+      if (isIssue) {
+        const { data } = await octokit.rest.issues.get({
+          owner,
+          repo,
+          issue_number: prNumber,
+        });
+        return {
+          type: "issue",
+          id: String(data.number),
+          title: data.title,
+          description: data.body ?? undefined,
+          status: data.state,
+          url: data.html_url,
+          author: data.user
+            ? { id: String(data.user.id), name: data.user.login }
+            : undefined,
+          assignee: data.assignees?.[0]
+            ? {
+                id: String(data.assignees[0].id),
+                name: data.assignees[0].login,
+              }
+            : undefined,
+          labels: data.labels
+            ?.map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+            .filter(Boolean),
+          raw: data,
+        };
+      }
+
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      return {
+        type: "pull_request",
+        id: String(data.number),
+        title: data.title,
+        description: data.body ?? undefined,
+        status: data.state,
+        url: data.html_url,
+        author: data.user
+          ? { id: String(data.user.id), name: data.user.login }
+          : undefined,
+        assignee: data.assignees?.[0]
+          ? {
+              id: String(data.assignees[0].id),
+              name: data.assignees[0].login,
+            }
+          : undefined,
+        labels: data.labels?.map((l) => l.name ?? "").filter(Boolean),
+        raw: data,
+      };
+    } catch (error) {
+      this.logger.debug("Failed to fetch subject", {
+        owner,
+        repo,
+        number: prNumber,
+        error,
+      });
+      return null;
+    }
   }
 }
 

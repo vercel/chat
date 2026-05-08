@@ -5,7 +5,7 @@ import {
   setChatSingleton,
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
-import { Message, type SerializedMessage } from "./message";
+import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
 import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
@@ -1892,6 +1892,8 @@ export class Chat<
     threadId: string,
     message: Message
   ): Promise<void> {
+    setMessageAdapter(message, adapter);
+
     this.logger.debug("Incoming message", {
       adapter: adapter.name,
       threadId,
@@ -2520,6 +2522,9 @@ export class Chat<
     adapter?: Adapter
   ): Message {
     if (raw instanceof Message) {
+      if (adapter) {
+        setMessageAdapter(raw, adapter);
+      }
       return raw;
     }
     // After JSON roundtrip, Message.toJSON() was called during stringify,
@@ -2557,6 +2562,10 @@ export class Chat<
         isMention: obj.isMention as boolean | undefined,
         links: (obj.links as LinkPreview[] | undefined) ?? [],
       });
+    }
+
+    if (adapter) {
+      setMessageAdapter(msg, adapter);
     }
 
     const rehydrate = adapter?.rehydrateAttachment?.bind(adapter);
