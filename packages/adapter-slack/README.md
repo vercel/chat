@@ -62,7 +62,7 @@ If both `signingSecret` and `webhookVerifier` are set, `signingSecret` wins. Whe
 
 ## Multi-workspace mode
 
-For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks.
+For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks — or `enterprise_id` for Enterprise Grid org-wide installs (`is_enterprise_install: true`).
 
 When you pass any auth-related config (like `clientId`), the adapter won't fall back to env vars for other auth fields, preventing accidental mixing of auth modes.
 
@@ -130,6 +130,26 @@ openssl rand -base64 32
 ```
 
 When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts it transparently.
+
+### External installation provider
+
+For deployments that manage Slack tokens in an external system (e.g. Vercel Connect), pass `installationProvider` to bypass the internal state adapter when resolving tokens for incoming webhooks:
+
+```typescript
+createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+  installationProvider: {
+    getInstallation: async (installationId, isEnterpriseInstall) => {
+      // installationId is enterprise_id when isEnterpriseInstall is true,
+      // otherwise team_id. Return null if not found.
+      return await myTokenStore.lookup(installationId, isEnterpriseInstall);
+    },
+  },
+});
+```
+
+When configured, the provider's `getInstallation` is called for every webhook event, slash command, and interactive payload. It is read-only — the adapter's `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` continue to write to the internal state adapter, so callers using a provider should manage their own writes through their external system.
 
 ## Socket mode
 
@@ -304,7 +324,8 @@ All options are auto-detected from environment variables when not provided. You 
 | `clientId` | No | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID` |
 | `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
-| `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
+| `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
+| `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
 | `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
