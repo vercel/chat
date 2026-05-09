@@ -106,6 +106,7 @@
     "gchat": "GoogleChat",
     "github": "GitHub",
     "ioredis": "IoRedis",
-    "pg": "Postgres"
+    "pg": "Postgres",
+    "whatsapp": "WhatsApp"
   }
 }

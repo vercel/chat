@@ -135,7 +135,16 @@ export class WhatsAppAdapter
     return this._botUserId ?? undefined;
   }
 
-  constructor(config: WhatsAppAdapterConfig) {
+  constructor(
+    config: WhatsAppAdapterConfig & {
+      accessToken: string;
+      appSecret: string;
+      logger: Logger;
+      phoneNumberId: string;
+      userName: string;
+      verifyToken: string;
+    }
+  ) {
     this.accessToken = config.accessToken;
     this.appSecret = config.appSecret;
     this.phoneNumberId = config.phoneNumberId;
@@ -1188,16 +1197,9 @@ export class WhatsAppAdapter
  * });
  * ```
  */
-export function createWhatsAppAdapter(config?: {
-  accessToken?: string;
-  apiUrl?: string;
-  apiVersion?: string;
-  appSecret?: string;
-  logger?: Logger;
-  phoneNumberId?: string;
-  userName?: string;
-  verifyToken?: string;
-}): WhatsAppAdapter {
+export function createWhatsAppAdapter(
+  config?: WhatsAppAdapterConfig
+): WhatsAppAdapter {
   const logger = config?.logger ?? new ConsoleLogger("info").child("whatsapp");
 
   const accessToken = config?.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN;
