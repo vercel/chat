@@ -2173,6 +2173,214 @@ describe("installationProvider", () => {
       true
     );
   });
+
+  it("rehydrateAttachment uses installationProvider for token resolution", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-rehydrate-token",
+        botUserId: "U_BOT_REHYDRATE",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new ArrayBuffer(8), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: {
+          url: "https://files.slack.com/img.png",
+          teamId: "T_REHYDRATE",
+        },
+      });
+
+      expect(rehydrated.fetchData).toBeDefined();
+      await rehydrated.fetchData?.();
+
+      expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+        "T_REHYDRATE",
+        false
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://files.slack.com/img.png",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer xoxb-rehydrate-token" },
+        })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rehydrateAttachment uses enterprise_id when isEnterpriseInstall is true", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-ent-rehydrate-token",
+        botUserId: "U_BOT_ENT_REHYDRATE",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new ArrayBuffer(8), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "image",
+        url: "https://files.slack.com/img.png",
+        fetchMetadata: {
+          url: "https://files.slack.com/img.png",
+          teamId: "T_WORKSPACE",
+          enterpriseId: "E_ORG",
+          isEnterpriseInstall: "true",
+        },
+      });
+
+      await rehydrated.fetchData?.();
+
+      expect(mockProvider.getInstallation).toHaveBeenCalledWith("E_ORG", true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://files.slack.com/img.png",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer xoxb-ent-rehydrate-token" },
+        })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rehydrateAttachment throws when installationProvider returns null", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue(null),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url: "https://files.slack.com/img.png",
+      fetchMetadata: {
+        url: "https://files.slack.com/img.png",
+        teamId: "T_MISSING",
+      },
+    });
+
+    await expect(rehydrated.fetchData?.()).rejects.toThrow(
+      "Installation not found for team T_MISSING"
+    );
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_MISSING",
+      false
+    );
+  });
+
+  it("event_callback with file attachment captures Enterprise Grid metadata", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-ent-event-token",
+        botUserId: "U_BOT_ENT_EVENT",
+      }),
+    };
+
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+
+    // Invoke the factory while still inside the AsyncLocalStorage frame so
+    // createAttachment can read the per-request enterprise context. The
+    // capture happens during processMessage, before run() returns.
+    let dispatched:
+      | { attachments?: Array<{ fetchMetadata?: Record<string, string> }> }
+      | undefined;
+    (
+      chatInstance.processMessage as ReturnType<typeof vi.fn>
+    ).mockImplementation(async (_adapter, _threadId, factory) => {
+      dispatched = await factory();
+    });
+
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_ENT_WORKSPACE",
+      enterprise_id: "E_ENT_FILE_ORG",
+      is_enterprise_install: true,
+      event: {
+        type: "message",
+        channel: "C_TEST",
+        user: "U_USER",
+        // username present so parseSlackMessage skips the user-lookup API call
+        username: "testuser",
+        text: "with file",
+        ts: "1234567890.123456",
+        files: [
+          {
+            id: "F1",
+            mimetype: "image/png",
+            url_private: "https://files.slack.com/captured.png",
+            name: "captured.png",
+          },
+        ],
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+    // Let the queued processMessage Promise settle.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const attachment = dispatched?.attachments?.[0];
+    expect(attachment?.fetchMetadata).toEqual(
+      expect.objectContaining({
+        url: "https://files.slack.com/captured.png",
+        teamId: "T_ENT_WORKSPACE",
+        enterpriseId: "E_ENT_FILE_ORG",
+        isEnterpriseInstall: "true",
+      })
+    );
+  });
 });
 
 // ============================================================================
