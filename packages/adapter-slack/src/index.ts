@@ -885,7 +885,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     isEnterpriseInstall = false
   ): Promise<{ token: string; botUserId?: string } | null> {
     try {
-      // Check external installation provider first (e.g., Connex)
+      // Check external installation provider first (e.g., Vercel Connect)
       if (this.installationProvider) {
         const installation = await this.installationProvider.getInstallation(
           installationId,
