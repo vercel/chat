@@ -2,16 +2,17 @@ import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
 import pg from "pg";
 
-export interface PostgresStateAdapterOptions {
+export interface PostgresStateAdapterUrlOptions {
+  client?: never;
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger?: Logger;
-  /** Postgres connection URL */
-  url: string;
+  /** Postgres connection URL. Defaults to POSTGRES_URL or DATABASE_URL env var. */
+  url?: string;
 }
 
-export interface PostgresStateClientOptions {
+export interface PostgresStateAdapterClientOptions {
   /** Existing pg.Pool instance */
   client: pg.Pool;
   /** Key prefix for all rows (default: "chat-sdk") */
@@ -20,11 +21,21 @@ export interface PostgresStateClientOptions {
   logger?: Logger;
 }
 
-export type CreatePostgresStateOptions =
-  | (Partial<PostgresStateAdapterOptions> & { client?: never })
-  | (Partial<Omit<PostgresStateClientOptions, "client">> & {
-      client: pg.Pool;
-    });
+export type PostgresStateAdapterOptions =
+  | PostgresStateAdapterUrlOptions
+  | PostgresStateAdapterClientOptions;
+
+/**
+ * @deprecated Use `PostgresStateAdapterClientOptions`. Renamed for consistency
+ * with the rest of the state adapter packages.
+ */
+export type PostgresStateClientOptions = PostgresStateAdapterClientOptions;
+
+/**
+ * @deprecated Use `PostgresStateAdapterOptions`. Renamed for consistency with
+ * the rest of the state adapter packages.
+ */
+export type CreatePostgresStateOptions = PostgresStateAdapterOptions;
 
 export class PostgresStateAdapter implements StateAdapter {
   private readonly pool: pg.Pool;
@@ -34,14 +45,18 @@ export class PostgresStateAdapter implements StateAdapter {
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
-  constructor(
-    options: PostgresStateAdapterOptions | PostgresStateClientOptions
-  ) {
-    if ("client" in options) {
+  constructor(options: PostgresStateAdapterOptions) {
+    if ("client" in options && options.client) {
       this.pool = options.client;
       this.ownsClient = false;
     } else {
-      this.pool = new pg.Pool({ connectionString: options.url });
+      const url = options.url;
+      if (!url) {
+        throw new Error(
+          "Postgres url is required. Set POSTGRES_URL or DATABASE_URL, or provide it in options."
+        );
+      }
+      this.pool = new pg.Pool({ connectionString: url });
       this.ownsClient = true;
     }
 
@@ -508,18 +523,15 @@ function generateToken(): string {
 }
 
 export function createPostgresState(
-  options: CreatePostgresStateOptions = {}
+  options: PostgresStateAdapterOptions = {}
 ): PostgresStateAdapter {
   if ("client" in options && options.client) {
-    return new PostgresStateAdapter({
-      client: options.client,
-      keyPrefix: options.keyPrefix,
-      logger: options.logger,
-    });
+    return new PostgresStateAdapter(options);
   }
 
+  const urlOptions = options as PostgresStateAdapterUrlOptions;
   const url =
-    options.url || process.env.POSTGRES_URL || process.env.DATABASE_URL;
+    urlOptions.url || process.env.POSTGRES_URL || process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
       "Postgres url is required. Set POSTGRES_URL or DATABASE_URL, or provide it in options."
