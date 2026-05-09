@@ -5055,6 +5055,7 @@ export function createSlackAdapter(
 
   const resolved: SlackAdapterConfig = {
     appToken,
+    apiUrl: config?.apiUrl,
     mode,
     signingSecret,
     botToken:
