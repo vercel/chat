@@ -65,9 +65,16 @@ import {
 
 | Matcher | Asserts |
 |---|---|
-| `expect(adapter).toHavePosted(threadId, textPattern?)` | `adapter.postMessage` was called for this thread (and message text matches `textPattern` if given) |
+| `expect(adapter).toHavePosted(threadId, textPattern?)` | `adapter.postMessage` was called for this thread |
+| `expect(adapter).toHaveEdited(threadId, messageId, textPattern?)` | `adapter.editMessage` was called for this message |
+| `expect(adapter).toHaveDeleted(threadId, messageId)` | `adapter.deleteMessage` was called for this message |
+| `expect(adapter).toHaveReactedWith(threadId, messageId, emoji)` | `adapter.addReaction` was called with the emoji (string or `EmojiValue.name`) |
+| `expect(adapter).toHaveStartedTyping(threadId)` | `adapter.startTyping` was called for this thread |
+| `expect(adapter).toHavePostedToChannel(channelId, textPattern?)` | `adapter.postChannelMessage` was called for this channel |
 | `expect(chat).toHaveDispatched(handler)` | The named `process*` handler on the mock `ChatInstance` was called |
 | `expect(state).toBeSubscribedTo(threadId)` | `state.isSubscribed(threadId)` resolves to `true` (async — `await expect(...)`) |
+
+Text-pattern matchers extract a comparable string from `AdapterPostableMessage` — strings directly, `PostableMarkdown.markdown`, `PostableRaw.raw`, and `PostableCard.fallbackText`. AST-shaped messages and cards without `fallbackText` aren't text-matchable; assert without `textPattern` and inspect `mock.calls` directly.
 
 ## Bot authors: test your handlers
 

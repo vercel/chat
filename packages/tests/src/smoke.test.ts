@@ -7,13 +7,14 @@
  * matcher's assumptions are validated against actual SDK behavior.
  */
 import { Chat } from "chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, type vi } from "vitest";
 import { createMockAdapter, createMockState, mockLogger } from "./factories";
 import { matchers } from "./matchers";
 
 expect.extend(matchers);
 
 const HELLO = /hello/;
+const CHANNEL = /channel/;
 
 function setup() {
   const slack = createMockAdapter("slack");
@@ -58,5 +59,58 @@ describe("smoke: matchers against a real Chat", () => {
 
     await thread.unsubscribe();
     await expect(state).not.toBeSubscribedTo("slack:C123:1234.5678");
+  });
+
+  it("toHaveStartedTyping fires when Chat.thread().startTyping() routes through adapter.startTyping", async () => {
+    const { slack, chat } = setup();
+    await chat.webhooks.slack(
+      new Request("https://example.com/webhook", { method: "POST" })
+    );
+
+    const thread = chat.thread("slack:C123:1234.5678");
+    await thread.startTyping();
+
+    expect(slack).toHaveStartedTyping("slack:C123:1234.5678");
+    expect(slack).not.toHaveStartedTyping("slack:C123:other");
+  });
+
+  it("toHaveEdited / toHaveDeleted / toHaveReactedWith fire after Chat.thread().post().edit()/.delete()/.addReaction()", async () => {
+    const { slack, chat } = setup();
+    // Make postMessage return a stable id so the SentMessage handle reuses it.
+    (slack.postMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "msg-1",
+      threadId: "slack:C123:1234.5678",
+      raw: {},
+    });
+    await chat.webhooks.slack(
+      new Request("https://example.com/webhook", { method: "POST" })
+    );
+
+    const thread = chat.thread("slack:C123:1234.5678");
+    const sent = await thread.post("hello");
+    await sent.edit("updated");
+    await sent.addReaction("thumbsup");
+    await sent.delete();
+
+    expect(slack).toHaveEdited("slack:C123:1234.5678", "msg-1", "updated");
+    expect(slack).toHaveReactedWith(
+      "slack:C123:1234.5678",
+      "msg-1",
+      "thumbsup"
+    );
+    expect(slack).toHaveDeleted("slack:C123:1234.5678", "msg-1");
+  });
+
+  it("toHavePostedToChannel fires when Chat.channel().post() routes through adapter.postChannelMessage", async () => {
+    const { slack, chat } = setup();
+    await chat.webhooks.slack(
+      new Request("https://example.com/webhook", { method: "POST" })
+    );
+
+    const channel = chat.channel("slack:C123");
+    await channel.post("channel hello");
+
+    expect(slack).toHavePostedToChannel("slack:C123");
+    expect(slack).toHavePostedToChannel("slack:C123", CHANNEL);
   });
 });

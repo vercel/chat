@@ -87,14 +87,26 @@ expect.extend(matchers);
 | Matcher | Asserts |
 |---------|---------|
 | `expect(adapter).toHavePosted(threadId, textPattern?)` | `adapter.postMessage` was called for this thread (and message text matches `textPattern` if given) |
+| `expect(adapter).toHaveEdited(threadId, messageId, textPattern?)` | `adapter.editMessage` was called for this message (and text matches `textPattern` if given) |
+| `expect(adapter).toHaveDeleted(threadId, messageId)` | `adapter.deleteMessage` was called for this message |
+| `expect(adapter).toHaveReactedWith(threadId, messageId, emoji)` | `adapter.addReaction` was called with the emoji (string or `EmojiValue.name`) |
+| `expect(adapter).toHaveStartedTyping(threadId)` | `adapter.startTyping` was called for this thread |
+| `expect(adapter).toHavePostedToChannel(channelId, textPattern?)` | `adapter.postChannelMessage` was called for this channel |
 | `expect(chat).toHaveDispatched(handler)` | The named `process*` handler on the mock `ChatInstance` was called |
 | `expect(state).toBeSubscribedTo(threadId)` | `state.isSubscribed(threadId)` resolves to `true` (async — needs `await`) |
 
 ```typescript
 expect(adapter).toHavePosted("slack:C1:t1", /hello/);
+expect(adapter).toHaveEdited("slack:C1:t1", "msg-1", /updated/);
+expect(adapter).toHaveDeleted("slack:C1:t1", "msg-1");
+expect(adapter).toHaveReactedWith("slack:C1:t1", "msg-1", "thumbsup");
+expect(adapter).toHaveStartedTyping("slack:C1:t1");
+expect(adapter).toHavePostedToChannel("slack:C1");
 expect(chat).toHaveDispatched("processMessage");
 await expect(state).toBeSubscribedTo("slack:C1:t1");
 ```
+
+Text-pattern matchers (`toHavePosted`, `toHaveEdited`, `toHavePostedToChannel`) extract a comparable string from `AdapterPostableMessage` — handling plain strings, `PostableMarkdown.markdown`, `PostableRaw.raw`, and `PostableCard.fallbackText`. AST-shaped messages (`PostableAst`) and cards without `fallbackText` aren't text-matchable; assert without `textPattern` and inspect `mock.calls` directly for deeper checks.
 
 ## Audience
 

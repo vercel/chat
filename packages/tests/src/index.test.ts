@@ -11,6 +11,7 @@ import { matchers } from "./matchers";
 expect.extend(matchers);
 
 const HELLO_WORLD = /world/;
+const CHANNEL = /channel/;
 
 describe("createMockState", () => {
   it("supports get/set/delete round-trip via the cache", async () => {
@@ -193,5 +194,82 @@ describe("matcher: toBeSubscribedTo", () => {
     await expect(state).toBeSubscribedTo("slack:C1:t1");
     await state.unsubscribe("slack:C1:t1");
     await expect(state).not.toBeSubscribedTo("slack:C1:t1");
+  });
+});
+
+describe("matcher: toHaveEdited", () => {
+  it("passes when edit hit the right thread and message", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.editMessage("slack:C1:t1", "msg-1", "updated");
+    expect(adapter).toHaveEdited("slack:C1:t1", "msg-1");
+    expect(adapter).toHaveEdited("slack:C1:t1", "msg-1", "updated");
+    expect(adapter).not.toHaveEdited("slack:C1:t1", "msg-2");
+    expect(adapter).not.toHaveEdited("slack:C1:t1", "msg-1", "different");
+  });
+
+  it("matches PostableMarkdown.markdown for edits", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.editMessage("slack:C1:t1", "msg-1", {
+      markdown: "edited **world**",
+    });
+    expect(adapter).toHaveEdited("slack:C1:t1", "msg-1", HELLO_WORLD);
+  });
+});
+
+describe("matcher: toHaveDeleted", () => {
+  it("passes when delete hit the right thread and message", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.deleteMessage("slack:C1:t1", "msg-1");
+    expect(adapter).toHaveDeleted("slack:C1:t1", "msg-1");
+    expect(adapter).not.toHaveDeleted("slack:C1:t1", "msg-2");
+    expect(adapter).not.toHaveDeleted("slack:C1:other", "msg-1");
+  });
+});
+
+describe("matcher: toHaveReactedWith", () => {
+  it("matches plain string emoji", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.addReaction("slack:C1:t1", "msg-1", "thumbsup");
+    expect(adapter).toHaveReactedWith("slack:C1:t1", "msg-1", "thumbsup");
+    expect(adapter).not.toHaveReactedWith("slack:C1:t1", "msg-1", "other");
+  });
+
+  it("matches EmojiValue.name", async () => {
+    const adapter = createMockAdapter("slack");
+    const emojiValue = {
+      name: "thumbs_up",
+      toString: () => ":thumbs_up:",
+      toJSON: () => "thumbs_up",
+    };
+    await adapter.addReaction("slack:C1:t1", "msg-1", emojiValue);
+    expect(adapter).toHaveReactedWith("slack:C1:t1", "msg-1", "thumbs_up");
+  });
+
+  it("scopes to the named thread + message", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.addReaction("slack:C1:other", "msg-1", "thumbsup");
+    expect(adapter).not.toHaveReactedWith("slack:C1:t1", "msg-1", "thumbsup");
+  });
+});
+
+describe("matcher: toHaveStartedTyping", () => {
+  it("passes when typing started on the given thread", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.startTyping("slack:C1:t1");
+    expect(adapter).toHaveStartedTyping("slack:C1:t1");
+    expect(adapter).not.toHaveStartedTyping("slack:C1:other");
+  });
+});
+
+describe("matcher: toHavePostedToChannel", () => {
+  it("passes when adapter posted to the given channel", async () => {
+    const adapter = createMockAdapter("slack");
+    if (!adapter.postChannelMessage) {
+      throw new Error("mock adapter must define postChannelMessage");
+    }
+    await adapter.postChannelMessage("slack:C1", "channel hello");
+    expect(adapter).toHavePostedToChannel("slack:C1");
+    expect(adapter).toHavePostedToChannel("slack:C1", CHANNEL);
+    expect(adapter).not.toHavePostedToChannel("slack:C2");
   });
 });
