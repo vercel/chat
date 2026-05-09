@@ -170,6 +170,7 @@ bot.onNewMention(async (thread, message) => {
         </Button>
         <Button id="channel-post">Channel Post</Button>
         <Button id="channel-info">Channel Info (Slack)</Button>
+        <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
@@ -986,6 +987,38 @@ bot.onAction("channel-info", async (event) => {
   } catch (err) {
     await thread.post(
       `${emoji.warning} Error fetching channel info: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Pin the card containing this button via the Slack WebClient.
+// `pins.add` requires the `pins:write` scope.
+bot.onAction("pin-message", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    await slack.pins.add({ channel: channelId, timestamp: event.messageId });
+    await thread.post(
+      `${emoji.pin} Pinned the welcome card via \`bot.getAdapter("slack").client.pins.add\`.`
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error pinning message: ${
         err instanceof Error ? err.message : "Unknown error"
       }`
     );
