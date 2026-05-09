@@ -10,6 +10,27 @@ For questions and getting help, see [SUPPORT.md](./SUPPORT.md). Security vulnera
 
 Want to add Chat SDK support for a platform that isn't covered by the official adapters? See [Building a community adapter](https://chat-sdk.dev/docs/contributing/building) for a walkthrough of the `Adapter` interface, testing, packaging, and getting your adapter listed on chat-sdk.dev.
 
+### Package conventions
+
+The repo uses [konsistent](https://www.npmjs.com/package/konsistent) (configured in `.github/konsistent.json`, run via `pnpm konsistent`) to enforce a consistent public surface across adapter and state packages.
+
+**Adapter packages (`packages/adapter-*`)** must:
+
+- Live in `src/index.ts` with a sibling `src/types.ts`
+- Import the `Adapter` type from `chat`
+- Export a `${Name}Adapter` class that implements `Adapter`
+- Export a `create${Name}Adapter` factory function whose parameter is typed `${Name}AdapterConfig`
+- Export the `${Name}AdapterConfig` type from `./types`
+
+**State packages (`packages/state-*`)** must:
+
+- Import the `StateAdapter` type from `chat`
+- Export a `${Name}StateAdapter` class that implements `StateAdapter`
+- Export a `create${Name}State` factory function whose parameter is typed `${Name}StateAdapterOptions`
+- Export the `${Name}StateAdapterOptions` type
+
+`${Name}` is the kebab-case package suffix in PascalCase — most cases are mechanical (`discord` → `Discord`), but a few overrides live in `kebabToPascalMap` in the config (e.g. `gchat` → `GoogleChat`, `whatsapp` → `WhatsApp`).
+
 ## Signed Commits
 
 All commits to this repository must be **signed and verified**. Pull requests with unsigned commits will not be merged.
@@ -51,6 +72,7 @@ pnpm --filter @chat-adapter/slack test
 pnpm check       # Check all packages (linting and formatting)
 pnpm typecheck   # Type-check all packages
 pnpm knip        # Check for unused exports/dependencies
+pnpm konsistent  # Enforce adapter/state-package shape conventions
 pnpm validate    # Run everything (knip, lint, typecheck, test, build)
 ```
 

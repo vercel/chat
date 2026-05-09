@@ -11,6 +11,7 @@ pnpm typecheck       # Type-check all packages
 pnpm check           # Lint and format check (ultracite/biome)
 pnpm fix             # Auto-fix lint/format issues
 pnpm knip            # Check for unused exports/dependencies
+pnpm konsistent      # Enforce adapter/state-package shape conventions (see .github/konsistent.json)
 pnpm test            # Run all tests
 pnpm validate        # knip + check + typecheck + test + build. ALWAYS run before declaring a task done.
 pnpm dev             # Watch mode
