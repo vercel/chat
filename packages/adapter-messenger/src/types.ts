@@ -1,8 +1,18 @@
+import type { Logger } from "chat";
+
 export interface MessengerAdapterConfig {
+  /** Messenger Graph API version. Defaults to a recent stable version. */
   apiVersion?: string;
-  appSecret: string;
-  pageAccessToken: string;
-  verifyToken: string;
+  /** Facebook app secret for webhook signature verification. Defaults to FACEBOOK_APP_SECRET env var. */
+  appSecret?: string;
+  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
+  logger?: Logger;
+  /** Facebook page access token. Defaults to FACEBOOK_PAGE_ACCESS_TOKEN env var. */
+  pageAccessToken?: string;
+  /** Override bot username (optional) */
+  userName?: string;
+  /** Token used to verify webhook subscription. Defaults to FACEBOOK_VERIFY_TOKEN env var. */
+  verifyToken?: string;
 }
 
 export interface MessengerThreadId {

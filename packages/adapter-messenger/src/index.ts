@@ -79,7 +79,12 @@ export class MessengerAdapter
   }
 
   constructor(
-    config: MessengerAdapterConfig & { logger: Logger; userName?: string }
+    config: MessengerAdapterConfig & {
+      appSecret: string;
+      logger: Logger;
+      pageAccessToken: string;
+      verifyToken: string;
+    }
   ) {
     this.appSecret = config.appSecret;
     this.pageAccessToken = config.pageAccessToken;
@@ -921,9 +926,7 @@ export class MessengerAdapter
 }
 
 export function createMessengerAdapter(
-  config?: Partial<
-    MessengerAdapterConfig & { logger: Logger; userName?: string }
-  >
+  config?: MessengerAdapterConfig
 ): MessengerAdapter {
   const appSecret = config?.appSecret ?? process.env.FACEBOOK_APP_SECRET;
   if (!appSecret) {
