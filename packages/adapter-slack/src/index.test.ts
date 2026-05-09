@@ -3,7 +3,8 @@
  */
 
 import { createHmac, randomBytes } from "node:crypto";
-import { ValidationError } from "@chat-adapter/shared";
+import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import { WebClient } from "@slack/web-api";
 import type {
   AdapterPostableMessage,
   ChatInstance,
@@ -2512,8 +2513,8 @@ describe("handleOAuthCallback", () => {
     });
 
     // Mock the oauth.v2.access call on the internal client
-    const mockClient = (adapter as unknown as { client: { oauth: unknown } })
-      .client;
+    const mockClient = (adapter as unknown as { _client: { oauth: unknown } })
+      ._client;
     const mockAccess = vi.fn().mockResolvedValue({
       ok: true,
       access_token: "xoxb-oauth-bot-token",
@@ -2684,6 +2685,118 @@ describe("withBotToken", () => {
 
     expect(tokens).toContain("A");
     expect(tokens).toContain("B");
+  });
+});
+
+// ============================================================================
+// Direct WebClient access (`adapter.client`) Tests
+// ============================================================================
+
+const ASYNC_RESOLVER_ERROR_PATTERN = /async resolver/;
+
+describe("direct WebClient access via adapter.client", () => {
+  const secret = "test-signing-secret";
+
+  it("returns a WebClient bound to the static botToken in single-workspace mode", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const client = adapter.client;
+    expect(client).toBeInstanceOf(WebClient);
+    expect(client.token).toBe("xoxb-static-token");
+  });
+
+  it("caches the WebClient for repeated access with the same token", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(adapter.client).toBe(adapter.client);
+  });
+
+  it("uses a synchronous botToken resolver", () => {
+    const adapter = createSlackAdapter({
+      botToken: () => "xoxb-sync-resolved",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(adapter.client.token).toBe("xoxb-sync-resolved");
+  });
+
+  it("returns a WebClient bound to the context token under withBotToken", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    let observedToken: string | undefined;
+    await adapter.withBotToken("xoxb-context-token", () => {
+      observedToken = adapter.client.token;
+    });
+
+    expect(observedToken).toBe("xoxb-context-token");
+  });
+
+  it("prefers the context token over the default in single-workspace mode", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-default",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    let observedToken: string | undefined;
+    await adapter.withBotToken("xoxb-override", () => {
+      observedToken = adapter.client.token;
+    });
+
+    expect(observedToken).toBe("xoxb-override");
+    // Outside the context, the default is restored
+    expect(adapter.client.token).toBe("xoxb-default");
+  });
+
+  it("propagates apiUrl from createSlackAdapter to the bound WebClient", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      apiUrl: "https://slack-gov.com/api/",
+      logger: mockLogger,
+    });
+
+    expect(
+      (
+        adapter.client as unknown as {
+          axios: { defaults: { baseURL: string } };
+        }
+      ).axios.defaults.baseURL
+    ).toBe("https://slack-gov.com/api/");
+  });
+
+  it("throws when no token is available (multi-workspace, outside context)", () => {
+    const adapter = createSlackAdapter({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(() => adapter.client).toThrow(AuthenticationError);
+  });
+
+  it("throws when botToken is configured as an async resolver", () => {
+    const adapter = createSlackAdapter({
+      botToken: async () => "xoxb-async",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(() => adapter.client).toThrow(AuthenticationError);
+    expect(() => adapter.client).toThrow(ASYNC_RESOLVER_ERROR_PATTERN);
   });
 });
 
@@ -3259,7 +3372,7 @@ interface MockableClient {
 }
 
 function getClient(adapter: SlackAdapter): MockableClient {
-  return (adapter as unknown as { client: MockableClient }).client;
+  return (adapter as unknown as { _client: MockableClient })._client;
 }
 
 function mockClientMethod(
@@ -6046,8 +6159,8 @@ describe("reverse user lookup", () => {
 
       // Mock Slack API
       const mockClient = (
-        adapter as unknown as { client: { users: { info: unknown } } }
-      ).client;
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
       mockClient.users.info = vi.fn().mockResolvedValue({
         user: {
           profile: { display_name: "dominik", real_name: "Dominik G" },
@@ -6290,8 +6403,8 @@ describe("reverse user lookup", () => {
 
       // Mock Slack API so lookupUser doesn't hit real API
       const mockClient = (
-        adapter as unknown as { client: { users: { info: unknown } } }
-      ).client;
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
       mockClient.users.info = vi.fn().mockResolvedValue({
         user: {
           profile: { display_name: "sender", real_name: "Sender One" },
