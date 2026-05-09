@@ -2798,6 +2798,109 @@ describe("direct WebClient access via adapter.client", () => {
     expect(() => adapter.client).toThrow(AuthenticationError);
     expect(() => adapter.client).toThrow(ASYNC_RESOLVER_ERROR_PATTERN);
   });
+
+  it("returns distinct WebClient instances for distinct tokens", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    let clientA: WebClient | undefined;
+    let clientB: WebClient | undefined;
+    await adapter.withBotToken("xoxb-token-A", () => {
+      clientA = adapter.client;
+    });
+    await adapter.withBotToken("xoxb-token-B", () => {
+      clientB = adapter.client;
+    });
+
+    expect(clientA).toBeInstanceOf(WebClient);
+    expect(clientB).toBeInstanceOf(WebClient);
+    expect(clientA).not.toBe(clientB);
+    expect(clientA?.token).toBe("xoxb-token-A");
+    expect(clientB?.token).toBe("xoxb-token-B");
+  });
+
+  it("picks up apiUrl from SLACK_API_URL env var", () => {
+    const original = process.env.SLACK_API_URL;
+    process.env.SLACK_API_URL = "https://slack-gov.com/api/";
+    try {
+      const adapter = createSlackAdapter({
+        botToken: "xoxb-static-token",
+        signingSecret: secret,
+        logger: mockLogger,
+      });
+
+      expect(
+        (
+          adapter.client as unknown as {
+            axios: { defaults: { baseURL: string } };
+          }
+        ).axios.defaults.baseURL
+      ).toBe("https://slack-gov.com/api/");
+    } finally {
+      if (original === undefined) {
+        // biome-ignore lint/performance/noDelete: env var removal requires delete
+        delete process.env.SLACK_API_URL;
+      } else {
+        process.env.SLACK_API_URL = original;
+      }
+    }
+  });
+});
+
+// ============================================================================
+// End-to-end token resolution through adapter.client during webhook handling
+// ============================================================================
+
+describe("adapter.client end-to-end with multi-workspace webhook", () => {
+  const secret = "test-signing-secret";
+
+  it("resolves the installation's bot token in the action handler context", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance(state);
+
+    // Capture the token observed by `event.adapter.client` when an action
+    // handler runs inside the request context set up by handleWebhook.
+    let observedToken: string | undefined;
+    chatInstance.processAction = vi.fn(async (event) => {
+      observedToken = (event.adapter as SlackAdapter).client.token;
+    });
+
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.setInstallation("T_E2E_1", {
+      botToken: "xoxb-installation-token",
+      botUserId: "U_BOT_E2E",
+    });
+
+    const payload = JSON.stringify({
+      type: "block_actions",
+      team: { id: "T_E2E_1" },
+      user: { id: "U_USER", username: "u", name: "User" },
+      container: {
+        type: "message",
+        message_ts: "1234567890.123456",
+        channel_id: "C_E2E",
+      },
+      channel: { id: "C_E2E", name: "general" },
+      message: { ts: "1234567890.123456" },
+      actions: [{ type: "button", action_id: "noop", value: "v" }],
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(chatInstance.processAction).toHaveBeenCalled();
+    expect(observedToken).toBe("xoxb-installation-token");
+  });
 });
 
 // ============================================================================
