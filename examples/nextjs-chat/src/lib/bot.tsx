@@ -1,4 +1,5 @@
 /** @jsxImportSource chat */
+import type { SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
 import { ToolLoopAgent } from "ai";
@@ -46,6 +47,7 @@ const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
+const SLACK_PREFIX_REGEX = /^slack:/;
 
 // Hardcoded user key for testing the Transcripts API — every inbound message
 // is persisted under this single key, so you can exercise append/list/delete
@@ -167,6 +169,7 @@ bot.onNewMention(async (thread, message) => {
           Clear Transcripts
         </Button>
         <Button id="channel-post">Channel Post</Button>
+        <Button id="channel-info">Channel Info (Slack)</Button>
         <Button id="show-table">Show Table</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
@@ -892,6 +895,97 @@ bot.onAction("channel-post", async (event) => {
   } catch (err) {
     await thread.post(
       `${emoji.warning} Error reading channel: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Demonstrate direct Slack WebClient access via adapter.client.
+// `conversations.info` requires the `channels:read` (or `groups:read`) scope.
+bot.onAction("channel-info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  // Strip the "slack:" prefix to get the raw Slack channel ID.
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    const result = await slack.conversations.info({ channel: channelId });
+    const channel = result.channel as
+      | {
+          created?: number;
+          creator?: string;
+          id?: string;
+          is_archived?: boolean;
+          is_general?: boolean;
+          is_private?: boolean;
+          name?: string;
+          num_members?: number;
+          purpose?: { value?: string };
+          topic?: { value?: string };
+        }
+      | undefined;
+
+    if (!channel) {
+      await thread.post(
+        `${emoji.warning} Slack returned no channel info for \`${channelId}\`.`
+      );
+      return;
+    }
+
+    const created = channel.created
+      ? new Date(channel.created * 1000).toISOString()
+      : "unknown";
+
+    await thread.post(
+      <Card title={`${emoji.memo} Channel Info`}>
+        <Text>
+          {`Fetched via \`bot.getAdapter("slack").client.conversations.info\``}
+        </Text>
+        <Divider />
+        <Fields>
+          <Field label="Name" value={channel.name ? `#${channel.name}` : "—"} />
+          <Field label="ID" value={channel.id ?? channelId} />
+          <Field
+            label="Members"
+            value={
+              typeof channel.num_members === "number"
+                ? String(channel.num_members)
+                : "—"
+            }
+          />
+          <Field label="Created" value={created} />
+          <Field label="Creator" value={channel.creator ?? "—"} />
+          <Field label="Private" value={channel.is_private ? "Yes" : "No"} />
+          <Field label="Archived" value={channel.is_archived ? "Yes" : "No"} />
+          <Field
+            label="Default channel"
+            value={channel.is_general ? "Yes" : "No"}
+          />
+        </Fields>
+        <Divider />
+        <Section>
+          <Text>**Topic**</Text>
+          <Text>{channel.topic?.value?.trim() || "_(no topic set)_"}</Text>
+          <Text>**Purpose**</Text>
+          <Text>{channel.purpose?.value?.trim() || "_(no purpose set)_"}</Text>
+        </Section>
+      </Card>
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error fetching channel info: ${
         err instanceof Error ? err.message : "Unknown error"
       }`
     );
