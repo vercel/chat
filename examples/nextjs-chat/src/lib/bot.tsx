@@ -922,7 +922,10 @@ bot.onAction("channel-info", async (event) => {
 
   try {
     const slack = (event.adapter as SlackAdapter).client;
-    const result = await slack.conversations.info({ channel: channelId });
+    const result = await slack.conversations.info({
+      channel: channelId,
+      include_num_members: true,
+    });
     const channel = result.channel as
       | {
           created?: number;
@@ -954,34 +957,26 @@ bot.onAction("channel-info", async (event) => {
         <Text>
           {`Fetched via \`bot.getAdapter("slack").client.conversations.info\``}
         </Text>
-        <Divider />
-        <Fields>
-          <Field label="Name" value={channel.name ? `#${channel.name}` : "—"} />
-          <Field label="ID" value={channel.id ?? channelId} />
-          <Field
-            label="Members"
-            value={
+        <Table
+          headers={["Field", "Value"]}
+          rows={[
+            ["Name", channel.name ? `#${channel.name}` : "—"],
+            ["ID", channel.id ?? channelId],
+            [
+              "Members",
               typeof channel.num_members === "number"
                 ? String(channel.num_members)
-                : "—"
-            }
-          />
-          <Field label="Created" value={created} />
-          <Field label="Creator" value={channel.creator ?? "—"} />
-          <Field label="Private" value={channel.is_private ? "Yes" : "No"} />
-          <Field label="Archived" value={channel.is_archived ? "Yes" : "No"} />
-          <Field
-            label="Default channel"
-            value={channel.is_general ? "Yes" : "No"}
-          />
-        </Fields>
-        <Divider />
-        <Section>
-          <Text>**Topic**</Text>
-          <Text>{channel.topic?.value?.trim() || "_(no topic set)_"}</Text>
-          <Text>**Purpose**</Text>
-          <Text>{channel.purpose?.value?.trim() || "_(no purpose set)_"}</Text>
-        </Section>
+                : "—",
+            ],
+            ["Created", created],
+            ["Creator", channel.creator ?? "—"],
+            ["Private", channel.is_private ? "Yes" : "No"],
+            ["Archived", channel.is_archived ? "Yes" : "No"],
+            ["Default channel", channel.is_general ? "Yes" : "No"],
+            ["Topic", channel.topic?.value?.trim() || "(no topic set)"],
+            ["Purpose", channel.purpose?.value?.trim() || "(no purpose set)"],
+          ]}
+        />
       </Card>
     );
   } catch (err) {
