@@ -101,7 +101,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {officialPlatform.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.slug}`}
+                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -124,7 +124,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                 {vendorOfficialPlatform.map((adapter) => (
                   <AdapterCard
                     badge="vendor-official"
-                    href={`/adapters/${adapter.slug}`}
+                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -147,7 +147,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {communityPlatform.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.slug}`}
+                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -188,7 +188,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {officialState.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.slug}`}
+                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -210,7 +210,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {communityState.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.slug}`}
+                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
                     key={adapter.slug}
                     {...adapter}
                   />

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import adapters from "@/adapters.json";
-import { AdapterCard } from "../../components/adapter-card";
+import { AdapterCard } from "../../../components/adapter-card";
 
 // Define messenger categories and which adapters support them
 const messengerConfig: Record<
@@ -246,7 +246,7 @@ const MessengerPage = async ({
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {official.map((adapter) => (
                 <AdapterCard
-                  href={`/adapters/${adapter.slug}`}
+                  href={`/adapters/official/${adapter.slug}`}
                   key={adapter.slug}
                   {...adapter}
                 />
@@ -269,7 +269,7 @@ const MessengerPage = async ({
               {vendorOfficial.map((adapter) => (
                 <AdapterCard
                   badge="vendor-official"
-                  href={`/adapters/${adapter.slug}`}
+                  href={`/adapters/community/${adapter.slug}`}
                   key={adapter.slug}
                   {...adapter}
                 />
@@ -291,7 +291,7 @@ const MessengerPage = async ({
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {community.map((adapter) => (
                 <AdapterCard
-                  href={`/adapters/${adapter.slug}`}
+                  href={`/adapters/community/${adapter.slug}`}
                   key={adapter.slug}
                   {...adapter}
                 />

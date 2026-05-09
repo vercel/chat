@@ -31,17 +31,22 @@ const config: NextConfig = {
       },
       {
         source: "/adapters/gchat",
-        destination: "/adapters/google-chat",
+        destination: "/adapters/official/google-chat",
         permanent: true,
       },
       {
-        source: "/docs/adapters/:slug",
-        destination: "/adapters/:slug",
+        source: "/docs/adapters/:slug*",
+        destination: "/adapters",
         permanent: true,
       },
       {
-        source: "/docs/state/:slug",
-        destination: "/adapters/:slug",
+        source: "/docs/state/:slug*",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
+        source: "/adapters/:slug((?!official$|community$|for$|official/.*|community/.*|for/.*).+)",
+        destination: "/adapters",
         permanent: true,
       },
     ];

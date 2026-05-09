@@ -299,7 +299,7 @@ These handlers are specific to the Slack platform and require the Slack adapter.
 
 ### Handling assistant threads
 
-`onAssistantThreadStarted` fires when a user opens a new assistant thread in Slack. Use it with the [Slack Assistants API](/adapters/slack#slack-assistants-api) to set suggested prompts and status indicators.
+`onAssistantThreadStarted` fires when a user opens a new assistant thread in Slack. Use it with the [Slack Assistants API](/adapters/official/slack#slack-assistants-api) to set suggested prompts and status indicators.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onAssistantThreadStarted(async (event) => {

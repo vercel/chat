@@ -1,0 +1,285 @@
+---
+title: Linear
+description: Respond to @mentions in Linear issue comment threads and agent sessions.
+packageName: "@chat-adapter/linear"
+slug: linear
+type: platform
+logo: linear
+tagline: Automate Linear issue comment threads with bot responses. Supports both standard comments mode and Linear's app-actor agent sessions.
+beta: true
+features:
+  postMessage: yes
+  editMessage:
+    status: partial
+    label: ""
+  deleteMessage:
+    status: partial
+    label: ""
+  fileUploads: no
+  streaming:
+    status: partial
+    label: Agent sessions / Post+Edit
+  scheduledMessages: no
+  cardFormat:
+    status: yes
+    label: Markdown
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables:
+    status: yes
+    label: GFM
+  fields: yes
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions: yes
+  addReactions: yes
+  removeReactions:
+    status: partial
+    label: ""
+  typingIndicator:
+    status: partial
+    label: Agent sessions
+  directMessages: no
+  ephemeralMessages: no
+  userLookup: yes
+  parentSubject: yes
+  nativeClient: yes
+  customApiEndpoint: yes
+  fetchMessages: yes
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/linear" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects credentials from `LINEAR_API_KEY`, `LINEAR_ACCESS_TOKEN`, `LINEAR_CLIENT_CREDENTIALS_*`, or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`, plus `LINEAR_WEBHOOK_SECRET` and `LINEAR_BOT_USERNAME`.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createLinearAdapter } from "@chat-adapter/linear";
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    linear: createLinearAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Linear!");
+});
+```
+
+By default, the adapter runs in `mode: "comments"` and treats `Comment` webhooks as the inbound message source. For Linear app-actor installs, set `mode: "agent-sessions"` so inbound handling is driven by `AgentSessionEvent`.
+
+## Configuration
+
+<TypeTable
+  type={{
+    apiKey: {
+      type: "string",
+      description:
+        "Personal API key. Auto-detected from `LINEAR_API_KEY`.",
+    },
+    accessToken: {
+      type: "string",
+      description:
+        "Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN`.",
+    },
+    clientId: {
+      type: "string",
+      description:
+        "Multi-tenant OAuth client ID. Auto-detected from `LINEAR_CLIENT_ID`.",
+    },
+    clientSecret: {
+      type: "string",
+      description:
+        "Multi-tenant OAuth client secret. Auto-detected from `LINEAR_CLIENT_SECRET`.",
+    },
+    encryptionKey: {
+      type: "string",
+      description:
+        "AES-256-GCM key for encrypting stored OAuth tokens. Auto-detected from `LINEAR_ENCRYPTION_KEY`.",
+    },
+    clientCredentials: {
+      type: "ClientCredentialsConfig",
+      description:
+        "Single-tenant client credentials config (`clientId`, `clientSecret`, optional `scopes`).",
+    },
+    mode: {
+      type: '"comments" | "agent-sessions"',
+      default: '"comments"',
+      description:
+        "Inbound webhook handling mode. Use `agent-sessions` for app-actor installs.",
+    },
+    webhookSecret: {
+      type: "string",
+      description:
+        "Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET`.",
+    },
+    userName: {
+      type: "string",
+      default: '"linear-bot"',
+      description: "Bot display name. Auto-detected from `LINEAR_BOT_USERNAME`.",
+    },
+    apiUrl: {
+      type: "string",
+      description:
+        "Override the Linear GraphQL API base URL.",
+    },
+  }}
+/>
+
+One of `apiKey`, `accessToken`, top-level `clientId`/`clientSecret`, or `clientCredentials` is required, plus `webhookSecret`.
+
+## Authentication
+
+### Option A — Personal API key
+
+Best for personal projects or single-workspace bots. Actions are attributed to you as an individual.
+
+1. Go to [Settings then Security & Access](https://linear.app/settings/account/security).
+2. Under **Personal API keys**, click **Create key**.
+3. Choose **Only select permissions** and enable Create issues + Create comments.
+4. Set `LINEAR_API_KEY`.
+
+```typescript
+createLinearAdapter({ apiKey: process.env.LINEAR_API_KEY! });
+```
+
+### Option B — OAuth access token
+
+Use this when your app already manages the OAuth flow:
+
+```typescript
+createLinearAdapter({ accessToken: process.env.LINEAR_ACCESS_TOKEN! });
+```
+
+### Option C — Multi-tenant OAuth installs
+
+Use top-level `clientId` / `clientSecret` for Slack-style multi-tenant installs. Each Linear workspace install is stored separately, webhook requests resolve the correct workspace token by `organizationId`, and `withInstallation()` lets you target a specific organization outside webhook handling.
+
+1. Go to [Settings then API then Applications](https://linear.app/settings/api/applications/new).
+2. Create the OAuth2 application.
+3. Note the **Client ID** and **Client Secret**.
+
+```typescript
+const adapter = createLinearAdapter({
+  clientId: process.env.LINEAR_CLIENT_ID!,
+  clientSecret: process.env.LINEAR_CLIENT_SECRET!,
+  mode: "agent-sessions",
+});
+
+await bot.initialize();
+const { organizationId } = await adapter.handleOAuthCallback(request, {
+  redirectUri: process.env.LINEAR_REDIRECT_URI!,
+});
+
+await adapter.withInstallation(organizationId, async () => {
+  await adapter.postMessage("linear:issue-id", "Hello from a background job");
+});
+```
+
+### Option D — Single-tenant client credentials
+
+App identity without multi-tenant installs. The adapter fetches and refreshes the token automatically.
+
+```typescript
+createLinearAdapter({
+  clientCredentials: {
+    clientId: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_ID!,
+    clientSecret: process.env.LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET!,
+    scopes: ["read", "write", "comments:create", "issues:create"],
+  },
+  mode: "agent-sessions",
+});
+```
+
+## Advanced
+
+### Token encryption
+
+For multi-tenant OAuth installs, pass a base64-encoded 32-byte key as `encryptionKey` (or set `LINEAR_ENCRYPTION_KEY`) to encrypt stored access and refresh tokens at rest:
+
+```bash
+openssl rand -base64 32
+```
+
+When `encryptionKey` is set, `setInstallation()` encrypts tokens before writing to the configured state adapter. Existing plaintext records continue to work — you can roll the key in without flushing installs.
+
+### Making the bot @-mentionable
+
+To make the bot appear in Linear's `@`-mention dropdown as an Agent:
+
+1. In your OAuth app settings, enable **Agent session events** under webhooks.
+2. Have a workspace admin install the app with `actor=app` and the `app:mentionable` scope:
+
+```
+https://linear.app/oauth/authorize?
+  client_id=your_client_id&
+  redirect_uri=https://your-domain.com/callback&
+  response_type=code&
+  scope=read,write,comments:create,issues:create,app:mentionable&
+  actor=app
+```
+
+Once installed with `actor=app`, set `mode: "agent-sessions"` so the adapter treats `AgentSessionEvent` as the entrypoint:
+
+- `onNewMention` fires from session-created events.
+- `thread.startTyping()` sends an ephemeral Linear `thought`.
+- `thread.post(stream)` uses agent activities and session plan updates.
+- Session threads are append-only; `sent.edit()` / `sent.delete()` are not supported there.
+
+See the [Linear Agents docs](https://linear.app/developers/agents) for full details.
+
+### Direct API client
+
+Access the underlying [LinearClient](https://github.com/linear/linear/tree/master/packages/sdk) via `.client`:
+
+```typescript
+const linear = bot.getAdapter("linear").client;
+const issue = await linear.issue("ENG-123");
+```
+
+API key, access token, and single-tenant client-credentials modes return the same client anywhere. Multi-tenant OAuth requires webhook-handler context.
+
+### Webhook setup
+
+<Callout type="warn">
+Webhook management requires workspace admin access. If you don't see the API settings page, ask a workspace admin.
+</Callout>
+
+1. Go to **Settings then API** then click **Create webhook**.
+2. Set the URL to `https://your-domain.com/api/webhooks/linear`.
+3. Copy the **Signing secret** to `LINEAR_WEBHOOK_SECRET`.
+4. Under **Data change events**, select **Comments** (required for `mode: "comments"`), **Agent session events** (required for `mode: "agent-sessions"`), **Issues**, and optionally **Emoji reactions**.
+5. Choose a team selection and click **Create webhook**.
+
+### Thread model
+
+Linear has four thread variants:
+
+| Type | Description | Thread ID format |
+|------|-------------|-----------------|
+| Issue-level | Top-level comments on an issue | `linear:{issueId}` |
+| Comment thread | Replies nested under a comment | `linear:{issueId}:c:{commentId}` |
+| Agent session on issue | App-actor session on an issue | `linear:{issueId}:s:{agentSessionId}` |
+| Agent session on comment thread | App-actor session on a comment thread | `linear:{issueId}:c:{commentId}:s:{agentSessionId}` |
+
+When a user writes a comment, the bot replies within the same comment thread.
+
+## Feature support
+
+<FeatureSupport />

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import adapters from "@/adapters.json";
-import { AdaptersGrid } from "./components/adapters-grid";
+import { AdaptersGrid } from "../components/adapters-grid";
 
 export const metadata: Metadata = {
   title: "Adapters",

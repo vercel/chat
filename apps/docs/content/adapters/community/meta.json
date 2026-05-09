@@ -1,0 +1,20 @@
+{
+  "title": "Community Adapters",
+  "pages": [
+    "---Platforms---",
+    "matrix",
+    "imessage",
+    "resend",
+    "zernio",
+    "liveblocks",
+    "webex",
+    "baileys",
+    "sendblue",
+    "blooio",
+    "zalo",
+    "mattermost",
+    "---State---",
+    "cloudflare-do",
+    "mysql"
+  ]
+}

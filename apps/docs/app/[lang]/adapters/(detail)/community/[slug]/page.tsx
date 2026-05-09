@@ -1,12 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SiGithub } from "@icons-pack/react-simple-icons";
-import { ArrowLeftIcon } from "lucide-react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import adapters from "@/adapters.json";
-import { ReadmeContent } from "../components/readme-content";
+import adaptersJson from "@/adapters.json";
+import { AdapterHero } from "@/components/geistdocs/adapter-hero";
+import { CopyPage } from "@/components/geistdocs/copy-page";
+import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
+import { EditSource } from "@/components/geistdocs/edit-source";
+import { Feedback } from "@/components/geistdocs/feedback";
+import { ScrollTop } from "@/components/geistdocs/scroll-top";
+import { Separator } from "@/components/ui/separator";
+import { adaptersSource } from "@/lib/geistdocs/adapters-source";
+import { ReadmeContent } from "../../../components/readme-content";
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
 const GITHUB_SUBPATH_PATTERN =
@@ -20,9 +25,10 @@ const UNPINNED_REF_PATTERN = /^(main|master|head|dev|develop|trunk|default)$/i;
 
 const MAX_README_BYTES = 500_000;
 
-type Adapter = (typeof adapters)[number];
+type Adapter = (typeof adaptersJson)[number];
 
-const getAdapter = (slug: string) => adapters.find((a) => a.slug === slug);
+const getAdapter = (slug: string): Adapter | undefined =>
+  adaptersJson.find((a) => a.slug === slug);
 
 const isCommunity = (adapter: Adapter): boolean =>
   "community" in adapter && adapter.community === true;
@@ -35,7 +41,7 @@ const getAuthor = (adapter: Adapter): string | undefined =>
 
 const getIssuesUrl = (readmeUrl: string | undefined): string | undefined => {
   if (!readmeUrl) {
-    return undefined;
+    return;
   }
   const match = readmeUrl.match(GITHUB_REPO_ROOT_PATTERN);
   return match ? `${match[1]}/issues` : undefined;
@@ -49,7 +55,9 @@ const warnUnpinned = (adapter: Adapter, ref: string | undefined) => {
     return;
   }
   console.warn(
-    `[adapters] Community adapter "${adapter.name}" uses an unpinned README ref "${ref ?? "<default branch>"}". Pin to a commit SHA or tag in adapters.json to freeze content at review time.`
+    `[adapters] Community adapter "${adapter.name}" uses an unpinned README ref "${
+      ref ?? "<default branch>"
+    }". Pin to a commit SHA or tag in adapters.json to freeze content at review time.`
   );
 };
 
@@ -66,12 +74,11 @@ const fetchGitHubReadme = async (url: string): Promise<string | undefined> => {
   if (response.ok) {
     return response.text();
   }
-  return undefined;
 };
 
 const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
   if (!adapter.readme) {
-    return undefined;
+    return;
   }
   const repoUrl = adapter.readme;
 
@@ -82,7 +89,7 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
     try {
       return truncate(await readFile(filePath, "utf-8"));
     } catch {
-      return undefined;
+      return;
     }
   }
 
@@ -115,14 +122,9 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
     );
     return content ? truncate(content) : undefined;
   }
-
-  return undefined;
 };
 
 const CommunityNotice = ({ adapter }: { adapter: Adapter }) => {
-  if (!isCommunity(adapter)) {
-    return null;
-  }
   const issuesUrl = getIssuesUrl(adapter.readme);
   const author = getAuthor(adapter);
   const vendorOfficial = isVendorOfficial(adapter) && author;
@@ -159,94 +161,117 @@ const CommunityNotice = ({ adapter }: { adapter: Adapter }) => {
   );
 };
 
-const AdapterPage = async ({
-  params,
-}: PageProps<"/[lang]/adapters/[slug]">) => {
-  const { slug } = await params;
-  const adapter = getAdapter(slug);
+interface AdapterFrontmatter {
+  community?: boolean;
+  description: string;
+  logo?: string;
+  packageName: string;
+  slug: string;
+  tagline: string;
+  title: string;
+  type: "platform" | "state";
+}
 
-  if (!adapter?.readme) {
+interface PageParams {
+  lang: string;
+  slug: string;
+}
+
+const Page = async ({ params }: { params: Promise<PageParams> }) => {
+  const { slug, lang } = await params;
+  const page = adaptersSource.getPage(["community", slug], lang);
+
+  if (!page) {
     notFound();
   }
 
-  const readme = await getReadme(adapter);
+  const data = page.data as unknown as AdapterFrontmatter;
+  const adapter = getAdapter(slug);
+  const readme = adapter ? await getReadme(adapter) : undefined;
 
   return (
-    <div className="container mx-auto max-w-3xl">
-      {readme ? (
-        <article className="relative max-w-none px-4 py-16">
-          <div className="mb-6 flex items-center justify-between">
-            <Link
-              className="inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
-              href="/adapters"
-            >
-              <ArrowLeftIcon className="size-4" />
-              All Adapters
-            </Link>
-            <a
-              aria-label="View on GitHub"
-              className="text-muted-foreground hover:text-foreground"
-              href={adapter.readme}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              <SiGithub className="size-6" />
-            </a>
+    <DocsPage
+      tableOfContent={{
+        style: "clerk",
+        footer: (
+          <div className="my-3 space-y-3">
+            <Separator />
+            <EditSource
+              basePath="apps/docs/content/adapters/"
+              path={page.path}
+            />
+            <ScrollTop />
+            <Feedback />
+            <CopyPage text={`# ${data.title}\n\n${data.description}\n`} />
           </div>
-          <CommunityNotice adapter={adapter} />
+        ),
+      }}
+      tableOfContentPopover={{ enabled: false }}
+      toc={page.data.toc}
+    >
+      <DocsBody>
+        <AdapterHero
+          community
+          logo={data.logo}
+          name={data.title}
+          packageName={data.packageName}
+          tagline={data.tagline}
+          vendorOfficial={adapter ? isVendorOfficial(adapter) : false}
+        />
+        {adapter ? <CommunityNotice adapter={adapter} /> : null}
+        {readme ? (
           <ReadmeContent>{readme}</ReadmeContent>
-        </article>
-      ) : (
-        <div className="px-4 py-16">
-          <Link
-            className="mb-6 inline-flex items-center gap-1.5 text-muted-foreground text-sm hover:text-foreground"
-            href="/adapters"
-          >
-            <ArrowLeftIcon className="size-4" />
-            All Adapters
-          </Link>
-          <h1 className="mb-4 font-bold text-2xl">{adapter.name}</h1>
-          <CommunityNotice adapter={adapter} />
+        ) : (
           <p className="text-muted-foreground">
             README not available. Visit the{" "}
-            <a
-              className="text-primary underline"
-              href={adapter.readme}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              GitHub repository
-            </a>{" "}
+            {adapter?.readme ? (
+              <a
+                className="text-primary underline"
+                href={adapter.readme}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                GitHub repository
+              </a>
+            ) : (
+              "adapter's repository"
+            )}{" "}
             for documentation.
           </p>
-        </div>
-      )}
-    </div>
+        )}
+      </DocsBody>
+    </DocsPage>
   );
 };
 
 export const generateStaticParams = () =>
-  adapters
-    .filter((adapter) => "readme" in adapter)
-    .map((adapter) => ({ slug: adapter.slug }));
+  adaptersSource
+    .generateParams()
+    .filter((entry) => entry.slug?.[0] === "community")
+    .map((entry) => ({ lang: entry.lang, slug: entry.slug?.[1] }));
 
 export const generateMetadata = async ({
   params,
-}: PageProps<"/[lang]/adapters/[slug]">): Promise<Metadata> => {
-  const { slug } = await params;
-  const adapter = getAdapter(slug);
+}: {
+  params: Promise<PageParams>;
+}): Promise<Metadata> => {
+  const { slug, lang } = await params;
+  const page = adaptersSource.getPage(["community", slug], lang);
 
-  if (!adapter) {
+  if (!page) {
     return {};
   }
 
   return {
-    title: adapter.name,
-    description: adapter.description,
+    title: page.data.title,
+    description: page.data.description,
     openGraph: {
-      images: `/en/adapters/${slug}/og`,
+      images: `/${lang}/adapters/community/${slug}/og`,
+    },
+    twitter: {
+      card: "summary_large_image",
     },
   };
 };
 
-export default AdapterPage;
+export default Page;

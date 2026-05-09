@@ -34,7 +34,7 @@ bot.onNewMention(async (thread) => {
 ```
 
 <Callout type="info">
-  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/postgres) and [ioredis](/adapters/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
+  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/official/postgres) and [ioredis](/adapters/official/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
 </Callout>
 
 Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
