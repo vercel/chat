@@ -9,6 +9,7 @@
     "handling-events",
     "posting-messages",
     "error-handling",
+    "testing",
     "---Adapters---",
     "adapters",
     "state",
