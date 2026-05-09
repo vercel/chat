@@ -208,8 +208,8 @@ export interface SlackAdapterConfig {
    * raw body for downstream parsing — useful when the verifier needs to
    * canonicalize or substitute the verified payload.
    *
-   * When both `signingSecret` and `webhookVerifier` are specified,
-   * `signingSecret` takes precedence.
+   * `webhookVerifier` takes precedence over `signingSecret` and the
+   * `SLACK_SIGNING_SECRET` env var; when it is set, those are ignored.
    *
    * SECURITY: When this is used in place of `signingSecret`, the built-in
    * Slack timestamp tolerance check is NOT performed. Implementations are
@@ -566,12 +566,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   constructor(config: SlackAdapterConfig = {}) {
     const webhookVerifier = config.webhookVerifier;
-    // An explicit webhookVerifier in config opts out of the SLACK_SIGNING_SECRET
-    // env fallback — otherwise an env-configured deployment would silently
-    // shadow the verifier the caller intended to use.
-    const signingSecret =
-      config.signingSecret ??
-      (webhookVerifier ? undefined : process.env.SLACK_SIGNING_SECRET);
+    // webhookVerifier takes precedence over signingSecret (config) and the
+    // SLACK_SIGNING_SECRET env var. When the caller wires up a verifier we
+    // ignore both so an env-configured deployment can't silently shadow it.
+    const signingSecret = webhookVerifier
+      ? undefined
+      : (config.signingSecret ?? process.env.SLACK_SIGNING_SECRET);
     if (
       !(signingSecret || webhookVerifier) &&
       (config.mode ?? "webhook") === "webhook"
@@ -603,10 +603,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.client = new WebClient(undefined, {
       ...(slackApiUrl ? { slackApiUrl } : {}),
     });
-    // webhookVerifier takes precedence when signingSecret is not configured;
-    // if both are provided, signingSecret wins.
+    // webhookVerifier takes precedence; signingSecret is only used when no
+    // verifier is configured.
     this.signingSecret = signingSecret;
-    this.webhookVerifier = signingSecret ? undefined : webhookVerifier;
+    this.webhookVerifier = webhookVerifier;
     this.defaultBotTokenProvider = botTokenProvider;
     this.logger = config.logger ?? new ConsoleLogger("info").child("slack");
     this.userName = config.userName || "bot";
@@ -4902,12 +4902,12 @@ export function createSlackAdapter(
   }
 
   const webhookVerifier = config?.webhookVerifier;
-  // An explicit webhookVerifier in config opts out of the SLACK_SIGNING_SECRET
-  // env fallback — otherwise an env-configured deployment would silently
-  // shadow the verifier the caller intended to use.
-  const signingSecret =
-    config?.signingSecret ??
-    (webhookVerifier ? undefined : process.env.SLACK_SIGNING_SECRET);
+  // webhookVerifier takes precedence over signingSecret (config) and the
+  // SLACK_SIGNING_SECRET env var. When the caller wires up a verifier we
+  // ignore both so an env-configured deployment can't silently shadow it.
+  const signingSecret = webhookVerifier
+    ? undefined
+    : (config?.signingSecret ?? process.env.SLACK_SIGNING_SECRET);
   if (mode === "webhook" && !(signingSecret || webhookVerifier)) {
     throw new ValidationError(
       "slack",

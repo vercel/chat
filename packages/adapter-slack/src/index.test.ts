@@ -450,7 +450,7 @@ describe("handleWebhook - webhookVerifier", () => {
     expect(verifier.mock.calls[0]?.[1]).toBe(body);
   });
 
-  it("prefers signingSecret over webhookVerifier when both are set", async () => {
+  it("prefers webhookVerifier over signingSecret when both are set", async () => {
     const secret = "test-signing-secret";
     const verifier = vi.fn(() => true);
     const adapter = createSlackAdapter({
@@ -464,11 +464,16 @@ describe("handleWebhook - webhookVerifier", () => {
       type: "url_verification",
       challenge: "test-challenge",
     });
-    const request = createWebhookRequest(body, secret);
+    // No signing headers — only the verifier should run.
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(verifier).not.toHaveBeenCalled();
+    expect(verifier).toHaveBeenCalledTimes(1);
   });
 
   it("ignores SLACK_SIGNING_SECRET env var when webhookVerifier is configured", async () => {
