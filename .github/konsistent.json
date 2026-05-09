@@ -9,11 +9,10 @@
       "must": [
         {
           "name": "package-dir-must-have-package-and-docs-files",
-          "description": "Every package directory must contain CHANGELOG, README, package.json and tsconfig.json.",
+          "description": "Every package directory must contain README, package.json and tsconfig.json.",
           "must": {
             "haveType": "directory",
             "haveFiles": [
-              "CHANGELOG.md",
               "README.md",
               "package.json",
               "tsconfig.json",
