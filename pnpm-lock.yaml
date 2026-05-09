@@ -761,6 +761,27 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
+  packages/tests:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.3.2
+      '@vitest/expect':
+        specifier: ^4.0.18
+        version: 4.0.18
+      chat:
+        specifier: workspace:*
+        version: link:../chat
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(@swc/core@1.15.3)(jiti@2.6.1)(postcss@8.5.14)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+
 packages:
 
   '@ai-sdk/gateway@2.0.39':

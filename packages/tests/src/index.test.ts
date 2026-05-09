@@ -1,0 +1,191 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  createMockAdapter,
+  createMockChatInstance,
+  createMockLogger,
+  createMockState,
+  createTestMessage,
+} from "./factories";
+import { matchers } from "./matchers";
+
+expect.extend(matchers);
+
+const HELLO_WORLD = /world/;
+
+describe("createMockState", () => {
+  it("supports get/set/delete round-trip via the cache", async () => {
+    const state = createMockState();
+    await state.set("k", { v: 1 });
+    expect(state.cache.get("k")).toEqual({ v: 1 });
+    expect(await state.get("k")).toEqual({ v: 1 });
+    await state.delete("k");
+    expect(await state.get("k")).toBeNull();
+  });
+
+  it("tracks subscriptions", async () => {
+    const state = createMockState();
+    await state.subscribe("slack:C1:t1");
+    expect(await state.isSubscribed("slack:C1:t1")).toBe(true);
+    await state.unsubscribe("slack:C1:t1");
+    expect(await state.isSubscribed("slack:C1:t1")).toBe(false);
+  });
+
+  it("isolates state between separate instances", async () => {
+    const a = createMockState();
+    const b = createMockState();
+    await a.set("k", "from-a");
+    expect(await b.get("k")).toBeNull();
+  });
+
+  it("acquires a lock once and rejects re-acquisition", async () => {
+    const state = createMockState();
+    const lock = await state.acquireLock("slack:C1:t1", 1000);
+    expect(lock).not.toBeNull();
+    expect(await state.acquireLock("slack:C1:t1", 1000)).toBeNull();
+  });
+
+  it("setIfNotExists is atomic-style", async () => {
+    const state = createMockState();
+    expect(await state.setIfNotExists("k", 1)).toBe(true);
+    expect(await state.setIfNotExists("k", 2)).toBe(false);
+    expect(await state.get("k")).toBe(1);
+  });
+
+  it("appendToList trims to maxLength", async () => {
+    const state = createMockState();
+    await state.appendToList("k", "a", { maxLength: 2 });
+    await state.appendToList("k", "b", { maxLength: 2 });
+    await state.appendToList("k", "c", { maxLength: 2 });
+    expect(await state.getList("k")).toEqual(["b", "c"]);
+  });
+
+  it("enqueue/dequeue is FIFO", async () => {
+    const state = createMockState();
+    await state.enqueue("t1", { id: "1" } as never, 10);
+    await state.enqueue("t1", { id: "2" } as never, 10);
+    expect(await state.queueDepth("t1")).toBe(2);
+    const first = await state.dequeue("t1");
+    expect((first as { id: string } | null)?.id).toBe("1");
+    expect(await state.queueDepth("t1")).toBe(1);
+  });
+});
+
+describe("createMockAdapter", () => {
+  it("returns mocked methods with sensible defaults", async () => {
+    const adapter = createMockAdapter("slack");
+    expect(adapter.name).toBe("slack");
+    expect(adapter.userName).toBe("slack-bot");
+    const result = await adapter.postMessage(
+      { id: "slack:C1:t1" } as never,
+      {} as never
+    );
+    expect(result).toEqual({ id: "msg-1", threadId: undefined, raw: {} });
+  });
+
+  it("encodes and decodes thread IDs symmetrically", () => {
+    const adapter = createMockAdapter("slack");
+    const id = adapter.encodeThreadId({ channel: "C1", thread: "t1" });
+    expect(id).toBe("slack:C1:t1");
+    expect(adapter.decodeThreadId(id)).toEqual({ channel: "C1", thread: "t1" });
+  });
+
+  it("applies overrides on top of defaults", async () => {
+    const customPost = vi.fn().mockResolvedValue({
+      id: "custom",
+      threadId: undefined,
+      raw: { custom: true },
+    });
+    const adapter = createMockAdapter("slack", { postMessage: customPost });
+    const result = await adapter.postMessage({} as never, {} as never);
+    expect(result.id).toBe("custom");
+    expect(customPost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createMockChatInstance", () => {
+  it("uses the supplied state", () => {
+    const state = createMockState();
+    const chat = createMockChatInstance({ state });
+    expect(chat.getState()).toBe(state);
+  });
+
+  it("defaults the user name and supports override", () => {
+    expect(createMockChatInstance().getUserName()).toBe("test-bot");
+    expect(createMockChatInstance({ userName: "alice" }).getUserName()).toBe(
+      "alice"
+    );
+  });
+});
+
+describe("createMockLogger", () => {
+  it("produces an isolated logger per call", () => {
+    const a = createMockLogger();
+    const b = createMockLogger();
+    a.info("hello");
+    expect(a.info).toHaveBeenCalledTimes(1);
+    expect(b.info).not.toHaveBeenCalled();
+  });
+});
+
+describe("createTestMessage", () => {
+  it("parses text into formatted AST", () => {
+    const message = createTestMessage("m1", "hello **world**");
+    expect(message.text).toBe("hello **world**");
+    expect(message.formatted).toBeDefined();
+    expect(message.id).toBe("m1");
+  });
+});
+
+describe("matcher: toHavePosted", () => {
+  it("passes when adapter posted to the given thread", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.postMessage(
+      { id: "slack:C1:t1" } as never,
+      { text: "hello" } as never
+    );
+    expect(adapter).toHavePosted("slack:C1:t1");
+  });
+
+  it("matches text patterns when provided", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.postMessage(
+      { id: "slack:C1:t1" } as never,
+      { text: "hello world" } as never
+    );
+    expect(adapter).toHavePosted("slack:C1:t1", HELLO_WORLD);
+    expect(adapter).toHavePosted("slack:C1:t1", "hello world");
+    expect(adapter).not.toHavePosted("slack:C1:t1", "goodbye");
+  });
+
+  it("fails when posting went to a different thread", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.postMessage(
+      { id: "slack:C1:other" } as never,
+      { text: "hi" } as never
+    );
+    expect(adapter).not.toHavePosted("slack:C1:t1");
+  });
+});
+
+describe("matcher: toHaveDispatched", () => {
+  it("passes when the named handler was called", () => {
+    const chat = createMockChatInstance();
+    chat.processMessage({} as never, "slack:C1:t1", {} as never);
+    expect(chat).toHaveDispatched("processMessage");
+  });
+
+  it("fails when the handler was not called", () => {
+    const chat = createMockChatInstance();
+    expect(chat).not.toHaveDispatched("processReaction");
+  });
+});
+
+describe("matcher: toBeSubscribedTo", () => {
+  it("passes after subscribe and fails after unsubscribe", async () => {
+    const state = createMockState();
+    await state.subscribe("slack:C1:t1");
+    await expect(state).toBeSubscribedTo("slack:C1:t1");
+    await state.unsubscribe("slack:C1:t1");
+    await expect(state).not.toBeSubscribedTo("slack:C1:t1");
+  });
+});
