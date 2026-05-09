@@ -474,9 +474,13 @@ const slack = bot.getAdapter("slack");
 
 #### Direct client access
 
-Use `.client` to access the platform's typed native API client directly — available on Linear and GitHub:
+Use `.client` to access the platform's typed native API client directly — available on Slack, Linear, and GitHub:
 
 ```typescript
+// Slack - full WebClient from @slack/web-api
+const slack = bot.getAdapter("slack").client;
+await slack.pins.add({ channel: "C123ABC", timestamp: "1234567890.123456" });
+
 // Linear - full LinearClient from @linear/sdk
 const linear = bot.getAdapter("linear").client;
 const issue = await linear.issue("ENG-123");
@@ -491,14 +495,19 @@ const { data: pulls } = await github.rest.pulls.list({
 });
 ```
 
-The client uses the credentials from your adapter config. For multi-tenant adapters (Linear, GitHub), it returns the client for the current webhook request context.
+The client uses the credentials from your adapter config. For multi-tenant / multi-workspace adapters (Slack, Linear, GitHub), it returns the client bound to the credentials for the current webhook request context.
 
 <Callout type="warn">
-  For multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth), `client` requires webhook handler context to resolve credentials. Calling it outside a handler throws. Single-tenant adapters (PAT, API key) work anywhere.
+  Multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth, Slack in multi-workspace mode) require a webhook handler context to resolve credentials when `.client` is accessed. Calling it outside a handler throws.
+
+  For Slack, you can also bind a token explicitly outside a webhook with `adapter.withBotToken(token, () => adapter.client.…)` — useful for cron jobs or workflows. The same pattern is required when `botToken` is configured as an async resolver function, since `.client` resolves the token synchronously.
+
+  Single-tenant adapters (PAT, API key, static `botToken` string, or a synchronous `botToken` resolver) work anywhere.
 </Callout>
 
 | Adapter | `client` type |
 |---------|---------------|
+| Slack | `WebClient` from `@slack/web-api` |
 | Linear | `LinearClient` from `@linear/sdk` |
 | GitHub | `Octokit` from `@octokit/rest` |
 

@@ -89,9 +89,10 @@ await slack.setSuggestedPrompts(channelId, threadTs, [
 ]);
 ```
 
-For typed access to the platform's native API client (Linear, GitHub), use `.client`:
+For typed access to the platform's native API client (Slack, Linear, GitHub), use `.client`:
 
 ```typescript title="lib/bot.ts" lineNumbers
+const slack = bot.getAdapter("slack").client; // WebClient
 const linear = bot.getAdapter("linear").client; // LinearClient
 const github = bot.getAdapter("github").client; // Octokit
 ```
