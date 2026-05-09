@@ -45,11 +45,41 @@ function getCalls(fn: unknown): unknown[][] {
 }
 
 /**
+ * Extract a comparable string from anything `AdapterPostableMessage` can be.
+ * Returns undefined for shapes whose text isn't serialized into a string field
+ * (e.g. PostableAst, PostableCard without `fallbackText`).
+ */
+function extractMessageText(message: unknown): string | undefined {
+  if (typeof message === "string") {
+    return message;
+  }
+  if (typeof message !== "object" || message === null) {
+    return undefined;
+  }
+  const obj = message as Record<string, unknown>;
+  if (typeof obj.markdown === "string") {
+    return obj.markdown;
+  }
+  if (typeof obj.raw === "string") {
+    return obj.raw;
+  }
+  if (typeof obj.fallbackText === "string") {
+    return obj.fallbackText;
+  }
+  return undefined;
+}
+
+/**
  * Assert that a mock `Adapter` posted to a given thread.
  *
- * Inspects `adapter.postMessage` calls (which receive `(thread, message, options?)`).
- * If `textPattern` is provided, the message's `.text` must match it (string equality
- * or `RegExp.test`).
+ * Inspects `adapter.postMessage(threadId, message)` calls. If `textPattern` is
+ * provided, the matcher extracts a string from the message — handling plain
+ * strings, `PostableMarkdown.markdown`, `PostableRaw.raw`, and
+ * `PostableCard.fallbackText` — and compares with string equality or
+ * `RegExp.test`. AST-shaped messages (`PostableAst`) and cards without a
+ * `fallbackText` aren't text-matchable; assert without `textPattern` to verify
+ * a post happened, then inspect `adapter.postMessage.mock.calls` directly for
+ * deeper assertions.
  */
 export function toHavePosted(
   this: MatcherState,
@@ -59,15 +89,14 @@ export function toHavePosted(
 ): SyncExpectationResult {
   const calls = getCalls(received?.postMessage);
   const matching = calls.filter((args) => {
-    const thread = args[0] as { id?: string } | undefined;
-    if (thread?.id !== threadId) {
+    const calledThreadId = args[0];
+    if (calledThreadId !== threadId) {
       return false;
     }
     if (textPattern === undefined) {
       return true;
     }
-    const message = args[1] as { text?: string } | undefined;
-    return matchText(message?.text, textPattern);
+    return matchText(extractMessageText(args[1]), textPattern);
   });
   const pass = matching.length > 0;
   return {

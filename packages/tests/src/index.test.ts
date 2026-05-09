@@ -75,10 +75,7 @@ describe("createMockAdapter", () => {
     const adapter = createMockAdapter("slack");
     expect(adapter.name).toBe("slack");
     expect(adapter.userName).toBe("slack-bot");
-    const result = await adapter.postMessage(
-      { id: "slack:C1:t1" } as never,
-      {} as never
-    );
+    const result = await adapter.postMessage("slack:C1:t1", "hello");
     expect(result).toEqual({ id: "msg-1", threadId: undefined, raw: {} });
   });
 
@@ -96,7 +93,7 @@ describe("createMockAdapter", () => {
       raw: { custom: true },
     });
     const adapter = createMockAdapter("slack", { postMessage: customPost });
-    const result = await adapter.postMessage({} as never, {} as never);
+    const result = await adapter.postMessage("slack:C1:t1", "hi");
     expect(result.id).toBe("custom");
     expect(customPost).toHaveBeenCalledTimes(1);
   });
@@ -139,30 +136,39 @@ describe("createTestMessage", () => {
 describe("matcher: toHavePosted", () => {
   it("passes when adapter posted to the given thread", async () => {
     const adapter = createMockAdapter("slack");
-    await adapter.postMessage(
-      { id: "slack:C1:t1" } as never,
-      { text: "hello" } as never
-    );
+    await adapter.postMessage("slack:C1:t1", "hello");
     expect(adapter).toHavePosted("slack:C1:t1");
   });
 
-  it("matches text patterns when provided", async () => {
+  it("matches plain string messages against text patterns", async () => {
     const adapter = createMockAdapter("slack");
-    await adapter.postMessage(
-      { id: "slack:C1:t1" } as never,
-      { text: "hello world" } as never
-    );
+    await adapter.postMessage("slack:C1:t1", "hello world");
     expect(adapter).toHavePosted("slack:C1:t1", HELLO_WORLD);
     expect(adapter).toHavePosted("slack:C1:t1", "hello world");
     expect(adapter).not.toHavePosted("slack:C1:t1", "goodbye");
   });
 
+  it("matches PostableMarkdown.markdown against text patterns", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.postMessage("slack:C1:t1", { markdown: "hello **world**" });
+    expect(adapter).toHavePosted("slack:C1:t1", HELLO_WORLD);
+    expect(adapter).toHavePosted("slack:C1:t1", "hello **world**");
+  });
+
+  it("matches PostableRaw.raw and PostableCard.fallbackText", async () => {
+    const adapter = createMockAdapter("slack");
+    await adapter.postMessage("slack:C1:raw", { raw: "hello world" });
+    await adapter.postMessage("slack:C1:card", {
+      card: {} as never,
+      fallbackText: "hello world",
+    });
+    expect(adapter).toHavePosted("slack:C1:raw", HELLO_WORLD);
+    expect(adapter).toHavePosted("slack:C1:card", HELLO_WORLD);
+  });
+
   it("fails when posting went to a different thread", async () => {
     const adapter = createMockAdapter("slack");
-    await adapter.postMessage(
-      { id: "slack:C1:other" } as never,
-      { text: "hi" } as never
-    );
+    await adapter.postMessage("slack:C1:other", "hi");
     expect(adapter).not.toHavePosted("slack:C1:t1");
   });
 });
