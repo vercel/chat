@@ -1,7 +1,7 @@
 import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import Redis from "ioredis";
 
-export interface IoRedisStateAdapterOptions {
+export interface IoRedisStateAdapterUrlOptions {
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
@@ -10,7 +10,7 @@ export interface IoRedisStateAdapterOptions {
   url: string;
 }
 
-export interface IoRedisStateClientOptions {
+export interface IoRedisStateAdapterClientOptions {
   /** Existing ioredis client instance */
   client: Redis;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
@@ -18,6 +18,16 @@ export interface IoRedisStateClientOptions {
   /** Logger instance for error reporting */
   logger: Logger;
 }
+
+export type IoRedisStateAdapterOptions =
+  | IoRedisStateAdapterUrlOptions
+  | IoRedisStateAdapterClientOptions;
+
+/**
+ * @deprecated Use `IoRedisStateAdapterClientOptions`. Renamed for consistency
+ * with the rest of the state adapter packages.
+ */
+export type IoRedisStateClientOptions = IoRedisStateAdapterClientOptions;
 
 /**
  * Redis state adapter using ioredis for production use.
@@ -43,7 +53,7 @@ export class IoRedisStateAdapter implements StateAdapter {
   private connectPromise: Promise<void> | null = null;
   private readonly ownsClient: boolean;
 
-  constructor(options: IoRedisStateAdapterOptions | IoRedisStateClientOptions) {
+  constructor(options: IoRedisStateAdapterOptions) {
     if ("client" in options) {
       this.client = options.client;
       this.ownsClient = false;
@@ -379,7 +389,7 @@ function generateToken(): string {
  * ```
  */
 export function createIoRedisState(
-  options: IoRedisStateAdapterOptions | IoRedisStateClientOptions
+  options: IoRedisStateAdapterOptions
 ): IoRedisStateAdapter {
   return new IoRedisStateAdapter(options);
 }
