@@ -58,7 +58,7 @@ createSlackAdapter({
 });
 ```
 
-If both `signingSecret` and `webhookVerifier` are set, `signingSecret` wins. When using `webhookVerifier`, you are responsible for replay/timestamp protection — the built-in 5-minute timestamp tolerance only applies to the `signingSecret` path.
+If both `signingSecret` and `webhookVerifier` are set, `webhookVerifier` wins — it also takes precedence over the `SLACK_SIGNING_SECRET` env var, so an env-configured deployment can't silently shadow a verifier you wired up. When using `webhookVerifier`, you are responsible for replay/timestamp protection — the built-in 5-minute timestamp tolerance only applies to the `signingSecret` path.
 
 ## Multi-workspace mode
 
