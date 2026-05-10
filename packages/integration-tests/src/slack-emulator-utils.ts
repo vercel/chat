@@ -107,7 +107,7 @@ export async function createSlackEmulator(): Promise<SlackEmulatorHandle> {
 
   const { app, store, webhooks, tokenMap } = createCoreServer(slackPlugin, {
     port: 0,
-    tokens: collectTokenSeed(seed),
+    tokens: buildTokenSeedEntries(seed),
   });
 
   const httpServer = await listen(app.fetch);
@@ -160,26 +160,44 @@ function listen(fetch: (req: Request) => Response | Promise<Response>) {
   });
 }
 
-function collectTokenSeed(
+const BOT_TOKEN_SCOPES = [
+  "chat:write",
+  "channels:read",
+  "channels:history",
+  "users:read",
+  "reactions:read",
+  "reactions:write",
+];
+
+const HUMAN_TOKEN_SCOPES = [
+  "chat:write",
+  "channels:read",
+  "channels:history",
+  "reactions:write",
+];
+
+interface SeededTokenEntry {
+  id: number;
+  login: string;
+  scopes: string[];
+}
+
+/**
+ * Single source of truth for the token map seed. Both the initial
+ * `createCoreServer({ tokens })` call and `reset()` (via `applyTokenSeed`)
+ * use this so the scopes granted to each token never drift between fresh
+ * boots and post-reset state.
+ */
+function buildTokenSeedEntries(
   seed: EmulatorSeed
-): Record<string, { id: number; login: string; scopes: string[] }> {
-  const tokens: Record<
-    string,
-    { id: number; login: string; scopes: string[] }
-  > = {};
+): Record<string, SeededTokenEntry> {
+  const tokens: Record<string, SeededTokenEntry> = {};
   let id = 1;
   for (const bot of seed.bots) {
     tokens[bot.token] = {
       id: id++,
       login: bot.userId,
-      scopes: [
-        "chat:write",
-        "channels:read",
-        "channels:history",
-        "users:read",
-        "reactions:read",
-        "reactions:write",
-      ],
+      scopes: [...BOT_TOKEN_SCOPES],
     };
   }
   for (const human of seed.humans) {
@@ -189,12 +207,7 @@ function collectTokenSeed(
     tokens[human.token] = {
       id: id++,
       login: human.userId,
-      scopes: [
-        "chat:write",
-        "channels:read",
-        "channels:history",
-        "reactions:write",
-      ],
+      scopes: [...HUMAN_TOKEN_SCOPES],
     };
   }
   return tokens;
@@ -202,23 +215,8 @@ function collectTokenSeed(
 
 function applyTokenSeed(tokenMap: TokenMap, seed: EmulatorSeed) {
   tokenMap.clear();
-  let id = 1;
-  for (const bot of seed.bots) {
-    tokenMap.set(bot.token, {
-      id: id++,
-      login: bot.userId,
-      scopes: ["chat:write", "channels:read"],
-    });
-  }
-  for (const human of seed.humans) {
-    if (!human.token) {
-      continue;
-    }
-    tokenMap.set(human.token, {
-      id: id++,
-      login: human.userId,
-      scopes: ["chat:write", "channels:read"],
-    });
+  for (const [token, entry] of Object.entries(buildTokenSeedEntries(seed))) {
+    tokenMap.set(token, entry);
   }
 }
 

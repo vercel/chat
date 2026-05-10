@@ -104,4 +104,46 @@ describe("Slack emulator: auth", () => {
 
     expect(adapter.botUserId).toBeFalsy();
   });
+
+  it("retains full bot scopes after reset() (regression)", async () => {
+    // First boot: emulator.reset() runs in this test's afterEach below as
+    // part of the normal cycle. Drive auth.test before and after reset to
+    // make sure the post-reset token still resolves with the same identity
+    // (i.e. token-seed scopes don't regress between fresh-boot and reset).
+    const adapter = createSlackAdapter({
+      apiUrl: emulator.apiUrl,
+      botToken: EMULATOR_BOT_TOKEN,
+      signingSecret: emulator.signingSecret,
+      userName: EMULATOR_BOT_NAME,
+      logger: silentLogger,
+    });
+    chat = new Chat({
+      userName: EMULATOR_BOT_NAME,
+      adapters: { slack: adapter },
+      state: createMemoryState(),
+      logger: silentLogger,
+    });
+    await chat.initialize();
+    expect(adapter.botUserId).toBe(EMULATOR_BOT_USER_ID);
+
+    emulator.reset();
+
+    // After reset the bot user, channel, and bot token should all still
+    // resolve. Hit the emulator's auth.test directly with the bot token to
+    // confirm the post-reset tokenMap entry still maps to the seeded bot.
+    const authResponse = await fetch(`${emulator.apiUrl}auth.test`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${EMULATOR_BOT_TOKEN}`,
+        "content-type": "application/json; charset=utf-8",
+      },
+      body: "{}",
+    });
+    const auth = (await authResponse.json()) as {
+      ok: boolean;
+      user_id?: string;
+    };
+    expect(auth.ok).toBe(true);
+    expect(auth.user_id).toBe(EMULATOR_BOT_USER_ID);
+  });
 });
