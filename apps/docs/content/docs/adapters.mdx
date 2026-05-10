@@ -138,4 +138,8 @@ export class CustomTelegramAdapter extends TelegramAdapter {
 }
 ```
 
-Construct your subclass anywhere you'd construct the base adapter — for example, `adapters: { telegram: new CustomTelegramAdapter({ ... }) }`. Members marked `private` (internal caches, in-flight state, secrets) intentionally remain inaccessible; if you find a hook you need that isn't `protected`, please open an issue.
+Construct your subclass anywhere you'd construct the base adapter — for example, `adapters: { telegram: new CustomTelegramAdapter({ ... }) }`. Members marked `private` (internal caches, in-flight runtime state, one-shot warning flags) intentionally remain inaccessible; if you find a hook you need that isn't `protected`, please open an issue.
+
+<Callout type="warn">
+  The `protected` extension surface is intentionally broader than the public API but is not yet considered fully stable. Method signatures may evolve (renames, parameter changes, new hook splits) in minor releases as we learn from real-world subclasses. Pin the adapter version you build against, watch the changelog for the affected adapter, and prefer overriding the smallest hook that solves your problem so upgrades stay easy. If you rely on a particular hook, please open an issue so we can promote it to a stable, documented extension point.
+</Callout>
