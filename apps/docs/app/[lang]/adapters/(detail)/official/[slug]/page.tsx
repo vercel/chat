@@ -2,14 +2,10 @@ import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AdapterHero } from "@/components/geistdocs/adapter-hero";
-import { CopyPage } from "@/components/geistdocs/copy-page";
 import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
-import { EditSource } from "@/components/geistdocs/edit-source";
 import { FeatureSupport } from "@/components/geistdocs/feature-support";
-import { Feedback } from "@/components/geistdocs/feedback";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
-import { ScrollTop } from "@/components/geistdocs/scroll-top";
-import { Separator } from "@/components/ui/separator";
+import { Upsell } from "@/components/geistdocs/upsell";
 import type { AdapterFeatureValue } from "@/lib/adapter-features";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 
@@ -59,15 +55,8 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       tableOfContent={{
         style: "clerk",
         footer: (
-          <div className="my-3 space-y-3">
-            <Separator />
-            <EditSource
-              basePath="apps/docs/content/adapters/"
-              path={page.path}
-            />
-            <ScrollTop />
-            <Feedback />
-            <CopyPage text={`# ${data.title}\n\n${data.description}\n`} />
+          <div className="my-3">
+            <Upsell />
           </div>
         ),
       }}

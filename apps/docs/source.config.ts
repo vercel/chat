@@ -79,6 +79,7 @@ export const adapters = defineDocs({
       vendorOfficial: z.boolean().optional(),
       author: z.string().optional(),
       features: z.record(z.string(), adapterFeatureValueSchema).optional(),
+      mdxBody: z.boolean().optional(),
     }),
     postprocess: {
       includeProcessedMarkdown: true,

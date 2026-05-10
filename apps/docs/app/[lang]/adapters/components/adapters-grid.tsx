@@ -18,6 +18,16 @@ interface Adapter {
   vendorOfficial?: boolean;
 }
 
+const getAdapterHref = (adapter: Adapter): string => {
+  if (adapter.vendorOfficial) {
+    return `/adapters/vendor-official/${adapter.slug}`;
+  }
+  if (adapter.community) {
+    return `/adapters/community/${adapter.slug}`;
+  }
+  return `/adapters/official/${adapter.slug}`;
+};
+
 interface AdaptersGridProps {
   adapters: Adapter[];
 }
@@ -88,12 +98,12 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
       {showPlatformSection && activeTab !== "state" ? (
         <div className="grid gap-10">
           {officialPlatform.length > 0 ? (
-            <section className="grid gap-6">
+            <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-semibold text-lg tracking-tight">
+                <h2 className="font-medium text-base tracking-tight">
                   Official
                 </h2>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-[13px] text-muted-foreground">
                   Published under <code>@chat-adapter/*</code> and maintained by
                   Vercel.
                 </p>
@@ -101,7 +111,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {officialPlatform.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
+                    href={getAdapterHref(adapter)}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -111,12 +121,12 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           ) : null}
 
           {vendorOfficialPlatform.length > 0 ? (
-            <section className="grid gap-6">
+            <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-semibold text-lg tracking-tight">
+                <h2 className="font-medium text-base tracking-tight">
                   Vendor Official
                 </h2>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-[13px] text-muted-foreground">
                   Built and maintained by the platform vendor.
                 </p>
               </div>
@@ -124,7 +134,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                 {vendorOfficialPlatform.map((adapter) => (
                   <AdapterCard
                     badge="vendor-official"
-                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
+                    href={getAdapterHref(adapter)}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -135,19 +145,19 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           ) : null}
 
           {communityPlatform.length > 0 ? (
-            <section className="grid gap-6">
+            <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-semibold text-lg tracking-tight">
+                <h2 className="font-medium text-base tracking-tight">
                   Community
                 </h2>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-[13px] text-muted-foreground">
                   Built by third-party developers.
                 </p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {communityPlatform.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
+                    href={getAdapterHref(adapter)}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -165,22 +175,22 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           className={`grid gap-10 ${showPlatformSection && activeTab === "all" ? "mt-16 border-t pt-16" : ""}`}
         >
           <div className="grid gap-1">
-            <h2 className="font-semibold text-xl tracking-tight">
+            <h2 className="font-semibold text-lg tracking-tight">
               State Adapters
             </h2>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-[13px] text-muted-foreground">
               Pluggable state adapters for thread subscriptions, distributed
               locking, and caching.
             </p>
           </div>
 
           {officialState.length > 0 ? (
-            <section className="grid gap-6">
+            <section className="grid gap-5">
               <div className="grid gap-1">
-                <h3 className="font-semibold text-lg tracking-tight">
+                <h3 className="font-medium text-base tracking-tight">
                   Official
                 </h3>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-[13px] text-muted-foreground">
                   Published under <code>@chat-adapter/*</code> and maintained by
                   Vercel.
                 </p>
@@ -188,7 +198,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {officialState.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
+                    href={getAdapterHref(adapter)}
                     key={adapter.slug}
                     {...adapter}
                   />
@@ -198,19 +208,19 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           ) : null}
 
           {communityState.length > 0 ? (
-            <section className="grid gap-6">
+            <section className="grid gap-5">
               <div className="grid gap-1">
-                <h3 className="font-semibold text-lg tracking-tight">
+                <h3 className="font-medium text-base tracking-tight">
                   Community
                 </h3>
-                <p className="text-muted-foreground text-sm">
+                <p className="text-[13px] text-muted-foreground">
                   Built by third-party developers.
                 </p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {communityState.map((adapter) => (
                   <AdapterCard
-                    href={`/adapters/${adapter.community || adapter.vendorOfficial ? "community" : "official"}/${adapter.slug}`}
+                    href={getAdapterHref(adapter)}
                     key={adapter.slug}
                     {...adapter}
                   />

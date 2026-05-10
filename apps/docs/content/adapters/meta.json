@@ -1,23 +1,4 @@
 {
   "title": "Adapters",
-  "pages": [
-    "---Official Adapters---",
-    "---Platforms---",
-    "official/slack",
-    "official/teams",
-    "official/google-chat",
-    "official/discord",
-    "official/telegram",
-    "official/github",
-    "official/linear",
-    "official/whatsapp",
-    "official/messenger",
-    "official/web",
-    "---State---",
-    "official/memory",
-    "official/redis",
-    "official/ioredis",
-    "official/postgres",
-    "community"
-  ]
+  "pages": ["official", "vendor-official", "community"]
 }

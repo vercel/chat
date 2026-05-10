@@ -21,8 +21,6 @@ const GITHUB_REPO_REF_PATTERN =
 const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
 const GITHUB_REPO_ROOT_PATTERN = /^(https:\/\/github\.com\/[^/]+\/[^/]+)/;
 
-const UNPINNED_REF_PATTERN = /^(main|master|head|dev|develop|trunk|default)$/i;
-
 const MAX_README_BYTES = 500_000;
 
 type Adapter = (typeof adaptersJson)[number];
@@ -30,23 +28,15 @@ type Adapter = (typeof adaptersJson)[number];
 const getAdapter = (slug: string): Adapter | undefined =>
   adaptersJson.find((a) => a.slug === slug);
 
+const getAuthor = (adapter: Adapter): string | undefined =>
+  "author" in adapter ? adapter.author : undefined;
+
 const getIssuesUrl = (readmeUrl: string | undefined): string | undefined => {
   if (!readmeUrl) {
     return;
   }
   const match = readmeUrl.match(GITHUB_REPO_ROOT_PATTERN);
   return match ? `${match[1]}/issues` : undefined;
-};
-
-const warnUnpinned = (adapter: Adapter, ref: string | undefined) => {
-  if (ref && !UNPINNED_REF_PATTERN.test(ref)) {
-    return;
-  }
-  console.warn(
-    `[adapters] Community adapter "${adapter.name}" uses an unpinned README ref "${
-      ref ?? "<default branch>"
-    }". Pin to a commit SHA or tag in adapters.json to freeze content at review time.`
-  );
 };
 
 const truncate = (content: string): string =>
@@ -84,7 +74,6 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
   const subpathMatch = repoUrl.match(GITHUB_SUBPATH_PATTERN);
   if (subpathMatch) {
     const [, owner, repo, ref, path] = subpathMatch;
-    warnUnpinned(adapter, ref);
     const content = await fetchGitHubReadme(
       `https://api.github.com/repos/${owner}/${repo}/readme/${path}?ref=${ref}`
     );
@@ -94,7 +83,6 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
   const repoRefMatch = repoUrl.match(GITHUB_REPO_REF_PATTERN);
   if (repoRefMatch) {
     const [, owner, repo, ref] = repoRefMatch;
-    warnUnpinned(adapter, ref);
     const content = await fetchGitHubReadme(
       `https://api.github.com/repos/${owner}/${repo}/readme?ref=${ref}`
     );
@@ -104,7 +92,6 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
   const repoMatch = repoUrl.match(GITHUB_REPO_PATTERN);
   if (repoMatch) {
     const [, owner, repo] = repoMatch;
-    warnUnpinned(adapter, undefined);
     const content = await fetchGitHubReadme(
       `https://api.github.com/repos/${owner}/${repo}/readme`
     );
@@ -112,14 +99,26 @@ const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
   }
 };
 
-const CommunityNotice = ({ adapter }: { adapter: Adapter }) => {
+const VendorOfficialNotice = ({ adapter }: { adapter: Adapter }) => {
   const issuesUrl = getIssuesUrl(adapter.readme);
+  const author = getAuthor(adapter);
 
   return (
     <div className="mb-8 rounded-md border bg-muted/40 px-4 py-3 text-muted-foreground text-sm">
-      <strong className="text-foreground">Community adapter.</strong> Not
-      maintained by Vercel or Chat SDK contributors. For feature requests, bug
-      reports, and support,{" "}
+      <strong className="text-foreground">Vendor-official adapter</strong>
+      {author ? (
+        <>
+          {" "}
+          maintained by {author}, not Vercel or Chat SDK contributors. For
+          feature requests, bug reports, and support,{" "}
+        </>
+      ) : (
+        <>
+          {" "}
+          maintained by the platform vendor, not Vercel or Chat SDK
+          contributors. For feature requests, bug reports, and support,{" "}
+        </>
+      )}
       {issuesUrl ? (
         <a
           className="text-primary underline hover:no-underline"
@@ -138,7 +137,6 @@ const CommunityNotice = ({ adapter }: { adapter: Adapter }) => {
 };
 
 interface AdapterFrontmatter {
-  community?: boolean;
   description: string;
   features?: Record<string, AdapterFeatureValue>;
   logo?: string;
@@ -166,7 +164,7 @@ interface PageParams {
 
 const Page = async ({ params }: { params: Promise<PageParams> }) => {
   const { slug, lang } = await params;
-  const page = adaptersSource.getPage(["community", slug], lang);
+  const page = adaptersSource.getPage(["vendor-official", slug], lang);
 
   if (!page) {
     notFound();
@@ -201,13 +199,13 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
     >
       <DocsBody>
         <AdapterHero
-          community
           logo={data.logo}
           name={data.title}
           packageName={data.packageName}
           tagline={data.tagline}
+          vendorOfficial
         />
-        {adapter ? <CommunityNotice adapter={adapter} /> : null}
+        {adapter ? <VendorOfficialNotice adapter={adapter} /> : null}
         {useMdxBody ? (
           <MDX
             components={getMDXComponents({
@@ -243,7 +241,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
 export const generateStaticParams = () =>
   adaptersSource
     .generateParams()
-    .filter((entry) => entry.slug?.[0] === "community")
+    .filter((entry) => entry.slug?.[0] === "vendor-official")
     .map((entry) => ({ lang: entry.lang, slug: entry.slug?.[1] }));
 
 export const generateMetadata = async ({
@@ -252,7 +250,7 @@ export const generateMetadata = async ({
   params: Promise<PageParams>;
 }): Promise<Metadata> => {
   const { slug, lang } = await params;
-  const page = adaptersSource.getPage(["community", slug], lang);
+  const page = adaptersSource.getPage(["vendor-official", slug], lang);
 
   if (!page) {
     return {};
@@ -262,7 +260,7 @@ export const generateMetadata = async ({
     title: page.data.title,
     description: page.data.description,
     openGraph: {
-      images: `/${lang}/adapters/community/${slug}/og`,
+      images: `/${lang}/adapters/vendor-official/${slug}/og`,
     },
     twitter: {
       card: "summary_large_image",

@@ -2,11 +2,6 @@
   "title": "Community Adapters",
   "pages": [
     "---Platforms---",
-    "matrix",
-    "imessage",
-    "resend",
-    "zernio",
-    "liveblocks",
     "webex",
     "baileys",
     "sendblue",

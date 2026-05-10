@@ -35,6 +35,31 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/adapters/community/matrix",
+        destination: "/adapters/vendor-official/matrix",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/imessage",
+        destination: "/adapters/vendor-official/imessage",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/resend",
+        destination: "/adapters/vendor-official/resend",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/zernio",
+        destination: "/adapters/vendor-official/zernio",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/liveblocks",
+        destination: "/adapters/vendor-official/liveblocks",
+        permanent: true,
+      },
+      {
         source: "/docs/adapters/:slug*",
         destination: "/adapters",
         permanent: true,
@@ -45,7 +70,8 @@ const config: NextConfig = {
         permanent: true,
       },
       {
-        source: "/adapters/:slug((?!official$|community$|for$|official/.*|community/.*|for/.*).+)",
+        source:
+          "/adapters/:slug((?!official$|community$|vendor-official$|for$|official/.*|community/.*|vendor-official/.*|for/.*).+)",
         destination: "/adapters",
         permanent: true,
       },
