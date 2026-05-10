@@ -50,4 +50,4 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-For anything beyond `message.subject`, access the platform's typed API client via [`bot.getAdapter(...).client`](/docs/api/chat#getadapter).
+For anything beyond `message.subject`, access the platform's typed API client via [`bot.getAdapter("github").octokit`](/docs/api/chat#getadapter) or [`bot.getAdapter("linear").linearClient`](/docs/api/chat#getadapter).

@@ -89,12 +89,14 @@ await slack.setSuggestedPrompts(channelId, threadTs, [
 ]);
 ```
 
-For typed access to the platform's native API client (Linear, GitHub), use `.client`:
+For typed access to the platform's native API client, use the SDK-named getter (`.linearClient` for Linear, `.octokit` for GitHub):
 
 ```typescript title="lib/bot.ts" lineNumbers
-const linear = bot.getAdapter("linear").client; // LinearClient
-const github = bot.getAdapter("github").client; // Octokit
+const linear = bot.getAdapter("linear").linearClient; // LinearClient
+const github = bot.getAdapter("github").octokit; // Octokit
 ```
+
+The previous `.client` getter still works as a deprecated alias on both adapters.
 
 See [`getAdapter`](/docs/api/chat#getadapter) for multi-tenant constraints.
 
