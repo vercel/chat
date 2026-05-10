@@ -60,12 +60,12 @@ const config: NextConfig = {
         permanent: true,
       },
       {
-        source: "/docs/adapters/:slug*",
+        source: "/docs/adapters/:slug+",
         destination: "/adapters",
         permanent: true,
       },
       {
-        source: "/docs/state/:slug*",
+        source: "/docs/state/:slug+",
         destination: "/adapters",
         permanent: true,
       },
