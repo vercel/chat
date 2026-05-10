@@ -70,8 +70,13 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/adapters/for/:slug*",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
         source:
-          "/adapters/:slug((?!official$|community$|vendor-official$|for$|official/.*|community/.*|vendor-official/.*|for/.*).+)",
+          "/adapters/:slug((?!official$|community$|vendor-official$|official/.*|community/.*|vendor-official/.*).+)",
         destination: "/adapters",
         permanent: true,
       },
