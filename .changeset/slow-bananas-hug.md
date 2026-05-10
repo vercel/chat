@@ -4,7 +4,6 @@
 "@chat-adapter/github": patch
 "@chat-adapter/linear": patch
 "@chat-adapter/messenger": patch
-"@chat-adapter/shared": patch
 "@chat-adapter/slack": patch
 "@chat-adapter/teams": patch
 "@chat-adapter/telegram": patch
@@ -12,4 +11,4 @@
 "@chat-adapter/whatsapp": patch
 ---
 
-Updated access specifier from private to protected
+Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
