@@ -183,7 +183,7 @@ export class LinearAdapter
     clientSecret: string;
     scopes: string[];
   } | null = null;
-  protected accessTokenExpiry: number | null = null;
+  private accessTokenExpiry: number | null = null;
   // Custom API base URL
   protected readonly apiUrl?: string;
   // Optional AES-256-GCM key for encrypting OAuth tokens at rest

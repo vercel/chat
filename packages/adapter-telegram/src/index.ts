@@ -205,10 +205,10 @@ export class TelegramAdapter
   protected readonly botToken: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
-  protected warnedNoVerification = false;
+  private warnedNoVerification = false;
   protected readonly logger: Logger;
   protected readonly formatConverter = new TelegramFormatConverter();
-  protected readonly messageCache = new Map<
+  private readonly messageCache = new Map<
     string,
     Message<TelegramRawMessage>[]
   >();
@@ -219,10 +219,10 @@ export class TelegramAdapter
   protected readonly hasExplicitUserName: boolean;
   protected readonly mode: TelegramAdapterMode;
   protected readonly longPolling?: TelegramLongPollingConfig;
-  protected _runtimeMode: TelegramRuntimeMode = "webhook";
-  protected pollingAbortController: AbortController | null = null;
-  protected pollingTask: Promise<void> | null = null;
-  protected pollingActive = false;
+  private _runtimeMode: TelegramRuntimeMode = "webhook";
+  private pollingAbortController: AbortController | null = null;
+  private pollingTask: Promise<void> | null = null;
+  private pollingActive = false;
 
   get botUserId(): string | undefined {
     return this._botUserId;

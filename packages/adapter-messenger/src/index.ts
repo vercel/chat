@@ -59,11 +59,11 @@ export class MessengerAdapter
   protected readonly apiVersion: string;
   protected readonly logger: Logger;
   protected readonly formatConverter = new MessengerFormatConverter();
-  protected readonly messageCache = new Map<
+  private readonly messageCache = new Map<
     string,
     Message<MessengerRawMessage>[]
   >();
-  protected readonly userProfileCache = new Map<string, MessengerUserProfile>();
+  private readonly userProfileCache = new Map<string, MessengerUserProfile>();
 
   protected chat: ChatInstance | null = null;
   protected _botUserId?: string;

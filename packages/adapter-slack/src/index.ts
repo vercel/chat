@@ -551,13 +551,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Cache of channel IDs known to be external/shared (Slack Connect).
    * Populated from `is_ext_shared_channel` in incoming webhook payloads.
    */
-  protected readonly _externalChannels = new Set<string>();
+  private readonly _externalChannels = new Set<string>();
 
   // Socket mode support
   protected readonly appToken: string | undefined;
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
-  protected socketClient: SocketModeClient | null = null;
+  private socketClient: SocketModeClient | null = null;
 
   // Multi-workspace support
   protected readonly clientId: string | undefined;

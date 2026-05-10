@@ -97,7 +97,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly formatConverter = new DiscordFormatConverter();
   protected readonly requestContext =
     new AsyncLocalStorage<DiscordRequestContext>();
-  protected readonly threadParentCache = new Map<
+  private readonly threadParentCache = new Map<
     string,
     { parentId: string; expiresAt: number }
   >();

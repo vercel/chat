@@ -94,7 +94,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected readonly formatConverter = new TeamsFormatConverter();
   protected readonly config: TeamsAdapterConfig;
   protected readonly graphReader: TeamsGraphReader;
-  protected readonly activeStreams = new Map<string, IStreamer>();
+  private readonly activeStreams = new Map<string, IStreamer>();
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = config;

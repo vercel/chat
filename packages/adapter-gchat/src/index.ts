@@ -308,7 +308,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /** User email to impersonate for Workspace Events API (domain-wide delegation) */
   protected readonly impersonateUser?: string;
   /** In-progress subscription creations to prevent duplicate requests */
-  protected readonly pendingSubscriptions = new Map<string, Promise<void>>();
+  private readonly pendingSubscriptions = new Map<string, Promise<void>>();
   /** Chat API client with impersonation for user-context operations (DMs, etc.) */
   protected readonly impersonatedChatApi?: chat_v1.Chat;
   /** HTTP endpoint URL for button click actions */
@@ -320,12 +320,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /** Explicit opt-in to skip JWT verification (fail-open). */
   protected readonly disableSignatureVerification: boolean;
   /** OAuth2 client for verifying Google-signed JWTs */
-  protected readonly oauth2Client = new auth.OAuth2();
+  private readonly oauth2Client = new auth.OAuth2();
   /** Track whether we've already warned about missing verification config */
-  protected warnedNoWebhookVerification = false;
-  protected warnedNoPubsubVerification = false;
+  private warnedNoWebhookVerification = false;
+  private warnedNoPubsubVerification = false;
   /** User info cache for display name lookups - initialized later in initialize() */
-  protected userInfoCache: UserInfoCache;
+  private userInfoCache: UserInfoCache;
 
   constructor(
     config: GoogleChatAdapterConfig = {} as GoogleChatAdapterAutoConfig

@@ -128,7 +128,7 @@ export class GitHubAdapter
   // Fixed installation for single-tenant GitHub App mode
   protected readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
-  protected readonly installationClients = new Map<number, Octokit>();
+  private readonly installationClients = new Map<number, Octokit>();
   // Custom API base URL (e.g. for GitHub Enterprise)
   protected readonly apiUrl?: string;
 
