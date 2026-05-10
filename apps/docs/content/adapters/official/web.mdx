@@ -5,7 +5,7 @@ packageName: "@chat-adapter/web"
 slug: web
 type: platform
 logo: web
-tagline: Lets a Chat SDK bot serve a browser chat UI alongside Slack, Teams, Discord — the same handler fires for every platform. Speaks the AI SDK UI message stream protocol so `@ai-sdk/react`'s `useChat` and `ai-elements` work out of the box.
+tagline: Lets a Chat SDK bot serve a browser chat UI alongside Slack, Teams, Discord — the same handler fires for every platform. Speaks the AI SDK UI message stream protocol so @ai-sdk/react's useChat and ai-elements work out of the box.
 beta: true
 features:
   postMessage: yes
@@ -231,12 +231,6 @@ const { messages, sendMessage, status, stop, regenerate } = useChat({
 | ...rest | All other options pass through to `@ai-sdk/react`'s `useChat`. |
 
 For advanced configuration, use `@ai-sdk/react`'s `useChat` directly — there's nothing magical in the wrapper.
-
-### v1 scope
-
-**In:** text + markdown, native streaming, DM-style routing, persisted message history, abort propagation via `request.signal`.
-
-**Out (deferred to v2):** cards/JSX rendering, reactions, modals, file uploads, edit/delete, multi-tab proactive push.
 
 ## Feature support
 
