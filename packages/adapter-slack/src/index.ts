@@ -543,9 +543,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected _botUserId: string | null = null;
   protected _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
   protected readonly formatConverter = new SlackFormatConverter();
-  protected static USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
-  protected static CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
-  protected static REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
