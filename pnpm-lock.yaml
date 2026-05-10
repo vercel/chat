@@ -635,6 +635,9 @@ importers:
       '@chat-adapter/gchat':
         specifier: workspace:*
         version: link:../adapter-gchat
+      '@chat-adapter/github':
+        specifier: workspace:*
+        version: link:../adapter-github
       '@chat-adapter/messenger':
         specifier: workspace:*
         version: link:../adapter-messenger
@@ -660,6 +663,15 @@ importers:
         specifier: ^0.37.119
         version: 0.37.120
     devDependencies:
+      '@emulators/core':
+        specifier: ^0.5.0
+        version: 0.5.0
+      '@emulators/github':
+        specifier: ^0.5.0
+        version: 0.5.0
+      '@hono/node-server':
+        specifier: ^2.0.2
+        version: 2.0.2(hono@4.12.18)
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -1167,6 +1179,12 @@ packages:
   '@emnapi/wasi-threads@1.1.0':
     resolution: {integrity: sha512-WI0DdZ8xFSbgMjR1sFsKABJ/C5OnRrjT06JXbZKexJGrDuPTzZdDYfFlsgcCXCyf+suG5QU2e/y1Wo2V/OapLQ==}
 
+  '@emulators/core@0.5.0':
+    resolution: {integrity: sha512-GCWKlCJCso4ZlVtnfLHY+k2M+SOhtE8NyZ+fkb51N2ZBhniH046tw46vJXCRQE9YjYGoaSrrpzAatcpov35wnQ==}
+
+  '@emulators/github@0.5.0':
+    resolution: {integrity: sha512-LgaEoFJca2gs1p19y3KbAyjhoWdM082jaV7P8CXOv8oS6SKtBDZlfrDi8Uv1ChkOFaQ0r+fv/JfltQSSjc8gjA==}
+
   '@esbuild/aix-ppc64@0.27.2':
     resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
     engines: {node: '>=18'}
@@ -1509,6 +1527,12 @@ packages:
     resolution: {integrity: sha512-mB9oAsNCm9aM3/SOv4YtBMqZbYj10R7dkq8byBqxGY/ncFwhf2oQzMV+LCRlWoDSEBJ3COiR1yeDvMtsoOsuFQ==}
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
+
+  '@hono/node-server@2.0.2':
+    resolution: {integrity: sha512-tXlTi1h/4V7sDe7i97IVP+9re9ZU7wXZZggnR5ucCRclf1+AX6YhGStrR5w8bLj+3Mlyl0pKfBh9gqTqqnGKfQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -5434,6 +5458,10 @@ packages:
   hls.js@1.6.15:
     resolution: {integrity: sha512-E3a5VwgXimGHwpRGV+WxRTKeSp2DW5DI5MWv34ulL3t5UNmyJWCQ1KmLEHbYzcfThfXG8amBL+fCYPneGHC4VA==}
 
+  hono@4.12.18:
+    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
+    engines: {node: '>=16.9.0'}
+
   html-entities@2.6.0:
     resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
 
@@ -5669,6 +5697,9 @@ packages:
 
   jose@4.15.9:
     resolution: {integrity: sha512-1vUQX+IdDMVPj4k8kOxgUqlcK518yluMuGZwqlr44FS1ppZB/5GWh4rZG89erpOBOJjU/OBsnCVFfapsRz6nEA==}
+
+  jose@6.2.3:
+    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
 
   jotai@2.17.1:
     resolution: {integrity: sha512-TFNZZDa/0ewCLQyRC/Sq9crtixNj/Xdf/wmj9631xxMuKToVJZDbqcHIYN0OboH+7kh6P6tpIK7uKWClj86PKw==}
@@ -8507,6 +8538,16 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@emulators/core@0.5.0':
+    dependencies:
+      hono: 4.12.18
+      jose: 6.2.3
+
+  '@emulators/github@0.5.0':
+    dependencies:
+      '@emulators/core': 0.5.0
+      hono: 4.12.18
+
   '@esbuild/aix-ppc64@0.27.2':
     optional: true
 
@@ -8699,6 +8740,10 @@ snapshots:
   '@graphql-typed-document-node/core@3.2.0(graphql@15.10.1)':
     dependencies:
       graphql: 15.10.1
+
+  '@hono/node-server@2.0.2(hono@4.12.18)':
+    dependencies:
+      hono: 4.12.18
 
   '@iconify/types@2.0.0': {}
 
@@ -13140,6 +13185,8 @@ snapshots:
 
   hls.js@1.6.15: {}
 
+  hono@4.12.18: {}
+
   html-entities@2.6.0: {}
 
   html-escaper@2.0.2: {}
@@ -13329,6 +13376,8 @@ snapshots:
   jiti@2.6.1: {}
 
   jose@4.15.9: {}
+
+  jose@6.2.3: {}
 
   jotai@2.17.1(@types/react@19.2.7)(react@19.2.3):
     optionalDependencies:
