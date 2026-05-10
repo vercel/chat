@@ -175,16 +175,49 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
   const data = page.data as unknown as AdapterFrontmatter;
   const adapter = getAdapter(slug);
   const useMdxBody = data.mdxBody === true;
-  const readme = useMdxBody
-    ? undefined
-    : adapter
-      ? await getReadme(adapter)
-      : undefined;
+  let readme: string | undefined;
+  if (!useMdxBody && adapter) {
+    readme = await getReadme(adapter);
+  }
   const MDX = page.data.body;
   const BoundFeatureSupport = renderBoundFeatureSupport(
     data.features,
     data.type
   );
+
+  const renderBody = () => {
+    if (useMdxBody) {
+      return (
+        <MDX
+          components={getMDXComponents({
+            a: createRelativeLink(adaptersSource, page),
+            FeatureSupport: BoundFeatureSupport,
+          })}
+        />
+      );
+    }
+    if (readme) {
+      return <ReadmeContent>{readme}</ReadmeContent>;
+    }
+    return (
+      <p className="text-muted-foreground">
+        README not available. Visit the{" "}
+        {adapter?.readme ? (
+          <a
+            className="text-primary underline"
+            href={adapter.readme}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            GitHub repository
+          </a>
+        ) : (
+          "adapter's repository"
+        )}{" "}
+        for documentation.
+      </p>
+    );
+  };
 
   return (
     <DocsPage
@@ -208,33 +241,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
           tagline={data.tagline}
         />
         {adapter ? <CommunityNotice adapter={adapter} /> : null}
-        {useMdxBody ? (
-          <MDX
-            components={getMDXComponents({
-              a: createRelativeLink(adaptersSource, page),
-              FeatureSupport: BoundFeatureSupport,
-            })}
-          />
-        ) : readme ? (
-          <ReadmeContent>{readme}</ReadmeContent>
-        ) : (
-          <p className="text-muted-foreground">
-            README not available. Visit the{" "}
-            {adapter?.readme ? (
-              <a
-                className="text-primary underline"
-                href={adapter.readme}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                GitHub repository
-              </a>
-            ) : (
-              "adapter's repository"
-            )}{" "}
-            for documentation.
-          </p>
-        )}
+        {renderBody()}
       </DocsBody>
     </DocsPage>
   );
