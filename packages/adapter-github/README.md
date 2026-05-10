@@ -131,10 +131,10 @@ bot.onNewMention(async (thread, message) => {
 
 ## Direct API client
 
-For anything beyond the unified SDK, access the underlying [Octokit](https://github.com/octokit/octokit.js) instance via `.client`:
+For anything beyond the unified SDK, access the underlying [Octokit](https://github.com/octokit/octokit.js) instance via `.octokit`:
 
 ```typescript
-const github = bot.getAdapter("github").client;
+const github = bot.getAdapter("github").octokit;
 
 const { data: pulls } = await github.rest.pulls.list({
   owner: "vercel",
@@ -143,7 +143,9 @@ const { data: pulls } = await github.rest.pulls.list({
 });
 ```
 
-PAT and single-tenant GitHub App modes (with a fixed `installationId`) return the same client anywhere. Multi-tenant mode requires webhook handler context to resolve the right installation — calling `.client` outside a handler throws.
+PAT and single-tenant GitHub App modes (with a fixed `installationId`) return the same client anywhere. Multi-tenant mode requires webhook handler context to resolve the right installation — calling `.octokit` outside a handler throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.octokit`.
 
 ## Webhook setup
 

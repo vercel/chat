@@ -271,6 +271,59 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("octokit getter", () => {
+    it("should return the underlying Octokit instance in PAT mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      const octokit = a.octokit;
+      expect(octokit).toBeDefined();
+      // Mocked Octokit exposes the rest namespace surface
+      expect(octokit.issues).toBeDefined();
+      expect(octokit.pulls).toBeDefined();
+    });
+
+    it("should return the same instance across calls in single-tenant mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.octokit).toBe(a.octokit);
+    });
+
+    it("should expose the same instance via the deprecated `client` alias", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.client).toBe(a.octokit);
+    });
+
+    it("should throw in multi-tenant mode when called outside a webhook", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+
+      expect(() => a.octokit).toThrow(/installation/i);
+      expect(() => a.client).toThrow(/installation/i);
+    });
+  });
+
   describe("initialize", () => {
     it("should store chat instance and fetch bot user ID", async () => {
       mockUsersGetAuthenticated.mockResolvedValueOnce({
@@ -843,7 +896,7 @@ describe("GitHubAdapter", () => {
 
     it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
       // Regression: previously the multi-tenant App constructor left
-      // this.octokit null, so initialize()'s detection branch was skipped.
+      // this.defaultOctokit null, so initialize()'s detection branch was skipped.
       // The fallback only ran inside removeReaction(), so bots that never
       // remove reactions had _botUserId === null forever — meaning isMe was
       // always false and the bot would re-process its own replies in an
@@ -2644,7 +2697,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "issue_comment" as const,
@@ -2693,7 +2747,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "issue_comment" as const,
@@ -2739,7 +2794,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "review_comment" as const,
@@ -2770,7 +2826,7 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = {
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit = {
       rest: {
         issues: {
           get: vi.fn().mockRejectedValue(new Error("Not Found")),
