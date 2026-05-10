@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { DocsLayout } from "@/components/geistdocs/docs-layout";
+import { AdaptersDocsLayout } from "@/components/geistdocs/adapters-docs-layout";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 
 interface AdapterDetailLayoutProps {
@@ -12,7 +12,9 @@ const Layout = async ({ children, params }: AdapterDetailLayoutProps) => {
 
   return (
     <div className="bg-background-200">
-      <DocsLayout tree={adaptersSource.pageTree[lang]}>{children}</DocsLayout>
+      <AdaptersDocsLayout tree={adaptersSource.pageTree[lang]}>
+        {children}
+      </AdaptersDocsLayout>
     </div>
   );
 };
