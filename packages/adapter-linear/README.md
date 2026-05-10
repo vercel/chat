@@ -166,16 +166,18 @@ See the [Linear Agents docs](https://linear.app/developers/agents) for full deta
 
 ## Direct API client
 
-For anything beyond the unified SDK, access the underlying [LinearClient](https://github.com/linear/linear/tree/master/packages/sdk) via `.client`:
+For anything beyond the unified SDK, access the underlying [LinearClient](https://github.com/linear/linear/tree/master/packages/sdk) via `.linearClient`:
 
 ```typescript
-const linear = bot.getAdapter("linear").client;
+const linear = bot.getAdapter("linear").linearClient;
 
 const issue = await linear.issue("ENG-123");
 const project = await issue.project;
 ```
 
-API key, access token, and single-tenant client-credentials modes return the same client anywhere. Multi-tenant OAuth mode requires webhook handler context to resolve the per-org token — calling `.client` outside a handler throws.
+API key, access token, and single-tenant client-credentials modes return the same client anywhere. Multi-tenant OAuth mode requires webhook handler context to resolve the per-org token — calling `.linearClient` outside a handler throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.linearClient`.
 
 ## Webhook setup
 

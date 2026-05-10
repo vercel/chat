@@ -881,6 +881,62 @@ describe("constructor", () => {
 });
 
 // =============================================================================
+// linearClient getter
+// =============================================================================
+
+describe("linearClient getter", () => {
+  it("should return the underlying LinearClient in apiKey mode", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    const client = adapter.linearClient;
+    expect(client).toBeDefined();
+    expect(typeof client.issue).toBe("function");
+  });
+
+  it("should return the same instance across calls in single-tenant mode", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(adapter.linearClient).toBe(adapter.linearClient);
+  });
+
+  it("should expose the same instance via the deprecated `client` alias", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(adapter.client).toBe(adapter.linearClient);
+  });
+
+  it("should throw in multi-tenant OAuth mode when called outside a webhook", () => {
+    const adapter = new LinearAdapter({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(() => adapter.linearClient).toThrow(
+      /No Linear access token available/
+    );
+    expect(() => adapter.client).toThrow(/No Linear access token available/);
+  });
+});
+
+// =============================================================================
 // channelIdFromThreadId
 // =============================================================================
 
