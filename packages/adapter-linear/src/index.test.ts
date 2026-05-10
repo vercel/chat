@@ -10,6 +10,7 @@ import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 const BYTES_32_PATTERN = /32 bytes/;
+const NO_LINEAR_TOKEN_PATTERN = /No Linear access token available/;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -929,10 +930,8 @@ describe("linearClient getter", () => {
       logger: createMockLogger(),
     });
 
-    expect(() => adapter.linearClient).toThrow(
-      /No Linear access token available/
-    );
-    expect(() => adapter.client).toThrow(/No Linear access token available/);
+    expect(() => adapter.linearClient).toThrow(NO_LINEAR_TOKEN_PATTERN);
+    expect(() => adapter.client).toThrow(NO_LINEAR_TOKEN_PATTERN);
   });
 });
 

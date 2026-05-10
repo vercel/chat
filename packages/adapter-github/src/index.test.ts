@@ -88,6 +88,7 @@ const mockLogger = {
 };
 
 const WEBHOOK_SECRET = "test-secret";
+const INSTALLATION_ERROR_PATTERN = /installation/i;
 
 function signPayload(body: string): string {
   return `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`;
@@ -319,8 +320,8 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
 
-      expect(() => a.octokit).toThrow(/installation/i);
-      expect(() => a.client).toThrow(/installation/i);
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
+      expect(() => a.client).toThrow(INSTALLATION_ERROR_PATTERN);
     });
   });
 
