@@ -105,7 +105,7 @@ const messengerConfig: Record<
     name: "Email",
     description:
       "Build email bots with Chat SDK. Browse official and community adapters that support email integration.",
-    adapterSlugs: ["resend"],
+    adapterSlugs: ["email", "resend"],
     keywords: ["email"],
   },
   webex: {

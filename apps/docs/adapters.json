@@ -100,6 +100,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-web"
   },
   {
+    "name": "Email",
+    "slug": "email",
+    "type": "platform",
+    "description": "Bidirectional email adapter with pluggable Email Service Providers (Resend, Inbound). Threads via standard RFC-822 headers and renders cards as inline-styled HTML.",
+    "packageName": "@chat-adapter/email",
+    "icon": "email",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-email"
+  },
+  {
     "name": "Redis",
     "slug": "redis",
     "type": "state",

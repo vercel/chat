@@ -527,3 +527,27 @@ export const messenger = (props: ComponentProps<"svg">) => (
     />
   </svg>
 );
+
+export const email = (props: ComponentProps<"svg">) => (
+  <svg
+    fill="none"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <rect
+      height="14"
+      rx="2"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      width="18"
+      x="3"
+      y="5"
+    />
+    <path
+      d="m3 7 8.4 6.3a1 1 0 0 0 1.2 0L21 7"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+  </svg>
+);

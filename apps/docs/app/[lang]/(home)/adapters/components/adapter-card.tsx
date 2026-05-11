@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import {
   discord,
+  email,
   gchat,
   github,
   ioredis,
@@ -35,6 +36,7 @@ const iconMap: Record<
   discord,
   github,
   web,
+  email,
   linear,
   telegram,
   redis,
