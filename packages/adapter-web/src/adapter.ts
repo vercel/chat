@@ -67,8 +67,8 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new WebFormatConverter();
-  protected readonly resolveUser: WebAdapterOptions["getUser"];
-  protected readonly threadIdFor: NonNullable<WebAdapterOptions["threadIdFor"]>;
+  protected readonly resolveUser: WebAdapterConfig["getUser"];
+  protected readonly threadIdFor: NonNullable<WebAdapterConfig["threadIdFor"]>;
 
   constructor(opts: WebAdapterConfig) {
     if (!opts.userName) {
