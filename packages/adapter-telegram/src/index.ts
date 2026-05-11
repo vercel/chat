@@ -1348,20 +1348,58 @@ export class TelegramAdapter
     replyMarkup?: TelegramInlineKeyboardMarkup,
     parseMode: TelegramParseMode = "plain"
   ): Promise<TelegramMessage> {
+    const upload = ATTACHMENT_UPLOADS[attachment.type];
     const data =
       attachment.data ??
       (attachment.fetchData ? await attachment.fetchData() : undefined);
 
-    if (!data) {
+    if (!(data || attachment.url)) {
       throw new ValidationError(
         "telegram",
-        `Attachment data required for ${attachment.type}`
+        `Attachment data or URL required for ${attachment.type}`
       );
+    }
+
+    if (!data) {
+      const payload: Record<string, unknown> = {
+        chat_id: thread.chatId,
+        [upload.field]: attachment.url,
+      };
+
+      if (typeof thread.messageThreadId === "number") {
+        payload.message_thread_id = thread.messageThreadId;
+      }
+
+      if (text.trim()) {
+        payload.caption = truncateForTelegram(
+          text,
+          TELEGRAM_CAPTION_LIMIT,
+          parseMode
+        );
+        const botApiParseMode = toBotApiParseMode(parseMode);
+        if (botApiParseMode) {
+          payload.parse_mode = botApiParseMode;
+        }
+      }
+
+      if (attachment.type === "video") {
+        if (Number.isInteger(attachment.width)) {
+          payload.width = attachment.width;
+        }
+        if (Number.isInteger(attachment.height)) {
+          payload.height = attachment.height;
+        }
+      }
+
+      if (replyMarkup) {
+        payload.reply_markup = replyMarkup;
+      }
+
+      return this.telegramFetch<TelegramMessage>(upload.method, payload);
     }
 
     const buffer = await this.toTelegramBuffer(data);
     const formData = new FormData();
-    const upload = ATTACHMENT_UPLOADS[attachment.type];
 
     formData.append("chat_id", thread.chatId);
     if (typeof thread.messageThreadId === "number") {

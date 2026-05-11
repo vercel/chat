@@ -1113,6 +1113,52 @@ describe("TelegramAdapter", () => {
     expect(formData.get("document")).toBeInstanceOf(Blob);
   });
 
+  it("posts URL-only attachments through Telegram URL fields", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:-100123:42", {
+      markdown: "public **image**",
+      attachments: [
+        {
+          mimeType: "image/png",
+          name: "image.png",
+          type: "image",
+          url: "https://cdn.example.com/image.png",
+        },
+      ],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendPhoto");
+    expect(mockFetch.mock.calls[1]?.[1]?.headers).toEqual({
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(mockFetch.mock.calls[1]?.[1]?.body))).toEqual({
+      caption: "public *image*",
+      chat_id: "-100123",
+      message_thread_id: 42,
+      parse_mode: "MarkdownV2",
+      photo: "https://cdn.example.com/image.png",
+    });
+  });
+
   it("rejects multiple Telegram attachments in one message", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
@@ -1197,7 +1243,7 @@ describe("TelegramAdapter", () => {
         raw: "",
         attachments: [{ type: "image" }],
       })
-    ).rejects.toThrow("Attachment data required for image");
+    ).rejects.toThrow("Attachment data or URL required for image");
     expect(mockFetch.mock.calls).toHaveLength(1);
   });
 
