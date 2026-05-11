@@ -25,6 +25,7 @@ import {
 
 const TEXT_ALIGN_CENTER = /style="text-align:center/;
 const TEXT_ALIGN_RIGHT = /style="text-align:right/;
+const TABLE_CELL_OPEN_TAG = /<t[hd][\s>][^>]*>/g;
 
 describe("escapeHtml", () => {
   it("escapes the standard HTML character set", () => {
@@ -434,6 +435,79 @@ describe("astToHtml edge cases (manually constructed AST)", () => {
       ],
     };
     expect(astToHtml(ast)).toContain("no-align");
+  });
+});
+
+describe("cardToHtml table alignment", () => {
+  it("merges alignment into a single style attribute per cell", () => {
+    // Two `style=` attributes on the same tag would cause browsers to
+    // silently drop the second per the HTML spec, losing the padding /
+    // border styling whenever alignment is also present.
+    const card: CardElement = {
+      type: "card",
+      title: "Aligned",
+      children: [
+        {
+          type: "table",
+          headers: ["L", "C", "R"],
+          rows: [["1", "2", "3"]],
+          align: ["left", "center", "right"],
+        },
+      ],
+    };
+    const html = cardToHtml(card);
+
+    // Match opening <th> / <td> tags, but not <thead> / <tbody> wrappers.
+    // The `[\\s>]` requires whitespace or `>` immediately after the
+    // letter so `<thead>` and `<tbody>` are excluded.
+    const cells = html.match(TABLE_CELL_OPEN_TAG) ?? [];
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      // Exactly one `style=` attribute per cell. The split-on-`style=`
+      // count will be 2 (one before, one after) when there's exactly one.
+      expect(cell.split('style="').length).toBe(2);
+    }
+
+    // Padding and alignment both survive on the same cell.
+    expect(html).toContain(
+      '<th style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:left">'
+    );
+    expect(html).toContain(
+      '<th style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:center">'
+    );
+    expect(html).toContain(
+      '<th style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right">'
+    );
+    expect(html).toContain(
+      '<td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:left">'
+    );
+    expect(html).toContain(
+      '<td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:center">'
+    );
+    expect(html).toContain(
+      '<td style="padding:8px;border-bottom:1px solid #f3f4f6;text-align:right">'
+    );
+  });
+
+  it("omits text-align on body cells when no alignment is configured", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "table",
+          headers: ["A", "B"],
+          rows: [["1", "2"]],
+        },
+      ],
+    };
+    const html = cardToHtml(card);
+    // Headers always include a default `text-align:left`...
+    expect(html).toContain("text-align:left");
+    // ...but body cells should not carry an explicit alignment when the
+    // table didn't request one (relies on the browser's default).
+    expect(html).toContain(
+      '<td style="padding:8px;border-bottom:1px solid #f3f4f6">'
+    );
   });
 });
 

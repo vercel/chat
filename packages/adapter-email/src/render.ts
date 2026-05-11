@@ -414,10 +414,7 @@ function tableElementToHtml(el: TableElement): string {
   const align = el.align ?? [];
   const head = `<thead><tr>${el.headers
     .map(
-      (h, i) =>
-        `<th${alignAttr(align[i])} style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:${escapeAttr(
-          align[i] ?? "left"
-        )}">${escapeHtml(h)}</th>`
+      (h, i) => `<th style="${headerCellStyle(align[i])}">${escapeHtml(h)}</th>`
     )
     .join("")}</tr></thead>`;
   const body = `<tbody>${el.rows
@@ -426,14 +423,37 @@ function tableElementToHtml(el: TableElement): string {
         `<tr>${row
           .map(
             (cell, i) =>
-              `<td${alignAttr(align[i])} style="padding:8px;border-bottom:1px solid #f3f4f6">${escapeHtml(
-                cell
-              )}</td>`
+              `<td style="${bodyCellStyle(align[i])}">${escapeHtml(cell)}</td>`
           )
           .join("")}</tr>`
     )
     .join("")}</tbody>`;
   return `<table style="width:100%;border-collapse:collapse;margin:12px 0">${head}${body}</table>`;
+}
+
+const TABLE_HEADER_BASE_STYLE = "padding:8px;border-bottom:1px solid #e5e7eb";
+const TABLE_BODY_BASE_STYLE = "padding:8px;border-bottom:1px solid #f3f4f6";
+
+/**
+ * Build the inline `style` value for a table header cell as a single
+ * attribute. Emitting alignment as a separate `style="..."` attribute
+ * would shadow these declarations — per the HTML spec, browsers keep
+ * the first `style` attribute on a tag and silently drop any later ones.
+ */
+function headerCellStyle(align: string | undefined): string {
+  return `${TABLE_HEADER_BASE_STYLE};text-align:${escapeAttr(align ?? "left")}`;
+}
+
+/**
+ * Build the inline `style` value for a table body cell. Alignment is
+ * only emitted when explicitly set; `<td>` defaults to `text-align:left`
+ * already.
+ */
+function bodyCellStyle(align: string | undefined): string {
+  if (!align) {
+    return TABLE_BODY_BASE_STYLE;
+  }
+  return `${TABLE_BODY_BASE_STYLE};text-align:${escapeAttr(align)}`;
 }
 
 // =============================================================================
