@@ -17,4 +17,5 @@
  * entry point and the {@link EmailProvider} contract in `types.ts`.
  */
 
+export { type InboundProviderConfig, inbound } from "./inbound";
 export { type ResendProviderConfig, resend } from "./resend";
