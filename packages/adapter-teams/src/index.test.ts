@@ -1234,3 +1234,19 @@ describe("TeamsAdapter", () => {
     });
   });
 });
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends TeamsAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [
+          this.logger,
+          this.formatConverter,
+          this.handleMessageActivity,
+        ] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
+  });
+});

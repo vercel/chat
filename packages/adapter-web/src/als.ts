@@ -14,7 +14,7 @@ export interface WebRequestContext {
   conversationId: string;
   /** Abort signal of the inbound HTTP request — used to short-circuit streaming. */
   signal: AbortSignal;
-  /** The user id resolved by `WebAdapterOptions.getUser`. */
+  /** The user id resolved by `WebAdapterConfig.getUser`. */
   userId: string;
   /** AI SDK UI message stream writer for the current response. */
   writer: UIMessageStreamWriter;
