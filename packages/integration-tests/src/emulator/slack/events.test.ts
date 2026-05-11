@@ -10,7 +10,7 @@
 
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger, type Message, type Thread } from "chat";
+import { Chat, type Message, type Thread } from "chat";
 import {
   afterAll,
   afterEach,
@@ -21,6 +21,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { createWaitUntilTracker } from "../../test-scenarios";
 import {
   createSlackEmulator,
   EMULATOR_BOT_NAME,
@@ -29,18 +30,10 @@ import {
   postAsHuman,
   type SlackEmulatorHandle,
   type SlackWebhookForwarder,
+  silentLogger,
   startSlackWebhookForwarder,
   waitForDelivery,
-} from "./slack-emulator-utils";
-import { createWaitUntilTracker } from "./test-scenarios";
-
-const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLogger,
-};
+} from "./utils";
 
 const SLACK_THREAD_ID_PATTERN = /^slack:C_TEST:/;
 const HELP_PATTERN = /help/i;

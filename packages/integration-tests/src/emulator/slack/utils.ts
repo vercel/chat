@@ -22,6 +22,21 @@ import type { Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { createServer as createCoreServer } from "@emulators/core";
 import { getSlackStore, type SlackStore, slackPlugin } from "@emulators/slack";
 import { serve } from "@hono/node-server";
+import type { Logger } from "chat";
+
+/**
+ * Silent logger shared across emulator-backed tests so we don't spam test
+ * output with adapter-internal info / warn / debug noise. Tests that want to
+ * assert on logger calls should still spin up their own `vi.fn()`-based
+ * logger instead.
+ */
+export const silentLogger: Logger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+  child: () => silentLogger,
+};
 
 const EMULATOR_TEAM_ID = "T_TEST";
 const EMULATOR_TEAM_NAME = "Test Workspace";
@@ -220,6 +235,54 @@ function applyTokenSeed(tokenMap: TokenMap, seed: EmulatorSeed) {
   }
 }
 
+/**
+ * Public seed shape for `addEmulatorWorkspace`, identical to the internal
+ * `EmulatorSeed` so multi-workspace tests can stamp additional teams/bots/
+ * channels onto an already-booted emulator at runtime.
+ */
+export interface AdditionalWorkspaceSeed {
+  bots: Array<{ name: string; token: string; userId: string }>;
+  channels: Array<{ id: string; name: string }>;
+  humans?: Array<{ name: string; token?: string; userId: string }>;
+  team: { domain: string; id: string; name: string };
+}
+
+/**
+ * Register an additional workspace (team + bot user + channel + token) on
+ * an already-booted emulator. Used by multi-workspace tests to set up two
+ * tenants on a single emulator instance.
+ */
+export function addEmulatorWorkspace(
+  emulator: SlackEmulatorHandle,
+  seed: AdditionalWorkspaceSeed
+): void {
+  const fullSeed: EmulatorSeed = {
+    team: seed.team,
+    bots: seed.bots,
+    channels: seed.channels,
+    humans: seed.humans ?? [],
+  };
+  applySeed(emulator.store, fullSeed);
+  let nextId = emulator.tokenMap.size + 1;
+  for (const bot of seed.bots) {
+    emulator.tokenMap.set(bot.token, {
+      id: nextId++,
+      login: bot.userId,
+      scopes: [...BOT_TOKEN_SCOPES],
+    });
+  }
+  for (const human of seed.humans ?? []) {
+    if (!human.token) {
+      continue;
+    }
+    emulator.tokenMap.set(human.token, {
+      id: nextId++,
+      login: human.userId,
+      scopes: [...HUMAN_TOKEN_SCOPES],
+    });
+  }
+}
+
 function applySeed(store: Store, seed: EmulatorSeed) {
   const ss = getSlackStore(store);
   const now = Math.floor(Date.now() / 1000);
@@ -324,6 +387,14 @@ export interface SlackWebhookForwarder {
 export interface ForwarderOptions {
   apiAppId?: string;
   onWebhook: (request: Request) => Promise<Response> | Response;
+  /**
+   * Resolve the `team_id` to inject into the envelope for a given dispatched
+   * event. Defaults to a constant `teamId`. Multi-workspace tests pass a
+   * function that maps `event.channel` to the owning team.
+   */
+  resolveTeamId?: (envelope: {
+    event?: { channel?: string };
+  }) => string | undefined;
   signingSecret: string;
   teamId: string;
   webhooks: WebhookDispatcher;
@@ -337,6 +408,7 @@ export async function startSlackWebhookForwarder(
     teamId,
     apiAppId = "A_TEST",
     onWebhook,
+    resolveTeamId,
     webhooks,
   } = options;
 
@@ -348,7 +420,12 @@ export async function startSlackWebhookForwarder(
     req.on("end", async () => {
       try {
         const rawBody = Buffer.concat(chunks).toString("utf8");
-        const augmented = augmentEventEnvelope(rawBody, teamId, apiAppId);
+        const augmented = augmentEventEnvelope(
+          rawBody,
+          teamId,
+          apiAppId,
+          resolveTeamId
+        );
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const signature = signSlackBody(augmented, timestamp, signingSecret);
 
@@ -408,8 +485,11 @@ export async function startSlackWebhookForwarder(
  */
 function augmentEventEnvelope(
   rawBody: string,
-  teamId: string,
-  apiAppId: string
+  defaultTeamId: string,
+  apiAppId: string,
+  resolveTeamId?: (envelope: {
+    event?: { channel?: string };
+  }) => string | undefined
 ): string {
   let parsed: unknown;
   try {
@@ -424,9 +504,16 @@ function augmentEventEnvelope(
   ) {
     return rawBody;
   }
-  const envelope = parsed as Record<string, unknown>;
+  const envelope = parsed as {
+    api_app_id?: unknown;
+    event?: { channel?: string };
+    event_id?: unknown;
+    event_time?: unknown;
+    team_id?: unknown;
+  };
   if (envelope.team_id === undefined) {
-    envelope.team_id = teamId;
+    const resolved = resolveTeamId?.(envelope);
+    envelope.team_id = resolved ?? defaultTeamId;
   }
   if (envelope.api_app_id === undefined) {
     envelope.api_app_id = apiAppId;

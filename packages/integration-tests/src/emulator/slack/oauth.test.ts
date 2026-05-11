@@ -11,7 +11,7 @@
 
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger } from "chat";
+import { Chat } from "chat";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   createSlackEmulator,
@@ -19,15 +19,8 @@ import {
   EMULATOR_OAUTH_CLIENT_ID,
   EMULATOR_OAUTH_CLIENT_SECRET,
   type SlackEmulatorHandle,
-} from "./slack-emulator-utils";
-
-const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLogger,
-};
+  silentLogger,
+} from "./utils";
 
 const BOT_TOKEN_PATTERN = /^xoxb-/;
 const INVALID_CODE_PATTERN = /invalid_code/;

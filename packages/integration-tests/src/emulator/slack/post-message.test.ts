@@ -12,25 +12,18 @@
 
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger } from "chat";
+import { Chat } from "chat";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createSlackEvent, createSlackWebhookRequest } from "../../slack-utils";
+import { createWaitUntilTracker } from "../../test-scenarios";
 import {
   createSlackEmulator,
   EMULATOR_BOT_NAME,
   EMULATOR_BOT_TOKEN,
   EMULATOR_BOT_USER_ID,
   type SlackEmulatorHandle,
-} from "./slack-emulator-utils";
-import { createSlackEvent, createSlackWebhookRequest } from "./slack-utils";
-import { createWaitUntilTracker } from "./test-scenarios";
-
-const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLogger,
-};
+  silentLogger,
+} from "./utils";
 
 describe("Slack emulator: chat.postMessage round-trip", () => {
   let emulator: SlackEmulatorHandle;
