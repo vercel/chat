@@ -87,21 +87,21 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
-  private readonly apiBaseUrl: string;
-  private readonly botToken: string;
-  private readonly publicKey: string;
-  private readonly applicationId: string;
-  private readonly mentionRoleIds: string[];
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private readonly formatConverter = new DiscordFormatConverter();
-  private readonly requestContext =
+  protected readonly apiBaseUrl: string;
+  protected readonly botToken: string;
+  protected readonly publicKey: string;
+  protected readonly applicationId: string;
+  protected readonly mentionRoleIds: string[];
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new DiscordFormatConverter();
+  protected readonly requestContext =
     new AsyncLocalStorage<DiscordRequestContext>();
   private readonly threadParentCache = new Map<
     string,
     { parentId: string; expiresAt: number }
   >();
-  private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
+  protected static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
   constructor(config: DiscordAdapterConfig = {}) {
     const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
@@ -277,7 +277,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Verify Discord's Ed25519 signature using official discord-interactions library.
    */
-  private async verifySignature(
+  protected async verifySignature(
     bodyBytes: Uint8Array,
     signature: string | null,
     timestamp: string | null
@@ -341,14 +341,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Create a JSON response for Discord interactions.
    */
-  private respondToInteraction(response: DiscordInteractionResponse): Response {
+  protected respondToInteraction(
+    response: DiscordInteractionResponse
+  ): Response {
     return Response.json(response);
   }
 
   /**
    * Handle MESSAGE_COMPONENT interactions (button clicks).
    */
-  private handleComponentInteraction(
+  protected handleComponentInteraction(
     interaction: DiscordInteraction,
     options?: WebhookOptions
   ): void {
@@ -427,7 +429,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle APPLICATION_COMMAND interactions (slash commands).
    */
-  private handleApplicationCommandInteraction(
+  protected handleApplicationCommandInteraction(
     interaction: DiscordInteraction,
     options?: WebhookOptions
   ): void {
@@ -526,7 +528,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Leaf option values are flattened into `text`. Consumers needing the full
    * option tree (names, types) can use `event.raw`.
    */
-  private parseSlashCommand(
+  protected parseSlashCommand(
     name: string,
     options?: DiscordCommandOption[]
   ): { command: string; text: string } {
@@ -560,7 +562,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a forwarded Gateway event received via webhook.
    */
-  private async handleForwardedGatewayEvent(
+  protected async handleForwardedGatewayEvent(
     event: DiscordForwardedEvent,
     options?: WebhookOptions
   ): Promise<Response> {
@@ -606,7 +608,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a forwarded MESSAGE_CREATE event.
    */
-  private async handleForwardedMessage(
+  protected async handleForwardedMessage(
     data: DiscordGatewayMessageData,
     _options?: WebhookOptions
   ): Promise<void> {
@@ -724,7 +726,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a forwarded REACTION_ADD or REACTION_REMOVE event.
    */
-  private async handleForwardedReaction(
+  protected async handleForwardedReaction(
     data: DiscordGatewayReactionData,
     added: boolean,
     _options?: WebhookOptions
@@ -899,7 +901,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
-  private tryPostSlashResponse(
+  protected tryPostSlashResponse(
     threadId: string,
     payload: DiscordMessagePayload,
     files: Array<{
@@ -920,7 +922,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     );
   }
 
-  private async postSlashCommandResponse(
+  protected async postSlashCommandResponse(
     slashContext: DiscordSlashCommandContext,
     threadId: string,
     payload: DiscordMessagePayload,
@@ -971,7 +973,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Create a Discord thread from a message.
    */
-  private async createDiscordThread(
+  protected async createDiscordThread(
     channelId: string,
     messageId: string
   ): Promise<{ id: string; name: string }> {
@@ -1023,7 +1025,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Truncate content to Discord's maximum length.
    */
-  private truncateContent(content: string): string {
+  protected truncateContent(content: string): string {
     if (content.length <= DISCORD_MAX_CONTENT_LENGTH) {
       return content;
     }
@@ -1034,7 +1036,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Post a message with file attachments.
    */
-  private async postMessageWithFiles(
+  protected async postMessageWithFiles(
     channelId: string,
     threadId: string,
     payload: DiscordMessagePayload,
@@ -1095,7 +1097,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
-  private async discordInteractionFetch(
+  protected async discordInteractionFetch(
     path: string,
     method: string,
     body?: unknown
@@ -1123,7 +1125,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     return response;
   }
 
-  private async discordInteractionFetchWithFiles(
+  protected async discordInteractionFetchWithFiles(
     path: string,
     method: string,
     payload: DiscordMessagePayload,
@@ -1321,7 +1323,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Encode an emoji for use in Discord API URLs.
    */
-  private encodeEmoji(emoji: EmojiValue | string): string {
+  protected encodeEmoji(emoji: EmojiValue | string): string {
     const emojiStr = defaultEmojiResolver.toDiscord
       ? defaultEmojiResolver.toDiscord(emoji)
       : String(emoji);
@@ -1524,7 +1526,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Parse a Discord API message into normalized format.
    */
-  private parseDiscordMessage(
+  protected parseDiscordMessage(
     raw: APIMessage,
     threadId: string
   ): Message<unknown> {
@@ -1573,7 +1575,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Determine attachment type from MIME type.
    */
-  private getAttachmentType(
+  protected getAttachmentType(
     mimeType?: string | null
   ): "image" | "video" | "audio" | "file" {
     if (!mimeType) {
@@ -1601,7 +1603,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Make a request to the Discord API.
    */
-  private async discordFetch(
+  protected async discordFetch(
     path: string,
     method: string,
     body?: unknown
@@ -1696,7 +1698,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Run the Gateway listener for a specified duration.
    */
-  private async runGatewayListener(
+  protected async runGatewayListener(
     durationMs: number,
     abortSignal?: AbortSignal,
     webhookUrl?: string
@@ -1799,7 +1801,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Set up legacy Gateway handlers for direct processing (when webhookUrl is not provided).
    */
-  private setupLegacyGatewayHandlers(
+  protected setupLegacyGatewayHandlers(
     client: Client,
     isShuttingDown: () => boolean
   ): void {
@@ -1915,7 +1917,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Forward a Gateway event to the webhook endpoint.
    */
-  private async forwardGatewayEvent(
+  protected async forwardGatewayEvent(
     webhookUrl: string,
     event: DiscordForwardedEvent
   ): Promise<void> {
@@ -1957,7 +1959,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a message received via the Gateway WebSocket.
    */
-  private async handleGatewayMessage(
+  protected async handleGatewayMessage(
     message: DiscordJsMessage,
     isMentioned: boolean
   ): Promise<void> {
@@ -2062,7 +2064,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a reaction received via the Gateway WebSocket.
    */
-  private async handleGatewayReaction(
+  protected async handleGatewayReaction(
     reaction: {
       emoji: { name: string | null; id: string | null };
       message: {
@@ -2474,7 +2476,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Normalize a Discord emoji to our standard EmojiValue format.
    */
-  private normalizeDiscordEmoji(emojiName: string): EmojiValue {
+  protected normalizeDiscordEmoji(emojiName: string): EmojiValue {
     // Map common Discord unicode emoji to our standard names
     const unicodeToName: Record<string, string> = {
       "👍": "thumbs_up",

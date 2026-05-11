@@ -53,22 +53,22 @@ export class MessengerAdapter
 {
   readonly name = "messenger";
 
-  private readonly appSecret: string;
-  private readonly pageAccessToken: string;
-  private readonly verifyToken: string;
-  private readonly apiVersion: string;
-  private readonly logger: Logger;
-  private readonly formatConverter = new MessengerFormatConverter();
+  protected readonly appSecret: string;
+  protected readonly pageAccessToken: string;
+  protected readonly verifyToken: string;
+  protected readonly apiVersion: string;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new MessengerFormatConverter();
   private readonly messageCache = new Map<
     string,
     Message<MessengerRawMessage>[]
   >();
   private readonly userProfileCache = new Map<string, MessengerUserProfile>();
 
-  private chat: ChatInstance | null = null;
-  private _botUserId?: string;
-  private _userName: string;
-  private readonly hasExplicitUserName: boolean;
+  protected chat: ChatInstance | null = null;
+  protected _botUserId?: string;
+  protected _userName: string;
+  protected readonly hasExplicitUserName: boolean;
 
   get botUserId(): string | undefined {
     return this._botUserId;
@@ -192,7 +192,7 @@ export class MessengerAdapter
     return new Response("EVENT_RECEIVED", { status: 200 });
   }
 
-  private handleVerification(request: Request): Response {
+  protected handleVerification(request: Request): Response {
     const url = new URL(request.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
@@ -207,7 +207,7 @@ export class MessengerAdapter
     return new Response("Forbidden", { status: 403 });
   }
 
-  private verifySignature(request: Request, body: string): boolean {
+  protected verifySignature(request: Request, body: string): boolean {
     const signature = request.headers.get("x-hub-signature-256");
     if (!signature) {
       return false;
@@ -233,7 +233,7 @@ export class MessengerAdapter
     }
   }
 
-  private handleIncomingMessage(
+  protected handleIncomingMessage(
     event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
@@ -251,7 +251,7 @@ export class MessengerAdapter
     this.chat.processMessage(this, threadId, parsedMessage, options);
   }
 
-  private handlePostback(
+  protected handlePostback(
     event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
@@ -288,7 +288,7 @@ export class MessengerAdapter
     );
   }
 
-  private handleEcho(event: MessengerMessagingEvent): void {
+  protected handleEcho(event: MessengerMessagingEvent): void {
     if (!event.message) {
       return;
     }
@@ -301,7 +301,7 @@ export class MessengerAdapter
     this.cacheMessage(parsedMessage);
   }
 
-  private handleReaction(
+  protected handleReaction(
     event: MessengerMessagingEvent,
     options?: WebhookOptions
   ): void {
@@ -373,7 +373,7 @@ export class MessengerAdapter
   /**
    * Send a plain text message.
    */
-  private async sendTextMessage(
+  protected async sendTextMessage(
     threadId: string,
     text: string
   ): Promise<RawMessage<MessengerRawMessage>> {
@@ -418,7 +418,7 @@ export class MessengerAdapter
   /**
    * Send a template message (Generic or Button template).
    */
-  private async sendTemplateMessage(
+  protected async sendTemplateMessage(
     threadId: string,
     payload: MessengerTemplatePayload
   ): Promise<RawMessage<MessengerRawMessage>> {
@@ -627,7 +627,7 @@ export class MessengerAdapter
     return this.formatConverter.fromAst(content);
   }
 
-  private parseMessengerMessage(
+  protected parseMessengerMessage(
     event: MessengerMessagingEvent,
     threadId: string
   ): Message<MessengerRawMessage> {
@@ -657,7 +657,7 @@ export class MessengerAdapter
     });
   }
 
-  private extractAttachments(event: MessengerMessagingEvent): Attachment[] {
+  protected extractAttachments(event: MessengerMessagingEvent): Attachment[] {
     if (!event.message?.attachments) {
       return [];
     }
@@ -674,7 +674,7 @@ export class MessengerAdapter
       });
   }
 
-  private mapAttachmentType(
+  protected mapAttachmentType(
     fbType: string
   ): "image" | "video" | "audio" | "file" {
     switch (fbType) {
@@ -689,7 +689,7 @@ export class MessengerAdapter
     }
   }
 
-  private async downloadAttachment(url: string): Promise<Buffer> {
+  protected async downloadAttachment(url: string): Promise<Buffer> {
     let response: Response;
     try {
       response = await fetch(url);
@@ -711,7 +711,7 @@ export class MessengerAdapter
     return Buffer.from(await response.arrayBuffer());
   }
 
-  private async fetchUserProfile(
+  protected async fetchUserProfile(
     userId: string
   ): Promise<MessengerUserProfile> {
     const cached = this.userProfileCache.get(userId);
@@ -733,12 +733,12 @@ export class MessengerAdapter
     }
   }
 
-  private profileDisplayName(profile: MessengerUserProfile): string {
+  protected profileDisplayName(profile: MessengerUserProfile): string {
     const parts = [profile.first_name, profile.last_name].filter(Boolean);
     return parts.join(" ") || profile.id;
   }
 
-  private resolveThreadId(value: string): MessengerThreadId {
+  protected resolveThreadId(value: string): MessengerThreadId {
     if (value.startsWith("messenger:")) {
       return this.decodeThreadId(value);
     }
@@ -746,7 +746,7 @@ export class MessengerAdapter
     return { recipientId: value };
   }
 
-  private truncateMessage(text: string): string {
+  protected truncateMessage(text: string): string {
     if (text.length <= MESSENGER_MESSAGE_LIMIT) {
       return text;
     }
@@ -754,7 +754,7 @@ export class MessengerAdapter
     return `${text.slice(0, MESSENGER_MESSAGE_LIMIT - 3)}...`;
   }
 
-  private paginateMessages(
+  protected paginateMessages(
     messages: Message<MessengerRawMessage>[],
     options: FetchOptions
   ): FetchResult<MessengerRawMessage> {
@@ -796,7 +796,7 @@ export class MessengerAdapter
     };
   }
 
-  private cacheMessage(message: Message<MessengerRawMessage>): void {
+  protected cacheMessage(message: Message<MessengerRawMessage>): void {
     const existing = this.messageCache.get(message.threadId) ?? [];
     const index = existing.findIndex((item) => item.id === message.id);
 
@@ -810,7 +810,7 @@ export class MessengerAdapter
     this.messageCache.set(message.threadId, existing);
   }
 
-  private findCachedMessage(
+  protected findCachedMessage(
     messageId: string
   ): Message<MessengerRawMessage> | undefined {
     for (const messages of this.messageCache.values()) {
@@ -823,7 +823,7 @@ export class MessengerAdapter
     return undefined;
   }
 
-  private compareMessages(
+  protected compareMessages(
     a: Message<MessengerRawMessage>,
     b: Message<MessengerRawMessage>
   ): number {
@@ -836,12 +836,12 @@ export class MessengerAdapter
     return this.messageSequence(a.id) - this.messageSequence(b.id);
   }
 
-  private messageSequence(messageId: string): number {
+  protected messageSequence(messageId: string): number {
     const match = messageId.match(MESSAGE_SEQUENCE_PATTERN);
     return match ? Number.parseInt(match[1], 10) : 0;
   }
 
-  private async graphApiFetch<TResult>(
+  protected async graphApiFetch<TResult>(
     endpoint: string,
     method: "GET" | "POST",
     body?: Record<string, unknown>,
@@ -891,7 +891,7 @@ export class MessengerAdapter
     return data as TResult;
   }
 
-  private throwGraphApiError(
+  protected throwGraphApiError(
     endpoint: string,
     status: number,
     data: Record<string, unknown>

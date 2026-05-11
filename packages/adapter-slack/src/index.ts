@@ -451,22 +451,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
 
-  private readonly client: WebClient;
-  private readonly signingSecret: string | undefined;
-  private readonly webhookVerifier:
+  protected readonly client: WebClient;
+  protected readonly signingSecret: string | undefined;
+  protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
     | undefined;
-  private readonly defaultBotTokenProvider:
+  protected readonly defaultBotTokenProvider:
     | (() => string | Promise<string>)
     | undefined;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private _botUserId: string | null = null;
-  private _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
-  private readonly formatConverter = new SlackFormatConverter();
-  private static USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
-  private static CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
-  private static REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected _botUserId: string | null = null;
+  protected _botId: string | null = null; // Bot app ID (B_xxx) - different from user ID
+  protected readonly formatConverter = new SlackFormatConverter();
+  protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
@@ -475,18 +475,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   private readonly _externalChannels = new Set<string>();
 
   // Socket mode support
-  private readonly appToken: string | undefined;
-  private readonly mode: SlackAdapterMode;
-  private readonly socketForwardingSecret: string | undefined;
+  protected readonly appToken: string | undefined;
+  protected readonly mode: SlackAdapterMode;
+  protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
 
   // Multi-workspace support
-  private readonly clientId: string | undefined;
-  private readonly clientSecret: string | undefined;
-  private readonly encryptionKey: Buffer | undefined;
-  private readonly installationKeyPrefix: string;
-  private readonly installationProvider: SlackAdapterConfig["installationProvider"];
-  private readonly requestContext = new AsyncLocalStorage<{
+  protected readonly clientId: string | undefined;
+  protected readonly clientSecret: string | undefined;
+  protected readonly encryptionKey: Buffer | undefined;
+  protected readonly installationKeyPrefix: string;
+  protected readonly installationProvider: SlackAdapterConfig["installationProvider"];
+  protected readonly requestContext = new AsyncLocalStorage<{
     token: string;
     botUserId?: string;
     isExtSharedChannel?: boolean;
@@ -582,7 +582,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Checks request context (multi-workspace) → default token provider
    * (single-workspace) → throws.
    */
-  private async getToken(): Promise<string> {
+  protected async getToken(): Promise<string> {
     const ctx = this.requestContext.getStore();
     if (ctx?.token) {
       return ctx.token;
@@ -600,7 +600,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Add the current token to API call options.
    * Workaround for Slack WebClient types not including `token` in per-method args.
    */
-  private async withToken<
+  protected async withToken<
     // biome-ignore lint/suspicious/noExplicitAny: Slack types don't include token in method args
     T extends Record<string, any>,
   >(options: T): Promise<T & { token: string }> {
@@ -643,7 +643,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Multi-workspace installation management
   // ===========================================================================
 
-  private installationKey(teamId: string): string {
+  protected installationKey(teamId: string): string {
     return `${this.installationKeyPrefix}:${teamId}`;
   }
 
@@ -803,7 +803,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * @param installationId - team_id or enterprise_id depending on install type
    * @param isEnterpriseInstall - true if this is an Enterprise Grid org-wide install
    */
-  private async resolveTokenForTeam(
+  protected async resolveTokenForTeam(
     installationId: string,
     isEnterpriseInstall = false
   ): Promise<{ token: string; botUserId?: string } | null> {
@@ -853,7 +853,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Extract installation info from an interactive payload (form-urlencoded).
    * For Enterprise Grid org-wide installs, returns enterprise_id; otherwise team_id.
    */
-  private extractInstallationFromInteractive(body: string): {
+  protected extractInstallationFromInteractive(body: string): {
     installationId: string;
     isEnterpriseInstall: boolean;
     enterpriseId?: string;
@@ -885,7 +885,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Look up user info from Slack API with caching via state adapter.
    * Returns null when the API call fails.
    */
-  private async lookupUser(userId: string): Promise<CachedUser | null> {
+  protected async lookupUser(userId: string): Promise<CachedUser | null> {
     const cacheKey = `slack:user:${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
@@ -964,7 +964,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Look up channel name from Slack API with caching via state adapter.
    * Returns channel name, or falls back to channel ID.
    */
-  private async lookupChannel(channelId: string): Promise<string> {
+  protected async lookupChannel(channelId: string): Promise<string> {
     const cacheKey = `slack:channel:${channelId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
@@ -1202,7 +1202,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /** Extract and dispatch events from a validated payload */
-  private processEventPayload(
+  protected processEventPayload(
     payload: SlackWebhookPayload,
     options?: WebhookOptions
   ): void {
@@ -1270,7 +1270,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle Slack interactive payloads (button clicks, view submissions, etc.).
    * These are sent as form-urlencoded with a `payload` JSON field.
    */
-  private handleInteractivePayload(
+  protected handleInteractivePayload(
     body: string,
     options?: WebhookOptions
   ): Response | Promise<Response> {
@@ -1295,7 +1295,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Dispatch a pre-parsed interactive payload to the correct handler.
    * Used by both webhook and socket mode paths.
    */
-  private dispatchInteractivePayload(
+  protected dispatchInteractivePayload(
     payload: SlackInteractivePayload,
     options?: WebhookOptions
   ): Response | Promise<Response> {
@@ -1323,7 +1323,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle Slack slash command payloads.
    * Slash commands are sent as form-urlencoded with command, text, user_id, channel_id, etc.
    */
-  private async handleSlashCommand(
+  protected async handleSlashCommand(
     params: URLSearchParams,
     options?: WebhookOptions
   ): Promise<Response> {
@@ -1368,7 +1368,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Handle block_actions payload (button clicks in Block Kit).
    */
-  private handleBlockActions(
+  protected handleBlockActions(
     payload: SlackBlockActionsPayload,
     options?: WebhookOptions
   ): void {
@@ -1439,7 +1439,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  private async handleBlockSuggestion(
+  protected async handleBlockSuggestion(
     payload: SlackBlockSuggestionPayload,
     options?: WebhookOptions
   ): Promise<Response> {
@@ -1504,7 +1504,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return this.optionsLoadResponse(result ?? []);
   }
 
-  private optionsLoadResponse(result: OptionsLoadResult): Response {
+  protected optionsLoadResponse(result: OptionsLoadResult): Response {
     const isGroups =
       result.length > 0 &&
       "options" in result[0] &&
@@ -1535,7 +1535,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
   }
 
-  private async handleViewSubmission(
+  protected async handleViewSubmission(
     payload: SlackViewSubmissionPayload,
     options?: WebhookOptions
   ): Promise<Response> {
@@ -1592,7 +1592,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return new Response("", { status: 200 });
   }
 
-  private handleViewClosed(
+  protected handleViewClosed(
     payload: SlackViewClosedPayload,
     options?: WebhookOptions
   ): void {
@@ -1624,7 +1624,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.chat.processModalClose(event, contextId, options);
   }
 
-  private modalResponseToSlack(
+  protected modalResponseToSlack(
     response: ModalResponse,
     contextId?: string
   ): SlackModalResponse {
@@ -1664,7 +1664,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  private convertModalJSX(modal: ModalElement): ModalElement {
+  protected convertModalJSX(modal: ModalElement): ModalElement {
     if (isJSX(modal)) {
       const converted = toModalElement(modal);
       if (!converted) {
@@ -1686,7 +1686,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Start Socket Mode connection.
    * Creates a SocketModeClient, registers event handlers, and connects.
    */
-  private async startSocketMode(): Promise<void> {
+  protected async startSocketMode(): Promise<void> {
     if (!this.appToken) {
       throw new ValidationError(
         "slack",
@@ -1720,7 +1720,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Route a socket mode event to the appropriate handler.
    */
-  private async routeSocketEvent(
+  protected async routeSocketEvent(
     body: Record<string, unknown>,
     eventType: string,
     ack: (response?: Record<string, unknown>) => Promise<void>,
@@ -1851,7 +1851,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Run the socket mode listener for a specified duration.
    */
-  private async runSocketModeListener(
+  protected async runSocketModeListener(
     durationMs: number,
     abortSignal?: AbortSignal,
     webhookUrl?: string,
@@ -1936,7 +1936,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Forward a socket mode event to the webhook endpoint.
    */
-  private async forwardSocketEvent(
+  protected async forwardSocketEvent(
     webhookUrl: string,
     event: SlackForwardedSocketEvent
   ): Promise<void> {
@@ -1987,7 +1987,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  private verifySignature(
+  protected verifySignature(
     body: string,
     timestamp: string | null,
     signature: string | null
@@ -2025,7 +2025,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle message events from Slack.
    * Bot message filtering (isMe) is handled centrally by the Chat class.
    */
-  private handleMessageEvent(
+  protected handleMessageEvent(
     event: SlackEvent,
     options?: WebhookOptions
   ): void {
@@ -2109,7 +2109,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.chat.processMessage(this, threadId, factory, options);
   }
 
-  private handleMessageChanged(
+  protected handleMessageChanged(
     event: SlackEvent,
     _options?: WebhookOptions
   ): void {
@@ -2170,7 +2170,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Handle reaction events from Slack (reaction_added, reaction_removed).
    */
-  private async handleReactionEvent(
+  protected async handleReactionEvent(
     event: SlackReactionEvent,
     options?: WebhookOptions
   ): Promise<void> {
@@ -2258,7 +2258,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle assistant_thread_started events from Slack's Assistants API.
    * Fires when a user opens a new assistant thread (DM with the bot).
    */
-  private handleAssistantThreadStarted(
+  protected handleAssistantThreadStarted(
     event: SlackAssistantThreadStartedEvent,
     options?: WebhookOptions
   ): void {
@@ -2305,7 +2305,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle assistant_thread_context_changed events from Slack's Assistants API.
    * Fires when a user navigates to a different channel with the assistant panel open.
    */
-  private handleAssistantContextChanged(
+  protected handleAssistantContextChanged(
     event: SlackAssistantContextChangedEvent,
     options?: WebhookOptions
   ): void {
@@ -2352,7 +2352,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle app_home_opened events from Slack.
    * Fires when a user opens the bot's Home tab.
    */
-  private handleAppHomeOpened(
+  protected handleAppHomeOpened(
     event: SlackAppHomeOpenedEvent,
     options?: WebhookOptions
   ): void {
@@ -2377,7 +2377,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle member_joined_channel events from Slack.
    * Fires when a user (including the bot) joins a channel.
    */
-  private handleMemberJoinedChannel(
+  protected handleMemberJoinedChannel(
     event: SlackMemberJoinedChannelEvent,
     options?: WebhookOptions
   ): void {
@@ -2402,7 +2402,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
-  private async handleUserChange(event: SlackUserChangeEvent): Promise<void> {
+  protected async handleUserChange(event: SlackUserChangeEvent): Promise<void> {
     if (!this.chat) {
       return;
     }
@@ -2501,7 +2501,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    *   parsing historical/channel messages where mention detection doesn't
    *   apply.
    */
-  private async resolveInlineMentions(
+  protected async resolveInlineMentions(
     text: string,
     skipSelfMention: boolean
   ): Promise<string> {
@@ -2598,7 +2598,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Uses the `blocks` field (rich_text blocks with link elements) when available,
    * falling back to parsing `<url>` patterns from the text field.
    */
-  private extractLinks(event: SlackEvent): LinkPreview[] {
+  protected extractLinks(event: SlackEvent): LinkPreview[] {
     const urls = new Set<string>();
 
     // Try blocks first - they contain structured link elements
@@ -2670,7 +2670,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Create a LinkPreview for a URL. If the URL points to a Slack message,
    * includes a `fetchMessage` callback that fetches and parses the linked message.
    */
-  private createLinkPreview(url: string): LinkPreview {
+  protected createLinkPreview(url: string): LinkPreview {
     const match = SLACK_MESSAGE_URL_PATTERN.exec(url);
     if (!match) {
       return { url };
@@ -2705,7 +2705,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
   }
 
-  private async parseSlackMessage(
+  protected async parseSlackMessage(
     event: SlackEvent,
     threadId: string,
     options?: { skipSelfMention?: boolean }
@@ -2779,7 +2779,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
   }
 
-  private async enrichLinks(
+  protected async enrichLinks(
     links: LinkPreview[],
     messageTs?: string
   ): Promise<LinkPreview[]> {
@@ -2834,7 +2834,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Create an Attachment object from a Slack file.
    * Includes a fetchData method that uses the bot token for auth.
    */
-  private createAttachment(
+  protected createAttachment(
     file: {
       id?: string;
       mimetype?: string;
@@ -2896,7 +2896,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
   }
 
-  private async fetchSlackFile(url: string, token: string): Promise<Buffer> {
+  protected async fetchSlackFile(url: string, token: string): Promise<Buffer> {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -2963,7 +2963,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * reverse user cache. When multiple users share a display name, prefers
    * the one who is a participant in the given thread.
    */
-  private async resolveOutgoingMentions(
+  protected async resolveOutgoingMentions(
     text: string,
     threadId: string
   ): Promise<string> {
@@ -3050,7 +3050,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Pre-process an outgoing message to resolve @name mentions before rendering.
    */
-  private async resolveMessageMentions(
+  protected async resolveMessageMentions(
     message: AdapterPostableMessage,
     threadId: string
   ): Promise<AdapterPostableMessage> {
@@ -3463,7 +3463,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Upload files to Slack and share them to a channel.
    * Returns the file IDs of uploaded files.
    */
-  private async uploadFiles(
+  protected async uploadFiles(
     files: FileUpload[],
     channel: string,
     threadTs?: string
@@ -3692,7 +3692,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  private renderPlanFallbackText(plan: PlanModel): string {
+  protected renderPlanFallbackText(plan: PlanModel): string {
     const lines: string[] = [];
     lines.push(plan.title || "Plan");
     for (const task of plan.tasks) {
@@ -3701,7 +3701,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return lines.join("\n");
   }
 
-  private planToBlockKit(plan: PlanModel): unknown[] {
+  protected planToBlockKit(plan: PlanModel): unknown[] {
     const tasks = plan.tasks.map((task: PlanModel["tasks"][number]) => {
       const details = this.planContentToRichText(task.details);
       const output = this.planContentToRichText(task.output);
@@ -3723,7 +3723,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     ];
   }
 
-  private planContentToPlainText(content: PlanContent | undefined): string {
+  protected planContentToPlainText(content: PlanContent | undefined): string {
     if (!content) {
       return "";
     }
@@ -3742,7 +3742,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return "";
   }
 
-  private planContentToRichText(
+  protected planContentToRichText(
     content: PlanContent | undefined
   ): { type: "rich_text"; elements: unknown[] } | undefined {
     if (!content) {
@@ -4140,7 +4140,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Fetch messages in forward direction (oldest first, efficient).
    * Uses native Slack cursor pagination.
    */
-  private async fetchMessagesForward(
+  protected async fetchMessagesForward(
     channel: string,
     threadTs: string,
     threadId: string,
@@ -4195,7 +4195,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Note: For very large threads (>1000 messages), the first backward call
    * may not return the absolute most recent messages. This is a Slack API limitation.
    */
-  private async fetchMessagesBackward(
+  protected async fetchMessagesBackward(
     channel: string,
     threadTs: string,
     threadId: string,
@@ -4417,7 +4417,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Synchronous message parsing without user lookup.
    * Used for parseMessage interface - falls back to user ID for username.
    */
-  private parseSlackMessageSync(
+  protected parseSlackMessageSync(
     event: SlackEvent,
     threadId: string
   ): Message<unknown> {
@@ -4505,7 +4505,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  private async fetchChannelMessagesForward(
+  protected async fetchChannelMessagesForward(
     channel: string,
     limit: number,
     cursor?: string
@@ -4552,7 +4552,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
   }
 
-  private async fetchChannelMessagesBackward(
+  protected async fetchChannelMessagesBackward(
     channel: string,
     limit: number,
     cursor?: string
@@ -4779,7 +4779,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * - _botUserId is the user ID (U_xxx) - matches event.user
    * - _botId is the bot ID (B_xxx) - matches event.bot_id
    */
-  private isMessageFromSelf(event: SlackEvent): boolean {
+  protected isMessageFromSelf(event: SlackEvent): boolean {
     // Check request context first (multi-workspace)
     const ctx = this.requestContext.getStore();
     if (ctx?.botUserId && event.user === ctx.botUserId) {
@@ -4799,7 +4799,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return false;
   }
 
-  private handleSlackError(error: unknown): never {
+  protected handleSlackError(error: unknown): never {
     const slackError = error as { data?: { error?: string }; code?: string };
 
     if (
@@ -4816,7 +4816,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Encode response_url and userId into messageId for ephemeral messages.
    * This allows edit/delete operations to work via response_url.
    */
-  private encodeEphemeralMessageId(
+  protected encodeEphemeralMessageId(
     messageTs: string,
     responseUrl: string,
     userId: string
@@ -4829,7 +4829,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Decode ephemeral messageId to extract messageTs, responseUrl, and userId.
    * Returns null if the messageId is not an ephemeral encoding.
    */
-  private decodeEphemeralMessageId(
+  protected decodeEphemeralMessageId(
     messageId: string
   ): { messageTs: string; responseUrl: string; userId: string } | null {
     if (!messageId.startsWith("ephemeral:")) {
@@ -4865,7 +4865,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Send a request to Slack's response_url to modify an ephemeral message.
    */
-  private async sendToResponseUrl(
+  protected async sendToResponseUrl(
     responseUrl: string,
     action: "replace" | "delete",
     options?: { message?: AdapterPostableMessage; threadTs?: string }
@@ -4974,6 +4974,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
 
   const resolved: SlackAdapterConfig = {
     appToken,
+    apiUrl: config?.apiUrl,
     mode,
     signingSecret,
     botToken:

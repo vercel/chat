@@ -64,11 +64,11 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   readonly persistMessageHistory: boolean;
   readonly lockScope = "thread" as const;
 
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private readonly formatConverter = new WebFormatConverter();
-  private readonly resolveUser: WebAdapterConfig["getUser"];
-  private readonly threadIdFor: NonNullable<WebAdapterConfig["threadIdFor"]>;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new WebFormatConverter();
+  protected readonly resolveUser: WebAdapterOptions["getUser"];
+  protected readonly threadIdFor: NonNullable<WebAdapterOptions["threadIdFor"]>;
 
   constructor(opts: WebAdapterConfig) {
     if (!opts.userName) {
@@ -382,7 +382,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  private buildMessageFromUI(
+  protected buildMessageFromUI(
     uiMessage: UIMessage,
     threadId: string,
     user: WebUser

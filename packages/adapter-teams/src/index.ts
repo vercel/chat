@@ -87,13 +87,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
-  private readonly app: App;
-  private readonly bridgeAdapter: BridgeHttpAdapter;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private readonly formatConverter = new TeamsFormatConverter();
-  private readonly config: TeamsAdapterConfig;
-  private readonly graphReader: TeamsGraphReader;
+  protected readonly app: App;
+  protected readonly bridgeAdapter: BridgeHttpAdapter;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new TeamsFormatConverter();
+  protected readonly config: TeamsAdapterConfig;
+  protected readonly graphReader: TeamsGraphReader;
   private readonly activeStreams = new Map<string, IStreamer>();
 
   constructor(config: TeamsAdapterConfig = {}) {
@@ -127,7 +127,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Register TeamsSDK event handlers.
    * Called from initialize() after this.chat is set.
    */
-  private registerEventHandlers(): void {
+  protected registerEventHandlers(): void {
     this.app.on("message", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleMessageActivity(ctx);
@@ -177,7 +177,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Cache serviceUrl, tenantId, and channel context from activity metadata.
    * Called inline from each event handler (not middleware).
    */
-  private cacheUserContext(activity: Activity): void {
+  protected cacheUserContext(activity: Activity): void {
     if (!(this.chat && activity.from?.id)) {
       return;
     }
@@ -252,7 +252,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Look up cached Graph context (channel or DM), resolving via Bot API if needed.
    */
-  private async getGraphContext(
+  protected async getGraphContext(
     baseConversationId: string
   ): Promise<TeamsGraphContext | null> {
     if (!this.chat) {
@@ -310,7 +310,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * ctx.stream (the Teams SDK's native IStreamer) stays alive for streaming.
    * The Teams SDK auto-closes the stream after the handler returns.
    */
-  private async handleMessageActivity(
+  protected async handleMessageActivity(
     ctx: IActivityContext<IMessageActivity>
   ): Promise<void> {
     if (!this.chat) {
@@ -388,7 +388,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle Action.Submit button clicks sent as message activities.
    */
-  private handleMessageAction(
+  protected handleMessageAction(
     activity: Activity,
     actionValue: ActionSubmitData
   ): void {
@@ -445,7 +445,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle adaptive card button clicks (invoke-based).
    */
-  private async handleAdaptiveCardAction(
+  protected async handleAdaptiveCardAction(
     ctx: IActivityContext<IAdaptiveCardActionInvokeActivity>
   ): Promise<void> {
     if (!this.chat) {
@@ -510,7 +510,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Called when the sentinel __auto_submit action ID is detected.
    * Each input key/value pair is dispatched as a separate action in parallel.
    */
-  private fanOutAutoSubmit(
+  protected fanOutAutoSubmit(
     payload: Record<string, unknown>,
     activity: Activity,
     threadId: string
@@ -559,7 +559,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Handle dialog.open (task/fetch) invoke.
    * Uses Promise.race to resolve as soon as onOpenModal fires.
    */
-  private async handleDialogOpen(
+  protected async handleDialogOpen(
     ctx: IActivityContext<ITaskFetchInvokeActivity>
   ): Promise<TaskModuleResponse | undefined> {
     if (!this.chat) {
@@ -664,7 +664,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle dialog.submit (task/submit) invoke.
    */
-  private async handleDialogSubmit(
+  protected async handleDialogSubmit(
     ctx: IActivityContext<ITaskSubmitInvokeActivity>
   ): Promise<TaskModuleResponse | undefined> {
     if (!this.chat) {
@@ -707,7 +707,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle Teams reaction events.
    */
-  private handleReactionFromContext(
+  protected handleReactionFromContext(
     ctx: IActivityContext<IMessageReactionActivity>
   ): void {
     if (!this.chat) {
@@ -787,7 +787,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
   }
 
-  private parseTeamsMessage(
+  protected parseTeamsMessage(
     activity: Activity,
     threadId: string
   ): Message<unknown> {
@@ -825,7 +825,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
   }
 
-  private createAttachment(att: {
+  protected createAttachment(att: {
     contentType?: string;
     contentUrl?: string;
     name?: string;
@@ -851,7 +851,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     };
   }
 
-  private createFetchDataFn(url: string): () => Promise<Buffer> {
+  protected createFetchDataFn(url: string): () => Promise<Buffer> {
     return async () => {
       const response = await fetch(url);
       if (!response.ok) {
@@ -873,7 +873,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return { ...attachment, fetchData: this.createFetchDataFn(url) };
   }
 
-  private normalizeMentions(text: string): string {
+  protected normalizeMentions(text: string): string {
     return text.trim();
   }
 
@@ -1003,7 +1003,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
   }
 
-  private async filesToAttachments(
+  protected async filesToAttachments(
     files: FileUpload[]
   ): Promise<Array<{ contentType: string; contentUrl: string; name: string }>> {
     const attachments: Array<{
@@ -1209,7 +1209,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * We do NOT call stream.close() — the Teams SDK calls it automatically
    * after the handler returns.
    */
-  private async streamViaEmit(
+  protected async streamViaEmit(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer
@@ -1450,7 +1450,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return this.parseTeamsMessage(activity, threadId);
   }
 
-  private isMessageFromSelf(activity: Activity): boolean {
+  protected isMessageFromSelf(activity: Activity): boolean {
     const fromId = activity.from?.id;
     if (!(fromId && this.app.id)) {
       return false;

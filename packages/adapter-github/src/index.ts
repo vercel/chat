@@ -107,7 +107,7 @@ export class GitHubAdapter
   readonly name = "github";
   readonly userName: string;
 
-  private readonly requestContext = new AsyncLocalStorage<{
+  protected readonly requestContext = new AsyncLocalStorage<{
     installationId?: number;
   }>();
 
@@ -119,24 +119,24 @@ export class GitHubAdapter
   }
 
   // Single Octokit instance for PAT or single-tenant app mode
-  private readonly octokit: Octokit | null = null;
+  protected readonly octokit: Octokit | null = null;
   // App credentials for multi-tenant mode
-  private readonly appCredentials: {
+  protected readonly appCredentials: {
     appId: string;
     privateKey: string;
   } | null = null;
   // Fixed installation for single-tenant GitHub App mode
-  private readonly fixedInstallationId: number | null;
+  protected readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
   // Custom API base URL (e.g. for GitHub Enterprise)
-  private readonly apiUrl?: string;
+  protected readonly apiUrl?: string;
 
-  private readonly webhookSecret: string;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private _botUserId: number | null = null;
-  private readonly formatConverter = new GitHubFormatConverter();
+  protected readonly webhookSecret: string;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected _botUserId: number | null = null;
+  protected readonly formatConverter = new GitHubFormatConverter();
 
   /** Bot user ID (numeric) used for self-message detection */
   get botUserId(): string | undefined {
@@ -259,7 +259,7 @@ export class GitHubAdapter
    * For single-tenant mode, returns the single instance.
    * For multi-tenant mode, creates/caches instances per installation.
    */
-  private getOctokit(installationId?: number): Octokit {
+  protected getOctokit(installationId?: number): Octokit {
     // Single-tenant mode - return the single instance
     if (this.octokit) {
       return this.octokit;
@@ -316,7 +316,7 @@ export class GitHubAdapter
    * Best-effort: errors are swallowed so they don't block webhook processing.
    * The returned promise resolves once detection completes (or fails).
    */
-  private async detectBotUserId(octokit: Octokit): Promise<void> {
+  protected async detectBotUserId(octokit: Octokit): Promise<void> {
     if (this._botUserId !== null) {
       return;
     }
@@ -373,14 +373,14 @@ export class GitHubAdapter
   /**
    * Get the state key for storing installation ID for a repository.
    */
-  private getInstallationKey(owner: string, repo: string): string {
+  protected getInstallationKey(owner: string, repo: string): string {
     return `github:install:${owner}/${repo}`;
   }
 
   /**
    * Store the installation ID for a repository (for multi-tenant mode).
    */
-  private async storeInstallationId(
+  protected async storeInstallationId(
     owner: string,
     repo: string,
     installationId: number
@@ -401,7 +401,7 @@ export class GitHubAdapter
   /**
    * Get the installation ID for a repository (for multi-tenant mode).
    */
-  private async getStoredInstallationId(
+  protected async getStoredInstallationId(
     owner: string,
     repo: string
   ): Promise<number | undefined> {
@@ -550,7 +550,7 @@ export class GitHubAdapter
   /**
    * Verify GitHub webhook signature using HMAC-SHA256.
    */
-  private verifySignature(body: string, signature: string | null): boolean {
+  protected verifySignature(body: string, signature: string | null): boolean {
     if (!signature) {
       return false;
     }
@@ -571,7 +571,7 @@ export class GitHubAdapter
   /**
    * Handle issue_comment webhook (PR-level comments in Conversation tab).
    */
-  private handleIssueComment(
+  protected handleIssueComment(
     payload: IssueCommentWebhookPayload,
     _installationId: number | undefined,
     options?: WebhookOptions
@@ -614,7 +614,7 @@ export class GitHubAdapter
   /**
    * Handle pull_request_review_comment webhook (line-specific comments).
    */
-  private handleReviewComment(
+  protected handleReviewComment(
     payload: PullRequestReviewCommentWebhookPayload,
     _installationId: number | undefined,
     options?: WebhookOptions
@@ -661,7 +661,7 @@ export class GitHubAdapter
   /**
    * Parse an issue comment into a normalized Message.
    */
-  private parseIssueComment(
+  protected parseIssueComment(
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
@@ -703,7 +703,7 @@ export class GitHubAdapter
   /**
    * Parse a review comment into a normalized Message.
    */
-  private parseReviewComment(
+  protected parseReviewComment(
     comment: GitHubReviewComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
@@ -743,7 +743,7 @@ export class GitHubAdapter
   /**
    * Parse a GitHub user into an Author.
    */
-  private parseAuthor(user: GitHubUser): Author {
+  protected parseAuthor(user: GitHubUser): Author {
     return {
       userId: user.id.toString(),
       userName: user.login,
@@ -757,7 +757,7 @@ export class GitHubAdapter
    * Get the Octokit client for a specific thread.
    * In multi-tenant mode, looks up the installation ID from state.
    */
-  private async getOctokitForThread(
+  protected async getOctokitForThread(
     owner: string,
     repo: string
   ): Promise<Octokit> {
@@ -1062,7 +1062,7 @@ export class GitHubAdapter
   /**
    * Convert SDK emoji to GitHub reaction content.
    */
-  private emojiToGitHubReaction(
+  protected emojiToGitHubReaction(
     emoji: EmojiValue | string
   ): GitHubReactionContent {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;

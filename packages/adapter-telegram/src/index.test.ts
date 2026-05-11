@@ -2516,3 +2516,15 @@ describe("getUser", () => {
     expect(getChatBody.chat_id).toBe("456");
   });
 });
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends TelegramAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [this.logger, this.formatConverter, this.processUpdate] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
+  });
+});

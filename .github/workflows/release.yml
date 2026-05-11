@@ -49,3 +49,7 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote release branch
+        if: steps.changesets.outputs.published == 'true'
+        run: git push origin HEAD:refs/heads/release
