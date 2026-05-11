@@ -197,27 +197,40 @@ export async function throwForEspError(args: {
 // RFC-822 inbound parsing helpers
 // =============================================================================
 
-const ADDRESS_WITH_NAME_PATTERN = /^\s*"?([^"<>]*?)"?\s*<([^>]+)>\s*$/;
-
 /**
  * Parse an RFC-822 mailbox value into `{ address, name? }`.
  *
  * Handles both `Name <addr@example.com>` and bare `addr@example.com`.
  * Returns the input verbatim as `address` if no `<...>` envelope is
  * present; downstream code is responsible for validation.
+ *
+ * Implemented with plain string ops (no regex) so adversarial webhook
+ * inputs — like a long run of leading whitespace — can't trigger
+ * polynomial-time backtracking.
  */
 export function parseAddress(value: string): {
   address: string;
   name?: string;
 } {
-  const match = value.match(ADDRESS_WITH_NAME_PATTERN);
-  if (match) {
-    const name = match[1]?.trim();
-    // The regex `<([^>]+)>` guarantees match[2] when match is truthy.
-    const address = (match[2] as string).trim();
-    return name ? { address, name } : { address };
+  const trimmed = value.trim();
+  if (!trimmed.endsWith(">")) {
+    return { address: trimmed };
   }
-  return { address: value.trim() };
+  // Use the last `<` so a display name containing `<` doesn't confuse us.
+  const angleStart = trimmed.lastIndexOf("<");
+  if (angleStart === -1) {
+    return { address: trimmed };
+  }
+  const address = trimmed.slice(angleStart + 1, -1).trim();
+  if (!address) {
+    return { address: trimmed };
+  }
+  let name = trimmed.slice(0, angleStart).trim();
+  // Strip surrounding quotes on the display name if present.
+  if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) {
+    name = name.slice(1, -1).trim();
+  }
+  return name ? { address, name } : { address };
 }
 
 /**

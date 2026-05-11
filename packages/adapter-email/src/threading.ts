@@ -33,7 +33,11 @@ import type { EmailThreadId } from "./types";
  */
 export const MAX_REFERENCES_CHAIN = 10;
 
-const ANGLE_TOKEN_PATTERN = /<[^>]+>/g;
+// Forbid `<` and whitespace inside the token so the regex fails fast on
+// adversarial inputs like `<<<<<<...` (avoids polynomial-time backtracking
+// across global match attempts). Real RFC-5322 Message-IDs are dot-atom
+// strings and never contain either character.
+const ANGLE_TOKEN_PATTERN = /<[^<>\s]+>/g;
 const REFERENCES_FALLBACK_SPLIT = /[\s,]+/;
 const RE_PREFIX_PATTERN = /^re:/i;
 

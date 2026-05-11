@@ -271,6 +271,42 @@ describe("parseAddress", () => {
       address: "alice@example.com",
     });
   });
+
+  it("uses the last `<` when the display name contains an angle bracket", () => {
+    expect(parseAddress('"weird <name" <addr@example.com>')).toEqual({
+      address: "addr@example.com",
+      name: "weird <name",
+    });
+  });
+
+  it("returns the trimmed input when the angle-bracket form is malformed", () => {
+    // Missing `>` — falls back to bare-address behavior.
+    expect(parseAddress("Alice <alice@example.com")).toEqual({
+      address: "Alice <alice@example.com",
+    });
+  });
+
+  it("returns just the trimmed input when the angle-bracket form has no `<`", () => {
+    expect(parseAddress("trailing-only>")).toEqual({
+      address: "trailing-only>",
+    });
+  });
+
+  it("returns just the trimmed input when the angle-bracket form has an empty address slice", () => {
+    expect(parseAddress("name<>")).toEqual({ address: "name<>" });
+  });
+
+  it("runs in linear time on adversarial whitespace input (ReDoS regression)", () => {
+    const adversarial = `${" ".repeat(100_000)}<alice@example.com>`;
+    const start = Date.now();
+    const result = parseAddress(adversarial);
+    const elapsed = Date.now() - start;
+    expect(result).toEqual({ address: "alice@example.com" });
+    // 100k chars of whitespace should parse in well under 100ms; allow
+    // slack for slow CI. Any quadratic / exponential implementation would
+    // be orders of magnitude slower.
+    expect(elapsed).toBeLessThan(100);
+  });
 });
 
 describe("normalizeHeaderKeys", () => {

@@ -59,6 +59,20 @@ describe("parseReferencesHeader", () => {
   it("falls back to whitespace splitting when angle brackets are missing", () => {
     expect(parseReferencesHeader("a@x b@x")).toEqual(["a@x", "b@x"]);
   });
+
+  it("runs in linear time on adversarial bracket input (ReDoS regression)", () => {
+    // `<<<<...` with no closing `>` could trigger O(n^2) backtracking in
+    // a naive `<[^>]+>/g` implementation; the tightened pattern rejects
+    // nested `<` so the regex fails fast at every position.
+    const adversarial = "<".repeat(100_000);
+    const start = Date.now();
+    parseReferencesHeader(adversarial);
+    const elapsed = Date.now() - start;
+    // 100k chars should parse in well under 100ms; allow slack for slow
+    // CI. Any quadratic implementation would be orders of magnitude
+    // slower.
+    expect(elapsed).toBeLessThan(100);
+  });
 });
 
 describe("findThreadRoot", () => {
