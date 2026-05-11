@@ -2,16 +2,16 @@ import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
 import { ConsoleLogger } from "chat";
 import { createClient, type RedisClientType } from "redis";
 
-export interface RedisStateAdapterOptions {
+export interface RedisStateAdapterUrlOptions {
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
   /** Logger instance for error reporting */
   logger?: Logger;
-  /** Redis connection URL (e.g., redis://localhost:6379) */
-  url: string;
+  /** Redis connection URL (e.g., redis://localhost:6379). Defaults to REDIS_URL env var. */
+  url?: string;
 }
 
-export interface RedisStateClientOptions {
+export interface RedisStateAdapterClientOptions {
   /** Existing redis client instance */
   client: RedisClientType;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
@@ -20,16 +20,21 @@ export interface RedisStateClientOptions {
   logger?: Logger;
 }
 
-export interface CreateRedisStateOptions {
-  /** Existing redis client instance */
-  client?: RedisClientType;
-  /** Key prefix for all Redis keys (default: "chat-sdk") */
-  keyPrefix?: string;
-  /** Logger instance for error reporting */
-  logger?: Logger;
-  /** Redis connection URL (e.g., redis://localhost:6379) */
-  url?: string;
-}
+export type RedisStateAdapterOptions =
+  | RedisStateAdapterUrlOptions
+  | RedisStateAdapterClientOptions;
+
+/**
+ * @deprecated Use `RedisStateAdapterClientOptions`. Renamed for consistency
+ * with the rest of the state adapter packages.
+ */
+export type RedisStateClientOptions = RedisStateAdapterClientOptions;
+
+/**
+ * @deprecated Use `RedisStateAdapterOptions`. Renamed for consistency with
+ * the rest of the state adapter packages.
+ */
+export type CreateRedisStateOptions = RedisStateAdapterOptions;
 
 /**
  * Redis state adapter for production use.
@@ -45,12 +50,18 @@ export class RedisStateAdapter implements StateAdapter {
   private connected = false;
   private connectPromise: Promise<void> | null = null;
 
-  constructor(options: RedisStateAdapterOptions | RedisStateClientOptions) {
+  constructor(options: RedisStateAdapterOptions) {
     if ("client" in options) {
       this.client = options.client;
       this.ownsClient = false;
     } else {
-      this.client = createClient({ url: options.url });
+      const url = options.url;
+      if (!url) {
+        throw new Error(
+          "Redis url is required. Set REDIS_URL or provide url in options."
+        );
+      }
+      this.client = createClient({ url });
       this.ownsClient = true;
     }
     this.keyPrefix = options.keyPrefix || "chat-sdk";
@@ -415,26 +426,24 @@ function generateToken(): string {
 }
 
 export function createRedisState(
-  options: CreateRedisStateOptions = {}
+  options: RedisStateAdapterOptions = {}
 ): RedisStateAdapter {
-  if (options.client) {
-    return new RedisStateAdapter({
-      client: options.client,
-      keyPrefix: options.keyPrefix,
-      logger: options.logger,
-    });
+  if ("client" in options && options.client) {
+    return new RedisStateAdapter(options);
   }
 
-  const url = options.url ?? process.env.REDIS_URL;
+  const url =
+    "url" in options
+      ? (options.url ?? process.env.REDIS_URL)
+      : process.env.REDIS_URL;
   if (!url) {
     throw new Error(
       "Redis url is required. Set REDIS_URL or provide url in options."
     );
   }
-  const resolved: RedisStateAdapterOptions = {
+  return new RedisStateAdapter({
     url,
     keyPrefix: options.keyPrefix,
     logger: options.logger,
-  };
-  return new RedisStateAdapter(resolved);
+  });
 }

@@ -159,6 +159,7 @@ export interface TelegramMessage {
     mime_type?: string;
     file_name?: string;
   };
+  video_note?: TelegramFile & { length?: number; duration?: number };
   voice?: TelegramFile & { duration?: number; mime_type?: string };
 }
 

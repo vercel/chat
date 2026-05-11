@@ -3,6 +3,9 @@
   "version": "4.28.1",
   "description": "In-memory state adapter for chat (development/testing)",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

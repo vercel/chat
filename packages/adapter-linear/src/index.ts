@@ -198,29 +198,29 @@ export class LinearAdapter
     return this.linearClient;
   }
 
-  private readonly mode: LinearAdapterMode;
-  private readonly webhookSecret: string;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private defaultBotUserId: string | null = null;
-  private defaultOrganizationId: string | null = null;
-  private readonly formatConverter = new LinearFormatConverter();
-  private readonly requestContext =
+  protected readonly mode: LinearAdapterMode;
+  protected readonly webhookSecret: string;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected defaultBotUserId: string | null = null;
+  protected defaultOrganizationId: string | null = null;
+  protected readonly formatConverter = new LinearFormatConverter();
+  protected readonly requestContext =
     new AsyncLocalStorage<LinearRequestContext>();
 
-  private defaultClient: LinearClient | null = null;
-  private readonly oauthClientId: string | null = null;
-  private readonly oauthClientSecret: string | null = null;
-  private readonly clientCredentials: {
+  protected defaultClient: LinearClient | null = null;
+  protected readonly oauthClientId: string | null = null;
+  protected readonly oauthClientSecret: string | null = null;
+  protected readonly clientCredentials: {
     clientId: string;
     clientSecret: string;
     scopes: string[];
   } | null = null;
-  private accessTokenExpiry: number | null = null;
+  protected accessTokenExpiry: number | null = null;
   // Custom API base URL
-  private readonly apiUrl?: string;
+  protected readonly apiUrl?: string;
   // Optional AES-256-GCM key for encrypting OAuth tokens at rest
-  private readonly encryptionKey: Buffer | undefined;
+  protected readonly encryptionKey: Buffer | undefined;
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
     const webhookSecret =
@@ -358,7 +358,7 @@ export class LinearAdapter
     }
   }
 
-  private normalizeClientCredentials(
+  protected normalizeClientCredentials(
     clientCredentials: LinearClientCredentialsConfig,
     source: "config" | "env"
   ) {
@@ -385,7 +385,7 @@ export class LinearAdapter
   /**
    * Get a Linear client for the current request context, or the default client in single-tenant mode.
    */
-  private getClient(): LinearClient {
+  protected getClient(): LinearClient {
     const context = this.requestContext.getStore();
     if (context?.client) {
       return context.client;
@@ -404,7 +404,7 @@ export class LinearAdapter
   /**
    * Get the organization ID for the current request context, or the default organization ID in single-tenant mode.
    */
-  private get organizationId(): string {
+  protected get organizationId(): string {
     const organizationId =
       this.requestContext.getStore()?.installation.organizationId ??
       this.defaultOrganizationId;
@@ -437,11 +437,11 @@ export class LinearAdapter
     return id;
   }
 
-  private isMultiTenantMode(): boolean {
+  protected isMultiTenantMode(): boolean {
     return Boolean(this.oauthClientId && this.oauthClientSecret);
   }
 
-  private installationKey(organizationId: string): string {
+  protected installationKey(organizationId: string): string {
     return `${INSTALLATION_KEY_PREFIX}:${organizationId}`;
   }
 
@@ -505,7 +505,7 @@ export class LinearAdapter
    * as-is (legacy behavior, with a warning logged at construction time
    * elsewhere is left to the deployer's discretion).
    */
-  private encryptInstallation(
+  protected encryptInstallation(
     installation: LinearInstallation
   ): StoredLinearInstallation {
     if (!this.encryptionKey) {
@@ -530,7 +530,7 @@ export class LinearAdapter
    * values (legacy installs from before encryption was enabled) so rotating
    * keys in is non-breaking.
    */
-  private decryptInstallation(
+  protected decryptInstallation(
     stored: StoredLinearInstallation
   ): LinearInstallation {
     const accessToken = this.maybeDecrypt(stored.accessToken);
@@ -547,7 +547,7 @@ export class LinearAdapter
     };
   }
 
-  private maybeDecrypt(value: string | EncryptedTokenData): string {
+  protected maybeDecrypt(value: string | EncryptedTokenData): string {
     if (this.encryptionKey && isEncryptedTokenData(value)) {
       return decryptToken(value, this.encryptionKey);
     }
@@ -686,7 +686,7 @@ export class LinearAdapter
   /**
    * Get the identity of an authenticated client.
    */
-  private async fetchClientIdentity(client: LinearClient): Promise<{
+  protected async fetchClientIdentity(client: LinearClient): Promise<{
     botUserId: string;
     displayName: string;
     organizationId: string;
@@ -731,7 +731,7 @@ export class LinearAdapter
   /**
    * Fetch an OAuth token from Linear.
    */
-  private async fetchOAuthToken(
+  protected async fetchOAuthToken(
     body: URLSearchParams,
     errorMessage: string
   ): Promise<LinearOAuthTokenResponse> {
@@ -805,7 +805,7 @@ export class LinearAdapter
    * Get the current installation for an organization, throwing if not found.
    * Used in multi-tenant mode to ensure a valid installation is available in webhook handlers and withInstallation().
    */
-  private async requireInstallation(
+  protected async requireInstallation(
     organizationId: string
   ): Promise<LinearInstallation> {
     const installation = await this.getInstallation(organizationId);
@@ -825,7 +825,7 @@ export class LinearAdapter
    *
    * @see https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens
    */
-  private async refreshClientCredentialsToken(): Promise<void> {
+  protected async refreshClientCredentialsToken(): Promise<void> {
     if (!this.clientCredentials) {
       return;
     }
@@ -863,7 +863,7 @@ export class LinearAdapter
   /**
    * Ensure the client credentials token is still valid. Refresh if expired.
    */
-  private async ensureValidToken(): Promise<void> {
+  protected async ensureValidToken(): Promise<void> {
     if (this.requestContext.getStore()) {
       return;
     }
@@ -881,7 +881,7 @@ export class LinearAdapter
   /**
    * Parse a comment from the Linear SDK into a chat message.
    */
-  private async parseMessageFromComment(
+  protected async parseMessageFromComment(
     comment: Comment,
     issueId: string,
     agentSessionId?: string
@@ -952,7 +952,7 @@ export class LinearAdapter
   /**
    * Parse an agent session event from a Linear webhook into a chat message, if applicable.
    */
-  private parseMessageFromAgentSessionEvent(
+  protected parseMessageFromAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload
   ): Message<LinearRawMessage> | null {
     const issueId =
@@ -1079,7 +1079,7 @@ export class LinearAdapter
   /**
    * Create a a chat raw message for a Linear agent activity.
    */
-  private async parseMessageFromAgentActivity(
+  protected async parseMessageFromAgentActivity(
     threadId: LinearAgentSessionThreadId,
     result: AgentActivityPayload
   ): Promise<RawMessage<LinearRawMessage>> {
@@ -1176,7 +1176,7 @@ export class LinearAdapter
   /**
    * Run a webhook handler function with the appropriate installation context based on the organization ID in the payload.
    */
-  private async withWebhookInstallation(
+  protected async withWebhookInstallation(
     organizationId: string,
     fn: () => Promise<void> | void
   ): Promise<void> {
@@ -1201,7 +1201,7 @@ export class LinearAdapter
    * - If the comment has a parentId, it's a reply -> thread under the parent (root comment)
    * - If no parentId, this is a root comment -> thread under this comment's own ID
    */
-  private handleCommentCreated(
+  protected handleCommentCreated(
     payload: CommentWebhookPayload,
     options?: WebhookOptions
   ): void {
@@ -1266,7 +1266,7 @@ export class LinearAdapter
    * - A user posting a new message in an existing agent session thread (prompted action)
    * - A user mentioning the bot in an issue, creating a new agent session and posting the first message (created action)
    */
-  private handleAgentSessionEvent(
+  protected handleAgentSessionEvent(
     payload: AgentSessionEventWebhookPayload,
     options?: WebhookOptions
   ): void {
@@ -1293,7 +1293,7 @@ export class LinearAdapter
   /**
    * Handle reaction events (logging only - reactions don't include issueId).
    */
-  private handleReaction(payload: ReactionWebhookPayload): void {
+  protected handleReaction(payload: ReactionWebhookPayload): void {
     if (!this.chat) {
       return;
     }
@@ -1557,7 +1557,7 @@ export class LinearAdapter
   /**
    * Stream text/chunk in an agent session.
    */
-  private async streamInAgentSession(
+  protected async streamInAgentSession(
     decoded: LinearAgentSessionThreadId,
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
@@ -1659,7 +1659,7 @@ export class LinearAdapter
    * Stream text/chunk as a comment.
    * It posts an initial comment immediately, then edits that comment as new chunks arrive.
    */
-  private async streamAsComment(
+  protected async streamAsComment(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
@@ -1768,7 +1768,7 @@ export class LinearAdapter
   /**
    * Fetch the visible comment thread associated with an agent session.
    */
-  private async fetchAgentSessionMessages(
+  protected async fetchAgentSessionMessages(
     thread: LinearAgentSessionThreadId,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
@@ -1820,7 +1820,7 @@ export class LinearAdapter
   /**
    * Fetch top-level comments on an issue.
    */
-  private async fetchIssueComments(
+  protected async fetchIssueComments(
     issueId: string,
     options?: FetchOptions
   ): Promise<FetchResult<LinearRawMessage>> {
@@ -1846,7 +1846,7 @@ export class LinearAdapter
   /**
    * Fetch a comment thread (root comment + its children/replies).
    */
-  private async fetchCommentThread(
+  protected async fetchCommentThread(
     issueId: string,
     commentId: string,
     options?: FetchOptions
@@ -1893,7 +1893,7 @@ export class LinearAdapter
   /**
    * Convert an array of Linear SDK Comment objects to Message instances.
    */
-  private async commentsToMessages(
+  protected async commentsToMessages(
     comments: Comment[],
     issueId: string,
     agentSessionId: string | undefined
@@ -2072,7 +2072,7 @@ export class LinearAdapter
    * Resolve an emoji value to a unicode string.
    * Linear uses standard unicode emoji for reactions.
    */
-  private resolveEmoji(emoji: EmojiValue | string): string {
+  protected resolveEmoji(emoji: EmojiValue | string): string {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
 
     const mapping: Record<string, string> = {

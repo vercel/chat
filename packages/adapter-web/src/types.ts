@@ -8,7 +8,7 @@ export interface WebUser {
   name?: string;
 }
 
-export interface WebAdapterOptions {
+export interface WebAdapterConfig {
   /**
    * Resolve the user from the inbound HTTP request.
    *
@@ -43,3 +43,9 @@ export interface WebAdapterOptions {
    */
   userName: string;
 }
+
+/**
+ * @deprecated Use `WebAdapterConfig`. Kept as an alias for backwards
+ * compatibility with the previous name.
+ */
+export type WebAdapterOptions = WebAdapterConfig;

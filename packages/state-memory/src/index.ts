@@ -308,6 +308,16 @@ function generateToken(): string {
   return `mem_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 }
 
-export function createMemoryState(): MemoryStateAdapter {
+/**
+ * Options for {@link createMemoryState}. The in-memory state adapter takes no
+ * configuration today; the type exists so the package shape matches every
+ * other state adapter (ergonomics + konsistent).
+ */
+// biome-ignore lint/complexity/noBannedTypes: empty options is intentional — see jsdoc above.
+export type MemoryStateAdapterOptions = {};
+
+export function createMemoryState(
+  _options?: MemoryStateAdapterOptions
+): MemoryStateAdapter {
   return new MemoryStateAdapter();
 }
