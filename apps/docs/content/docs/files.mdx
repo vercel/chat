@@ -43,7 +43,7 @@ await thread.post({
 });
 ```
 
-Outgoing `attachments` are available on `{ raw }`, `{ markdown }`, and `{ ast }` messages. Card messages use `files` for uploads. Use `files` for generic uploads. On Telegram, `files` always upload as documents, while `attachments` preserve image, audio, video, or file media type.
+Outgoing `attachments` are available on `{ raw }`, `{ markdown }`, and `{ ast }` messages. Card messages use `files` for uploads. Use `files` for generic uploads. On Telegram, `files` always upload as documents, while `attachments` preserve image, audio, video, or file media type. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 
 ### Multiple files
 
