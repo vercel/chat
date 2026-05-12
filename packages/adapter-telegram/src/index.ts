@@ -5,6 +5,7 @@ import {
   cardToFallbackText,
   extractCard,
   extractFiles,
+  extractPostableAttachments,
   NetworkError,
   PermissionError,
   ResourceNotFoundError,
@@ -78,6 +79,15 @@ const trimTrailingSlashes = (url: string): string => {
   return url.slice(0, end);
 };
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
+const ATTACHMENT_UPLOADS = {
+  audio: { field: "audio", method: "sendAudio" },
+  file: { field: "document", method: "sendDocument" },
+  image: { field: "photo", method: "sendPhoto" },
+  video: { field: "video", method: "sendVideo" },
+} as const satisfies Record<
+  Attachment["type"],
+  { field: string; method: string }
+>;
 const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
 const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
@@ -202,23 +212,23 @@ export class TelegramAdapter
   readonly lockScope = "channel" as const;
   readonly persistThreadHistory = true;
 
-  private readonly botToken: string;
-  private readonly apiBaseUrl: string;
-  private readonly secretToken?: string;
+  protected readonly botToken: string;
+  protected readonly apiBaseUrl: string;
+  protected readonly secretToken?: string;
   private warnedNoVerification = false;
-  private readonly logger: Logger;
-  private readonly formatConverter = new TelegramFormatConverter();
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new TelegramFormatConverter();
   private readonly messageCache = new Map<
     string,
     Message<TelegramRawMessage>[]
   >();
 
-  private chat: ChatInstance | null = null;
-  private _botUserId?: string;
-  private _userName: string;
-  private readonly hasExplicitUserName: boolean;
-  private readonly mode: TelegramAdapterMode;
-  private readonly longPolling?: TelegramLongPollingConfig;
+  protected chat: ChatInstance | null = null;
+  protected _botUserId?: string;
+  protected _userName: string;
+  protected readonly hasExplicitUserName: boolean;
+  protected readonly mode: TelegramAdapterMode;
+  protected readonly longPolling?: TelegramLongPollingConfig;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
   private pollingTask: Promise<void> | null = null;
@@ -469,7 +479,7 @@ export class TelegramAdapter
     });
   }
 
-  private async resolveRuntimeMode(): Promise<TelegramRuntimeMode> {
+  protected async resolveRuntimeMode(): Promise<TelegramRuntimeMode> {
     if (this.mode === "webhook") {
       return "webhook";
     }
@@ -504,7 +514,7 @@ export class TelegramAdapter
     return "polling";
   }
 
-  private async fetchWebhookInfo(): Promise<TelegramWebhookInfo | null> {
+  protected async fetchWebhookInfo(): Promise<TelegramWebhookInfo | null> {
     try {
       return await this.telegramFetch<TelegramWebhookInfo>("getWebhookInfo");
     } catch (error) {
@@ -515,7 +525,7 @@ export class TelegramAdapter
     }
   }
 
-  private isLikelyServerlessRuntime(): boolean {
+  protected isLikelyServerlessRuntime(): boolean {
     if (typeof process === "undefined" || !process.env) {
       return false;
     }
@@ -530,7 +540,7 @@ export class TelegramAdapter
     );
   }
 
-  private processUpdate(
+  protected processUpdate(
     update: TelegramUpdate,
     options?: WebhookOptions
   ): void {
@@ -553,7 +563,7 @@ export class TelegramAdapter
     }
   }
 
-  private handleIncomingMessageUpdate(
+  protected handleIncomingMessageUpdate(
     telegramMessage: TelegramMessage,
     options?: WebhookOptions
   ): void {
@@ -572,7 +582,7 @@ export class TelegramAdapter
     this.chat.processMessage(this, threadId, parsedMessage, options);
   }
 
-  private handleCallbackQuery(
+  protected handleCallbackQuery(
     callbackQuery: TelegramCallbackQuery,
     options?: WebhookOptions
   ): void {
@@ -619,7 +629,7 @@ export class TelegramAdapter
     }
   }
 
-  private handleMessageReactionUpdate(
+  protected handleMessageReactionUpdate(
     reactionUpdate: TelegramMessageReactionUpdated,
     options?: WebhookOptions
   ): void {
@@ -717,6 +727,21 @@ export class TelegramAdapter
       );
     }
 
+    const attachments = extractPostableAttachments(message);
+    if (attachments.length > 1) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram adapter supports a single attachment upload per message"
+      );
+    }
+
+    if (files.length > 0 && attachments.length > 0) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram adapter does not support mixing file uploads and attachments in one message"
+      );
+    }
+
     let rawMessage: TelegramMessage;
 
     if (files.length === 1) {
@@ -727,6 +752,21 @@ export class TelegramAdapter
       rawMessage = await this.sendDocument(
         parsedThread,
         file,
+        text,
+        replyMarkup,
+        parseMode
+      );
+    } else if (attachments.length === 1) {
+      const [attachment] = attachments;
+      if (!attachment) {
+        throw new ValidationError(
+          "telegram",
+          "Attachment upload payload is empty"
+        );
+      }
+      rawMessage = await this.sendAttachment(
+        parsedThread,
+        attachment,
         text,
         replyMarkup,
         parseMode
@@ -1079,7 +1119,7 @@ export class TelegramAdapter
     return this.formatConverter.fromAst(content);
   }
 
-  private parseTelegramMessage(
+  protected parseTelegramMessage(
     raw: TelegramMessage,
     threadId: string
   ): Message<TelegramRawMessage> {
@@ -1126,7 +1166,7 @@ export class TelegramAdapter
     return message;
   }
 
-  private extractAttachments(raw: TelegramMessage): Attachment[] {
+  protected extractAttachments(raw: TelegramMessage): Attachment[] {
     const attachments: Attachment[] = [];
 
     const photo = raw.photo?.at(-1);
@@ -1181,10 +1221,20 @@ export class TelegramAdapter
       );
     }
 
+    if (raw.video_note) {
+      attachments.push(
+        this.createAttachment("video", raw.video_note.file_id, {
+          size: raw.video_note.file_size,
+          width: raw.video_note.length,
+          height: raw.video_note.length,
+        })
+      );
+    }
+
     return attachments;
   }
 
-  private createAttachment(
+  protected createAttachment(
     type: Attachment["type"],
     fileId: string,
     metadata?: {
@@ -1218,7 +1268,7 @@ export class TelegramAdapter
     };
   }
 
-  private async downloadFile(fileId: string): Promise<Buffer> {
+  protected async downloadFile(fileId: string): Promise<Buffer> {
     const file = await this.telegramFetch<TelegramFile>("getFile", {
       file_id: fileId,
     });
@@ -1250,7 +1300,7 @@ export class TelegramAdapter
     return Buffer.from(await response.arrayBuffer());
   }
 
-  private async sendDocument(
+  protected async sendDocument(
     thread: TelegramThreadId,
     file: {
       filename: string;
@@ -1291,7 +1341,103 @@ export class TelegramAdapter
     return this.telegramFetch<TelegramMessage>("sendDocument", formData);
   }
 
-  private async toTelegramBuffer(
+  protected async sendAttachment(
+    thread: TelegramThreadId,
+    attachment: Attachment,
+    text: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+    parseMode: TelegramParseMode = "plain"
+  ): Promise<TelegramMessage> {
+    const upload = ATTACHMENT_UPLOADS[attachment.type];
+    const data =
+      attachment.data ??
+      (attachment.fetchData ? await attachment.fetchData() : undefined);
+
+    if (!(data || attachment.url)) {
+      throw new ValidationError(
+        "telegram",
+        `Attachment data or URL required for ${attachment.type}`
+      );
+    }
+
+    if (!data) {
+      const payload: Record<string, unknown> = {
+        chat_id: thread.chatId,
+        [upload.field]: attachment.url,
+      };
+
+      if (typeof thread.messageThreadId === "number") {
+        payload.message_thread_id = thread.messageThreadId;
+      }
+
+      if (text.trim()) {
+        payload.caption = truncateForTelegram(
+          text,
+          TELEGRAM_CAPTION_LIMIT,
+          parseMode
+        );
+        const botApiParseMode = toBotApiParseMode(parseMode);
+        if (botApiParseMode) {
+          payload.parse_mode = botApiParseMode;
+        }
+      }
+
+      if (attachment.type === "video") {
+        if (Number.isInteger(attachment.width)) {
+          payload.width = attachment.width;
+        }
+        if (Number.isInteger(attachment.height)) {
+          payload.height = attachment.height;
+        }
+      }
+
+      if (replyMarkup) {
+        payload.reply_markup = replyMarkup;
+      }
+
+      return this.telegramFetch<TelegramMessage>(upload.method, payload);
+    }
+
+    const buffer = await this.toTelegramBuffer(data);
+    const formData = new FormData();
+
+    formData.append("chat_id", thread.chatId);
+    if (typeof thread.messageThreadId === "number") {
+      formData.append("message_thread_id", String(thread.messageThreadId));
+    }
+
+    if (text.trim()) {
+      formData.append(
+        "caption",
+        truncateForTelegram(text, TELEGRAM_CAPTION_LIMIT, parseMode)
+      );
+      const botApiParseMode = toBotApiParseMode(parseMode);
+      if (botApiParseMode) {
+        formData.append("parse_mode", botApiParseMode);
+      }
+    }
+
+    if (attachment.type === "video") {
+      if (Number.isInteger(attachment.width)) {
+        formData.append("width", String(attachment.width));
+      }
+      if (Number.isInteger(attachment.height)) {
+        formData.append("height", String(attachment.height));
+      }
+    }
+
+    const blob = new Blob([new Uint8Array(buffer)], {
+      type: attachment.mimeType ?? "application/octet-stream",
+    });
+    formData.append(upload.field, blob, attachment.name ?? "attachment");
+    if (replyMarkup) {
+      formData.append("reply_markup", JSON.stringify(replyMarkup));
+    }
+
+    return this.telegramFetch<TelegramMessage>(upload.method, formData);
+  }
+
+  protected async toTelegramBuffer(
     data: Buffer | Blob | ArrayBuffer
   ): Promise<Buffer> {
     if (Buffer.isBuffer(data)) {
@@ -1306,7 +1452,7 @@ export class TelegramAdapter
     throw new ValidationError("telegram", "Unsupported file data type");
   }
 
-  private paginateMessages(
+  protected paginateMessages(
     messages: Message<TelegramRawMessage>[],
     options: FetchOptions
   ): FetchResult<TelegramRawMessage> {
@@ -1348,7 +1494,7 @@ export class TelegramAdapter
     };
   }
 
-  private cacheMessage(message: Message<TelegramRawMessage>): void {
+  protected cacheMessage(message: Message<TelegramRawMessage>): void {
     const existing = this.messageCache.get(message.threadId) ?? [];
     const index = existing.findIndex((item) => item.id === message.id);
 
@@ -1362,7 +1508,7 @@ export class TelegramAdapter
     this.messageCache.set(message.threadId, existing);
   }
 
-  private findCachedMessage(
+  protected findCachedMessage(
     messageId: string
   ): Message<TelegramRawMessage> | undefined {
     for (const messages of this.messageCache.values()) {
@@ -1375,7 +1521,7 @@ export class TelegramAdapter
     return undefined;
   }
 
-  private deleteCachedMessage(messageId: string): void {
+  protected deleteCachedMessage(messageId: string): void {
     for (const [threadId, messages] of this.messageCache.entries()) {
       const filtered = messages.filter((message) => message.id !== messageId);
       if (filtered.length === 0) {
@@ -1386,7 +1532,7 @@ export class TelegramAdapter
     }
   }
 
-  private compareMessages(
+  protected compareMessages(
     a: Message<TelegramRawMessage>,
     b: Message<TelegramRawMessage>
   ): number {
@@ -1399,12 +1545,12 @@ export class TelegramAdapter
     return this.messageSequence(a.id) - this.messageSequence(b.id);
   }
 
-  private messageSequence(messageId: string): number {
+  protected messageSequence(messageId: string): number {
     const match = messageId.match(MESSAGE_SEQUENCE_PATTERN);
     return match ? Number.parseInt(match[1], 10) : 0;
   }
 
-  private resolveThreadId(value: string): TelegramThreadId {
+  protected resolveThreadId(value: string): TelegramThreadId {
     if (value.startsWith("telegram:")) {
       return this.decodeThreadId(value);
     }
@@ -1412,11 +1558,11 @@ export class TelegramAdapter
     return { chatId: value };
   }
 
-  private encodeMessageId(chatId: string, messageId: number): string {
+  protected encodeMessageId(chatId: string, messageId: number): string {
     return `${chatId}:${messageId}`;
   }
 
-  private decodeCompositeMessageId(
+  protected decodeCompositeMessageId(
     messageId: string,
     expectedChatId?: string
   ): { chatId: string; messageId: number; compositeId: string } {
@@ -1462,7 +1608,7 @@ export class TelegramAdapter
     };
   }
 
-  private toAuthor(user: TelegramUser): TelegramMessageAuthor {
+  protected toAuthor(user: TelegramUser): TelegramMessageAuthor {
     const fullName = [user.first_name, user.last_name]
       .filter(Boolean)
       .join(" ")
@@ -1477,7 +1623,7 @@ export class TelegramAdapter
     };
   }
 
-  private toReactionActorAuthor(chat: TelegramChat): TelegramMessageAuthor {
+  protected toReactionActorAuthor(chat: TelegramChat): TelegramMessageAuthor {
     const name = this.chatDisplayName(chat) ?? String(chat.id);
     return {
       userId: `chat:${chat.id}`,
@@ -1488,7 +1634,7 @@ export class TelegramAdapter
     };
   }
 
-  private chatDisplayName(chat: TelegramChat): string | undefined {
+  protected chatDisplayName(chat: TelegramChat): string | undefined {
     if (chat.title) {
       return chat.title;
     }
@@ -1504,7 +1650,7 @@ export class TelegramAdapter
     return chat.username;
   }
 
-  private isBotMentioned(message: TelegramMessage, text: string): boolean {
+  protected isBotMentioned(message: TelegramMessage, text: string): boolean {
     if (!text) {
       return false;
     }
@@ -1541,15 +1687,15 @@ export class TelegramAdapter
     return mentionRegex.test(text);
   }
 
-  private entityText(text: string, entity: TelegramMessageEntity): string {
+  protected entityText(text: string, entity: TelegramMessageEntity): string {
     return text.slice(entity.offset, entity.offset + entity.length);
   }
 
-  private escapeRegex(input: string): string {
+  protected escapeRegex(input: string): string {
     return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
-  private normalizeUserName(value: unknown): string {
+  protected normalizeUserName(value: unknown): string {
     if (typeof value !== "string") {
       return "bot";
     }
@@ -1557,7 +1703,7 @@ export class TelegramAdapter
     return value.replace(LEADING_AT_PATTERN, "").trim() || "bot";
   }
 
-  private resolveParseMode(
+  protected resolveParseMode(
     message: AdapterPostableMessage,
     card: ReturnType<typeof extractCard>
   ): TelegramParseMode {
@@ -1578,7 +1724,9 @@ export class TelegramAdapter
     return "MarkdownV2";
   }
 
-  private toTelegramReaction(emoji: EmojiValue | string): TelegramReactionType {
+  protected toTelegramReaction(
+    emoji: EmojiValue | string
+  ): TelegramReactionType {
     if (typeof emoji !== "string") {
       return {
         type: "emoji",
@@ -1614,7 +1762,7 @@ export class TelegramAdapter
     };
   }
 
-  private reactionKey(reaction: TelegramReactionType): string {
+  protected reactionKey(reaction: TelegramReactionType): string {
     if (reaction.type === "emoji") {
       return reaction.emoji;
     }
@@ -1622,7 +1770,7 @@ export class TelegramAdapter
     return `custom:${reaction.custom_emoji_id}`;
   }
 
-  private reactionToEmojiValue(reaction: TelegramReactionType): EmojiValue {
+  protected reactionToEmojiValue(reaction: TelegramReactionType): EmojiValue {
     if (reaction.type === "emoji") {
       return defaultEmojiResolver.fromGChat(reaction.emoji);
     }
@@ -1630,7 +1778,7 @@ export class TelegramAdapter
     return getEmoji(`custom:${reaction.custom_emoji_id}`);
   }
 
-  private async pollingLoop(
+  protected async pollingLoop(
     config: ResolvedTelegramLongPollingConfig
   ): Promise<void> {
     let offset: number | undefined;
@@ -1694,7 +1842,7 @@ export class TelegramAdapter
     }
   }
 
-  private resolvePollingConfig(
+  protected resolvePollingConfig(
     override?: TelegramLongPollingConfig
   ): ResolvedTelegramLongPollingConfig {
     const baseConfig = this.longPolling ?? {};
@@ -1731,7 +1879,7 @@ export class TelegramAdapter
     };
   }
 
-  private clampInteger(
+  protected clampInteger(
     value: number | undefined,
     fallback: number,
     min: number,
@@ -1745,11 +1893,11 @@ export class TelegramAdapter
     return Math.max(min, Math.min(max, parsed));
   }
 
-  private isAbortError(error: unknown): boolean {
+  protected isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === "AbortError";
   }
 
-  private async sleep(delayMs: number): Promise<void> {
+  protected async sleep(delayMs: number): Promise<void> {
     if (delayMs <= 0) {
       return;
     }
@@ -1759,7 +1907,7 @@ export class TelegramAdapter
     });
   }
 
-  private async telegramFetch<TResult>(
+  protected async telegramFetch<TResult>(
     method: string,
     payload?: Record<string, unknown> | FormData,
     request?: {
@@ -1818,7 +1966,7 @@ export class TelegramAdapter
     return data.result;
   }
 
-  private throwTelegramApiError(
+  protected throwTelegramApiError(
     method: string,
     status: number,
     data: TelegramApiResponse<unknown>

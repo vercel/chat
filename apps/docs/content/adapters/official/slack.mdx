@@ -1,0 +1,448 @@
+---
+title: Slack
+description: Slack adapter with single-workspace and multi-workspace OAuth support.
+packageName: "@chat-adapter/slack"
+slug: slack
+type: platform
+logo: slack
+tagline: Build bots for Slack workspaces with full support for threads, reactions, native streaming, scheduled messages, modals, slash commands, and the Assistants API.
+beta: true
+features:
+  postMessage: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads: yes
+  streaming:
+    status: yes
+    label: Native
+  scheduledMessages:
+    status: yes
+    label: Native
+  cardFormat:
+    status: yes
+    label: Block Kit
+  buttons: yes
+  linkButtons: yes
+  selectMenus: yes
+  tables:
+    status: yes
+    label: Block Kit
+  fields: yes
+  imagesInCards: yes
+  modals: yes
+  slashCommands: yes
+  mentions: yes
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages:
+    status: yes
+    label: Native
+  userLookup: yes
+  customApiEndpoint: yes
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/slack" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Slack!");
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    botToken: {
+      type: "string | () => string | Promise<string>",
+      description:
+        "Bot token (`xoxb-...`) or a resolver function for rotation / lazy fetch. Auto-detected from `SLACK_BOT_TOKEN`.",
+    },
+    signingSecret: {
+      type: "string",
+      description:
+        "Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET`.",
+    },
+    webhookVerifier: {
+      type: "(request, body) => unknown | Promise<unknown>",
+      description:
+        "Custom verifier used in place of `signingSecret`. Returning a string substitutes the verified body downstream.",
+    },
+    mode: {
+      type: '"webhook" | "socket"',
+      default: '"webhook"',
+      description: "Connection mode.",
+    },
+    appToken: {
+      type: "string",
+      description:
+        "App-level token (`xapp-...`) for socket mode. Auto-detected from `SLACK_APP_TOKEN`.",
+    },
+    clientId: {
+      type: "string",
+      description:
+        "App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID`.",
+    },
+    clientSecret: {
+      type: "string",
+      description:
+        "App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET`.",
+    },
+    encryptionKey: {
+      type: "string",
+      description:
+        "AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY`.",
+    },
+    installationKeyPrefix: {
+      type: "string",
+      default: '"slack:installation"',
+      description:
+        "Prefix for the state key used to store workspace installations. Full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for org-wide installs).",
+    },
+    installationProvider: {
+      type: "{ getInstallation(installationId, isEnterpriseInstall) }",
+      description:
+        "External installation lookup. When set, bypasses the internal state adapter for token resolution. Read-only — manage your own writes externally.",
+    },
+    apiUrl: {
+      type: "string",
+      description:
+        "Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway).",
+    },
+  }}
+/>
+
+`signingSecret` is required for webhook mode (or supply a `webhookVerifier`). `appToken` is required for socket mode.
+
+## Authentication
+
+### Single-workspace mode
+
+Auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`:
+
+```typescript title="lib/bot.ts" lineNumbers
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter(),
+  },
+});
+```
+
+### Multi-workspace OAuth
+
+For apps installed across multiple Slack workspaces, omit `botToken` and provide OAuth credentials. The adapter resolves tokens dynamically from your state adapter using the `team_id` (or `enterprise_id` for Enterprise Grid org-wide installs):
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const slackAdapter = createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+});
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { slack: slackAdapter },
+  state: createRedisState(),
+});
+```
+
+When you pass any auth-related config (like `clientId`), the adapter won't fall back to env vars for other auth fields, preventing accidental mixing of auth modes.
+
+#### OAuth callback
+
+Point your Slack OAuth redirect URL to a route that calls `handleOAuthCallback`:
+
+```typescript title="app/api/slack/oauth/route.ts" lineNumbers
+import { slackAdapter } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  const { teamId } = await slackAdapter.handleOAuthCallback(request, {
+    redirectUri: process.env.SLACK_REDIRECT_URI,
+  });
+  return new Response(`Installed for team ${teamId}!`);
+}
+```
+
+#### Using the adapter outside webhooks
+
+During webhook handling, the adapter resolves tokens automatically. Outside that context (cron jobs, background workers), use `getInstallation` and `withBotToken`:
+
+```typescript
+const install = await slackAdapter.getInstallation(teamId);
+if (!install) throw new Error("Workspace not installed");
+
+await slackAdapter.withBotToken(install.botToken, async () => {
+  const thread = bot.thread("slack:C12345:1234567890.123456");
+  await thread.post("Hello from a cron job!");
+});
+```
+
+`withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated.
+
+## Advanced
+
+### Slack app manifest
+
+Create the app from a manifest at [api.slack.com/apps](https://api.slack.com/apps):
+
+```yaml title="manifest.yaml"
+display_information:
+  name: My Bot
+  description: A bot built with chat-sdk
+
+features:
+  bot_user:
+    display_name: My Bot
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - reactions:read
+      - reactions:write
+      - users:read
+
+settings:
+  event_subscriptions:
+    request_url: https://your-domain.com/api/webhooks/slack
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - member_joined_channel
+      - assistant_thread_started
+      - assistant_thread_context_changed
+  interactivity:
+    is_enabled: true
+    request_url: https://your-domain.com/api/webhooks/slack
+```
+
+After creating the app, copy:
+
+- **Signing Secret** → `SLACK_SIGNING_SECRET`
+- **Client ID** → `SLACK_CLIENT_ID` (multi-workspace only)
+- **Client Secret** → `SLACK_CLIENT_SECRET` (multi-workspace only)
+- **Bot User OAuth Token** → `SLACK_BOT_TOKEN` (single-workspace only)
+
+### Token rotation
+
+`botToken` accepts a function returning a string or `Promise<string>` — the resolver is invoked per API call, so it composes with [Slack token rotation](https://docs.slack.dev/authentication/using-token-rotation/) (12-hour TTL) or lazy fetch from a secret manager:
+
+```typescript
+createSlackAdapter({
+  botToken: async () => await secrets.get("slack-bot-token"),
+});
+```
+
+If the resolver is expensive, cache inside the resolver itself.
+
+### Custom webhook verification
+
+Pass `webhookVerifier` to replace the built-in HMAC check — useful when verification runs in a proxy or signing layer ahead of your handler:
+
+```typescript
+createSlackAdapter({
+  webhookVerifier: async (request, body) => {
+    if (!(await myProxy.verify(request))) {
+      throw new Error("invalid");
+    }
+    return true;
+  },
+});
+```
+
+If both `signingSecret` and `webhookVerifier` are set, `webhookVerifier` wins. When using `webhookVerifier`, you are responsible for replay/timestamp protection.
+
+### Token encryption
+
+Pass a base64-encoded 32-byte key as `encryptionKey` to encrypt bot tokens at rest using AES-256-GCM:
+
+```bash
+openssl rand -base64 32
+```
+
+When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts transparently.
+
+### External installation provider
+
+For deployments that manage Slack tokens in an external system (e.g. Vercel Connect):
+
+```typescript
+createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+  installationProvider: {
+    getInstallation: async (installationId, isEnterpriseInstall) => {
+      return await myTokenStore.lookup(installationId, isEnterpriseInstall);
+    },
+  },
+});
+```
+
+When configured, the provider is read-only — `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` continue to write to the internal state adapter.
+
+### Socket mode
+
+For environments behind firewalls that can't expose public HTTP endpoints, use [Slack Socket Mode](https://api.slack.com/apis/socket-mode):
+
+```typescript
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      mode: "socket",
+      appToken: process.env.SLACK_APP_TOKEN!,
+      botToken: process.env.SLACK_BOT_TOKEN!,
+    }),
+  },
+});
+```
+
+Socket mode is not compatible with multi-workspace OAuth.
+
+#### Socket mode on serverless (Vercel)
+
+Socket mode requires a persistent WebSocket. The adapter provides a forwarding mechanism — a cron job starts a transient socket listener that acks events and forwards them as HTTP requests to your existing webhook endpoint:
+
+```typescript title="app/api/slack/socket-mode/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  await bot.initialize();
+  const slack = bot.getAdapter("slack");
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/slack`;
+
+  return slack.startSocketModeListener(
+    { waitUntil: (task: Promise<unknown>) => after(() => task) },
+    600_000,
+    undefined,
+    webhookUrl
+  );
+}
+```
+
+```json title="vercel.json"
+{
+  "crons": [
+    { "path": "/api/slack/socket-mode", "schedule": "*/9 * * * *" }
+  ]
+}
+```
+
+Forwarded events are authenticated using `socketForwardingSecret` (defaults to `SLACK_SOCKET_FORWARDING_SECRET`, falling back to `appToken`).
+
+### Slack Assistants API
+
+The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai). Register handlers on the `Chat` instance:
+
+```typescript
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack");
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Summarize", message: "Summarize this channel" },
+    { title: "Draft", message: "Help me draft a message" },
+  ]);
+});
+
+bot.onAssistantContextChanged(async (event) => {
+  // User navigated to a different channel
+});
+```
+
+The `SlackAdapter` exposes:
+
+| Method | Description |
+|--------|-------------|
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
+| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
+| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
+| `publishHomeView(userId, view)` | Publish a Home tab view for a user |
+| `startTyping(threadId, status)` | Show a custom loading status (requires `assistant:write`) |
+
+Add these scopes/events to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - assistant_thread_started
+      - assistant_thread_context_changed
+```
+
+When streaming in an assistant thread, attach Block Kit elements to the final message via `StreamingPlan`'s `endWith` option:
+
+```typescript
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(textStream, {
+    endWith: [
+      {
+        type: "actions",
+        elements: [
+          { type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" },
+        ],
+      },
+    ],
+  })
+);
+```
+
+## Feature support
+
+<FeatureSupport />

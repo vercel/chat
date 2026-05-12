@@ -59,7 +59,7 @@ export const SupportedPlatforms = () => (
           <Link
             aria-label={platform.name}
             className="flex size-12 items-center justify-center rounded-md border bg-background transition-colors hover:bg-accent"
-            href={`/adapters/${platform.slug}`}
+            href={`/adapters/official/${platform.slug}`}
             key={platform.slug}
           >
             <platform.icon className="size-6" />

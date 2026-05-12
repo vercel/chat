@@ -21,7 +21,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useSidebarContext } from "@/hooks/geistdocs/use-sidebar";
+import { cn } from "@/lib/utils";
 import { SearchButton } from "./search";
+
+const SUB_SEPARATOR_NAMES = new Set(["Platforms", "State"]);
 
 export const Sidebar = () => {
   const { root } = useTreeContext();
@@ -80,15 +83,22 @@ export const Sidebar = () => {
   );
 };
 
+const TOP_DIVIDER_FOLDER_NAMES = new Set(["Community Adapters"]);
+
 export const Folder: SidebarPageTreeComponents["Folder"] = ({
   children,
   item,
 }) => {
   const path = useTreePath();
   const defaultOpen = item.defaultOpen ?? path.includes(item);
+  const hasTopDivider =
+    typeof item.name === "string" && TOP_DIVIDER_FOLDER_NAMES.has(item.name);
 
   return (
-    <SidebarFolder defaultOpen={defaultOpen}>
+    <SidebarFolder
+      className={cn(hasTopDivider && "mt-4 border-t pt-4")}
+      defaultOpen={defaultOpen}
+    >
       {item.index ? (
         <SidebarFolderLink
           className="flex items-center gap-2 text-pretty py-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground data-[active=true]:text-foreground [&_svg]:size-3.5"
@@ -120,9 +130,20 @@ export const Item: SidebarPageTreeComponents["Item"] = ({ item }) => (
   </SidebarItem>
 );
 
-export const Separator: SidebarPageTreeComponents["Separator"] = ({ item }) => (
-  <SidebarSeparator className="mt-4 mb-2 flex items-center gap-2 px-0 font-medium text-sm first-child:mt-0">
-    {item.icon}
-    {item.name}
-  </SidebarSeparator>
-);
+export const Separator: SidebarPageTreeComponents["Separator"] = ({ item }) => {
+  const isSub =
+    typeof item.name === "string" && SUB_SEPARATOR_NAMES.has(item.name);
+
+  return (
+    <SidebarSeparator
+      className={cn(
+        "mt-4 mb-2 flex items-center gap-2 px-0 font-medium text-sm first-child:mt-0",
+        isSub &&
+          "mt-3 mb-1 text-muted-foreground/60 text-xs uppercase tracking-wide"
+      )}
+    >
+      {item.icon}
+      {item.name}
+    </SidebarSeparator>
+  );
+};

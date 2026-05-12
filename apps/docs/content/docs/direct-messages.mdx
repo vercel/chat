@@ -12,8 +12,17 @@ Open direct message conversations with users using `bot.openDM()`. For globally 
 
 DMs behave slightly differently from channel messages:
 
-- **Implicit mentions** — DM messages automatically set `isMention=true`, so your `onNewMention` handler fires without the user needing to @-mention the bot. This feels natural for 1:1 conversations.
+- **Direct message handlers** — if you register `onDirectMessage`, every incoming DM routes there before `onSubscribedMessage`, `onNewMention`, and pattern handlers. This keeps DM-centric flows like WhatsApp conversations, Telegram DMs, and web chat on one consistent handler.
+- **Mention fallback** — if no `onDirectMessage` handlers are registered, DMs continue through normal routing. Unsubscribed DMs are treated as mentions, so existing `onNewMention` bots keep working without requiring the user to @-mention the bot.
 - **Per-conversation threading** — Each top-level DM starts a new conversation. Thread replies within a DM continue the same conversation, giving you the same per-thread isolation as channels.
+
+## Handle incoming DMs
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
 
 ## Open a DM
 

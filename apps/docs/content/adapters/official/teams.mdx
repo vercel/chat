@@ -1,0 +1,250 @@
+---
+title: Microsoft Teams
+description: Microsoft Teams adapter with Adaptive Cards and modal support.
+packageName: "@chat-adapter/teams"
+slug: teams
+type: platform
+logo: teams
+tagline: Deploy bots to Microsoft Teams with Adaptive Cards, mentions, and conversation threading.
+beta: true
+features:
+  postMessage: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads: yes
+  streaming:
+    status: partial
+    label: Native (DMs) / Buffered
+  scheduledMessages: no
+  cardFormat:
+    status: yes
+    label: Adaptive Cards
+  buttons: yes
+  linkButtons: yes
+  selectMenus: no
+  tables:
+    status: yes
+    label: GFM
+  fields: yes
+  imagesInCards: yes
+  modals: yes
+  slashCommands: no
+  mentions: yes
+  addReactions: no
+  removeReactions: no
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup:
+    status: partial
+    label: Cached
+  customApiEndpoint: yes
+  fetchMessages:
+    status: yes
+    label: Requires Graph permissions
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages:
+    status: yes
+    label: Requires Graph permissions
+  listThreads:
+    status: yes
+    label: Requires Graph permissions
+  fetchChannelInfo:
+    status: yes
+    label: Requires Graph permissions
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/teams" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTeamsAdapter } from "@chat-adapter/teams";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    teams: createTeamsAdapter({
+      appType: "SingleTenant",
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Teams!");
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    appId: {
+      type: "string",
+      description: "Azure Bot App ID. Auto-detected from `TEAMS_APP_ID`.",
+    },
+    appPassword: {
+      type: "string",
+      description:
+        "Azure Bot App Password. Auto-detected from `TEAMS_APP_PASSWORD`.",
+    },
+    federated: {
+      type: "FederatedConfig",
+      description: "Federated (workload identity) authentication config.",
+    },
+    appType: {
+      type: '"MultiTenant" | "SingleTenant"',
+      default: '"MultiTenant"',
+      description: "App tenancy mode.",
+    },
+    appTenantId: {
+      type: "string",
+      description:
+        "Azure AD Tenant ID. Auto-detected from `TEAMS_APP_TENANT_ID`. Required when `appType` is `SingleTenant`.",
+    },
+    userName: {
+      type: "string",
+      default: '"bot"',
+      description: "Bot display name.",
+    },
+    apiUrl: {
+      type: "string",
+      description:
+        "Override the Teams API base URL (e.g. for GCC-High or sovereign-cloud deployments). Auto-detected from `TEAMS_API_URL`.",
+    },
+  }}
+/>
+
+`appId` is required. Exactly one authentication method (`appPassword` or `federated`) must be provided.
+
+## Authentication
+
+The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
+
+### Install the CLI
+
+```bash
+npm install -g @microsoft/teams.cli@preview
+```
+
+### 1. Create the app
+
+```bash
+teams login
+teams status
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+```
+
+<Callout type="info">
+For local development, use a tunnel (e.g. [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), ngrok) to expose your local server.
+</Callout>
+
+Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
+
+```bash
+TEAMS_APP_ID=<CLIENT_ID>
+TEAMS_APP_PASSWORD=<CLIENT_SECRET>
+TEAMS_APP_TENANT_ID=<TENANT_ID>
+```
+
+### 2. Install in Teams
+
+Get a direct install link:
+
+```bash
+teams app get <appId> --install-link
+```
+
+Or download the app package for sideloading and upload via **Apps** then **Manage your apps** then **Upload an app** then **Upload a custom app**.
+
+### 3. Verify
+
+```bash
+teams app doctor <appId>
+```
+
+### Authentication methods
+
+**Client secret (default)** — provide `appPassword` or set `TEAMS_APP_PASSWORD`:
+
+```typescript
+createTeamsAdapter({
+  appPassword: "your_app_password_here",
+});
+```
+
+**Federated (workload identity)** — for environments with managed identities (e.g. AKS, GitHub Actions). Maps to `managedIdentityClientId` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
+  },
+});
+```
+
+## Advanced
+
+### User lookup
+
+The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
+
+1. Grant the `User.Read.All` **application permission** in your Azure AD app registration.
+2. Grant admin consent for the permission.
+
+```typescript
+const user = await bot.getUser(message.author);
+console.log(user?.email);    // "alice@contoso.com"
+console.log(user?.fullName); // "Alice Smith"
+```
+
+The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot.
+
+### Message history
+
+Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
+
+| Context | Permission | Type | Admin consent? |
+|---------|-----------|------|---------------|
+| Channel | `ChannelMessage.Read.Group` | RSC | No |
+| Group chat | `ChatMessage.Read.Chat` | RSC | No |
+| DM | `Chat.Read.All` | Azure AD | Yes |
+
+RSC permissions are set via the Teams CLI (no admin consent needed):
+
+```bash
+teams app rsc add <appId> ChannelMessage.Read.Group --type Application
+teams app rsc add <appId> ChatMessage.Read.Chat --type Application
+```
+
+For DM message history, RSC is not sufficient. Add `Chat.Read.All` via the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/):
+
+```bash
+az ad app permission add \
+  --id <appId> \
+  --api 00000003-0000-0000-c000-000000000000 \
+  --api-permissions 6b7d71aa-70aa-4810-a8d9-5d9fb2830017=Role
+
+az ad app permission admin-consent --id <appId>
+```
+
+### Receiving all messages
+
+By default, Teams bots only receive messages when directly @-mentioned. The RSC permissions above also enable receiving all messages in channels and group chats as a side effect.
+
+### Troubleshooting
+
+Run `teams app doctor <appId>` to diagnose common issues — bot registration, AAD app health, manifest consistency, and endpoint reachability.
+
+## Feature support
+
+<FeatureSupport />

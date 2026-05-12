@@ -17,6 +17,7 @@ pnpm add @chat-adapter/shared
 
 - `extractCard(message)` - extract a `CardElement` from an `AdapterPostableMessage`
 - `extractFiles(message)` - extract `FileUpload[]` from an `AdapterPostableMessage`
+- `extractPostableAttachments(message)` - extract `Attachment[]` from an `AdapterPostableMessage`
 
 ### Buffer conversion
 

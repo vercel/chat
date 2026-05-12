@@ -509,6 +509,31 @@
   }
 }
 
+/* Thin, themed scrollbar for sidebars and TOC rails. */
+.styled-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--ds-gray-300) transparent;
+}
+
+.styled-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.styled-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.styled-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--ds-gray-300);
+  border-radius: 9999px;
+}
+
+.styled-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ds-gray-500);
+}
+
 :root {
   --fd-layout-width: 100%;
   --fd-page-width: 100%;

@@ -48,6 +48,9 @@ export const VALID_DOC_PACKAGES = [
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/messenger",
+  "@chat-adapter/web",
+  "@chat-adapter/web/react",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
   "@chat-adapter/state-pg",
@@ -78,7 +81,23 @@ export const VALID_DOC_PACKAGES = [
   "vitest/config",
   "bash-tool",
   "@octokit/rest",
+  // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
+  "@beeper/chat-adapter-matrix",
+  "chat-adapter-imessage",
+  "@liveblocks/chat-sdk-adapter",
+  "@resend/chat-sdk-adapter",
+  "@zernio/chat-sdk-adapter",
+  "chat-adapter-baileys",
+  "baileys",
+  "chat-adapter-blooio",
+  "chat-state-cloudflare-do",
+  "chat-adapter-mattermost",
+  "chat-state-mysql",
+  "mysql2/promise",
+  "chat-adapter-sendblue",
+  "@bitbasti/chat-adapter-webex",
+  "chat-adapter-zalo",
 ];
 
 export function extractTypeScriptBlocks(markdown: string): string[] {

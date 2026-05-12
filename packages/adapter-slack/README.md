@@ -403,6 +403,48 @@ SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted g
 | Member joined channel | Yes |
 | App Home tab | Yes |
 
+## Direct `WebClient` access
+
+Use `adapter.client` to get a typed `WebClient` from `@slack/web-api` for any
+Web API call that isn't wrapped by the SDK's high-level methods.
+
+```typescript
+import type { SlackAdapter } from "@chat-adapter/slack";
+
+bot.onAction("pin-this", async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.client.pins.add({
+    channel: event.thread!.channel.id.replace(/^slack:/, ""),
+    timestamp: event.messageId,
+  });
+});
+```
+
+The returned client is bound to the bot token resolved in this order:
+
+1. The token from the current request context — set automatically during
+   webhook handling, or by `adapter.withBotToken(token, fn)`.
+2. The default `botToken`, when configured as a static string or a
+   synchronous resolver function.
+
+`adapter.client` throws `AuthenticationError` outside of any context in
+multi-workspace mode, or when `botToken` is configured as an async resolver
+function. For both cases, await the token first and bind it explicitly:
+
+```typescript
+const install = await slackAdapter.getInstallation(teamId);
+if (!install) throw new Error("Workspace not installed");
+
+await slackAdapter.withBotToken(install.botToken, async () => {
+  const me = await slackAdapter.client.auth.test();
+  console.log("Bot user:", me.user_id);
+});
+```
+
+Internal API calls (`postMessage`, `editMessage`, `fetchMessages`, etc.) are
+unaffected — they continue to resolve tokens through the same async path
+they always have.
+
 ## Slack Assistants API
 
 The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai) for building AI-powered assistant experiences. This enables suggested prompts, status indicators, and thread titles in assistant DM threads.
