@@ -40,10 +40,14 @@ import {
   Message,
 } from "chat";
 import {
+  type ChatInputCommandInteraction,
   Client,
+  type Interaction as DiscordJsInteraction,
   type Message as DiscordJsMessage,
+  type User as DiscordJsUser,
   Events,
   GatewayIntentBits,
+  type MessageComponentInteraction,
   Partials,
 } from "discord.js";
 import { MessageType } from "discord-api-types/v9";
@@ -81,6 +85,13 @@ const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_CONTENT_LENGTH = 2000;
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
 const HEX_PATTERN = /^[0-9a-f]+$/;
+
+interface GatewayCommandOption {
+  name: string;
+  options?: readonly GatewayCommandOption[];
+  type: number;
+  value?: boolean | number | string;
+}
 
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
@@ -556,6 +567,117 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     return {
       command: commandParts.join(" "),
       text: valueParts.join(" ").trim(),
+    };
+  }
+
+  protected async handleGatewayInteraction(
+    interaction: DiscordJsInteraction
+  ): Promise<void> {
+    if (interaction.isChatInputCommand()) {
+      await interaction.deferReply();
+      this.handleApplicationCommandInteraction(
+        this.normalizeGatewaySlashCommandInteraction(interaction)
+      );
+      return;
+    }
+
+    if (interaction.isMessageComponent()) {
+      await interaction.deferUpdate();
+      this.handleComponentInteraction(
+        this.normalizeGatewayComponentInteraction(interaction)
+      );
+    }
+  }
+
+  protected normalizeGatewaySlashCommandInteraction(
+    interaction: ChatInputCommandInteraction
+  ): DiscordInteraction {
+    return {
+      application_id: interaction.applicationId,
+      channel: this.normalizeGatewayChannel(interaction),
+      channel_id: interaction.channelId ?? undefined,
+      data: {
+        name: interaction.commandName,
+        options: this.normalizeGatewayCommandOptions(interaction.options.data),
+        type: interaction.commandType,
+      },
+      guild_id: interaction.guildId ?? undefined,
+      id: interaction.id,
+      token: interaction.token,
+      type: interaction.type,
+      user: this.normalizeGatewayUser(interaction.user),
+      version: interaction.version,
+    };
+  }
+
+  protected normalizeGatewayComponentInteraction(
+    interaction: MessageComponentInteraction
+  ): DiscordInteraction {
+    const values =
+      "values" in interaction && Array.isArray(interaction.values)
+        ? interaction.values
+        : undefined;
+
+    return {
+      application_id: interaction.applicationId,
+      channel: this.normalizeGatewayChannel(interaction),
+      channel_id: interaction.channelId ?? undefined,
+      data: {
+        component_type: interaction.componentType,
+        custom_id: interaction.customId,
+        values,
+      },
+      guild_id: interaction.guildId ?? undefined,
+      id: interaction.id,
+      message: { id: interaction.message.id } as APIMessage,
+      token: interaction.token,
+      type: interaction.type,
+      user: this.normalizeGatewayUser(interaction.user),
+      version: interaction.version,
+    };
+  }
+
+  protected normalizeGatewayChannel(
+    interaction: ChatInputCommandInteraction | MessageComponentInteraction
+  ): DiscordInteraction["channel"] {
+    if (!interaction.channel) {
+      return undefined;
+    }
+
+    const parentId =
+      "parentId" in interaction.channel &&
+      typeof interaction.channel.parentId === "string"
+        ? interaction.channel.parentId
+        : undefined;
+
+    return {
+      id: interaction.channel.id,
+      parent_id: parentId,
+      type: interaction.channel.type,
+    };
+  }
+
+  protected normalizeGatewayCommandOptions(
+    options: readonly GatewayCommandOption[]
+  ): DiscordCommandOption[] {
+    return options.map((option) => ({
+      name: option.name,
+      options: option.options
+        ? this.normalizeGatewayCommandOptions(option.options)
+        : undefined,
+      type: option.type,
+      value: option.value,
+    }));
+  }
+
+  protected normalizeGatewayUser(user: DiscordJsUser): DiscordUser {
+    return {
+      avatar: user.avatar ?? undefined,
+      bot: user.bot,
+      discriminator: user.discriminator,
+      global_name: user.globalName ?? undefined,
+      id: user.id,
+      username: user.username,
     };
   }
 
@@ -1843,6 +1965,27 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
       // Process the message directly
       await this.handleGatewayMessage(message, isMentioned);
+    });
+
+    client.on(Events.InteractionCreate, async (interaction) => {
+      if (isShuttingDown()) {
+        this.logger.debug("Ignoring interaction - Gateway is shutting down");
+        return;
+      }
+
+      this.logger.info("Discord Gateway interaction received", {
+        id: interaction.id,
+        type: interaction.type,
+      });
+
+      try {
+        await this.handleGatewayInteraction(interaction);
+      } catch (error) {
+        this.logger.error("Error handling Gateway interaction", {
+          error: String(error),
+          interactionId: interaction.id,
+        });
+      }
     });
 
     // Reaction add handler
