@@ -209,6 +209,22 @@ await slackAdapter.withBotToken(install.botToken, async () => {
 
 `withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated.
 
+### Direct API client
+
+Access the underlying [WebClient](https://github.com/slackapi/node-slack-sdk/tree/main/packages/web-api) from `@slack/web-api` via `.webClient`:
+
+```typescript
+const slack = bot.getAdapter("slack").webClient;
+await slack.pins.add({
+  channel: "C123ABC",
+  timestamp: "1234567890.123456",
+});
+```
+
+Single-workspace mode (with a static `botToken` or synchronous resolver) returns a client anywhere. Multi-workspace mode requires webhook-handler context, or an explicit `withBotToken` wrapper — calling `.webClient` outside either throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.webClient`.
+
 ## Advanced
 
 ### Slack app manifest

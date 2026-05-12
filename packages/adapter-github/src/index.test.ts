@@ -1,3 +1,4 @@
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
@@ -88,6 +89,7 @@ const mockLogger = {
 };
 
 const WEBHOOK_SECRET = "test-secret";
+const INSTALLATION_ERROR_PATTERN = /installation/i;
 
 function signPayload(body: string): string {
   return `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`;
@@ -268,6 +270,101 @@ describe("GitHubAdapter", () => {
 
     it("should return undefined botUserId when not provided", () => {
       expect(adapter.botUserId).toBeUndefined();
+    });
+  });
+
+  describe("octokit getter", () => {
+    it("should return the underlying Octokit instance in PAT mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      const octokit = a.octokit;
+      expect(octokit).toBeDefined();
+      // Mocked Octokit exposes the rest namespace surface
+      expect(octokit.issues).toBeDefined();
+      expect(octokit.pulls).toBeDefined();
+    });
+
+    it("should return the same instance across calls in single-tenant mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.octokit).toBe(a.octokit);
+    });
+
+    it("should expose the same instance via the deprecated `client` alias", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.client).toBe(a.octokit);
+    });
+
+    it("should throw in multi-tenant mode when called outside a webhook", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
+      expect(() => a.client).toThrow(INSTALLATION_ERROR_PATTERN);
+    });
+
+    it("should resolve the per-installation Octokit when accessed inside a webhook context", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+      const requestContext = (
+        a as unknown as {
+          requestContext: AsyncLocalStorage<{ installationId?: number }>;
+        }
+      ).requestContext;
+
+      // Inside an installation context, the same client is returned
+      // across calls and the deprecated alias matches.
+      let capturedFirst: unknown;
+      let capturedSecond: unknown;
+      let capturedAlias: unknown;
+      requestContext.run({ installationId: 12_345 }, () => {
+        capturedFirst = a.octokit;
+        capturedSecond = a.octokit;
+        capturedAlias = a.client;
+      });
+      expect(capturedFirst).toBeDefined();
+      expect(capturedSecond).toBe(capturedFirst);
+      expect(capturedAlias).toBe(capturedFirst);
+
+      // A different installation resolves to a different cached client.
+      let capturedOther: unknown;
+      requestContext.run({ installationId: 67_890 }, () => {
+        capturedOther = a.octokit;
+      });
+      expect(capturedOther).toBeDefined();
+      expect(capturedOther).not.toBe(capturedFirst);
+
+      // Outside of any context, the getter still throws — the per-call
+      // context isn't sticky.
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
     });
   });
 
@@ -843,7 +940,7 @@ describe("GitHubAdapter", () => {
 
     it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
       // Regression: previously the multi-tenant App constructor left
-      // this.octokit null, so initialize()'s detection branch was skipped.
+      // this.defaultOctokit null, so initialize()'s detection branch was skipped.
       // The fallback only ran inside removeReaction(), so bots that never
       // remove reactions had _botUserId === null forever — meaning isMe was
       // always false and the bot would re-process its own replies in an
@@ -2644,7 +2741,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "issue_comment" as const,
@@ -2693,7 +2791,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "issue_comment" as const,
@@ -2739,7 +2838,8 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = mockOctokit;
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
 
     const raw = {
       type: "review_comment" as const,
@@ -2770,7 +2870,7 @@ describe("fetchSubject", () => {
       webhookSecret: "test-secret",
       userName: "test-bot",
     });
-    (adapter as unknown as { octokit: unknown }).octokit = {
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit = {
       rest: {
         issues: {
           get: vi.fn().mockRejectedValue(new Error("Not Found")),
