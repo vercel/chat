@@ -170,10 +170,14 @@ export const getThreadParticipants = (chat: ChatBinding) =>
     },
   });
 
-export const subscribeThread = (chat: ChatBinding, _opts: ToolOptions = {}) =>
+export const subscribeThread = (
+  chat: ChatBinding,
+  { needsApproval = true }: ToolOptions = {}
+) =>
   tool({
     description:
       "Subscribe to all future messages in a thread. After subscribing, the bot will receive every message in this thread (not just @mentions).",
+    needsApproval,
     inputSchema: z.object({
       threadId: z.string().describe("Full thread id to subscribe to"),
     }),
@@ -184,10 +188,14 @@ export const subscribeThread = (chat: ChatBinding, _opts: ToolOptions = {}) =>
     },
   });
 
-export const unsubscribeThread = (chat: ChatBinding, _opts: ToolOptions = {}) =>
+export const unsubscribeThread = (
+  chat: ChatBinding,
+  { needsApproval = true }: ToolOptions = {}
+) =>
   tool({
     description:
       "Unsubscribe from a thread. The bot will stop receiving non-mention messages in this thread.",
+    needsApproval,
     inputSchema: z.object({
       threadId: z.string().describe("Full thread id to unsubscribe from"),
     }),

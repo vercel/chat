@@ -101,24 +101,42 @@ describe("createChatTools", () => {
     expect(names).not.toContain("deleteMessage");
   });
 
-  it("requires approval on write tools by default", () => {
+  it("requires approval on every write tool by default", () => {
     const tools = createChatTools({ chat });
+    // Every mutating tool must default to needsApproval: true so a misnamed
+    // write tool (or one that silently drops `needsApproval`) is caught.
     expect(tools.postMessage?.needsApproval).toBe(true);
-    expect(tools.deleteMessage?.needsApproval).toBe(true);
+    expect(tools.postChannelMessage?.needsApproval).toBe(true);
+    expect(tools.sendDirectMessage?.needsApproval).toBe(true);
     expect(tools.editMessage?.needsApproval).toBe(true);
+    expect(tools.deleteMessage?.needsApproval).toBe(true);
     expect(tools.addReaction?.needsApproval).toBe(true);
+    expect(tools.removeReaction?.needsApproval).toBe(true);
+    expect(tools.subscribeThread?.needsApproval).toBe(true);
+    expect(tools.unsubscribeThread?.needsApproval).toBe(true);
     // Read tools never gate on approval
     expect(tools.fetchMessages?.needsApproval).toBeUndefined();
+    expect(tools.fetchChannelMessages?.needsApproval).toBeUndefined();
+    expect(tools.fetchThread?.needsApproval).toBeUndefined();
+    expect(tools.listThreads?.needsApproval).toBeUndefined();
+    expect(tools.getThreadParticipants?.needsApproval).toBeUndefined();
+    expect(tools.getChannelInfo?.needsApproval).toBeUndefined();
     expect(tools.getUser?.needsApproval).toBeUndefined();
     // Typing indicator is harmless and never gated
     expect(tools.startTyping?.needsApproval).toBeUndefined();
   });
 
-  it("disables approval globally when requireApproval is false", () => {
+  it("disables approval on every write tool when requireApproval is false", () => {
     const tools = createChatTools({ chat, requireApproval: false });
     expect(tools.postMessage?.needsApproval).toBe(false);
+    expect(tools.postChannelMessage?.needsApproval).toBe(false);
+    expect(tools.sendDirectMessage?.needsApproval).toBe(false);
+    expect(tools.editMessage?.needsApproval).toBe(false);
     expect(tools.deleteMessage?.needsApproval).toBe(false);
     expect(tools.addReaction?.needsApproval).toBe(false);
+    expect(tools.removeReaction?.needsApproval).toBe(false);
+    expect(tools.subscribeThread?.needsApproval).toBe(false);
+    expect(tools.unsubscribeThread?.needsApproval).toBe(false);
   });
 
   it("supports per-tool approval overrides", () => {
@@ -127,12 +145,15 @@ describe("createChatTools", () => {
       requireApproval: {
         postMessage: false,
         deleteMessage: true,
+        subscribeThread: false,
       },
     });
     expect(tools.postMessage?.needsApproval).toBe(false);
     expect(tools.deleteMessage?.needsApproval).toBe(true);
+    expect(tools.subscribeThread?.needsApproval).toBe(false);
     // Unspecified write tools fall back to true
     expect(tools.editMessage?.needsApproval).toBe(true);
+    expect(tools.unsubscribeThread?.needsApproval).toBe(true);
   });
 
   it("applies tool overrides without breaking execution", () => {
