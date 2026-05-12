@@ -9,15 +9,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "module-sync": "./dist/index.js"
     },
     "./matchers": {
       "types": "./dist/matchers.d.ts",
-      "import": "./dist/matchers.js"
+      "import": "./dist/matchers.js",
+      "module-sync": "./dist/matchers.js"
     },
     "./setup": {
       "types": "./dist/setup.d.ts",
-      "import": "./dist/setup.js"
+      "import": "./dist/setup.js",
+      "module-sync": "./dist/setup.js"
     }
   },
   "files": [

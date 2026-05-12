@@ -12,11 +12,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "module-sync": "./dist/index.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
+      "import": "./dist/react/index.js",
+      "module-sync": "./dist/react/index.js"
     }
   },
   "files": [
