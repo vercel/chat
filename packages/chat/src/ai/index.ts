@@ -228,47 +228,44 @@ export function createChatTools({
   });
   const allowed = preset ? resolvePresetTools(preset) : null;
 
-  const allTools = {
-    fetchMessages: fetchMessages(chat),
-    fetchChannelMessages: fetchChannelMessages(chat),
-    fetchThread: fetchThread(chat),
-    listThreads: listThreads(chat),
-    getThreadParticipants: getThreadParticipants(chat),
-    getChannelInfo: getChannelInfo(chat),
-    getUser: getUser(chat),
-    startTyping: startTyping(chat),
-    postMessage: postMessage(chat, approval("postMessage")),
-    postChannelMessage: postChannelMessage(
-      chat,
-      approval("postChannelMessage")
-    ),
-    sendDirectMessage: sendDirectMessage(chat, approval("sendDirectMessage")),
-    editMessage: editMessage(chat, approval("editMessage")),
-    deleteMessage: deleteMessage(chat, approval("deleteMessage")),
-    addReaction: addReaction(chat, approval("addReaction")),
-    removeReaction: removeReaction(chat, approval("removeReaction")),
-    subscribeThread: subscribeThread(chat, approval("subscribeThread")),
-    unsubscribeThread: unsubscribeThread(chat, approval("unsubscribeThread")),
+  // Each entry is built lazily so a preset filter skips both the
+  // `approval()` lookup and the underlying `tool({ ... })` (and its zod
+  // schema) construction for tools the agent will never see.
+  const factories = {
+    fetchMessages: () => fetchMessages(chat),
+    fetchChannelMessages: () => fetchChannelMessages(chat),
+    fetchThread: () => fetchThread(chat),
+    listThreads: () => listThreads(chat),
+    getThreadParticipants: () => getThreadParticipants(chat),
+    getChannelInfo: () => getChannelInfo(chat),
+    getUser: () => getUser(chat),
+    startTyping: () => startTyping(chat),
+    postMessage: () => postMessage(chat, approval("postMessage")),
+    postChannelMessage: () =>
+      postChannelMessage(chat, approval("postChannelMessage")),
+    sendDirectMessage: () =>
+      sendDirectMessage(chat, approval("sendDirectMessage")),
+    editMessage: () => editMessage(chat, approval("editMessage")),
+    deleteMessage: () => deleteMessage(chat, approval("deleteMessage")),
+    addReaction: () => addReaction(chat, approval("addReaction")),
+    removeReaction: () => removeReaction(chat, approval("removeReaction")),
+    subscribeThread: () => subscribeThread(chat, approval("subscribeThread")),
+    unsubscribeThread: () =>
+      unsubscribeThread(chat, approval("unsubscribeThread")),
   };
 
-  if (overrides) {
-    for (const [name, toolOverrides] of Object.entries(overrides)) {
-      if (name in allTools && toolOverrides) {
-        const key = name as keyof typeof allTools;
-        Object.assign(allTools, {
-          [key]: { ...allTools[key], ...toolOverrides },
-        });
-      }
-    }
-  }
+  type ToolName = keyof typeof factories;
+  type Tools = { [K in ToolName]: ReturnType<(typeof factories)[K]> };
 
-  if (!allowed) {
-    return allTools;
-  }
+  const entries = (Object.entries(factories) as [ToolName, () => unknown][])
+    .filter(([name]) => !allowed || allowed.has(name))
+    .map(([name, build]) => {
+      const built = build() as Record<string, unknown>;
+      const override = overrides?.[name];
+      return [name, override ? { ...built, ...override } : built] as const;
+    });
 
-  return Object.fromEntries(
-    Object.entries(allTools).filter(([name]) => allowed.has(name))
-  ) as Partial<typeof allTools>;
+  return Object.fromEntries(entries) as Partial<Tools>;
 }
 
 /** The shape of the object returned by {@link createChatTools}. */
