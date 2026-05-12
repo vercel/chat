@@ -24,12 +24,17 @@
     "check": "ultracite check",
     "fix": "ultracite fix",
     "sync-resources": "npx tsx scripts/sync-resources.ts",
-    "konsistent": "konsistent --config-path .github/konsistent.json"
+    "konsistent": "konsistent --config-path .github/konsistent.json",
+    "commitlint": "commitlint",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
     "@changesets/cli": "^2.29.8",
+    "@commitlint/cli": "21.0.0",
+    "@commitlint/config-conventional": "21.0.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "husky": "^9.1.7",
     "knip": "^5.85.0",
     "konsistent": "0.0.1-alpha.20",
     "turbo": "^2.8.12",

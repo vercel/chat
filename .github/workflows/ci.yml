@@ -78,6 +78,51 @@ jobs:
       - name: Knip
         run: pnpm knip
 
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@8912a9102ac27614460f54aedde9e1e7f9aec20d # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        # --frozen-lockfile pins @commitlint/cli + config-conventional to the
+        # exact versions in pnpm-lock.yaml, matching the pinned ranges in
+        # package.json (no ^ / ~). The commitlint binary used below is the one
+        # installed here — not a transient `dlx`/`npx` download.
+        run: pnpm install --frozen-lockfile
+
+      - name: Print versions
+        run: |
+          git --version
+          node --version
+          pnpm --version
+          pnpm exec commitlint --version
+
+      - name: Validate current commit (last commit) with commitlint
+        if: github.event_name == 'push'
+        run: pnpm exec commitlint --last --verbose
+
+      - name: Validate PR commits with commitlint
+        if: github.event_name == 'pull_request'
+        # SHAs are read via `env:` rather than `${{ … }}` interpolated directly
+        # into the shell command — this avoids the GitHub Actions script-injection
+        # class of bug, even though commit SHAs are themselves hex-safe.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+
   konsistent:
     name: 'Code Consistency'
     runs-on: ubuntu-latest

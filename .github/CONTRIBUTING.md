@@ -43,6 +43,17 @@ Verify your setup by checking that new commits show a "Verified" badge on github
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`). The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
 
+Commit messages are enforced by [commitlint](https://commitlint.js.org/) via [`@commitlint/config-conventional`](https://www.npmjs.com/package/@commitlint/config-conventional):
+
+- **Locally**: a Husky `commit-msg` hook runs commitlint on every commit. It is installed automatically by the `prepare` script when you run `pnpm install`.
+- **In CI**: the `commitlint` job in `.github/workflows/ci.yml` lints every commit in a pull request.
+
+Scopes are free-form, but prefer package suffixes (`slack`, `teams`, `gchat`, `discord`, …) or domain areas (`docs`, `release`, `ci`) when relevant. To lint a message manually:
+
+```bash
+echo "feat(slack): add new event handler" | pnpm commitlint
+```
+
 ## Development
 
 ### Testing
