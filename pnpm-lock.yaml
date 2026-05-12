@@ -620,6 +620,9 @@ importers:
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
+      ai:
+        specifier: ^6.0.174
+        version: 6.0.174(zod@4.3.6)
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(@swc/core@1.15.3)(jiti@2.6.1)(postcss@8.5.14)(tsx@4.21.0)(typescript@5.9.3)
@@ -629,6 +632,9 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
 
   packages/integration-tests:
     dependencies:
@@ -11094,7 +11100,7 @@ snapshots:
 
   '@vercel/queue@0.1.4':
     dependencies:
-      '@vercel/oidc': 3.2.0
+      '@vercel/oidc': 3.4.0
       minimatch: 10.2.5
       mixpart: 0.0.5
       picocolors: 1.1.1

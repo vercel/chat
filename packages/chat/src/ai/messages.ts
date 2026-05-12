@@ -1,5 +1,5 @@
-import type { Message } from "./message";
-import type { Attachment } from "./types";
+import type { Message } from "../message";
+import type { Attachment } from "../types";
 
 /**
  * Content part types structurally identical to AI SDK's TextPart, ImagePart,

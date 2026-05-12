@@ -40,6 +40,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
 
 export const VALID_DOC_PACKAGES = [
   "chat",
+  "chat/ai",
   "@chat-adapter/slack",
   "@chat-adapter/teams",
   "@chat-adapter/gchat",

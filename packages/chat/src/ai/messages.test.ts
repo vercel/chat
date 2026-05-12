@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AiMessagePart } from "./ai";
-import { toAiMessages } from "./ai";
-import { createTestMessage } from "./mock-adapter";
+import { createTestMessage } from "../mock-adapter";
+import type { AiMessagePart } from "./messages";
+import { toAiMessages } from "./messages";
 
 describe("toAiMessages", () => {
   it("maps isMe to assistant and others to user", async () => {
@@ -670,7 +670,9 @@ describe("toAiMessages", () => {
       }),
     ];
 
-    const transform = vi.fn((aiMessage: import("./ai").AiMessage) => aiMessage);
+    const transform = vi.fn(
+      (aiMessage: import("./messages").AiMessage) => aiMessage
+    );
 
     await toAiMessages(messages, { transformMessage: transform });
 
@@ -708,7 +710,9 @@ describe("toAiMessages", () => {
       }),
     ];
 
-    const transform = vi.fn((aiMessage: import("./ai").AiMessage) => aiMessage);
+    const transform = vi.fn(
+      (aiMessage: import("./messages").AiMessage) => aiMessage
+    );
 
     await toAiMessages(messages, { transformMessage: transform });
 
