@@ -89,7 +89,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-4.5-sonnet",
+  model: "openai/gpt-5.4",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -620,7 +620,7 @@ bot.onAction("agent-demo", async (event) => {
   await thread.startTyping("Running agent...");
   try {
     const result = await generateText({
-      model: "anthropic/claude-4.5-sonnet",
+      model: "openai/gpt-5.4",
       tools,
       stopWhen: ({ steps }) => steps.length >= 6,
       system: [
@@ -673,7 +673,7 @@ bot.onSlashCommand("/agent", async (event) => {
   });
 
   const toolAgent = new ToolLoopAgent({
-    model: "anthropic/claude-4.5-sonnet",
+    model: "openai/gpt-5.4",
     tools,
     stopWhen: ({ steps }) => steps.length >= 8,
     instructions: [
