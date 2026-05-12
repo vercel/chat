@@ -1,4 +1,6 @@
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import type { LinearClient } from "@linear/sdk";
 import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -932,6 +934,40 @@ describe("linearClient getter", () => {
 
     expect(() => adapter.linearClient).toThrow(NO_LINEAR_TOKEN_PATTERN);
     expect(() => adapter.client).toThrow(NO_LINEAR_TOKEN_PATTERN);
+  });
+
+  it("should resolve the per-org LinearClient when accessed inside a webhook context", () => {
+    const adapter = new LinearAdapter({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+    const requestContext = (
+      adapter as unknown as {
+        requestContext: AsyncLocalStorage<{
+          client: LinearClient;
+          installation: unknown;
+        }>;
+      }
+    ).requestContext;
+
+    const orgClient = {} as LinearClient;
+    let captured: LinearClient | undefined;
+    let capturedAlias: LinearClient | undefined;
+    requestContext.run(
+      { client: orgClient, installation: { organizationId: "org-123" } },
+      () => {
+        captured = adapter.linearClient;
+        capturedAlias = adapter.client;
+      }
+    );
+    expect(captured).toBe(orgClient);
+    expect(capturedAlias).toBe(orgClient);
+
+    // Outside the context, access throws again — context isn't sticky.
+    expect(() => adapter.linearClient).toThrow(NO_LINEAR_TOKEN_PATTERN);
   });
 });
 

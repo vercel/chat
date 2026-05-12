@@ -1,3 +1,4 @@
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
@@ -322,6 +323,48 @@ describe("GitHubAdapter", () => {
 
       expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
       expect(() => a.client).toThrow(INSTALLATION_ERROR_PATTERN);
+    });
+
+    it("should resolve the per-installation Octokit when accessed inside a webhook context", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+      const requestContext = (
+        a as unknown as {
+          requestContext: AsyncLocalStorage<{ installationId?: number }>;
+        }
+      ).requestContext;
+
+      // Inside an installation context, the same client is returned
+      // across calls and the deprecated alias matches.
+      let capturedFirst: unknown;
+      let capturedSecond: unknown;
+      let capturedAlias: unknown;
+      requestContext.run({ installationId: 12_345 }, () => {
+        capturedFirst = a.octokit;
+        capturedSecond = a.octokit;
+        capturedAlias = a.client;
+      });
+      expect(capturedFirst).toBeDefined();
+      expect(capturedSecond).toBe(capturedFirst);
+      expect(capturedAlias).toBe(capturedFirst);
+
+      // A different installation resolves to a different cached client.
+      let capturedOther: unknown;
+      requestContext.run({ installationId: 67_890 }, () => {
+        capturedOther = a.octokit;
+      });
+      expect(capturedOther).toBeDefined();
+      expect(capturedOther).not.toBe(capturedFirst);
+
+      // Outside of any context, the getter still throws — the per-call
+      // context isn't sticky.
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
     });
   });
 
