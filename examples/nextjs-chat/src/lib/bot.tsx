@@ -2,10 +2,9 @@
 import type { SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
-import { ToolLoopAgent } from "ai";
+import { generateText, ToolLoopAgent } from "ai";
 import {
   Actions,
-  type AiMessage,
   Button,
   Card,
   CardLink,
@@ -24,8 +23,8 @@ import {
   CardText as Text,
   TextInput,
   type TranscriptEntry,
-  toAiMessages,
 } from "chat";
+import { type AiMessage, createChatTools, toAiMessages } from "chat/ai";
 import { start } from "workflow/api";
 import { buttonWorkflow } from "../workflows/button";
 import { modalWorkflow } from "../workflows/modal";
@@ -172,6 +171,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="channel-info">Channel Info (Slack)</Button>
         <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
+        <Button id="agent-demo">Run Agent Demo</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
           Report Bug
@@ -594,6 +594,115 @@ bot.onSlashCommand("/test-feedback", async (event) => {
   if (!result) {
     await event.channel.post(
       `${emoji.warning} Couldn't open the feedback modal. Please try again.`
+    );
+  }
+});
+
+// Demonstrates `chat/ai` tools end-to-end. The agent reads a few recent
+// messages, reacts to the trigger card, and posts a short summary card —
+// all by calling Chat SDK tools rather than direct adapter methods.
+//
+// Approval is disabled here so the demo runs to completion without UI
+// gating. In production you'd typically leave the default
+// (`requireApproval: true`) and present an approval card for write tools.
+bot.onAction("agent-demo", async (event) => {
+  const thread = event.thread;
+  if (!thread) {
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: "messenger",
+    requireApproval: false,
+  });
+
+  await thread.startTyping("Running agent...");
+  try {
+    const result = await generateText({
+      model: "anthropic/claude-4.5-sonnet",
+      tools,
+      stopWhen: ({ steps }) => steps.length >= 6,
+      system: [
+        "You are demoing the Chat SDK `chat/ai` tools inside a chat thread.",
+        `The active thread id is "${thread.id}".`,
+        "Do exactly the following, in order:",
+        "1. Add a `:eyes:` reaction to the most recent message in this thread using `addReaction`.",
+        "2. Call `fetchMessages` to load up to the 5 most recent messages in this thread.",
+        "3. Call `postMessage` with a single short markdown summary (one to three sentences) of what you saw, prefixed with `Agent demo summary:`.",
+        "Stop after posting the summary. Do not ask follow-up questions.",
+      ].join("\n"),
+      prompt: `User ${event.user.fullName} clicked the "Run Agent Demo" button.`,
+    });
+
+    if (result.steps.length === 0) {
+      await thread.post(
+        `${emoji.warning} Agent finished without calling any tools.`
+      );
+    }
+  } catch (err) {
+    console.error("agent-demo error:", err);
+    await thread.post(
+      `${emoji.warning} Agent demo failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Free-form agent invocation: `/agent <prompt>` lets you exercise the
+// `chat/ai` tools with arbitrary natural-language instructions inside the
+// channel where the command was invoked.
+//
+// The reply streams in incrementally — `thread.post(result.fullStream)`
+// renders model tokens as they arrive while the underlying tool loop keeps
+// running in the background.
+bot.onSlashCommand("/agent", async (event) => {
+  const prompt = event.text.trim();
+  if (!prompt) {
+    await event.channel.post(
+      `${emoji.warning} Usage: \`/agent <instructions>\` — e.g. \`/agent summarize the last 10 messages in this channel\``
+    );
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: "messenger",
+    requireApproval: false,
+  });
+
+  const toolAgent = new ToolLoopAgent({
+    model: "anthropic/claude-4.5-sonnet",
+    tools,
+    stopWhen: ({ steps }) => steps.length >= 8,
+    instructions: [
+      "You are an assistant operating inside a chat workspace via Chat SDK `chat/ai` tools.",
+      `The active channel id is "${event.channel.id}". Use this as the threadId when posting or reacting, unless a thread id from fetched messages is more appropriate.`,
+      "Use the provided tools to read context. Reply directly in chat with concise, well-formatted markdown — your final assistant text is what the user sees streamed in real time.",
+      "If you need recent context, call `fetchMessages` first.",
+    ].join("\n"),
+  });
+
+  // `startTyping` on Slack only renders status text inside a thread
+  // (assistant.threads.setStatus requires thread_ts). Slash commands
+  // dispatch in the channel scope, so post an explicit placeholder so
+  // the user sees something while the model warms up. The streamed
+  // reply lands as a follow-up message.
+  await event.channel.startTyping("Agent thinking...");
+  const placeholder = await event.channel.post(
+    `${emoji.sparkles} Agent thinking...`
+  );
+  try {
+    const result = await toolAgent.stream({ prompt });
+    await event.channel.post(result.fullStream);
+    await placeholder.delete();
+  } catch (err) {
+    console.error("/agent error:", err);
+    await placeholder.edit(
+      `${emoji.warning} Agent failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
     );
   }
 });
