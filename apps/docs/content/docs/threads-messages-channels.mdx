@@ -40,7 +40,7 @@ await thread.post({
 
 ### Subscribe and unsubscribe
 
-Subscriptions persist across restarts (stored in your state adapter). When a thread is subscribed, all messages route to `onSubscribedMessage`.
+Subscriptions persist across restarts (stored in your state adapter). When a non-DM thread is subscribed, all messages route to `onSubscribedMessage`. DM threads route to `onDirectMessage` first when a direct message handler is registered.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.subscribe();

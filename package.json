@@ -23,13 +23,15 @@
     "clean": "turbo clean && rm -rf node_modules",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "sync-resources": "npx tsx scripts/sync-resources.ts"
+    "sync-resources": "npx tsx scripts/sync-resources.ts",
+    "konsistent": "konsistent --config-path .github/konsistent.json"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
     "@changesets/cli": "^2.29.8",
     "@vitest/coverage-v8": "^4.0.18",
     "knip": "^5.85.0",
+    "konsistent": "0.0.1-alpha.20",
     "turbo": "^2.8.12",
     "typescript": "^5.9.3",
     "ultracite": "7.2.4",

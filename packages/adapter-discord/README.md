@@ -73,8 +73,11 @@ Discord has two ways to receive events:
 
 **Gateway WebSocket (required for messages):**
 - Receives regular messages and reactions
+- Receives slash commands and button clicks when no Interactions Endpoint URL is configured
 - Requires a persistent connection
 - In serverless environments, use a cron job to maintain the connection
+
+Discord sends interactions through either the Gateway or an Interactions Endpoint URL, not both. Use the HTTP endpoint for serverless apps. For resident gateway-only apps, leave the Interactions Endpoint URL unset and start the Gateway listener without `webhookUrl` so interactions are processed directly.
 
 ## Gateway setup for serverless
 

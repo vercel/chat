@@ -16,9 +16,10 @@ Chat SDK uses an event-driven architecture. You register handlers for different 
 
 When a message arrives, the SDK evaluates handlers in this order:
 
-1. **Subscribed threads** — if the thread is subscribed, `onSubscribedMessage` fires and no other message handler runs.
-2. **Mentions** — if the bot is @-mentioned in an unsubscribed thread, `onNewMention` fires.
-3. **Pattern matches** — if the message text matches any `onNewMessage` regex patterns, those handlers fire.
+1. **Direct messages** — if the thread is a DM and any `onDirectMessage` handlers are registered, they fire before `onSubscribedMessage`, `onNewMention`, and pattern handlers.
+2. **Subscribed threads** — if the thread is subscribed, `onSubscribedMessage` fires and no other message handler runs. DMs only reach this step when no `onDirectMessage` handlers are registered.
+3. **Mentions** — if the bot is @-mentioned in an unsubscribed thread, `onNewMention` fires. Unsubscribed DMs without direct handlers are treated as mentions for backward compatibility.
+4. **Pattern matches** — if the message text matches any `onNewMessage` regex patterns, those handlers fire.
 
 Reactions, slash commands, actions, and modals have their own dedicated routing and are not affected by subscription state.
 
@@ -68,7 +69,9 @@ bot.onNewMention(async (thread, message) => {
 
 ## Handling subscribed messages
 
-`onSubscribedMessage` fires for every new message in a thread your bot has subscribed to. Once subscribed, all messages (including @-mentions) route here instead of `onNewMention`.
+`onSubscribedMessage` fires for every new message in a non-DM thread your bot has subscribed to. Once subscribed, messages (including @-mentions) route here instead of `onNewMention`.
+
+If an `onDirectMessage` handler is registered, DM messages route there before subscription routing. Without a direct handler, subscribed DMs route to `onSubscribedMessage`.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, message) => {

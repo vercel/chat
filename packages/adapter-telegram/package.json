@@ -3,6 +3,9 @@
   "version": "4.28.1",
   "description": "Telegram adapter for chat",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

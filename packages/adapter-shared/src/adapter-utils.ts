@@ -5,7 +5,12 @@
  * to reduce code duplication and ensure consistent behavior.
  */
 
-import type { AdapterPostableMessage, CardElement, FileUpload } from "chat";
+import type {
+  AdapterPostableMessage,
+  Attachment,
+  CardElement,
+  FileUpload,
+} from "chat";
 import { isCardElement } from "chat";
 
 /**
@@ -71,6 +76,19 @@ export function extractCard(
 export function extractFiles(message: AdapterPostableMessage): FileUpload[] {
   if (typeof message === "object" && message !== null && "files" in message) {
     return (message as { files?: FileUpload[] }).files ?? [];
+  }
+  return [];
+}
+
+export function extractPostableAttachments(
+  message: AdapterPostableMessage
+): Attachment[] {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    "attachments" in message
+  ) {
+    return (message as { attachments?: Attachment[] }).attachments ?? [];
   }
   return [];
 }

@@ -514,9 +514,13 @@ export class Chat<
   /**
    * Register a handler for direct messages.
    *
-   * Called when a message is received in a DM thread that is not subscribed.
-   * If no `onDirectMessage` handlers are registered, DMs fall through to
-   * `onNewMention` for backward compatibility.
+   * Called for every message received in a DM thread when at least one
+   * direct message handler is registered. Direct message handlers run before
+   * `onSubscribedMessage`, `onNewMention`, and pattern handlers.
+   *
+   * If no `onDirectMessage` handlers are registered, DMs continue through
+   * normal routing. Unsubscribed DMs fall through to `onNewMention` for
+   * backward compatibility.
    *
    * @param handler - Handler called for DM messages
    *
