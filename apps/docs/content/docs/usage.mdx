@@ -72,6 +72,7 @@ Your event handlers work identically across all registered adapters — the SDK 
 | `state` | `StateAdapter` | *required* | State adapter for subscriptions and locking |
 | `logger` | `Logger \| LogLevel` | `"info"` | Logger instance or log level (`"debug"`, `"info"`, `"warn"`, `"error"`, `"silent"`) |
 | `dedupeTtlMs` | `number` | `300000` | TTL in ms for message deduplication (5 minutes) |
+| `concurrency` | `"drop" \| "queue" \| "debounce" \| "queue-debounce" \| "concurrent" \| ConcurrencyConfig` | `"drop"` | Strategy for overlapping messages on the same thread |
 | `streamingUpdateIntervalMs` | `number` | `500` | Update interval in ms for post+edit streaming |
 | `fallbackStreamingPlaceholderText` | `string \| null` | `"..."` | Placeholder text while streaming starts. Set to `null` to skip |
 | `onLockConflict` | `'drop' \| 'force' \| (threadId, message) => 'drop' \| 'force'` | `"drop"` | Behavior when a thread lock is already held. `'force'` releases the existing lock and re-acquires it, enabling interrupt/steerability for long-running handlers |
