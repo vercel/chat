@@ -2850,6 +2850,72 @@ describe("direct WebClient access via adapter.client", () => {
 });
 
 // ============================================================================
+// `webClient` getter (and backwards-compat `.client` alias) Tests
+// ============================================================================
+
+describe("webClient getter", () => {
+  const secret = "test-signing-secret";
+
+  it("returns the underlying WebClient bound to the static botToken", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    const webClient = adapter.webClient;
+    expect(webClient).toBeInstanceOf(WebClient);
+    expect(webClient.token).toBe("xoxb-static-token");
+  });
+
+  it("returns the same instance across calls in single-workspace mode", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(adapter.webClient).toBe(adapter.webClient);
+  });
+
+  it("exposes the same instance via the deprecated `client` alias", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(adapter.client).toBe(adapter.webClient);
+  });
+
+  it("throws on both `webClient` and the `client` alias in multi-workspace mode without context", () => {
+    const adapter = createSlackAdapter({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    expect(() => adapter.webClient).toThrow(AuthenticationError);
+    expect(() => adapter.client).toThrow(AuthenticationError);
+  });
+
+  it("uses the request context token under withBotToken via `webClient`", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+
+    let observedToken: string | undefined;
+    await adapter.withBotToken("xoxb-context-token", () => {
+      observedToken = adapter.webClient.token;
+    });
+
+    expect(observedToken).toBe("xoxb-context-token");
+  });
+});
+
+// ============================================================================
 // End-to-end token resolution through adapter.client during webhook handling
 // ============================================================================
 
