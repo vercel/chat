@@ -30,6 +30,21 @@ import {
   seedFromConfig,
 } from "@emulators/github";
 import { serve } from "@hono/node-server";
+import type { Logger } from "chat";
+
+/**
+ * No-op logger shared by the GitHub emulator test suites. Hoisted out of each
+ * test file to keep `silentLogger` referentially unique (so adapter and Chat
+ * receive the exact same instance) and to avoid duplicating the same
+ * boilerplate in every spec.
+ */
+export const silentLogger: Logger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+  child: () => silentLogger,
+};
 
 const DEFAULT_OWNER = "bot-user";
 const DEFAULT_REPO_NAME = "test-repo";

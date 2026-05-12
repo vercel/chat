@@ -8,20 +8,13 @@
 
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger } from "chat";
+import { Chat } from "chat";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   createGitHubEmulator,
   type GitHubEmulatorHandle,
-} from "./github-emulator-utils";
-
-const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLogger,
-};
+  silentLogger,
+} from "./utils";
 
 describe("GitHub emulator: auth", () => {
   let emulator: GitHubEmulatorHandle;

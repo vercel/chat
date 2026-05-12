@@ -13,7 +13,7 @@
 
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Logger, type Message, type Thread } from "chat";
+import { Chat, type Message, type Thread } from "chat";
 import {
   afterAll,
   afterEach,
@@ -24,24 +24,17 @@ import {
   it,
   vi,
 } from "vitest";
+import { createWaitUntilTracker } from "../../test-scenarios";
 import {
   createGitHubEmulator,
   type GitHubEmulatorHandle,
   type GitHubWebhookForwarder,
   postIssueCommentAsHuman,
   postReviewCommentReplyAsHuman,
+  silentLogger,
   startGitHubWebhookForwarder,
   waitForGitHubDelivery,
-} from "./github-emulator-utils";
-import { createWaitUntilTracker } from "./test-scenarios";
-
-const silentLogger: Logger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLogger,
-};
+} from "./utils";
 
 const ANY_CHAR_PATTERN = /.+/;
 
