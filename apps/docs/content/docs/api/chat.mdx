@@ -74,9 +74,36 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
+### onDirectMessage
+
+Fires for every direct message when registered. Direct message handlers run before `onSubscribedMessage`, `onNewMention`, and pattern handlers. If no direct message handler is registered, unsubscribed DMs fall through to `onNewMention` for backward compatibility.
+
+```typescript
+bot.onDirectMessage(async (thread, message, channel) => {
+  await thread.post(`Got your DM in ${channel.id}: ${message.text}`);
+});
+```
+
+<TypeTable
+  type={{
+    thread: {
+      description: 'The DM thread where the message occurred.',
+      type: 'Thread',
+    },
+    message: {
+      description: 'The direct message.',
+      type: 'Message',
+    },
+    channel: {
+      description: 'The DM channel.',
+      type: 'Channel',
+    },
+  }}
+/>
+
 ### onSubscribedMessage
 
-Fires for every new message in a subscribed thread. Once subscribed, all messages (including @-mentions) route here instead of `onNewMention`.
+Fires for every new message in a subscribed non-DM thread. Once subscribed, messages (including @-mentions) route here instead of `onNewMention`. DM threads route to `onDirectMessage` first when a direct message handler is registered.
 
 ```typescript
 bot.onSubscribedMessage(async (thread, message) => {
