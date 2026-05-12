@@ -240,10 +240,10 @@ Adapters that don't support PostableObject editing (e.g. WhatsApp) render the pl
 ## Streaming with conversation history
 
 Combine message history with streaming for multi-turn AI conversations.
-Use [`toAiMessages()`](/docs/api/to-ai-messages) to convert chat messages into the `{ role, content }` format expected by AI SDKs:
+Use [`toAiMessages()`](/docs/ai/to-ai-messages) to convert chat messages into the `{ role, content }` format expected by AI SDKs:
 
 ```typescript title="lib/bot.ts" lineNumbers
-import { toAiMessages } from "chat";
+import { toAiMessages } from "chat/ai";
 
 bot.onSubscribedMessage(async (thread, message) => {
   // Fetch recent messages for context
@@ -256,4 +256,4 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-See the [`toAiMessages` API reference](/docs/api/to-ai-messages) for all options including `includeNames`, `transformMessage`, and attachment handling.
+See the [`toAiMessages` reference](/docs/ai/to-ai-messages) for all options including `includeNames`, `transformMessage`, and attachment handling.

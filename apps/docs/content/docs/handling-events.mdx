@@ -97,7 +97,7 @@ Messages sent by the bot itself do not trigger this handler. You don't need to f
 ### Example: Conversational AI with history
 
 ```typescript title="lib/bot.ts" lineNumbers
-import { toAiMessages } from "chat";
+import { toAiMessages } from "chat/ai";
 
 bot.onSubscribedMessage(async (thread, message) => {
   await thread.startTyping();
@@ -114,7 +114,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-See [`toAiMessages`](/docs/api/to-ai-messages) for all options including multi-user name prefixing, message transforms, and attachment handling.
+See [`toAiMessages`](/docs/ai/to-ai-messages) for all options including multi-user name prefixing, message transforms, and attachment handling.
 
 ### Example: Unsubscribe on keyword
 

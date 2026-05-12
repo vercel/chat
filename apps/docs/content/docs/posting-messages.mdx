@@ -151,7 +151,7 @@ await thread.post(result.fullStream);
 
 Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Any `AsyncIterable<string>` also works for custom streams.
 
-For multi-turn conversations, use [`toAiMessages()`](/docs/api/to-ai-messages) to convert thread history into the `{ role, content }[]` format expected by AI SDKs.
+For multi-turn conversations, use [`toAiMessages()`](/docs/ai/to-ai-messages) to convert thread history into the `{ role, content }[]` format expected by AI SDKs.
 
 To pass platform-specific streaming options (e.g. Slack task grouping or stop blocks), wrap the stream in a [`StreamingPlan`](/docs/streaming#streaming-with-options) and post that.
 

@@ -2,18 +2,31 @@
 title: toAiMessages
 description: Convert Chat SDK messages to AI SDK conversation format.
 type: reference
+related:
+  - /docs/ai
+  - /docs/ai/ai-sdk-tools
+  - /docs/ai/types
+  - /docs/streaming
 ---
 
-Convert an array of `Message` objects into the `{ role, content }[]` format expected by AI SDKs. The output is structurally compatible with AI SDK's `ModelMessage[]`.
+Convert an array of [`Message`](/docs/api/message) objects into the `{ role, content }[]` format expected by the AI SDK. The output is structurally compatible with AI SDK's `ModelMessage[]`.
 
 ```typescript
-import { toAiMessages } from "chat";
+import { toAiMessages } from "chat/ai";
 ```
+
+<Callout>
+  `toAiMessages` is also re-exported from the main `chat` entrypoint
+  for backwards compatibility (with a `@deprecated` JSDoc hint), but
+  new code should import it from [`chat/ai`](/docs/ai) alongside
+  [`createChatTools`](/docs/ai/ai-sdk-tools) and the rest of the AI
+  utilities.
+</Callout>
 
 ## Usage
 
 ```typescript title="lib/bot.ts" lineNumbers
-import { toAiMessages } from "chat";
+import { toAiMessages } from "chat/ai";
 
 bot.onSubscribedMessage(async (thread, message) => {
   const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
