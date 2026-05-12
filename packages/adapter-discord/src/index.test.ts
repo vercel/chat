@@ -3,9 +3,11 @@
  */
 
 import { generateKeyPairSync, sign } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
 import { Actions, Button, Card } from "chat";
+import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
@@ -68,6 +70,10 @@ function createWebhookRequest(
     },
     body,
   });
+}
+
+function waitForGatewayHandlers() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 // ============================================================================
@@ -3226,6 +3232,149 @@ describe("fetchThread", () => {
     expect(result.channelName).toBe("Group Chat");
 
     spy.mockRestore();
+  });
+});
+
+describe("legacy gateway interactions", () => {
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client, isShuttingDown = () => false) {
+      this.setupLegacyGatewayHandlers(client, isShuttingDown);
+    }
+  }
+
+  function createGatewayClient() {
+    return new EventEmitter() as Client;
+  }
+
+  it("handles slash command interactions from the gateway", async () => {
+    const processSlashCommand = vi.fn();
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand,
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const client = createGatewayClient();
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.ApplicationCommand,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      commandName: "test",
+      commandType: 1,
+      options: {
+        data: [
+          { name: "topic", type: 3, value: "status" },
+          { name: "verbose", type: 5, value: true },
+        ],
+      },
+      isChatInputCommand: () => true,
+      isMessageComponent: () => false,
+      deferReply,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferReply).toHaveBeenCalled();
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/test",
+        text: "status true",
+        channelId: "discord:guild123:channel456",
+        user: expect.objectContaining({
+          userId: "user789",
+          userName: "testuser",
+          fullName: "Test User",
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it("handles component interactions from the gateway", async () => {
+    const processAction = vi.fn();
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const client = createGatewayClient();
+    const deferUpdate = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.MessageComponent,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      customId: "approve_btn",
+      componentType: 2,
+      message: {
+        id: "message123",
+      },
+      isChatInputCommand: () => false,
+      isMessageComponent: () => true,
+      deferUpdate,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferUpdate).toHaveBeenCalled();
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "approve_btn",
+        value: "approve_btn",
+        messageId: "message123",
+        threadId: "discord:guild123:channel456",
+      }),
+      undefined
+    );
   });
 });
 
