@@ -74,9 +74,36 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
+### onDirectMessage
+
+Fires for every direct message when registered. Direct message handlers run before `onSubscribedMessage`, `onNewMention`, and pattern handlers. If no direct message handler is registered, unsubscribed DMs fall through to `onNewMention` for backward compatibility.
+
+```typescript
+bot.onDirectMessage(async (thread, message, channel) => {
+  await thread.post(`Got your DM in ${channel.id}: ${message.text}`);
+});
+```
+
+<TypeTable
+  type={{
+    thread: {
+      description: 'The DM thread where the message occurred.',
+      type: 'Thread',
+    },
+    message: {
+      description: 'The direct message.',
+      type: 'Message',
+    },
+    channel: {
+      description: 'The DM channel.',
+      type: 'Channel',
+    },
+  }}
+/>
+
 ### onSubscribedMessage
 
-Fires for every new message in a subscribed thread. Once subscribed, all messages (including @-mentions) route here instead of `onNewMention`.
+Fires for every new message in a subscribed non-DM thread. Once subscribed, messages (including @-mentions) route here instead of `onNewMention`. DM threads route to `onDirectMessage` first when a direct message handler is registered.
 
 ```typescript
 bot.onSubscribedMessage(async (thread, message) => {
@@ -474,9 +501,13 @@ const slack = bot.getAdapter("slack");
 
 #### Direct client access
 
-Access the platform's typed native API client directly via an SDK-named getter — `.linearClient` on Linear, `.octokit` on GitHub:
+Access the platform's typed native API client directly — `.client` on Slack, `.linearClient` on Linear, `.octokit` on GitHub:
 
 ```typescript
+// Slack - full WebClient from @slack/web-api
+const slack = bot.getAdapter("slack").client;
+await slack.pins.add({ channel: "C123ABC", timestamp: "1234567890.123456" });
+
 // Linear - full LinearClient from @linear/sdk
 const linear = bot.getAdapter("linear").linearClient;
 const issue = await linear.issue("ENG-123");
@@ -491,18 +522,23 @@ const { data: pulls } = await github.rest.pulls.list({
 });
 ```
 
-The client uses the credentials from your adapter config. For multi-tenant adapters (Linear, GitHub), it returns the client for the current webhook request context.
+The client uses the credentials from your adapter config. For multi-tenant / multi-workspace adapters (Slack, Linear, GitHub), it returns the client bound to the credentials for the current webhook request context.
 
 <Callout type="info">
   The previous `.client` getter still works on both adapters as a deprecated alias for `.linearClient` / `.octokit`.
 </Callout>
 
 <Callout type="warn">
-  For multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth), the native client getter requires webhook handler context to resolve credentials. Calling it outside a handler throws. Single-tenant adapters (PAT, API key) work anywhere.
+  Multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth, Slack in multi-workspace mode) require a webhook handler context to resolve credentials when the native client getter is accessed. Calling it outside a handler throws.
+
+  For Slack, you can also bind a token explicitly outside a webhook with `adapter.withBotToken(token, () => adapter.client.…)` — useful for cron jobs or workflows. The same pattern is required when `botToken` is configured as an async resolver function, since `.client` resolves the token synchronously.
+
+  Single-tenant adapters (PAT, API key, static `botToken` string, or a synchronous `botToken` resolver) work anywhere.
 </Callout>
 
 | Adapter | `client` type |
 |---------|---------------|
+| Slack | `WebClient` from `@slack/web-api` |
 | Linear | `LinearClient` from `@linear/sdk` |
 | GitHub | `Octokit` from `@octokit/rest` |
 

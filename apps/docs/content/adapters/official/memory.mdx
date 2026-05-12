@@ -1,0 +1,56 @@
+---
+title: Memory
+description: In-memory state adapter for development and testing.
+packageName: "@chat-adapter/state-memory"
+slug: memory
+type: state
+logo: memory
+tagline: In-memory state adapter for local development and tests. State is lost on restart and locks don't work across instances — never use it in production.
+beta: true
+features:
+  persistence: no
+  multiInstance: no
+  subscriptions:
+    status: yes
+    label: In-memory
+  distributedLocking:
+    status: partial
+    label: Single process
+  keyValueCache:
+    status: yes
+    label: In-memory
+  keyPrefix: no
+---
+
+<Callout type="warn">
+The memory adapter is for local development and testing only. State is lost on restart, and distributed locks don't work across multiple instances. Use [`@chat-adapter/state-redis`](/adapters/official/redis), [`@chat-adapter/state-ioredis`](/adapters/official/ioredis), or [`@chat-adapter/state-pg`](/adapters/official/postgres) in production.
+</Callout>
+
+## Install
+
+<PackageInstall package="@chat-adapter/state-memory" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { /* ... */ },
+  state: createMemoryState(),
+});
+```
+
+`createMemoryState()` takes no arguments. Subscriptions, locks, and cache live in the current process and disappear when the process exits.
+
+## When to use
+
+- Local development against `pnpm --filter docs dev` or your example app.
+- Unit tests that need a real `StateAdapter` interface without a Redis or Postgres dependency.
+- Quick prototypes where persistence isn't on the critical path.
+
+## Feature support
+
+<FeatureSupport />

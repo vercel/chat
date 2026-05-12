@@ -1,0 +1,202 @@
+---
+title: Discord
+description: Discord adapter with HTTP Interactions and Gateway WebSocket support.
+packageName: "@chat-adapter/discord"
+slug: discord
+type: platform
+logo: discord
+tagline: Create Discord bots with slash commands, threads, and rich embeds — works on serverless via a cron-driven Gateway listener.
+beta: true
+features:
+  postMessage: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads: yes
+  streaming:
+    status: partial
+    label: Post+Edit
+  scheduledMessages: no
+  cardFormat:
+    status: yes
+    label: Embeds
+  buttons: yes
+  linkButtons: yes
+  selectMenus: no
+  tables:
+    status: yes
+    label: GFM
+  fields: yes
+  imagesInCards: yes
+  modals: no
+  slashCommands: yes
+  mentions: yes
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: yes
+  customApiEndpoint: yes
+  fetchMessages: yes
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/discord" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createDiscordAdapter } from "@chat-adapter/discord";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    discord: createDiscordAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from Discord!");
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    botToken: {
+      type: "string",
+      description: "Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN`.",
+    },
+    publicKey: {
+      type: "string",
+      description:
+        "Application public key. Auto-detected from `DISCORD_PUBLIC_KEY`.",
+    },
+    applicationId: {
+      type: "string",
+      description:
+        "Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID`.",
+    },
+    mentionRoleIds: {
+      type: "string[]",
+      description:
+        "Role IDs that should trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated).",
+    },
+    apiUrl: {
+      type: "string",
+      description: "Override the Discord API base URL.",
+    },
+  }}
+/>
+
+`botToken`, `publicKey`, and `applicationId` are required.
+
+## Authentication
+
+### 1. Create the application
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
+2. Note the **Application ID** and copy the **Public Key** from the General Information page.
+
+### 2. Create the bot
+
+1. Open **Bot** in the sidebar and click **Reset Token** to generate a bot token (you only see it once).
+2. Enable **Message Content Intent** (and **Server Members Intent** if needed).
+
+### 3. Set the interactions endpoint
+
+In **General Information**, set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`. Discord sends a PING to verify.
+
+### 4. Add the bot to your server
+
+In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
+
+## Advanced
+
+### HTTP Interactions vs Gateway
+
+Discord has two ways to receive events:
+
+- **HTTP Interactions** — receives button clicks, slash commands, and verification pings. Works on serverless. Does **not** receive regular messages.
+- **Gateway WebSocket** — required to receive regular messages and reactions. Requires a persistent connection.
+
+In serverless environments, use a cron job to keep the Gateway connection alive.
+
+### Gateway setup for serverless
+
+```typescript title="app/api/discord/gateway/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return new Response("CRON_SECRET not configured", { status: 500 });
+  }
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const durationMs = 600 * 1000;
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/discord`;
+
+  await bot.initialize();
+  const discord = bot.getAdapter("discord");
+  return discord.startGatewayListener(
+    { waitUntil: (task) => after(() => task) },
+    durationMs,
+    undefined,
+    webhookUrl
+  );
+}
+```
+
+```json title="vercel.json" lineNumbers
+{
+  "crons": [
+    {
+      "path": "/api/discord/gateway",
+      "schedule": "*/9 * * * *"
+    }
+  ]
+}
+```
+
+This runs every 9 minutes, overlapping with the 10-minute listener duration to keep coverage continuous.
+
+### Role mentions
+
+By default, only direct user mentions (`@BotName`) trigger `onNewMention` handlers. To also trigger on role mentions:
+
+1. Create a role in your Discord server (e.g., "AI") and assign it to your bot.
+2. Copy the role ID (right-click in server settings with Developer Mode enabled).
+3. Add it to `mentionRoleIds`:
+
+```typescript
+createDiscordAdapter({
+  mentionRoleIds: ["1457473602180878604"],
+});
+```
+
+Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string.
+
+## Feature support
+
+<FeatureSupport />

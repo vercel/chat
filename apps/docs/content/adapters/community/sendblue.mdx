@@ -1,0 +1,231 @@
+---
+title: Sendblue
+description: Community Sendblue adapter for Chat SDK. Send and receive iMessage and SMS through Sendblue's hosted gateway.
+packageName: chat-adapter-sendblue
+slug: sendblue
+type: platform
+tagline: Community Sendblue adapter for Chat SDK. Send and receive iMessage (with SMS fallback) through Sendblue's hosted gateway, with tapbacks, typing indicators, and number lookup.
+community: true
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads:
+    status: partial
+    label: Inbound + via SDK
+  streaming: no
+  scheduledMessages: no
+  cardFormat: no
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables: no
+  fields: no
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions: no
+  addReactions:
+    status: yes
+    label: Tapbacks
+  removeReactions: no
+  typingIndicator:
+    status: partial
+    label: 1:1 only
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup:
+    status: yes
+    label: evaluateService
+  customApiEndpoint: no
+  fetchMessages: yes
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: no
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="chat-adapter-sendblue" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createSendblueAdapter } from "chat-adapter-sendblue";
+
+const chat = new Chat({
+  userName: "my-bot",
+  adapters: {
+    sendblue: createSendblueAdapter(),
+  },
+});
+```
+
+`createSendblueAdapter()` reads credentials from environment variables by default:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SENDBLUE_API_KEY` | Yes | Sendblue API key ID |
+| `SENDBLUE_API_SECRET` | Yes | Sendblue API secret key |
+| `SENDBLUE_FROM_NUMBER` | Yes | Your registered Sendblue phone number (E.164) |
+| `SENDBLUE_WEBHOOK_SECRET` | No | Secret for webhook signature verification |
+| `SENDBLUE_STATUS_CALLBACK_URL` | No | URL for outbound message status updates |
+
+Or pass them explicitly:
+
+```typescript
+createSendblueAdapter({
+  apiKey: "sb-api-key-...",
+  apiSecret: "sb-api-secret-...",
+  defaultFromNumber: "+14155551234",
+});
+```
+
+## Webhooks
+
+Point your Sendblue webhook URLs at your server. The adapter handles three webhook types:
+
+- **Inbound messages** — incoming iMessage/SMS routed to your bot
+- **Outbound status** — delivery confirmations for messages you sent
+- **Typing indicators** — when a contact starts typing
+
+```typescript title="app/api/webhooks/sendblue/route.ts" lineNumbers
+import { chat } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  await chat.initialize();
+  return chat.webhooks.sendblue(request);
+}
+```
+
+### Webhook verification
+
+If you configure a webhook secret in Sendblue, pass it as `SENDBLUE_WEBHOOK_SECRET` (or in the config). The adapter checks the `x-webhook-secret` header on every request. Override the header name with `webhookSecretHeader`:
+
+```typescript
+createSendblueAdapter({
+  webhookSecret: "my-secret",
+  webhookSecretHeader: "x-custom-header",
+});
+```
+
+## Sending messages
+
+The adapter sends outbound iMessages (with SMS fallback) through Chat SDK's standard `postMessage` interface. Markdown is automatically stripped to plain text since iMessage does not render it.
+
+```typescript
+await chat.send("sendblue", threadId, "Hello from the bot!");
+```
+
+## Attachments
+
+Inbound media URLs from Sendblue are parsed into Chat SDK attachment objects with auto-detected MIME types. To send media, drop down to Sendblue's `media_url` parameter through the SDK directly:
+
+```typescript
+import type { SendblueAdapter } from "chat-adapter-sendblue";
+
+const adapter = chat.getAdapter("sendblue") as SendblueAdapter;
+const sdk = adapter.getSdk();
+
+await sdk.messages.send({
+  number: "+15551234567",
+  from_number: "+14155551234",
+  content: "Check this out",
+  media_url: "https://example.com/photo.jpg",
+});
+```
+
+## Reactions (tapbacks)
+
+iMessage tapbacks are supported via `addReaction`. The adapter maps common emoji names to Sendblue's six tapback types:
+
+| Tapback | Aliases |
+| --- | --- |
+| `love` | `heart` |
+| `like` | `thumbs_up`, `thumbsup`, `+1` |
+| `dislike` | `thumbs_down`, `thumbsdown`, `-1` |
+| `laugh` | `haha` |
+| `emphasize` | `exclamation`, `!!` |
+| `question` | `?` |
+
+Tapbacks can be **added** but not removed via the Sendblue API.
+
+## Typing indicators
+
+`startTyping()` sends the animated "..." bubble to the recipient. Only supported for 1:1 conversations (not group chats).
+
+## Message history
+
+`fetchMessages()` retrieves conversation history from the Sendblue API with cursor-based pagination.
+
+## Number lookup
+
+Check whether a phone number supports iMessage or SMS:
+
+```typescript
+const adapter = chat.getAdapter("sendblue") as SendblueAdapter;
+const result = await adapter.evaluateService("+15551234567");
+// { number: "+15551234567", service: "iMessage" }
+```
+
+## Read receipts
+
+Send read receipts for a conversation (requires Sendblue account-level activation):
+
+```typescript
+const adapter = chat.getAdapter("sendblue") as SendblueAdapter;
+await adapter.markRead(threadId);
+```
+
+## Direct SDK access
+
+For anything not covered by the Chat SDK adapter interface, drop down to the official [Sendblue SDK](https://www.npmjs.com/package/sendblue):
+
+```typescript
+const adapter = chat.getAdapter("sendblue") as SendblueAdapter;
+const sdk = adapter.getSdk();
+
+await sdk.contacts.list();
+await sdk.groups.sendMessage({
+  /* ... */
+});
+await sdk.webhooks.list();
+```
+
+## Service filtering
+
+By default, the adapter only processes inbound messages delivered via iMessage. To also accept SMS and RCS:
+
+```typescript
+createSendblueAdapter({
+  allowedServices: ["iMessage", "SMS", "RCS"],
+});
+```
+
+## Thread ID format
+
+Thread IDs encode the Sendblue line number and contact (or group) so conversations are sticky to a specific phone line:
+
+```
+sendblue:<from_base64url>:<contact_base64url>          # 1:1
+sendblue:<from_base64url>:g:<group_id_base64url>       # group
+```
+
+Use `encodeThreadId` / `decodeThreadId` to work with them programmatically.
+
+## Limitations
+
+- **No message editing** — iMessage does not support editing sent messages via API. `editMessage` throws.
+- **No unsend** — `deleteMessage` is a soft-delete in Sendblue's database only.
+- **No reaction removal** — tapbacks can be added but not removed via the API.
+- **Inbound media expiry** — Sendblue inbound `media_url` values expire after 30 days. Persist them if you need them long-term.
+- **Typing indicators** — 1:1 chats only, not group conversations.
+
+## Feature support
+
+<FeatureSupport />

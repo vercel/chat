@@ -5,6 +5,7 @@ import {
   cardToFallbackText,
   extractCard,
   extractFiles,
+  extractPostableAttachments,
   NetworkError,
   PermissionError,
   ResourceNotFoundError,
@@ -78,6 +79,15 @@ const trimTrailingSlashes = (url: string): string => {
   return url.slice(0, end);
 };
 const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
+const ATTACHMENT_UPLOADS = {
+  audio: { field: "audio", method: "sendAudio" },
+  file: { field: "document", method: "sendDocument" },
+  image: { field: "photo", method: "sendPhoto" },
+  video: { field: "video", method: "sendVideo" },
+} as const satisfies Record<
+  Attachment["type"],
+  { field: string; method: string }
+>;
 const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
 const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
@@ -717,6 +727,21 @@ export class TelegramAdapter
       );
     }
 
+    const attachments = extractPostableAttachments(message);
+    if (attachments.length > 1) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram adapter supports a single attachment upload per message"
+      );
+    }
+
+    if (files.length > 0 && attachments.length > 0) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram adapter does not support mixing file uploads and attachments in one message"
+      );
+    }
+
     let rawMessage: TelegramMessage;
 
     if (files.length === 1) {
@@ -727,6 +752,21 @@ export class TelegramAdapter
       rawMessage = await this.sendDocument(
         parsedThread,
         file,
+        text,
+        replyMarkup,
+        parseMode
+      );
+    } else if (attachments.length === 1) {
+      const [attachment] = attachments;
+      if (!attachment) {
+        throw new ValidationError(
+          "telegram",
+          "Attachment upload payload is empty"
+        );
+      }
+      rawMessage = await this.sendAttachment(
+        parsedThread,
+        attachment,
         text,
         replyMarkup,
         parseMode
@@ -1299,6 +1339,102 @@ export class TelegramAdapter
     }
 
     return this.telegramFetch<TelegramMessage>("sendDocument", formData);
+  }
+
+  protected async sendAttachment(
+    thread: TelegramThreadId,
+    attachment: Attachment,
+    text: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+    parseMode: TelegramParseMode = "plain"
+  ): Promise<TelegramMessage> {
+    const upload = ATTACHMENT_UPLOADS[attachment.type];
+    const data =
+      attachment.data ??
+      (attachment.fetchData ? await attachment.fetchData() : undefined);
+
+    if (!(data || attachment.url)) {
+      throw new ValidationError(
+        "telegram",
+        `Attachment data or URL required for ${attachment.type}`
+      );
+    }
+
+    if (!data) {
+      const payload: Record<string, unknown> = {
+        chat_id: thread.chatId,
+        [upload.field]: attachment.url,
+      };
+
+      if (typeof thread.messageThreadId === "number") {
+        payload.message_thread_id = thread.messageThreadId;
+      }
+
+      if (text.trim()) {
+        payload.caption = truncateForTelegram(
+          text,
+          TELEGRAM_CAPTION_LIMIT,
+          parseMode
+        );
+        const botApiParseMode = toBotApiParseMode(parseMode);
+        if (botApiParseMode) {
+          payload.parse_mode = botApiParseMode;
+        }
+      }
+
+      if (attachment.type === "video") {
+        if (Number.isInteger(attachment.width)) {
+          payload.width = attachment.width;
+        }
+        if (Number.isInteger(attachment.height)) {
+          payload.height = attachment.height;
+        }
+      }
+
+      if (replyMarkup) {
+        payload.reply_markup = replyMarkup;
+      }
+
+      return this.telegramFetch<TelegramMessage>(upload.method, payload);
+    }
+
+    const buffer = await this.toTelegramBuffer(data);
+    const formData = new FormData();
+
+    formData.append("chat_id", thread.chatId);
+    if (typeof thread.messageThreadId === "number") {
+      formData.append("message_thread_id", String(thread.messageThreadId));
+    }
+
+    if (text.trim()) {
+      formData.append(
+        "caption",
+        truncateForTelegram(text, TELEGRAM_CAPTION_LIMIT, parseMode)
+      );
+      const botApiParseMode = toBotApiParseMode(parseMode);
+      if (botApiParseMode) {
+        formData.append("parse_mode", botApiParseMode);
+      }
+    }
+
+    if (attachment.type === "video") {
+      if (Number.isInteger(attachment.width)) {
+        formData.append("width", String(attachment.width));
+      }
+      if (Number.isInteger(attachment.height)) {
+        formData.append("height", String(attachment.height));
+      }
+    }
+
+    const blob = new Blob([new Uint8Array(buffer)], {
+      type: attachment.mimeType ?? "application/octet-stream",
+    });
+    formData.append(upload.field, blob, attachment.name ?? "attachment");
+    if (replyMarkup) {
+      formData.append("reply_markup", JSON.stringify(replyMarkup));
+    }
+
+    return this.telegramFetch<TelegramMessage>(upload.method, formData);
   }
 
   protected async toTelegramBuffer(

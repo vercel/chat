@@ -370,7 +370,7 @@ parseMessage(raw: unknown): Message<unknown> {
 
 ### Sending messages
 
-Use `extractCard()` and `extractFiles()` from `@chat-adapter/shared` to check for rich content. Use your format converter's `renderPostable()` to convert the message to platform format.
+Use `extractCard()` and `extractFiles()` from `@chat-adapter/shared` to check for rich content. Use `extractPostableAttachments()` if your adapter maps normalized `Attachment` objects to platform-native media uploads. Use your format converter's `renderPostable()` to convert the message to platform format.
 
 ```typescript title="src/adapter.ts" lineNumbers
 async postMessage(

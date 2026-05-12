@@ -1248,7 +1248,9 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   /**
    * Subscribe to future messages in this thread.
    *
-   * Once subscribed, all messages in this thread will trigger `onSubscribedMessage` handlers.
+   * Once subscribed, messages in non-DM threads trigger `onSubscribedMessage`
+   * handlers. DM threads route to `onDirectMessage` first when a direct
+   * message handler is registered.
    * The initial message that triggered subscription will NOT fire the handler.
    *
    * @example
@@ -1708,9 +1710,13 @@ export type MentionHandler<TState = Record<string, unknown>> = (
 /**
  * Handler for direct messages (1:1 conversations with the bot).
  *
- * Registered via `chat.onDirectMessage(handler)`. Called when a message
- * is received in a DM thread that is not subscribed. If no `onDirectMessage`
- * handlers are registered, DMs fall through to `onNewMention` for backward
+ * Registered via `chat.onDirectMessage(handler)`. Called for every message
+ * received in a DM thread when at least one direct message handler is
+ * registered. Direct message handlers run before `onSubscribedMessage`,
+ * `onNewMention`, and pattern handlers.
+ *
+ * If no `onDirectMessage` handlers are registered, DMs continue through normal
+ * routing. Unsubscribed DMs fall through to `onNewMention` for backward
  * compatibility.
  */
 export type DirectMessageHandler<TState = Record<string, unknown>> = (
