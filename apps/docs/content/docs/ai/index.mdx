@@ -12,9 +12,7 @@ import { createChatTools, toAiMessages } from "chat/ai";
 
 Add the optional peers if you don't already have them:
 
-```bash
-pnpm add ai zod
-```
+<PackageInstall package="ai zod" />
 
 ## What's included
 
@@ -41,14 +39,11 @@ const agent = new ToolLoopAgent({
   tools: createChatTools({ chat, preset: "messenger", requireApproval: true }),
 });
 
-bot.onSubscribedMessage(async (thread, message) => {
-  const recent: typeof message[] = [];
-  for await (const msg of thread.messages) {
-    recent.push(msg);
-    if (recent.length >= 20) break;
-  }
-
-  const history = await toAiMessages(recent);
+bot.onSubscribedMessage(async (thread) => {
+  const { messages } = await thread.adapter.fetchMessages(thread.id, {
+    limit: 20,
+  });
+  const history = await toAiMessages(messages);
   const result = await agent.stream({ prompt: history });
   await thread.post(result.fullStream);
 });

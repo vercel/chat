@@ -25,9 +25,7 @@ import { createChatTools } from "chat/ai";
 
 `ai` and `zod` are optional peer dependencies — install them if you haven't already:
 
-```bash
-pnpm add ai zod
-```
+<PackageInstall package="ai zod" />
 
 <Callout>
   Pair `createChatTools` with [`toAiMessages`](/docs/ai/to-ai-messages)
@@ -58,7 +56,7 @@ const result = await generateText({
   tools: createChatTools({
     chat,
     preset: "messenger",
-    requireApproval: false,
+    requireApproval: false, // unattended script, no human-in-the-loop needed
   }),
   prompt:
     "Post a friendly hello in slack:C0123ABC and react to it with a thumbs up.",
