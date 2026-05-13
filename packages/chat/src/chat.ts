@@ -1975,7 +1975,7 @@ export class Chat<
    * - Deduplication: Same message may arrive multiple times (e.g., Slack sends
    *   both `message` and `app_mention` events, GChat sends direct webhook + Pub/Sub)
    * - Bot filtering: Messages from the bot itself are skipped
-   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, queue-debounce, concurrent)
+   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, burst, concurrent)
    */
   async handleIncomingMessage(
     adapter: Adapter,
@@ -2047,7 +2047,7 @@ export class Chat<
     if (
       strategy === "queue" ||
       strategy === "debounce" ||
-      strategy === "queue-debounce"
+      strategy === "burst"
     ) {
       await this.handleQueueOrDebounce(
         adapter,
@@ -2126,7 +2126,7 @@ export class Chat<
     threadId: string,
     lockKey: string,
     message: Message,
-    strategy: "queue" | "debounce" | "queue-debounce"
+    strategy: "queue" | "debounce" | "burst"
   ): Promise<void> {
     const { maxQueueSize, queueEntryTtlMs, onQueueFull, debounceMs } =
       this._concurrencyConfig;
@@ -2204,7 +2204,7 @@ export class Chat<
           debounceMs,
         });
         await this.debounceLoop(lock, adapter, threadId, lockKey);
-      } else if (strategy === "queue-debounce") {
+      } else if (strategy === "burst") {
         await this._stateAdapter.enqueue(
           lockKey,
           {

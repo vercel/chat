@@ -66,7 +66,7 @@ export interface ChatConfig<
    *   all intermediate messages
    * - `'debounce'` — messages inside the debounce window replace the pending
    *   message; only the final message in that window is processed
-   * - `'queue-debounce'` — wait once before the first handler, then process the
+   * - `'burst'` — wait once before the first handler, then process the
    *   latest message with `context.skipped` containing earlier burst messages
    * - `'concurrent'` — no locking; all messages processed in parallel
    * - `ConcurrencyConfig` — fine-grained control over strategy and parameters
@@ -761,16 +761,16 @@ export type ConcurrencyStrategy =
   | "drop"
   | "queue"
   | "debounce"
-  | "queue-debounce"
+  | "burst"
   | "concurrent";
 
 /** Fine-grained concurrency configuration. */
 export interface ConcurrencyConfig {
-  /** Debounce window in milliseconds (debounce/queue-debounce strategies). Default: 1500. */
+  /** Debounce window in milliseconds (debounce/burst strategies). Default: 1500. */
   debounceMs?: number;
   /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
   maxConcurrent?: number;
-  /** Max queued messages per thread (queue/queue-debounce strategy). Default: 10. */
+  /** Max queued messages per thread (queue/burst strategy). Default: 10. */
   maxQueueSize?: number;
   /** What to do when queue is full. Default: 'drop-oldest'. */
   onQueueFull?: "drop-oldest" | "drop-newest";
@@ -782,7 +782,7 @@ export interface ConcurrencyConfig {
 
 /**
  * An entry in the per-thread message queue.
- * Used by the `queue`, `debounce`, and `queue-debounce` concurrency strategies.
+ * Used by the `queue`, `debounce`, and `burst` concurrency strategies.
  */
 export interface QueueEntry {
   /** When this entry was enqueued (Unix ms). */
@@ -795,7 +795,7 @@ export interface QueueEntry {
 
 /**
  * Context provided to message handlers when messages were queued
- * while a previous handler was running or while waiting for queue-debounce.
+ * while a previous handler was running or while waiting for burst.
  */
 export interface MessageContext {
   /**

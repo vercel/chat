@@ -2,4 +2,4 @@
 "chat": minor
 ---
 
-add queue-debounce concurrency strategy
+add burst concurrency strategy

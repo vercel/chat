@@ -4034,25 +4034,25 @@ describe("Chat", () => {
     });
   });
 
-  describe("concurrency: queue-debounce", () => {
+  describe("concurrency: burst", () => {
     it("should collapse an idle burst into the latest message with skipped context", async () => {
       vi.useFakeTimers();
       try {
         const state = createMockState();
         const adapter = createMockAdapter("slack");
 
-        const queueDebounceChat = new Chat({
+        const burstChat = new Chat({
           userName: "testbot",
           adapters: { slack: adapter },
           state,
           logger: mockLogger,
           concurrency: {
-            strategy: "queue-debounce",
+            strategy: "burst",
             debounceMs: 100,
           },
         });
 
-        await queueDebounceChat.webhooks.slack(
+        await burstChat.webhooks.slack(
           new Request("http://test.com", { method: "POST" })
         );
 
@@ -4061,7 +4061,7 @@ describe("Chat", () => {
           { skipped: string[]; totalSinceLastHandler: number } | undefined
         > = [];
 
-        queueDebounceChat.onNewMention(
+        burstChat.onNewMention(
           vi.fn().mockImplementation(async (_thread, message, context) => {
             receivedMessages.push(message.text);
             receivedContexts.push(
@@ -4077,22 +4077,22 @@ describe("Chat", () => {
           })
         );
 
-        const msg1 = createTestMessage("msg-qd-1", "Hey @slack-bot first");
-        const promise = queueDebounceChat.handleIncomingMessage(
+        const msg1 = createTestMessage("msg-burst-1", "Hey @slack-bot first");
+        const promise = burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
           msg1
         );
 
-        const msg2 = createTestMessage("msg-qd-2", "Hey @slack-bot second");
-        await queueDebounceChat.handleIncomingMessage(
+        const msg2 = createTestMessage("msg-burst-2", "Hey @slack-bot second");
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
           msg2
         );
 
-        const msg3 = createTestMessage("msg-qd-3", "Hey @slack-bot third");
-        await queueDebounceChat.handleIncomingMessage(
+        const msg3 = createTestMessage("msg-burst-3", "Hey @slack-bot third");
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
           msg3
@@ -4121,26 +4121,26 @@ describe("Chat", () => {
         const state = createMockState();
         const adapter = createMockAdapter("slack");
 
-        const queueDebounceChat = new Chat({
+        const burstChat = new Chat({
           userName: "testbot",
           adapters: { slack: adapter },
           state,
           logger: mockLogger,
           concurrency: {
-            strategy: "queue-debounce",
+            strategy: "burst",
             debounceMs: 100,
           },
         });
 
-        await queueDebounceChat.webhooks.slack(
+        await burstChat.webhooks.slack(
           new Request("http://test.com", { method: "POST" })
         );
 
         const handler = vi.fn().mockResolvedValue(undefined);
-        queueDebounceChat.onNewMention(handler);
+        burstChat.onNewMention(handler);
 
-        const msg = createTestMessage("msg-qd-4", "Hey @slack-bot solo");
-        const promise = queueDebounceChat.handleIncomingMessage(
+        const msg = createTestMessage("msg-burst-4", "Hey @slack-bot solo");
+        const promise = burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
           msg
@@ -4168,18 +4168,18 @@ describe("Chat", () => {
         const state = createMockState();
         const adapter = createMockAdapter("slack");
 
-        const queueDebounceChat = new Chat({
+        const burstChat = new Chat({
           userName: "testbot",
           adapters: { slack: adapter },
           state,
           logger: mockLogger,
           concurrency: {
-            strategy: "queue-debounce",
+            strategy: "burst",
             debounceMs: 100,
           },
         });
 
-        await queueDebounceChat.webhooks.slack(
+        await burstChat.webhooks.slack(
           new Request("http://test.com", { method: "POST" })
         );
 
@@ -4189,7 +4189,7 @@ describe("Chat", () => {
         > = [];
         let releaseFirstHandler: (() => void) | undefined;
 
-        queueDebounceChat.onNewMention(
+        burstChat.onNewMention(
           vi.fn().mockImplementation(async (_thread, message, context) => {
             receivedMessages.push(message.text);
             receivedContexts.push(
@@ -4203,7 +4203,7 @@ describe("Chat", () => {
                 : undefined
             );
 
-            if (message.id === "msg-qd-drain-2") {
+            if (message.id === "msg-burst-drain-2") {
               await new Promise<void>((resolve) => {
                 releaseFirstHandler = resolve;
               });
@@ -4211,31 +4211,31 @@ describe("Chat", () => {
           })
         );
 
-        const firstPromise = queueDebounceChat.handleIncomingMessage(
+        const firstPromise = burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drain-1", "Hey @slack-bot first")
+          createTestMessage("msg-burst-drain-1", "Hey @slack-bot first")
         );
 
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drain-2", "Hey @slack-bot second")
+          createTestMessage("msg-burst-drain-2", "Hey @slack-bot second")
         );
 
         await vi.advanceTimersByTimeAsync(150);
 
         expect(receivedMessages).toEqual(["Hey @slack-bot second"]);
 
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drain-3", "Hey @slack-bot third")
+          createTestMessage("msg-burst-drain-3", "Hey @slack-bot third")
         );
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drain-4", "Hey @slack-bot fourth")
+          createTestMessage("msg-burst-drain-4", "Hey @slack-bot fourth")
         );
 
         releaseFirstHandler?.();
@@ -4266,20 +4266,20 @@ describe("Chat", () => {
         const state = createMockState();
         const adapter = createMockAdapter("slack");
 
-        const queueDebounceChat = new Chat({
+        const burstChat = new Chat({
           userName: "testbot",
           adapters: { slack: adapter },
           state,
           logger: mockLogger,
           concurrency: {
-            strategy: "queue-debounce",
+            strategy: "burst",
             debounceMs: 100,
             maxQueueSize: 2,
             onQueueFull: "drop-newest",
           },
         });
 
-        await queueDebounceChat.webhooks.slack(
+        await burstChat.webhooks.slack(
           new Request("http://test.com", { method: "POST" })
         );
 
@@ -4288,7 +4288,7 @@ describe("Chat", () => {
           { skipped: string[]; totalSinceLastHandler: number } | undefined
         > = [];
 
-        queueDebounceChat.onNewMention(
+        burstChat.onNewMention(
           vi.fn().mockImplementation(async (_thread, message, context) => {
             receivedMessages.push(message.text);
             receivedContexts.push(
@@ -4304,20 +4304,20 @@ describe("Chat", () => {
           })
         );
 
-        const promise = queueDebounceChat.handleIncomingMessage(
+        const promise = burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drop-1", "Hey @slack-bot one")
+          createTestMessage("msg-burst-drop-1", "Hey @slack-bot one")
         );
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drop-2", "Hey @slack-bot two")
+          createTestMessage("msg-burst-drop-2", "Hey @slack-bot two")
         );
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-drop-3", "Hey @slack-bot three")
+          createTestMessage("msg-burst-drop-3", "Hey @slack-bot three")
         );
 
         expect(await state.queueDepth("slack:C123:1234.5678")).toBe(2);
@@ -4356,44 +4356,44 @@ describe("Chat", () => {
         const mockSubject = {
           type: "issue",
           id: "ENG-414",
-          title: "Queue debounce test",
+          title: "Burst test",
           raw: {},
         };
         adapter.fetchSubject = vi.fn().mockResolvedValue(mockSubject);
 
-        const queueDebounceChat = new Chat({
+        const burstChat = new Chat({
           userName: "testbot",
           adapters: { slack: adapter },
           state,
           logger: mockLogger,
           concurrency: {
-            strategy: "queue-debounce",
+            strategy: "burst",
             debounceMs: 100,
           },
         });
 
-        await queueDebounceChat.webhooks.slack(
+        await burstChat.webhooks.slack(
           new Request("http://test.com", { method: "POST" })
         );
 
         let receivedSubject: unknown = "not-called";
         let receivedSkippedSubject: unknown = "not-called";
-        queueDebounceChat.onNewMention(
+        burstChat.onNewMention(
           vi.fn().mockImplementation(async (_thread, message, context) => {
             receivedSubject = await message.subject;
             receivedSkippedSubject = await context?.skipped[0]?.subject;
           })
         );
 
-        const promise = queueDebounceChat.handleIncomingMessage(
+        const promise = burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-json-1", "Hey @slack-bot one")
+          createTestMessage("msg-burst-json-1", "Hey @slack-bot one")
         );
-        await queueDebounceChat.handleIncomingMessage(
+        await burstChat.handleIncomingMessage(
           adapter,
           "slack:C123:1234.5678",
-          createTestMessage("msg-qd-json-2", "Hey @slack-bot two")
+          createTestMessage("msg-burst-json-2", "Hey @slack-bot two")
         );
 
         await vi.advanceTimersByTimeAsync(150);
