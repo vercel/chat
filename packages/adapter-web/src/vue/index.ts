@@ -1,5 +1,5 @@
 import { Chat } from "@ai-sdk/vue";
-import { DefaultChatTransport, type ChatInit, type UIMessage } from "ai";
+import { type ChatInit, DefaultChatTransport, type UIMessage } from "ai";
 
 export interface WebUseChatOptions<UI_MESSAGE extends UIMessage = UIMessage>
   extends Omit<ChatInit<UI_MESSAGE>, "transport"> {

@@ -11,5 +11,14 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: false,
-  external: ["ai", "@ai-sdk/react", "@ai-sdk/vue", "@ai-sdk/svelte", "react", "svelte", "vue", "chat"],
+  external: [
+    "ai",
+    "@ai-sdk/react",
+    "@ai-sdk/vue",
+    "@ai-sdk/svelte",
+    "react",
+    "svelte",
+    "vue",
+    "chat",
+  ],
 });
