@@ -17,6 +17,14 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue/index.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte/index.d.ts",
+      "import": "./dist/svelte/index.js"
     }
   },
   "files": [
@@ -36,28 +44,48 @@
   },
   "peerDependencies": {
     "@ai-sdk/react": "^3",
+    "@ai-sdk/svelte": "^4",
+    "@ai-sdk/vue": "^3",
     "ai": "^6",
-    "react": "^19"
+    "react": "^19",
+    "svelte": "^5",
+    "vue": "^3"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/react": {
       "optional": true
     },
+    "@ai-sdk/vue": {
+      "optional": true
+    },
+    "@ai-sdk/svelte": {
+      "optional": true
+    },
     "react": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },
   "devDependencies": {
     "@ai-sdk/react": "^3.0.176",
+    "@ai-sdk/svelte": "^4.0.176",
+    "@ai-sdk/vue": "^3.0.176",
     "@chat-adapter/state-memory": "workspace:*",
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@vitest/coverage-v8": "^4.0.18",
     "ai": "^6.0.174",
     "react": "^19.0.0",
+    "svelte": "^5.55.5",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "vue": "^3.5.13"
   },
   "repository": {
     "type": "git",
@@ -75,6 +103,8 @@
     "chat",
     "web",
     "react",
+    "vue",
+    "svelte",
     "useChat",
     "ai-sdk",
     "bot",
