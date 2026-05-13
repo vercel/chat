@@ -119,11 +119,16 @@ export default function ChatPage() {
 <script setup lang="ts">
 import { useChat } from "@chat-adapter/web/vue";
 
+// Returns a Chat instance — access state directly, don't destructure
 const chat = useChat({ api: "/api/chat" });
 </script>
 
 <template>
-  <!-- chat.messages, chat.sendMessage, chat.status, chat.stop -->
+  <div v-for="msg in chat.messages" :key="msg.id">
+    <template v-for="part in msg.parts">
+      <p v-if="part.type === 'text'">{{ part.text }}</p>
+    </template>
+  </div>
 </template>
 ```
   </CodeBlockTab>
@@ -132,10 +137,15 @@ const chat = useChat({ api: "/api/chat" });
 <script lang="ts">
   import { useChat } from "@chat-adapter/web/svelte";
 
+  // Returns a Chat instance — access state directly, don't destructure
   const chat = useChat({ api: "/api/chat" });
 </script>
 
-<!-- chat.messages, chat.sendMessage, chat.status, chat.stop -->
+{#each chat.messages as msg (msg.id)}
+  {#each msg.parts as part}
+    {#if part.type === "text"}<p>{part.text}</p>{/if}
+  {/each}
+{/each}
 ```
   </CodeBlockTab>
 </CodeBlockTabs>
@@ -275,7 +285,7 @@ const { messages, sendMessage, status, stop, regenerate } = useChat({
 
 For advanced configuration, use `@ai-sdk/react`'s `useChat` directly — there's nothing magical in the wrapper.
 
-**Vue / Nuxt** — `@chat-adapter/web/vue` exports the same `useChat` function, returning a `Chat` instance whose `messages`, `status`, and `error` properties are Vue-reactive. Access them directly in your template:
+**Vue / Nuxt** — `@chat-adapter/web/vue` exports a `useChat` factory that returns a `Chat` instance (from `@ai-sdk/vue`) whose `messages`, `status`, and `error` properties are Vue-reactive. Access them directly in your template — do not destructure, as that breaks Vue's reactivity tracking:
 
 ```vue
 <script setup lang="ts">
@@ -285,11 +295,15 @@ const chat = useChat({ api: "/api/chat", threadId: "support-1" });
 </script>
 
 <template>
-  <div v-for="msg in chat.messages" :key="msg.id">...</div>
+  <div v-for="msg in chat.messages" :key="msg.id">
+    <template v-for="part in msg.parts">
+      <p v-if="part.type === 'text'">{{ part.text }}</p>
+    </template>
+  </div>
 </template>
 ```
 
-**Svelte / SvelteKit** — `@chat-adapter/web/svelte` works identically, returning a `Chat` instance with Svelte 5 `$state`-backed reactive properties:
+**Svelte / SvelteKit** — `@chat-adapter/web/svelte` exports the same factory, returning a `Chat` instance (from `@ai-sdk/svelte`) with Svelte 5 `$state`-backed reactive properties:
 
 ```svelte
 <script lang="ts">
@@ -299,11 +313,13 @@ const chat = useChat({ api: "/api/chat", threadId: "support-1" });
 </script>
 
 {#each chat.messages as msg (msg.id)}
-  <p>{msg.content}</p>
+  {#each msg.parts as part}
+    {#if part.type === "text"}<p>{part.text}</p>{/if}
+  {/each}
 {/each}
 ```
 
-In all three cases the server-side setup is identical — only the import path changes. The `api` and `threadId` options work the same way across all frameworks. Vue and Svelte return the `Chat` instance directly (with `chat.sendMessage()`, `chat.stop()`, `chat.status`, etc.) rather than destructuring, because destructuring Vue or Svelte reactive objects breaks their reactivity tracking.
+Unlike the React wrapper which wraps `@ai-sdk/react`'s `useChat` hook and returns destructurable helpers, the Vue and Svelte wrappers return a `Chat` class instance — the reactive state lives on the object itself. The `api` and `threadId` options are identical across all three, and the server-side setup never changes.
 
 ## Feature support
 
