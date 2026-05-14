@@ -90,6 +90,15 @@ const mockLogger = {
 
 const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
+const WEBHOOK_LOG_SENTINELS = [
+  "secret-access-token",
+  "secret-refresh-token",
+  "Bearer secret-token",
+  "Authorization",
+  "customer-team-slug",
+  "access_token",
+  "refresh_token",
+] as const;
 
 function signPayload(body: string): string {
   return `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`;
@@ -191,6 +200,22 @@ function createMockState() {
       cache.set(key, value);
     }),
   };
+}
+
+function stringifyLoggerCalls(): string {
+  return JSON.stringify({
+    debug: mockLogger.debug.mock.calls,
+    error: mockLogger.error.mock.calls,
+    info: mockLogger.info.mock.calls,
+    warn: mockLogger.warn.mock.calls,
+  });
+}
+
+function findLoggedSentinels(): string[] {
+  const logCalls = stringifyLoggerCalls();
+  return WEBHOOK_LOG_SENTINELS.filter((sentinel) =>
+    logCalls.includes(sentinel)
+  );
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -596,6 +621,43 @@ describe("GitHubAdapter", () => {
       expect(response.status).toBe(401);
     });
 
+    it("should not log raw payload content for invalid signatures", async () => {
+      const body = JSON.stringify({
+        action: "created",
+        access_token: "secret-access-token",
+        authorization: "Bearer secret-token",
+        comment: {
+          body: "Authorization: Bearer secret-token",
+        },
+        refresh_token: "secret-refresh-token",
+        repository: {
+          full_name: "customer-team-slug/app",
+          owner: { login: "customer-team-slug" },
+        },
+      });
+      const request = makeWebhookRequest(
+        body,
+        "issue_comment",
+        "sha256=invalid"
+      );
+
+      const response = await adapter.handleWebhook(request);
+
+      expect(response.status).toBe(401);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        "GitHub webhook signature verification failed",
+        {
+          bodyBytes: Buffer.byteLength(body, "utf8"),
+          contentType: "application/json",
+          eventType: "issue_comment",
+          signaturePresent: true,
+        }
+      );
+      expect(findLoggedSentinels()).toEqual([]);
+      expect(stringifyLoggerCalls()).not.toContain(body);
+      expect(stringifyLoggerCalls()).not.toContain("GitHub webhook raw body");
+    });
+
     it("should return 200 pong for ping event", async () => {
       const body = JSON.stringify({ zen: "test" });
       const signature = signPayload(body);
@@ -615,6 +677,90 @@ describe("GitHubAdapter", () => {
       expect(response.status).toBe(400);
       const text = await response.text();
       expect(text).toContain("Invalid JSON");
+    });
+
+    it("should not log raw payload content for invalid JSON", async () => {
+      const body =
+        "not-json secret-access-token secret-refresh-token Bearer secret-token Authorization customer-team-slug access_token refresh_token";
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await adapter.handleWebhook(request);
+
+      expect(response.status).toBe(400);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "GitHub webhook invalid JSON",
+        {
+          bodyBytes: Buffer.byteLength(body, "utf8"),
+          contentType: "application/json",
+          eventType: "issue_comment",
+          jsonParseStatus: "error",
+          signaturePresent: true,
+        }
+      );
+      expect(findLoggedSentinels()).toEqual([]);
+      expect(stringifyLoggerCalls()).not.toContain(body);
+      expect(stringifyLoggerCalls()).not.toContain("bodyPreview");
+    });
+
+    it("should not log raw payload content for valid webhooks", async () => {
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot" },
+      });
+      await adapter.initialize(mockChat);
+
+      const basePayload = makeIssueCommentPayload();
+      const payload = {
+        ...makeIssueCommentPayload({
+          comment: {
+            ...basePayload.comment,
+            body: "Authorization: Bearer secret-token secret-access-token secret-refresh-token",
+          },
+          repository: {
+            ...basePayload.repository,
+            full_name: "customer-team-slug/app",
+            owner: {
+              ...basePayload.repository.owner,
+              login: "customer-team-slug",
+            },
+          },
+        }),
+        access_token: "secret-access-token",
+        authorization: "Bearer secret-token",
+        refresh_token: "secret-refresh-token",
+      };
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await adapter.handleWebhook(request);
+
+      expect(response.status).toBe(200);
+      expect(mockChat.processMessage).toHaveBeenCalledWith(
+        adapter,
+        "github:customer-team-slug/app:42",
+        expect.objectContaining({ id: "100" }),
+        undefined
+      );
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        "GitHub webhook request verified",
+        {
+          bodyBytes: Buffer.byteLength(body, "utf8"),
+          contentType: "application/json",
+          eventType: "issue_comment",
+          signaturePresent: true,
+        }
+      );
+      expect(findLoggedSentinels()).toEqual([]);
+      expect(stringifyLoggerCalls()).not.toContain(body);
+      expect(stringifyLoggerCalls()).not.toContain("GitHub webhook raw body");
     });
 
     it("should process issue_comment on PR with valid signature", async () => {
