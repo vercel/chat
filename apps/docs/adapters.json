@@ -294,5 +294,16 @@
     "author": "AgentPhone",
     "readme": "https://github.com/AgentPhone-AI/chat-sdk-adapter",
     "vendorOfficial": true
+  },
+  {
+    "name": "Lark / Feishu",
+    "slug": "lark",
+    "type": "platform",
+    "community": true,
+    "description": "Lark / Feishu adapter for Chat SDK with native cardkit streaming, interactive cards, and reactions.",
+    "packageName": "@larksuite/vercel-chat-adapter",
+    "author": "Lark / Feishu",
+    "readme": "https://github.com/larksuite/node-sdk/tree/cbc4adf13cbcb93b389db01faf428e3b3cef053c/docs/vercel-chat-adapter",
+    "vendorOfficial": true
   }
 ]

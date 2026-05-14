@@ -110,6 +110,8 @@ export const VALID_DOC_PACKAGES = [
   "chat-adapter-sendblue",
   "@bitbasti/chat-adapter-webex",
   "chat-adapter-zalo",
+  "@larksuite/vercel-chat-adapter",
+  "qrcode-terminal",
 ];
 
 export function extractTypeScriptBlocks(markdown: string): string[] {

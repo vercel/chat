@@ -114,6 +114,7 @@ describe("Vendor-Official adapter MDX", () => {
       [
         "agentphone",
         "imessage",
+        "lark",
         "liveblocks",
         "matrix",
         "resend",
