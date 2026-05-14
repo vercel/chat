@@ -30,6 +30,7 @@ const messengerLinks = [
   { name: "Google Chat", slug: "google-chat" },
   { name: "Zalo", slug: "zalo" },
   { name: "Mattermost", slug: "mattermost" },
+  { name: "Lark / Feishu", slug: "lark" },
 ];
 
 const AdaptersPage = () => (

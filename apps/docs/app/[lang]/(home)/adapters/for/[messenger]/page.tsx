@@ -164,6 +164,13 @@ const messengerConfig: Record<
     adapterSlugs: ["mattermost"],
     keywords: ["mattermost"],
   },
+  lark: {
+    name: "Lark / Feishu",
+    description:
+      "Build bots for Lark / Feishu with Chat SDK. Browse official and community adapters that support Lark integration.",
+    adapterSlugs: ["lark"],
+    keywords: ["lark", "feishu"],
+  },
 };
 
 const getMessengerAdapters = (messengerSlug: string) => {
