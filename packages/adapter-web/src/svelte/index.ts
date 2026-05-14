@@ -29,7 +29,9 @@ export interface WebUseChatOptions<UI_MESSAGE extends UIMessage = UIMessage>
  * </script>
  *
  * {#each chat.messages as msg (msg.id)}
- *   <p>{msg.content}</p>
+ *   {#each msg.parts as part, index (`${msg.id}-${part.type}-${index}`)}
+ *     {#if part.type === "text"}<p>{part.text}</p>{/if}
+ *   {/each}
  * {/each}
  * ```
  *

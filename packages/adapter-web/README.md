@@ -5,13 +5,21 @@
 
 Web adapter for [Chat SDK](https://chat-sdk.dev). Lets a chat-sdk bot serve a browser chat UI alongside Slack, Teams, Discord, etc. — the same `bot.onDirectMessage(...)` handler fires for every platform.
 
-The adapter speaks the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so [`@ai-sdk/react`](https://www.npmjs.com/package/@ai-sdk/react)'s `useChat` and the [`ai-elements`](https://elements.ai-sdk.dev/) component library work out of the box.
+The adapter speaks the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so React, Vue, and Svelte AI SDK clients work against the same server endpoint.
 
 ## Installation
 
 ```bash
-pnpm add @chat-adapter/web ai @ai-sdk/react
+pnpm add @chat-adapter/web ai
 ```
+
+Then install the framework package that matches your UI:
+
+| Framework | Package | Import from |
+|-----------|---------|-------------|
+| React / Next.js | `@ai-sdk/react` | `@chat-adapter/web/react` |
+| Vue / Nuxt | `@ai-sdk/vue` | `@chat-adapter/web/vue` |
+| Svelte / SvelteKit | `@ai-sdk/svelte` | `@chat-adapter/web/svelte` |
 
 ## Quick start
 
@@ -53,6 +61,8 @@ export async function POST(request: Request): Promise<Response> {
 
 ### Client
 
+#### React
+
 ```tsx
 // app/chat/page.tsx
 "use client";
@@ -64,6 +74,45 @@ export default function ChatPage() {
   // or your own components — `messages`, `sendMessage`, `status` are the
   // standard `@ai-sdk/react` API.
 }
+```
+
+#### Vue
+
+```vue
+<!-- components/Chat.vue -->
+<script setup lang="ts">
+import { useChat } from "@chat-adapter/web/vue";
+
+const chat = useChat({ api: "/api/chat" });
+</script>
+
+<template>
+  <div v-for="msg in chat.messages" :key="msg.id">
+    <template
+      v-for="(part, index) in msg.parts"
+      :key="`${msg.id}-${part.type}-${index}`"
+    >
+      <p v-if="part.type === 'text'">{{ part.text }}</p>
+    </template>
+  </div>
+</template>
+```
+
+#### Svelte
+
+```svelte
+<!-- Chat.svelte -->
+<script lang="ts">
+  import { useChat } from "@chat-adapter/web/svelte";
+
+  const chat = useChat({ api: "/api/chat" });
+</script>
+
+{#each chat.messages as msg (msg.id)}
+  {#each msg.parts as part, index (`${msg.id}-${part.type}-${index}`)}
+    {#if part.type === "text"}<p>{part.text}</p>{/if}
+  {/each}
+{/each}
 ```
 
 ## Authentication
@@ -174,7 +223,7 @@ createWebAdapter({
 
 The AI SDK client retains the conversation in its UI state and resends it on every request, so opting out is a valid choice for stateless handlers — but anything that calls `await thread.messages` won't see prior turns.
 
-## React hook
+## Framework helpers
 
 `@chat-adapter/web/react` exports a thin wrapper around `@ai-sdk/react`'s `useChat` preconfigured with `DefaultChatTransport`:
 
@@ -196,6 +245,45 @@ const { messages, sendMessage, status, stop, regenerate } = useChat({
 | ...rest | All other options pass through to `@ai-sdk/react`'s `useChat`. |
 
 For advanced configuration (custom transport, response interceptors, etc.) use `@ai-sdk/react`'s `useChat` directly — there's nothing magical in the wrapper.
+
+`@chat-adapter/web/vue` exports a `useChat` factory that returns a Vue-reactive `Chat` instance from `@ai-sdk/vue`:
+
+```vue
+<script setup lang="ts">
+import { useChat } from "@chat-adapter/web/vue";
+
+const chat = useChat({ api: "/api/chat", threadId: "support-1" });
+</script>
+
+<template>
+  <div v-for="msg in chat.messages" :key="msg.id">
+    <template
+      v-for="(part, index) in msg.parts"
+      :key="`${msg.id}-${part.type}-${index}`"
+    >
+      <p v-if="part.type === 'text'">{{ part.text }}</p>
+    </template>
+  </div>
+</template>
+```
+
+`@chat-adapter/web/svelte` exports a `useChat` factory that returns a Svelte-reactive `Chat` instance from `@ai-sdk/svelte`:
+
+```svelte
+<script lang="ts">
+  import { useChat } from "@chat-adapter/web/svelte";
+
+  const chat = useChat({ api: "/api/chat", threadId: "support-1" });
+</script>
+
+{#each chat.messages as msg (msg.id)}
+  {#each msg.parts as part, index (`${msg.id}-${part.type}-${index}`)}
+    {#if part.type === "text"}<p>{part.text}</p>{/if}
+  {/each}
+{/each}
+```
+
+Unlike the React helper, Vue and Svelte return the `Chat` instance directly. Access `chat.messages`, `chat.sendMessage()`, `chat.status`, and `chat.stop()` on that object instead of destructuring.
 
 ## Configuration
 

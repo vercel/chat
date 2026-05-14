@@ -29,7 +29,14 @@ export interface WebUseChatOptions<UI_MESSAGE extends UIMessage = UIMessage>
  * </script>
  *
  * <template>
- *   <div v-for="msg in chat.messages" :key="msg.id">{{ msg.content }}</div>
+ *   <div v-for="msg in chat.messages" :key="msg.id">
+ *     <template
+ *       v-for="(part, index) in msg.parts"
+ *       :key="`${msg.id}-${part.type}-${index}`"
+ *     >
+ *       <p v-if="part.type === 'text'">{{ part.text }}</p>
+ *     </template>
+ *   </div>
  * </template>
  * ```
  *

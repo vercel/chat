@@ -262,7 +262,7 @@ The adapter honors `request.signal`, so calling `stop()` from `useChat` short-ci
 
 ### Framework integrations
 
-The Web adapter speaks the AI SDK UI message stream protocol, so `useChat` from any AI SDK framework package works against the same server endpoint.
+The Web adapter speaks the AI SDK UI message stream protocol, so React, Vue, and Svelte AI SDK clients work against the same server endpoint. The framework subpaths below expose `useChat` helpers preconfigured for that endpoint.
 
 **React** — `@chat-adapter/web/react` ships a thin convenience wrapper preconfigured with `DefaultChatTransport`. It accepts a few extra options on top of the standard `@ai-sdk/react` API:
 
