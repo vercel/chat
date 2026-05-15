@@ -48,12 +48,12 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/react": "^3.0.176",
+    "@ai-sdk/react": "^3.0.184",
     "@chat-adapter/state-memory": "workspace:*",
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@vitest/coverage-v8": "^4.0.18",
-    "ai": "^6.0.174",
+    "ai": "^6.0.182",
     "react": "^19.0.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

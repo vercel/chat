@@ -11,7 +11,7 @@
     "recording:export": "tsx src/lib/recorder.ts"
   },
   "dependencies": {
-    "@ai-sdk/react": "^3.0.176",
+    "@ai-sdk/react": "^3.0.184",
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/messenger": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
