@@ -27,7 +27,7 @@
     "@tailwindcss/postcss": "^4.1.18",
     "ai": "^6.0.182",
     "chat": "workspace:*",
-    "next": "^16.2.3",
+    "next": "^16.2.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redis": "^5.11.0",
