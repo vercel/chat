@@ -81,7 +81,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "ai": "^6.0.182",
     "react": "^19.0.0",
-    "svelte": "^5.55.5",
+    "svelte": "^5.55.7",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18",
