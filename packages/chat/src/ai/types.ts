@@ -25,6 +25,8 @@ export type ToolOverrides = Partial<
   Pick<
     Tool,
     | "description"
+    | "inputExamples"
+    | "metadata"
     | "needsApproval"
     | "onInputAvailable"
     | "onInputDelta"

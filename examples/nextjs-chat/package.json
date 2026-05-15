@@ -25,7 +25,7 @@
     "@chat-adapter/web": "workspace:*",
     "@chat-adapter/whatsapp": "workspace:*",
     "@tailwindcss/postcss": "^4.1.18",
-    "ai": "^6.0.174",
+    "ai": "^6.0.182",
     "chat": "workspace:*",
     "next": "^16.2.3",
     "react": "^19.0.0",

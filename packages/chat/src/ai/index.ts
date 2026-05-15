@@ -21,9 +21,13 @@ import { getUser } from "./tools/users";
 import type { ChatBinding, ToolOverrides } from "./types";
 
 const PROTECTED_TOOL_FIELDS = new Set<string>([
+  "args",
   "execute",
+  "id",
   "inputSchema",
   "outputSchema",
+  "supportsDeferredResults",
+  "type",
 ]);
 
 export type ChatToolName =
@@ -140,7 +144,7 @@ export interface ChatToolsOptions {
   /**
    * Per-tool overrides for customizing tool behavior (description, title,
    * needsApproval, etc.) without changing the underlying implementation.
-   * `execute`, `inputSchema`, and `outputSchema` cannot be overridden.
+   * Core tool fields cannot be overridden.
    *
    * @example
    * ```ts

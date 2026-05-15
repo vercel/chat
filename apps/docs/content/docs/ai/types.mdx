@@ -226,6 +226,8 @@ type ToolOverrides = Partial<
   Pick<
     Tool,
     | "description"
+    | "inputExamples"
+    | "metadata"
     | "needsApproval"
     | "onInputAvailable"
     | "onInputDelta"
@@ -238,4 +240,4 @@ type ToolOverrides = Partial<
 >;
 ```
 
-Per-tool overrides accepted by `createChatTools({ overrides })`. `execute`, `inputSchema`, and `outputSchema` are intentionally excluded so tool semantics stay stable across upgrades.
+Per-tool overrides accepted by `createChatTools({ overrides })`. Core fields like `execute`, `inputSchema`, `outputSchema`, `type`, `id`, and `args` are intentionally excluded so tool semantics stay stable across upgrades.

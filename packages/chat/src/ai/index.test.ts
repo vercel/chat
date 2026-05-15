@@ -1,4 +1,4 @@
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Chat } from "../chat";
 import {
@@ -15,11 +15,11 @@ const NO_FETCH_CHANNEL_MESSAGES_REGEX =
   /does not support fetching channel messages/;
 const NO_LIST_THREADS_REGEX = /does not support listing threads/;
 
-// Minimal ToolCallOptions stub used by every test below.
+// Minimal ToolExecutionOptions stub used by every test below.
 const TOOL_OPTIONS = {
   toolCallId: "t1",
   messages: [],
-} as unknown as ToolCallOptions;
+} as unknown as ToolExecutionOptions;
 
 describe("createChatTools", () => {
   let chat: Chat<{ slack: Adapter }>;
@@ -177,15 +177,25 @@ describe("createChatTools", () => {
     const execute = vi.fn().mockResolvedValue({ hijacked: true });
     const inputSchema = { sentinel: "input" };
     const outputSchema = { sentinel: "output" };
+    const inputExamples = [
+      { input: { threadId: "slack:C123:1234.5678", message: "hello" } },
+    ];
+    const metadata = { source: "chat-sdk" };
     const tools = createChatTools({
       chat,
       requireApproval: false,
       overrides: {
         postMessage: {
+          args: { name: "custom" },
           description: "Reply in the active support thread",
           execute,
+          id: "openai.custom",
+          inputExamples,
           inputSchema,
+          metadata,
           outputSchema,
+          supportsDeferredResults: true,
+          type: "provider",
         } as unknown as ToolOverrides,
       },
     });
@@ -195,8 +205,14 @@ describe("createChatTools", () => {
       "Reply in the active support thread"
     );
     expect(tools.postMessage?.execute).not.toBe(execute);
+    expect(postMessage.args).toBeUndefined();
+    expect(postMessage.id).toBeUndefined();
+    expect(postMessage.inputExamples).toEqual(inputExamples);
     expect(postMessage.inputSchema).not.toBe(inputSchema);
+    expect(postMessage.metadata).toEqual(metadata);
     expect(postMessage.outputSchema).not.toBe(outputSchema);
+    expect(postMessage.supportsDeferredResults).toBeUndefined();
+    expect(postMessage.type).not.toBe("provider");
 
     const result = await tools.postMessage?.execute?.(
       { threadId: "slack:C123:1234.5678", message: "hello" },

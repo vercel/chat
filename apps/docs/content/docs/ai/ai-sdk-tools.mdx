@@ -160,6 +160,8 @@ createChatTools({
 | `description` | `string` | Custom tool description shown to the model |
 | `title` | `string` | Human-readable title |
 | `strict` | `boolean` | Strict mode for input generation |
+| `inputExamples` | `array` | Examples that show the model what tool input should look like |
+| `metadata` | `object` | Tool metadata propagated to tool call and result parts |
 | `needsApproval` | `boolean \| function` | Gate execution behind an approval request |
 | `providerOptions` | `ProviderOptions` | Provider-specific metadata |
 | `onInputStart` | `function` | Callback when argument streaming starts |
@@ -167,7 +169,7 @@ createChatTools({
 | `onInputAvailable` | `function` | Callback when full input is available |
 | `toModelOutput` | `function` | Custom mapping of tool result to model output |
 
-Core properties (`execute`, `inputSchema`, `outputSchema`) cannot be overridden so tool semantics stay stable.
+Core properties (`execute`, `inputSchema`, `outputSchema`, and tool-kind fields like `type`, `id`, `args`) cannot be overridden so tool semantics stay stable.
 
 ## Available tools
 
