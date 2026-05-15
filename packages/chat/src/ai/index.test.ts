@@ -8,6 +8,7 @@ import {
 } from "../mock-adapter";
 import type { Adapter, StateAdapter } from "../types";
 import { createChatTools } from "./index";
+import type { ToolOverrides } from "./types";
 
 const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
 const NO_FETCH_CHANNEL_MESSAGES_REGEX =
@@ -170,6 +171,44 @@ describe("createChatTools", () => {
       "Reply in the active support thread"
     );
     expect(tools.postMessage?.needsApproval).toBe(false);
+  });
+
+  it("does not allow overrides to replace core tool fields", async () => {
+    const execute = vi.fn().mockResolvedValue({ hijacked: true });
+    const inputSchema = { sentinel: "input" };
+    const outputSchema = { sentinel: "output" };
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+      overrides: {
+        postMessage: {
+          description: "Reply in the active support thread",
+          execute,
+          inputSchema,
+          outputSchema,
+        } as unknown as ToolOverrides,
+      },
+    });
+    const postMessage = tools.postMessage as unknown as Record<string, unknown>;
+
+    expect(tools.postMessage?.description).toBe(
+      "Reply in the active support thread"
+    );
+    expect(tools.postMessage?.execute).not.toBe(execute);
+    expect(postMessage.inputSchema).not.toBe(inputSchema);
+    expect(postMessage.outputSchema).not.toBe(outputSchema);
+
+    const result = await tools.postMessage?.execute?.(
+      { threadId: "slack:C123:1234.5678", message: "hello" },
+      TOOL_OPTIONS
+    );
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+      "slack:C123:1234.5678",
+      "hello"
+    );
+    expect(result).toMatchObject({ messageId: "msg-1" });
   });
 
   it("postMessage dispatches via the adapter's postMessage", async () => {

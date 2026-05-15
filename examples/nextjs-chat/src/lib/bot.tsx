@@ -661,14 +661,14 @@ bot.onSlashCommand("/agent", async (event) => {
   const prompt = event.text.trim();
   if (!prompt) {
     await event.channel.post(
-      `${emoji.warning} Usage: \`/agent <instructions>\` — e.g. \`/agent summarize the last 10 messages in this channel\``
+      `${emoji.warning} Usage: \`/agent <instructions>\` - e.g. \`/agent summarize the last 10 messages in this channel\``
     );
     return;
   }
 
   const tools = createChatTools({
     chat: bot,
-    preset: "messenger",
+    preset: ["reader", "messenger"],
     requireApproval: false,
   });
 
@@ -678,9 +678,10 @@ bot.onSlashCommand("/agent", async (event) => {
     stopWhen: ({ steps }) => steps.length >= 8,
     instructions: [
       "You are an assistant operating inside a chat workspace via Chat SDK `chat/ai` tools.",
-      `The active channel id is "${event.channel.id}". Use this as the threadId when posting or reacting, unless a thread id from fetched messages is more appropriate.`,
-      "Use the provided tools to read context. Reply directly in chat with concise, well-formatted markdown — your final assistant text is what the user sees streamed in real time.",
-      "If you need recent context, call `fetchMessages` first.",
+      `The active channel id is "${event.channel.id}". Use it with channel tools such as fetchChannelMessages or postChannelMessage.`,
+      "Do not pass a channel id as a threadId. Use thread ids only with thread tools such as fetchMessages, postMessage, addReaction, and startTyping.",
+      "Your final assistant text is streamed back to the channel. Do not call postChannelMessage just to answer the slash command.",
+      "If you need recent channel context, call `fetchChannelMessages` first.",
     ].join("\n"),
   });
 

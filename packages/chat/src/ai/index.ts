@@ -20,6 +20,31 @@ import {
 import { getUser } from "./tools/users";
 import type { ChatBinding, ToolOverrides } from "./types";
 
+const PROTECTED_TOOL_FIELDS = new Set<string>([
+  "execute",
+  "inputSchema",
+  "outputSchema",
+]);
+
+export type ChatToolName =
+  | "fetchMessages"
+  | "fetchChannelMessages"
+  | "fetchThread"
+  | "listThreads"
+  | "getThreadParticipants"
+  | "getChannelInfo"
+  | "getUser"
+  | "startTyping"
+  | "postMessage"
+  | "postChannelMessage"
+  | "sendDirectMessage"
+  | "editMessage"
+  | "deleteMessage"
+  | "addReaction"
+  | "removeReaction"
+  | "subscribeThread"
+  | "unsubscribeThread";
+
 /**
  * Names of every tool that mutates platform state.
  * These default to `needsApproval: true` and can be toggled via
@@ -66,7 +91,7 @@ export type ApprovalConfig =
  */
 export type ChatToolPreset = "reader" | "messenger" | "moderator";
 
-const PRESET_TOOLS: Record<ChatToolPreset, string[]> = {
+const PRESET_TOOLS: Record<ChatToolPreset, ChatToolName[]> = {
   reader: [
     "fetchMessages",
     "fetchChannelMessages",
@@ -128,7 +153,7 @@ export interface ChatToolsOptions {
    * })
    * ```
    */
-  overrides?: Partial<Record<string, ToolOverrides>>;
+  overrides?: Partial<Record<ChatToolName, ToolOverrides>>;
   /**
    * Restrict the returned tools to a predefined preset.
    * Omit to get all tools (same as `'moderator'`).
@@ -161,15 +186,31 @@ function resolveApproval(
 
 function resolvePresetTools(
   preset: ChatToolPreset | ChatToolPreset[]
-): Set<string> {
+): Set<ChatToolName> {
   const presets = Array.isArray(preset) ? preset : [preset];
-  const tools = new Set<string>();
+  const tools = new Set<ChatToolName>();
   for (const p of presets) {
     for (const t of PRESET_TOOLS[p]) {
       tools.add(t);
     }
   }
   return tools;
+}
+
+function applyOverrides(
+  tool: Record<string, unknown>,
+  overrides: ToolOverrides | undefined
+): Record<string, unknown> {
+  if (!overrides) {
+    return tool;
+  }
+
+  const safeOverrides = Object.fromEntries(
+    Object.entries(overrides as Record<string, unknown>).filter(
+      ([key]) => !PROTECTED_TOOL_FIELDS.has(key)
+    )
+  );
+  return { ...tool, ...safeOverrides };
 }
 
 /**
@@ -252,7 +293,7 @@ export function createChatTools({
     subscribeThread: () => subscribeThread(chat, approval("subscribeThread")),
     unsubscribeThread: () =>
       unsubscribeThread(chat, approval("unsubscribeThread")),
-  };
+  } satisfies Record<ChatToolName, () => unknown>;
 
   type ToolName = keyof typeof factories;
   type Tools = { [K in ToolName]: ReturnType<(typeof factories)[K]> };
@@ -261,8 +302,7 @@ export function createChatTools({
     .filter(([name]) => !allowed || allowed.has(name))
     .map(([name, build]) => {
       const built = build() as Record<string, unknown>;
-      const override = overrides?.[name];
-      return [name, override ? { ...built, ...override } : built] as const;
+      return [name, applyOverrides(built, overrides?.[name])] as const;
     });
 
   return Object.fromEntries(entries) as Partial<Tools>;

@@ -22,6 +22,7 @@ import type {
   ToAiMessagesOptions,
   ChatBinding,
   ChatTools,
+  ChatToolName,
   ChatToolPreset,
   ChatWriteToolName,
   ApprovalConfig,
@@ -152,6 +153,31 @@ type ChatToolPreset = "reader" | "messenger" | "moderator";
 
 Predefined toolset scopes. See [Presets](/docs/ai/ai-sdk-tools#presets) for the exact tool list per preset.
 
+### ChatToolName
+
+```typescript
+type ChatToolName =
+  | "fetchMessages"
+  | "fetchChannelMessages"
+  | "fetchThread"
+  | "listThreads"
+  | "getThreadParticipants"
+  | "getChannelInfo"
+  | "getUser"
+  | "startTyping"
+  | "postMessage"
+  | "postChannelMessage"
+  | "sendDirectMessage"
+  | "editMessage"
+  | "deleteMessage"
+  | "addReaction"
+  | "removeReaction"
+  | "subscribeThread"
+  | "unsubscribeThread";
+```
+
+The names of every generated tool. Useful when typing per-tool overrides.
+
 ### ChatWriteToolName
 
 ```typescript
@@ -167,7 +193,7 @@ type ChatWriteToolName =
   | "unsubscribeThread";
 ```
 
-The names of every mutating tool — useful when wiring per-tool approval overrides.
+The names of every mutating tool. Useful when wiring per-tool approval overrides.
 
 ### ApprovalConfig
 
