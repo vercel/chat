@@ -1033,9 +1033,15 @@ export class TelegramAdapter
     let segmentUsesMarkdown = true;
     const postedSegments: StreamResult<TelegramRawMessage>["messages"] = [];
 
+    const renderMarkdownForTelegram = (text: string): string =>
+      convertEmojiPlaceholders(
+        this.formatConverter.fromMarkdown(text),
+        "gchat"
+      );
+
     const renderMarkdownText = (text: string): string =>
       truncateForTelegram(
-        this.formatConverter.fromMarkdown(text),
+        renderMarkdownForTelegram(text),
         TELEGRAM_MESSAGE_LIMIT,
         "MarkdownV2"
       );
@@ -1046,6 +1052,53 @@ export class TelegramAdapter
         TELEGRAM_MESSAGE_LIMIT,
         "plain"
       );
+
+    const isMarkdownSegmentWithinLimit = (text: string): boolean => {
+      const rendered = renderMarkdownForTelegram(text);
+      return (
+        rendered.trim().length > 0 &&
+        truncateForTelegram(rendered, TELEGRAM_MESSAGE_LIMIT, "MarkdownV2") ===
+          rendered
+      );
+    };
+
+    const getCommittedPrefixFor = (text: string): string => {
+      const candidateRenderer = new StreamingMarkdownRenderer();
+      candidateRenderer.push(text);
+      return candidateRenderer.getCommittedMarkdownPrefix();
+    };
+
+    const findMarkdownSegmentPrefixWithinLimit = (text: string): string => {
+      if (!text.trim()) {
+        return "";
+      }
+
+      const renderedLength = renderMarkdownForTelegram(text).length;
+      let candidateLength = text.length;
+
+      if (renderedLength > TELEGRAM_MESSAGE_LIMIT) {
+        candidateLength = Math.max(
+          1,
+          Math.min(
+            text.length - 1,
+            Math.floor((text.length * TELEGRAM_MESSAGE_LIMIT) / renderedLength)
+          )
+        );
+      }
+
+      while (candidateLength > 0) {
+        const candidate = getCommittedPrefixFor(text.slice(0, candidateLength));
+        if (candidate.trim() && isMarkdownSegmentWithinLimit(candidate)) {
+          return candidate;
+        }
+
+        const nextLength = Math.floor(candidateLength * 0.9);
+        candidateLength =
+          nextLength < candidateLength ? nextLength : candidateLength - 1;
+      }
+
+      return "";
+    };
 
     const resetSegment = (nextText = ""): void => {
       renderer = new StreamingMarkdownRenderer();
@@ -1069,9 +1122,10 @@ export class TelegramAdapter
         return;
       }
 
-      const postable: AdapterPostableMessage = useMarkdown
-        ? { markdown: text }
-        : this.resolveTelegramFallbackText(text, markdownToPlainText(text));
+      const postable: AdapterPostableMessage =
+        useMarkdown && isMarkdownSegmentWithinLimit(text)
+          ? { markdown: text }
+          : this.resolveTelegramFallbackText(text, markdownToPlainText(text));
       const message = await this.postMessage(threadId, postable);
 
       postedSegments.push({
@@ -1174,15 +1228,27 @@ export class TelegramAdapter
           await flushDraft();
         }
 
-        if (segmentText.length >= TELEGRAM_STREAM_SEGMENT_LIMIT) {
+        const renderedOverflow =
+          segmentUsesMarkdown &&
+          segmentText.length > Math.floor(TELEGRAM_MESSAGE_LIMIT / 2) &&
+          !isMarkdownSegmentWithinLimit(segmentText);
+
+        if (
+          segmentText.length >= TELEGRAM_STREAM_SEGMENT_LIMIT ||
+          renderedOverflow
+        ) {
           const committedPrefix = segmentUsesMarkdown
             ? renderer.getCommittedMarkdownPrefix()
             : "";
+          const markdownPrefix =
+            segmentUsesMarkdown && isMarkdownSegmentWithinLimit(committedPrefix)
+              ? committedPrefix
+              : findMarkdownSegmentPrefixWithinLimit(committedPrefix);
 
-          if (segmentUsesMarkdown && committedPrefix.trim()) {
-            const overflow = segmentText.slice(committedPrefix.length);
-            await flushDraft(committedPrefix);
-            await postSegment(committedPrefix, true);
+          if (segmentUsesMarkdown && markdownPrefix.trim()) {
+            const overflow = segmentText.slice(markdownPrefix.length);
+            await flushDraft(markdownPrefix);
+            await postSegment(markdownPrefix, true);
             resetSegment(overflow);
             continue;
           }

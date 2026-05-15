@@ -1266,6 +1266,93 @@ describe("TelegramAdapter", () => {
     expect(finalSendBody.text).toBe(renderedMarkdown);
   });
 
+  it("splits streams by rendered MarkdownV2 length before final sends can truncate", async () => {
+    const sourceMarkdown = ".".repeat(3500);
+    const renderedMarkdown = "\\.".repeat(3500);
+    const requestBodies: Array<{
+      method: string;
+      body: { parse_mode?: string; text?: string };
+    }> = [];
+    let nextMessageId = 51;
+
+    mockFetch.mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = url.split("/").at(-1) ?? url;
+      const rawBody = (init as RequestInit | undefined)?.body;
+      const body =
+        typeof rawBody === "string"
+          ? (JSON.parse(rawBody) as { parse_mode?: string; text?: string })
+          : {};
+
+      requestBodies.push({ method, body });
+
+      if (method === "getMe") {
+        return telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        });
+      }
+
+      if (method === "sendMessageDraft") {
+        return telegramOk(true);
+      }
+
+      if (method === "sendMessage") {
+        return telegramOk(
+          sampleMessage({
+            message_id: nextMessageId++,
+            text: body.text ?? "",
+          })
+        );
+      }
+
+      throw new Error(`Unexpected Telegram method in test: ${method}`);
+    });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* textStream(): AsyncIterable<string> {
+      yield sourceMarkdown;
+    }
+
+    const result = await adapter.stream("telegram:123", textStream(), {
+      updateIntervalMs: Number.MAX_SAFE_INTEGER,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result).toHaveProperty("messages");
+    if (!(result && "messages" in result)) {
+      throw new Error("Expected segmented stream result");
+    }
+
+    const finalSendBodies = requestBodies
+      .filter((request) => request.method === "sendMessage")
+      .map((request) => request.body);
+
+    expect(finalSendBodies.length).toBeGreaterThan(1);
+    expect(result.messages).toHaveLength(finalSendBodies.length);
+    expect(
+      finalSendBodies.every((body) => body.parse_mode === "MarkdownV2")
+    ).toBe(true);
+    expect(
+      finalSendBodies.every(
+        (body) => (body.text?.length ?? 0) <= TELEGRAM_MESSAGE_LIMIT
+      )
+    ).toBe(true);
+    expect(finalSendBodies.map((body) => body.text ?? "").join("")).toBe(
+      renderedMarkdown
+    );
+  });
+
   it("returns null for non-DM streaming so Chat SDK can use fallback streaming", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
