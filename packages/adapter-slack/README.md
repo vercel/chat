@@ -405,15 +405,15 @@ SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted g
 
 ## Direct `WebClient` access
 
-Use `adapter.client` to get a typed `WebClient` from `@slack/web-api` for any
-Web API call that isn't wrapped by the SDK's high-level methods.
+Use `adapter.webClient` to get a typed `WebClient` from `@slack/web-api`
+for any Web API call that isn't wrapped by the SDK's high-level methods.
 
 ```typescript
 import type { SlackAdapter } from "@chat-adapter/slack";
 
 bot.onAction("pin-this", async (event) => {
   const slack = bot.getAdapter("slack") as SlackAdapter;
-  await slack.client.pins.add({
+  await slack.webClient.pins.add({
     channel: event.thread!.channel.id.replace(/^slack:/, ""),
     timestamp: event.messageId,
   });
@@ -427,19 +427,23 @@ The returned client is bound to the bot token resolved in this order:
 2. The default `botToken`, when configured as a static string or a
    synchronous resolver function.
 
-`adapter.client` throws `AuthenticationError` outside of any context in
-multi-workspace mode, or when `botToken` is configured as an async resolver
-function. For both cases, await the token first and bind it explicitly:
+`adapter.webClient` throws `AuthenticationError` outside of any context
+in multi-workspace mode, or when `botToken` is configured as an async
+resolver function. For both cases, await the token first and bind it
+explicitly:
 
 ```typescript
 const install = await slackAdapter.getInstallation(teamId);
 if (!install) throw new Error("Workspace not installed");
 
 await slackAdapter.withBotToken(install.botToken, async () => {
-  const me = await slackAdapter.client.auth.test();
+  const me = await slackAdapter.webClient.auth.test();
   console.log("Bot user:", me.user_id);
 });
 ```
+
+> The previous `.client` getter still works as a deprecated alias for
+> `.webClient`.
 
 Internal API calls (`postMessage`, `editMessage`, `fetchMessages`, etc.) are
 unaffected — they continue to resolve tokens through the same async path

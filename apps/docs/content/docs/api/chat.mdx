@@ -501,20 +501,20 @@ const slack = bot.getAdapter("slack");
 
 #### Direct client access
 
-Use `.client` to access the platform's typed native API client directly — available on Slack, Linear, and GitHub:
+Access the platform's typed native API client directly via an SDK-named getter — `.webClient` on Slack, `.linearClient` on Linear, `.octokit` on GitHub:
 
 ```typescript
 // Slack - full WebClient from @slack/web-api
-const slack = bot.getAdapter("slack").client;
+const slack = bot.getAdapter("slack").webClient;
 await slack.pins.add({ channel: "C123ABC", timestamp: "1234567890.123456" });
 
 // Linear - full LinearClient from @linear/sdk
-const linear = bot.getAdapter("linear").client;
+const linear = bot.getAdapter("linear").linearClient;
 const issue = await linear.issue("ENG-123");
 const project = await issue.project;
 
 // GitHub - full Octokit from @octokit/rest
-const github = bot.getAdapter("github").client;
+const github = bot.getAdapter("github").octokit;
 const { data: pulls } = await github.rest.pulls.list({
   owner: "vercel",
   repo: "chat",
@@ -524,19 +524,23 @@ const { data: pulls } = await github.rest.pulls.list({
 
 The client uses the credentials from your adapter config. For multi-tenant / multi-workspace adapters (Slack, Linear, GitHub), it returns the client bound to the credentials for the current webhook request context.
 
-<Callout type="warn">
-  Multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth, Slack in multi-workspace mode) require a webhook handler context to resolve credentials when `.client` is accessed. Calling it outside a handler throws.
+<Callout type="info">
+  The previous `.client` getter still works on all three adapters as a deprecated alias for `.webClient` / `.linearClient` / `.octokit`.
+</Callout>
 
-  For Slack, you can also bind a token explicitly outside a webhook with `adapter.withBotToken(token, () => adapter.client.…)` — useful for cron jobs or workflows. The same pattern is required when `botToken` is configured as an async resolver function, since `.client` resolves the token synchronously.
+<Callout type="warn">
+  Multi-tenant adapters (GitHub App without a fixed installation ID, Linear with per-org OAuth, Slack in multi-workspace mode) require a webhook handler context to resolve credentials when the native client getter is accessed. Calling it outside a handler throws.
+
+  For Slack, you can also bind a token explicitly outside a webhook with `adapter.withBotToken(token, () => adapter.webClient.…)` — useful for cron jobs or workflows. The same pattern is required when `botToken` is configured as an async resolver function, since `.webClient` resolves the token synchronously.
 
   Single-tenant adapters (PAT, API key, static `botToken` string, or a synchronous `botToken` resolver) work anywhere.
 </Callout>
 
-| Adapter | `client` type |
-|---------|---------------|
-| Slack | `WebClient` from `@slack/web-api` |
-| Linear | `LinearClient` from `@linear/sdk` |
-| GitHub | `Octokit` from `@octokit/rest` |
+| Adapter | Getter | Type |
+|---------|--------|------|
+| Slack | `.webClient` | `WebClient` from `@slack/web-api` |
+| Linear | `.linearClient` | `LinearClient` from `@linear/sdk` |
+| GitHub | `.octokit` | `Octokit` from `@octokit/rest` |
 
 ### openDM
 

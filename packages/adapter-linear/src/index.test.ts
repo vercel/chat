@@ -1,4 +1,6 @@
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import type { LinearClient } from "@linear/sdk";
 import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -10,6 +12,7 @@ import { createLinearAdapter, LinearAdapter } from "./index";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 const BYTES_32_PATTERN = /32 bytes/;
+const NO_LINEAR_TOKEN_PATTERN = /No Linear access token available/;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -877,6 +880,94 @@ describe("constructor", () => {
     expect(() => adapter.botUserId).toThrow(
       "No bot user ID available in context"
     );
+  });
+});
+
+// =============================================================================
+// linearClient getter
+// =============================================================================
+
+describe("linearClient getter", () => {
+  it("should return the underlying LinearClient in apiKey mode", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    const client = adapter.linearClient;
+    expect(client).toBeDefined();
+    expect(typeof client.issue).toBe("function");
+  });
+
+  it("should return the same instance across calls in single-tenant mode", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(adapter.linearClient).toBe(adapter.linearClient);
+  });
+
+  it("should expose the same instance via the deprecated `client` alias", () => {
+    const adapter = new LinearAdapter({
+      apiKey: "lin_api_key_123",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(adapter.client).toBe(adapter.linearClient);
+  });
+
+  it("should throw in multi-tenant OAuth mode when called outside a webhook", () => {
+    const adapter = new LinearAdapter({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+
+    expect(() => adapter.linearClient).toThrow(NO_LINEAR_TOKEN_PATTERN);
+    expect(() => adapter.client).toThrow(NO_LINEAR_TOKEN_PATTERN);
+  });
+
+  it("should resolve the per-org LinearClient when accessed inside a webhook context", () => {
+    const adapter = new LinearAdapter({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      webhookSecret: "secret",
+      userName: "my-bot",
+      logger: createMockLogger(),
+    });
+    const requestContext = (
+      adapter as unknown as {
+        requestContext: AsyncLocalStorage<{
+          client: LinearClient;
+          installation: unknown;
+        }>;
+      }
+    ).requestContext;
+
+    const orgClient = {} as LinearClient;
+    let captured: LinearClient | undefined;
+    let capturedAlias: LinearClient | undefined;
+    requestContext.run(
+      { client: orgClient, installation: { organizationId: "org-123" } },
+      () => {
+        captured = adapter.linearClient;
+        capturedAlias = adapter.client;
+      }
+    );
+    expect(captured).toBe(orgClient);
+    expect(capturedAlias).toBe(orgClient);
+
+    // Outside the context, access throws again — context isn't sticky.
+    expect(() => adapter.linearClient).toThrow(NO_LINEAR_TOKEN_PATTERN);
   });
 });
 

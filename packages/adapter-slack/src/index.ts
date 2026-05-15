@@ -510,11 +510,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Direct access to a `WebClient` from `@slack/web-api` bound to the bot
-   * token for the current request context (multi-workspace) or the
-   * configured default token (single-workspace). Use for any Slack Web API
-   * call not covered by the SDK's high-level methods — for example
-   * `adapter.client.pins.add(...)` or `adapter.client.usergroups.list(...)`.
+   * Direct access to a [`WebClient`](https://github.com/slackapi/node-slack-sdk/tree/main/packages/web-api)
+   * from `@slack/web-api` bound to the bot token for the current request
+   * context (multi-workspace) or the configured default token
+   * (single-workspace). Use for any Slack Web API call not covered by the
+   * SDK's high-level methods — for example
+   * `adapter.webClient.pins.add(...)` or
+   * `adapter.webClient.usergroups.list(...)`.
    *
    * Resolution order:
    *   1. Token from the current `requestContext` (set during webhook
@@ -523,12 +525,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    *      synchronous resolver function.
    *
    * Throws `AuthenticationError` if neither is available — typical causes
-   * are calling `.client` outside any webhook/`withBotToken()` context in
-   * multi-workspace mode, or having configured `botToken` as an async
+   * are calling `.webClient` outside any webhook/`withBotToken()` context
+   * in multi-workspace mode, or having configured `botToken` as an async
    * function. In the latter case wrap the work in
-   * `adapter.withBotToken(token, () => adapter.client...)`.
+   * `adapter.withBotToken(token, () => adapter.webClient...)`.
+   *
+   * @example
+   * ```ts
+   * const slack = bot.getAdapter("slack").webClient;
+   * await slack.pins.add({
+   *   channel: "C123ABC",
+   *   timestamp: "1234567890.123456",
+   * });
+   * ```
    */
-  get client(): WebClient {
+  get webClient(): WebClient {
     const ctx = this.requestContext.getStore();
     if (ctx?.token) {
       return this.getClientForToken(ctx.token);
@@ -540,13 +551,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
       throw new AuthenticationError(
         "slack",
-        "botToken is configured as an async resolver and cannot be resolved synchronously for `.client`. Wrap the work in `adapter.withBotToken(token, () => adapter.client...)` after awaiting the token."
+        "botToken is configured as an async resolver and cannot be resolved synchronously for `.webClient`. Wrap the work in `adapter.withBotToken(token, () => adapter.webClient...)` after awaiting the token."
       );
     }
     throw new AuthenticationError(
       "slack",
       "No bot token available. In multi-workspace mode, ensure the webhook is being processed or use `adapter.withBotToken(token, fn)` to bind a token explicitly."
     );
+  }
+
+  /**
+   * @deprecated Use {@link SlackAdapter.webClient | `webClient`} instead.
+   * This alias is preserved for backwards compatibility and will be
+   * removed in a future major release.
+   */
+  get client(): WebClient {
+    return this.webClient;
   }
 
   private getClientForToken(token: string): WebClient {

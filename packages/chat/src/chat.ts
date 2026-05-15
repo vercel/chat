@@ -1975,7 +1975,7 @@ export class Chat<
    * - Deduplication: Same message may arrive multiple times (e.g., Slack sends
    *   both `message` and `app_mention` events, GChat sends direct webhook + Pub/Sub)
    * - Bot filtering: Messages from the bot itself are skipped
-   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, concurrent)
+   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, burst, concurrent)
    */
   async handleIncomingMessage(
     adapter: Adapter,
@@ -2044,7 +2044,11 @@ export class Chat<
       return;
     }
 
-    if (strategy === "queue" || strategy === "debounce") {
+    if (
+      strategy === "queue" ||
+      strategy === "debounce" ||
+      strategy === "burst"
+    ) {
       await this.handleQueueOrDebounce(
         adapter,
         threadId,
@@ -2122,7 +2126,7 @@ export class Chat<
     threadId: string,
     lockKey: string,
     message: Message,
-    strategy: "queue" | "debounce"
+    strategy: "queue" | "debounce" | "burst"
   ): Promise<void> {
     const { maxQueueSize, queueEntryTtlMs, onQueueFull, debounceMs } =
       this._concurrencyConfig;
@@ -2200,6 +2204,25 @@ export class Chat<
           debounceMs,
         });
         await this.debounceLoop(lock, adapter, threadId, lockKey);
+      } else if (strategy === "burst") {
+        await this._stateAdapter.enqueue(
+          lockKey,
+          {
+            message,
+            enqueuedAt: Date.now(),
+            expiresAt: Date.now() + queueEntryTtlMs,
+          },
+          maxQueueSize
+        );
+        this.logger.info("message-debouncing", {
+          threadId,
+          lockKey,
+          messageId: message.id,
+          debounceMs,
+        });
+        await sleep(debounceMs);
+        await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
+        await this.drainQueue(lock, adapter, threadId, lockKey);
       } else {
         // Queue: process our message immediately, then drain any queued messages
         await this.dispatchToHandlers(adapter, threadId, message);

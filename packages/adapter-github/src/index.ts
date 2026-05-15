@@ -111,15 +111,51 @@ export class GitHubAdapter
     installationId?: number;
   }>();
 
-  get client(): Octokit {
+  /**
+   * The underlying [Octokit](https://github.com/octokit/octokit.js) REST
+   * client, authenticated with the credentials this adapter was configured
+   * with. Use this for any GitHub API call that isn't covered by the unified
+   * Chat SDK surface.
+   *
+   * Resolution rules:
+   * - **PAT mode** and **single-tenant GitHub App mode** (with a fixed
+   *   `installationId`): always returns the same client instance.
+   * - **Multi-tenant GitHub App mode**: returns the client for the current
+   *   webhook request's installation, resolved from `AsyncLocalStorage`.
+   *   Calling this getter outside a webhook handler throws, since there is
+   *   no installation to authenticate as.
+   *
+   * @throws {ValidationError} In multi-tenant mode when called outside a
+   * webhook handler (no installation ID is available).
+   *
+   * @example
+   * ```ts
+   * const github = bot.getAdapter("github").octokit;
+   * const { data: pulls } = await github.rest.pulls.list({
+   *   owner: "vercel",
+   *   repo: "chat",
+   *   state: "open",
+   * });
+   * ```
+   */
+  get octokit(): Octokit {
     const ctx = this.requestContext.getStore();
     return this.getOctokit(
       ctx?.installationId ?? this.fixedInstallationId ?? undefined
     );
   }
 
+  /**
+   * @deprecated Use {@link GitHubAdapter.octokit | `octokit`} instead. This
+   * alias is preserved for backwards compatibility and will be removed in a
+   * future major release.
+   */
+  get client(): Octokit {
+    return this.octokit;
+  }
+
   // Single Octokit instance for PAT or single-tenant app mode
-  protected readonly octokit: Octokit | null = null;
+  protected readonly defaultOctokit: Octokit | null = null;
   // App credentials for multi-tenant mode
   protected readonly appCredentials: {
     appId: string;
@@ -145,7 +181,7 @@ export class GitHubAdapter
 
   /** Whether this adapter is in multi-tenant mode (no fixed installation ID) */
   get isMultiTenant(): boolean {
-    return this.appCredentials !== null && this.octokit === null;
+    return this.appCredentials !== null && this.defaultOctokit === null;
   }
 
   constructor(config: GitHubAdapterConfig = {} as GitHubAdapterAutoConfig) {
@@ -176,7 +212,7 @@ export class GitHubAdapter
 
     if ("token" in config && config.token) {
       // PAT mode - single Octokit instance
-      this.octokit = new Octokit({
+      this.defaultOctokit = new Octokit({
         auth: config.token,
         ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
       });
@@ -189,7 +225,7 @@ export class GitHubAdapter
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
         fixedInstallationId = config.installationId;
-        this.octokit = new Octokit({
+        this.defaultOctokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
             appId: config.appId,
@@ -218,7 +254,7 @@ export class GitHubAdapter
       // Auto-detect from env vars
       const token = process.env.GITHUB_TOKEN;
       if (token) {
-        this.octokit = new Octokit({
+        this.defaultOctokit = new Octokit({
           auth: token,
           ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
         });
@@ -231,7 +267,7 @@ export class GitHubAdapter
             : undefined;
           if (installationIdRaw) {
             fixedInstallationId = installationIdRaw;
-            this.octokit = new Octokit({
+            this.defaultOctokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
               ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
@@ -261,8 +297,8 @@ export class GitHubAdapter
    */
   protected getOctokit(installationId?: number): Octokit {
     // Single-tenant mode - return the single instance
-    if (this.octokit) {
-      return this.octokit;
+    if (this.defaultOctokit) {
+      return this.defaultOctokit;
     }
 
     // Multi-tenant mode - need an installation ID
@@ -365,8 +401,8 @@ export class GitHubAdapter
     // global octokit yet — detection happens lazily in getOctokit() on first
     // installation client creation, and synchronously in handleWebhook() on
     // the first webhook so isMe checks work for the very first reply.
-    if (!this._botUserId && this.octokit) {
-      await this.detectBotUserId(this.octokit);
+    if (!this._botUserId && this.defaultOctokit) {
+      await this.detectBotUserId(this.defaultOctokit);
     }
   }
 
@@ -1503,7 +1539,7 @@ export class GitHubAdapter
       githubRaw.type === "issue_comment" && githubRaw.threadType === "issue";
 
     try {
-      const octokit = this.client;
+      const octokit = this.octokit;
 
       if (isIssue) {
         const { data } = await octokit.rest.issues.get({

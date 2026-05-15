@@ -1,6 +1,6 @@
 ---
 title: Overlapping Messages
-description: Control how overlapping messages on the same thread are handled — queue, debounce, drop, or process concurrently.
+description: Control how overlapping messages on the same thread are handled - burst, queue, debounce, drop, or process concurrently.
 type: guide
 prerequisites:
   - /docs/handling-events
@@ -57,11 +57,49 @@ A done     → drain: [B, C, D] → handler(D, { skipped: [B, C] })
 D done     → queue empty → release lock
 ```
 
+### Burst
+
+Waits for `debounceMs` before the first handler on an idle thread, then drains the collected burst like `queue`. The latest message is dispatched, and earlier messages in the burst are available as `context.skipped`.
+
+Use this for assistant-style bots where users often send one logical turn as several short messages inside a small window and you want one response with full context. Compared to `debounce`, `burst` keeps the earlier messages in `context.skipped` instead of dropping them, and it flushes queued messages that arrive while the handler is running.
+
+Choose `debounce` when the latest message replaces earlier ones, like rapid corrections. Choose `burst` when earlier messages still matter, like "hey", "quick question", and then the actual question. The tradeoff is that even a lone message waits for `debounceMs` before the handler runs.
+
+```typescript title="lib/bot.ts" lineNumbers
+const bot = new Chat({
+  concurrency: { strategy: "burst", debounceMs: 1000 },
+  // ...
+});
+
+bot.onNewMention(async (thread, message, context) => {
+  const turn = [...(context?.skipped ?? []), message]
+    .map((m) => m.text)
+    .join("\n\n");
+
+  const response = await generateAIResponse(turn);
+  await thread.post(response);
+});
+```
+
+**Flow:**
+
+```
+A arrives  → acquire lock → enqueue A → sleep(debounceMs)
+B arrives  → lock busy → enqueue B
+C arrives  → lock busy → enqueue C
+             ... debounceMs elapses ...
+           → drain: [A, B, C] → handler(C, { skipped: [A, B] })
+D arrives while C is running → lock busy → enqueue D
+E arrives while C is running → lock busy → enqueue E
+C done     → drain: [D, E] → handler(E, { skipped: [D] })
+E done     → queue empty → release lock
+```
+
 ### Debounce
 
-Every message starts or resets a debounce timer. Only the **final message in a burst** is processed.
+The first message waits for `debounceMs`. Messages that arrive during that window replace the pending message, so only the **final message in the burst window** is processed.
 
-This is particularly useful for platforms like **WhatsApp** and **Telegram** where users tend to send a flurry of short messages in quick succession instead of composing a single message — "hey", "quick question", "how do I reset my password?" arriving as three separate webhooks within a few seconds. Without debounce, the bot would respond to "hey" before the actual question even arrives. With debounce, the SDK waits for a pause in the conversation and processes only the final message.
+This is particularly useful for platforms like **WhatsApp** and **Telegram** where users tend to send a flurry of short messages in quick succession instead of composing a single message - "hey", "quick question", "how do I reset my password?" arriving as three separate webhooks within a few seconds. Without debounce, the bot would respond to "hey" before the actual question even arrives. With debounce, the SDK waits briefly and processes only the final message in the window.
 
 ```typescript title="lib/bot.ts" lineNumbers
 const bot = new Chat({
@@ -118,10 +156,10 @@ const bot = new Chat({
 | Option | Strategies | Default | Description |
 |--------|-----------|---------|-------------|
 | `strategy` | all | `"drop"` | The concurrency strategy to use |
-| `maxQueueSize` | queue, debounce | `10` | Maximum queued messages per thread |
-| `onQueueFull` | queue, debounce | `"drop-oldest"` | Whether to evict the oldest or reject the newest message when the queue is full |
-| `queueEntryTtlMs` | queue, debounce | `90000` | TTL for queued entries in milliseconds. Expired entries are discarded on dequeue |
-| `debounceMs` | debounce | `1500` | Debounce window in milliseconds |
+| `maxQueueSize` | queue, burst | `10` | Maximum queued messages per thread |
+| `onQueueFull` | queue, burst | `"drop-oldest"` | Whether to evict the oldest or reject the newest message when the queue is full |
+| `queueEntryTtlMs` | queue, debounce, burst | `90000` | TTL for queued entries in milliseconds. Expired entries are discarded on dequeue |
+| `debounceMs` | debounce, burst | `1500` | Debounce window in milliseconds |
 | `maxConcurrent` | concurrent | `Infinity` | Max concurrent handlers per thread |
 
 <Callout type="warn">
@@ -130,7 +168,7 @@ const bot = new Chat({
 
 ## MessageContext
 
-All handler types (`onNewMention`, `onSubscribedMessage`, `onNewMessage`) accept an optional `MessageContext` as their last parameter. It is only populated when using the `queue` strategy and messages were skipped.
+All handler types (`onNewMention`, `onSubscribedMessage`, `onNewMessage`) accept an optional `MessageContext` as their last parameter. It is populated when using the `queue` strategy for queued messages, and when using `burst` for a collapsed turn. A lone `burst` message receives `skipped: []` and `totalSinceLastHandler: 1`.
 
 ```typescript
 interface MessageContext {
@@ -186,7 +224,7 @@ const bot = new Chat({
 
 ## State adapter requirements
 
-The `queue` and `debounce` strategies require three additional methods on your state adapter:
+The `queue`, `debounce`, and `burst` strategies require three additional methods on your state adapter:
 
 | Method | Description |
 |--------|-------------|
@@ -202,12 +240,12 @@ All strategies emit structured log events at `info` level:
 
 | Event | Strategy | Data |
 |-------|----------|------|
-| `message-queued` | queue | threadId, messageId, queueDepth |
-| `message-dequeued` | queue, debounce | threadId, messageId, skippedCount |
-| `message-dropped` | drop, queue | threadId, messageId, reason |
-| `message-expired` | queue, debounce | threadId, messageId |
+| `message-queued` | queue, burst | threadId, messageId, queueDepth |
+| `message-dequeued` | queue, debounce, burst | threadId, messageId, skippedCount for queue/burst |
+| `message-dropped` | drop, queue, burst | threadId, messageId, reason |
+| `message-expired` | queue, debounce, burst | threadId, messageId |
 | `message-superseded` | debounce | threadId, droppedId |
-| `message-debouncing` | debounce | threadId, messageId, debounceMs |
+| `message-debouncing` | debounce, burst | threadId, messageId, debounceMs |
 | `message-debounce-reset` | debounce | threadId, messageId |
 
 ## Choosing a strategy
@@ -216,7 +254,8 @@ All strategies emit structured log events at `info` level:
 |----------|----------|-----|
 | Simple bots, one-shot commands | `drop` | No complexity, no queue overhead |
 | AI chatbots, customer support | `queue` | Never lose messages; handler sees full conversation context |
-| WhatsApp/Telegram bots, rapid corrections | `debounce` | Users send many short messages in quick succession; wait for a pause before responding |
+| AI chatbots with multi-message user turns | `burst` | Wait for the idle burst window, then respond once with every message in that window |
+| WhatsApp/Telegram bots, rapid corrections | `debounce` | Users send many short messages in quick succession; wait briefly and keep only the latest |
 | Stateless lookups, translations | `concurrent` | Maximum throughput, no ordering needed |
 
 ## Backward compatibility

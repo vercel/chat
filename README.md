@@ -61,7 +61,7 @@ Browse official, vendor-official, and community adapters on [chat-sdk.dev/adapte
 - [**File uploads**](https://chat-sdk.dev/docs/files) — send and receive file attachments
 - [**Direct messages**](https://chat-sdk.dev/docs/direct-messages) — initiate DMs programmatically
 - [**Ephemeral messages**](https://chat-sdk.dev/docs/ephemeral-messages) — user-only visible messages with DM fallback
-- [**Overlapping messages**](https://chat-sdk.dev/docs/concurrency) — queue, debounce, drop, or process concurrent messages on the same thread
+- [**Overlapping messages**](https://chat-sdk.dev/docs/concurrency) - burst, queue, debounce, drop, or process concurrent messages on the same thread
 
 ## AI coding agent support
 
