@@ -6,7 +6,11 @@
  */
 
 // Adapter utilities
-export { extractCard, extractFiles } from "./adapter-utils";
+export {
+  extractCard,
+  extractFiles,
+  extractPostableAttachments,
+} from "./adapter-utils";
 
 // Buffer conversion utilities
 export {
@@ -28,6 +32,15 @@ export {
   type PlatformName,
   renderGfmTable,
 } from "./card-utils";
+
+// Token encryption helpers (AES-256-GCM)
+export {
+  decodeKey,
+  decryptToken,
+  type EncryptedTokenData,
+  encryptToken,
+  isEncryptedTokenData,
+} from "./crypto";
 
 // Standardized adapter errors
 export {

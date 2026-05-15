@@ -66,11 +66,13 @@ export class BridgeHttpAdapter implements IHttpServerAdapter {
     try {
       const serverResponse = await this.handler({ body: parsedBody, headers });
 
+      const hasBody =
+        serverResponse.body !== undefined && serverResponse.body !== null;
       return new Response(
-        serverResponse.body ? JSON.stringify(serverResponse.body) : "{}",
+        hasBody ? JSON.stringify(serverResponse.body) : null,
         {
           status: serverResponse.status,
-          headers: { "Content-Type": "application/json" },
+          headers: hasBody ? { "Content-Type": "application/json" } : undefined,
         }
       );
     } catch (error) {

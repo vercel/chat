@@ -1,16 +1,6 @@
 ---
 name: chat-sdk
-description: >
-  Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
-  (1) Build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot,
-  (2) Use Chat SDK to handle mentions, direct messages, subscribed threads, reactions, slash
-  commands, cards, modals, files, or AI streaming,
-  (3) Set up webhook routes or multi-adapter bots,
-  (4) Send rich cards or streamed AI responses to chat platforms,
-  (5) Build or maintain a custom adapter or state adapter.
-  Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "google chat bot", "discord bot",
-  "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
-  "state adapter", "build adapter", and building bots that work across multiple chat platforms.
+description: Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot, handle mentions, direct messages, subscribed threads, reactions, slash commands, cards, modals, files, or AI streaming, set up webhook routes or multi-adapter bots, send rich cards or streamed AI responses to chat platforms, or build a custom adapter or state adapter.
 ---
 
 # Chat SDK
@@ -26,7 +16,8 @@ node_modules/chat/docs/                    # bundled docs
 node_modules/chat/dist/index.d.ts          # core API types
 node_modules/chat/dist/jsx-runtime.d.ts    # JSX runtime types
 node_modules/chat/docs/contributing/       # adapter-authoring docs
-node_modules/chat/docs/guides/             # framework/platform guides
+node_modules/chat/resources/guides/        # framework/platform guides (markdown)
+node_modules/chat/resources/templates.json # starter templates (title, description, href)
 ```
 
 If one of the paths below does not exist, that package is not installed in the project yet.
@@ -52,6 +43,29 @@ Read these before writing code:
 - `node_modules/chat/docs/api/modals.mdx` — modal element and event details
 
 For the specific adapter or state package you are using, inspect that installed package's `dist/index.d.ts` export surface in `node_modules`.
+
+## Available resources
+
+<!-- RESOURCES:START -->
+
+### Guides
+
+- `node_modules/chat/resources/guides/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk.md` — Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.
+- `node_modules/chat/resources/guides/run-and-track-deploys-from-slack.md` — Build a Slack deploy bot with Chat SDK and Vercel Workflow. Dispatch GitHub Actions from a slash command, gate production behind approval, poll for completion, and notify Linear and GitHub when the run finishes.
+- `node_modules/chat/resources/guides/triage-form-submissions-with-chat-sdk.md` — Build a Slack bot that triages form submissions with interactive cards. Forward, edit, or mark as spam without leaving Slack. Built with Chat SDK, Hono, and Resend.
+- `node_modules/chat/resources/guides/how-to-build-a-slack-bot-with-next-js-and-redis.md` — This guide walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+- `node_modules/chat/resources/guides/create-a-discord-support-bot-with-nuxt-and-redis.md` — This guide walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+- `node_modules/chat/resources/guides/ship-a-github-code-review-bot-with-hono-and-redis.md` — This guide walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+
+### Templates
+
+Listed in `node_modules/chat/resources/templates.json`:
+
+- **Chat SDK Liveblocks Bot** — Build a bot that you can engage with inside Liveblocks. (https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot)
+- **Knowledge Agent** — Open source file-system and knowledge based agent template. Build AI agents that stay up to date with your knowledge base. (https://vercel.com/templates/nuxt/chat-sdk-knowledge-agent)
+- **Community Agent** — Open source AI-powered Slack community management bot with a built-in Next.js admin panel. Uses Chat SDK, AI SDK, and Vercel Workflow. (https://vercel.com/templates/next.js/chat-sdk-community-agent)
+
+<!-- RESOURCES:END -->
 
 ## Quick start
 
@@ -110,7 +124,7 @@ Read `node_modules/chat/docs/handling-events.mdx`, `node_modules/chat/docs/actio
 
 ## Streaming
 
-Pass any `AsyncIterable<string>` to `thread.post()` or `thread.stream()`. For AI SDK, prefer `result.fullStream` over `result.textStream` when available so step boundaries are preserved.
+Pass any `AsyncIterable<string>` to `thread.post()`. For AI SDK, prefer `result.fullStream` over `result.textStream` when available so step boundaries are preserved.
 
 ```typescript
 import { ToolLoopAgent } from "ai";
@@ -138,6 +152,8 @@ Card components:
 Modal components:
 - `Modal`, `TextInput`, `Select`, `SelectOption`, `RadioSelect`
 
+`Button` and `Modal` accept a `callbackUrl` prop — when triggered, the SDK POSTs the action payload to that URL in addition to firing any `onAction` / `onModalSubmit` handler. Use this for webhook-based workflow flows. See `node_modules/chat/docs/actions.mdx` and `node_modules/chat/docs/modals.mdx`.
+
 ```tsx
 await thread.post(
   <Card title="Order #1234">
@@ -152,47 +168,7 @@ await thread.post(
 
 ## Adapter inventory
 
-### Official platform adapters
-
-| Platform | Package | Factory |
-|---------|---------|---------|
-| Slack | `@chat-adapter/slack` | `createSlackAdapter` |
-| Microsoft Teams | `@chat-adapter/teams` | `createTeamsAdapter` |
-| Google Chat | `@chat-adapter/gchat` | `createGoogleChatAdapter` |
-| Discord | `@chat-adapter/discord` | `createDiscordAdapter` |
-| GitHub | `@chat-adapter/github` | `createGitHubAdapter` |
-| Linear | `@chat-adapter/linear` | `createLinearAdapter` |
-| Telegram | `@chat-adapter/telegram` | `createTelegramAdapter` |
-| WhatsApp Business Cloud | `@chat-adapter/whatsapp` | `createWhatsAppAdapter` |
-
-### Official state adapters
-
-| State backend | Package | Factory |
-|--------------|---------|---------|
-| Redis | `@chat-adapter/state-redis` | `createRedisState` |
-| ioredis | `@chat-adapter/state-ioredis` | `createIoRedisState` |
-| PostgreSQL | `@chat-adapter/state-pg` | `createPostgresState` |
-| Memory | `@chat-adapter/state-memory` | `createMemoryState` |
-
-### Community adapters
-
-- `chat-state-cloudflare-do`
-- `@beeper/chat-adapter-matrix`
-- `chat-adapter-imessage`
-- `@bitbasti/chat-adapter-webex`
-- `@resend/chat-sdk-adapter`
-- `@zernio/chat-sdk-adapter`
-- `chat-adapter-baileys`
-- `@liveblocks/chat-sdk-adapter`
-- `chat-adapter-sendblue`
-- `chat-adapter-zalo`
-
-### Coming-soon platform entries
-
-- Instagram
-- Signal
-- X
-- Messenger
+See [chat-sdk.dev/adapters](https://chat-sdk.dev/adapters) for the current list of official, vendor-official, and community adapters, including package names and authors. For the exact factory function and config types of an installed adapter, inspect its `dist/index.d.ts` in `node_modules`.
 
 ## Building a custom adapter
 
@@ -210,4 +186,4 @@ A custom adapter needs request verification, webhook parsing, message/thread/cha
 
 ## Webhook setup
 
-Each registered adapter exposes `bot.webhooks.<name>`. Wire those directly to your HTTP framework routes. See `node_modules/chat/docs/guides/slack-nextjs.mdx` and `node_modules/chat/docs/guides/discord-nuxt.mdx` for framework-specific route patterns.
+Each registered adapter exposes `bot.webhooks.<name>`. Wire those directly to your HTTP framework routes. See `node_modules/chat/resources/guides/how-to-build-a-slack-bot-with-next-js-and-redis.md` and `node_modules/chat/resources/guides/create-a-discord-support-bot-with-nuxt-and-redis.md` for framework-specific route patterns.

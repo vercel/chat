@@ -117,25 +117,34 @@ export class WhatsAppAdapter
 {
   readonly name = "whatsapp";
   readonly lockScope = "channel" as const;
-  readonly persistMessageHistory = true;
+  readonly persistThreadHistory = true;
   readonly userName: string;
 
-  private readonly accessToken: string;
-  private readonly appSecret: string;
-  private readonly phoneNumberId: string;
-  private readonly verifyToken: string;
-  private readonly graphApiUrl: string;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private _botUserId: string | null = null;
-  private readonly formatConverter = new WhatsAppFormatConverter();
+  protected readonly accessToken: string;
+  protected readonly appSecret: string;
+  protected readonly phoneNumberId: string;
+  protected readonly verifyToken: string;
+  protected readonly graphApiUrl: string;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected _botUserId: string | null = null;
+  protected readonly formatConverter = new WhatsAppFormatConverter();
 
   /** Bot user ID used for self-message detection */
   get botUserId(): string | undefined {
     return this._botUserId ?? undefined;
   }
 
-  constructor(config: WhatsAppAdapterConfig) {
+  constructor(
+    config: WhatsAppAdapterConfig & {
+      accessToken: string;
+      appSecret: string;
+      logger: Logger;
+      phoneNumberId: string;
+      userName: string;
+      verifyToken: string;
+    }
+  ) {
     this.accessToken = config.accessToken;
     this.appSecret = config.appSecret;
     this.phoneNumberId = config.phoneNumberId;
@@ -143,7 +152,8 @@ export class WhatsAppAdapter
     this.logger = config.logger;
     this.userName = config.userName;
     const apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
-    this.graphApiUrl = `https://graph.facebook.com/${apiVersion}`;
+    const baseUrl = config.apiUrl ?? "https://graph.facebook.com";
+    this.graphApiUrl = `${baseUrl}/${apiVersion}`;
   }
 
   /**
@@ -236,7 +246,7 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
    */
-  private handleVerificationChallenge(request: Request): Response {
+  protected handleVerificationChallenge(request: Request): Response {
     const url = new URL(request.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
@@ -259,7 +269,7 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
    */
-  private verifySignature(body: string, signature: string | null): boolean {
+  protected verifySignature(body: string, signature: string | null): boolean {
     if (!signature) {
       return false;
     }
@@ -279,7 +289,7 @@ export class WhatsAppAdapter
   /**
    * Handle an inbound message from a user.
    */
-  private handleInboundMessage(
+  protected handleInboundMessage(
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     phoneNumberId: string,
@@ -336,7 +346,7 @@ export class WhatsAppAdapter
   /**
    * Handle reaction events.
    */
-  private handleReaction(
+  protected handleReaction(
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     phoneNumberId: string,
@@ -380,7 +390,7 @@ export class WhatsAppAdapter
   /**
    * Handle interactive message replies (button/list selection).
    */
-  private handleInteractiveReply(
+  protected handleInteractiveReply(
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     phoneNumberId: string,
@@ -434,7 +444,7 @@ export class WhatsAppAdapter
   /**
    * Handle legacy button responses (from template quick replies).
    */
-  private handleButtonResponse(
+  protected handleButtonResponse(
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     phoneNumberId: string,
@@ -473,7 +483,7 @@ export class WhatsAppAdapter
    * Extract text content from an inbound message.
    * Returns null for unsupported message types.
    */
-  private extractTextContent(message: WhatsAppInboundMessage): string | null {
+  protected extractTextContent(message: WhatsAppInboundMessage): string | null {
     switch (message.type) {
       case "text":
         return message.text?.body ?? null;
@@ -514,7 +524,7 @@ export class WhatsAppAdapter
   /**
    * Build a Message from a WhatsApp inbound message.
    */
-  private buildMessage(
+  protected buildMessage(
     inbound: WhatsAppInboundMessage,
     contact: WhatsAppContact | undefined,
     threadId: string,
@@ -557,7 +567,7 @@ export class WhatsAppAdapter
   /**
    * Build attachments from an inbound message.
    */
-  private buildAttachments(inbound: WhatsAppInboundMessage): Attachment[] {
+  protected buildAttachments(inbound: WhatsAppInboundMessage): Attachment[] {
     const attachments: Attachment[] = [];
 
     if (inbound.image) {
@@ -644,7 +654,7 @@ export class WhatsAppAdapter
   /**
    * Build a single media attachment with a lazy fetchData function.
    */
-  private buildMediaAttachment(
+  protected buildMediaAttachment(
     mediaId: string,
     type: Attachment["type"],
     mimeType: string,
@@ -654,6 +664,18 @@ export class WhatsAppAdapter
       type,
       mimeType,
       name,
+      fetchMetadata: { mediaId },
+      fetchData: () => this.downloadMedia(mediaId),
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const mediaId = attachment.fetchMetadata?.mediaId;
+    if (!mediaId) {
+      return attachment;
+    }
+    return {
+      ...attachment,
       fetchData: () => this.downloadMedia(mediaId),
     };
   }
@@ -761,7 +783,7 @@ export class WhatsAppAdapter
    * Send a single text message via the Cloud API (must be within the
    * 4096-character limit).
    */
-  private async sendSingleTextMessage(
+  protected async sendSingleTextMessage(
     threadId: string,
     to: string,
     text: string
@@ -804,7 +826,7 @@ export class WhatsAppAdapter
    * Send a text message, splitting into multiple messages if it exceeds
    * WhatsApp's 4096-character limit. Returns the last message sent.
    */
-  private async sendTextMessage(
+  protected async sendTextMessage(
     threadId: string,
     to: string,
     text: string
@@ -822,7 +844,7 @@ export class WhatsAppAdapter
   /**
    * Send an interactive message (buttons or list) via the Cloud API.
    */
-  private async sendInteractiveMessage(
+  protected async sendInteractiveMessage(
     threadId: string,
     to: string,
     interactive: WhatsAppInteractiveMessage
@@ -1128,7 +1150,7 @@ export class WhatsAppAdapter
   /**
    * Make a request to the Meta Graph API.
    */
-  private async graphApiRequest<T = unknown>(
+  protected async graphApiRequest<T = unknown>(
     path: string,
     body: unknown
   ): Promise<T> {
@@ -1157,7 +1179,7 @@ export class WhatsAppAdapter
   /**
    * Resolve an emoji value to a unicode string.
    */
-  private resolveEmoji(emoji: EmojiValue | string): string {
+  protected resolveEmoji(emoji: EmojiValue | string): string {
     return defaultEmojiResolver.toGChat(emoji);
   }
 }
@@ -1175,15 +1197,9 @@ export class WhatsAppAdapter
  * });
  * ```
  */
-export function createWhatsAppAdapter(config?: {
-  accessToken?: string;
-  apiVersion?: string;
-  appSecret?: string;
-  logger?: Logger;
-  phoneNumberId?: string;
-  userName?: string;
-  verifyToken?: string;
-}): WhatsAppAdapter {
+export function createWhatsAppAdapter(
+  config?: WhatsAppAdapterConfig
+): WhatsAppAdapter {
   const logger = config?.logger ?? new ConsoleLogger("info").child("whatsapp");
 
   const accessToken = config?.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN;
@@ -1224,6 +1240,7 @@ export function createWhatsAppAdapter(config?: {
 
   return new WhatsAppAdapter({
     accessToken,
+    apiUrl: config?.apiUrl ?? process.env.WHATSAPP_API_URL,
     apiVersion: config?.apiVersion,
     appSecret,
     phoneNumberId,

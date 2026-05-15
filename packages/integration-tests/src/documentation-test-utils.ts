@@ -4,10 +4,8 @@ import { join, relative } from "node:path";
 
 export const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 export const REPO_ROOT = join(import.meta.dirname, "../../..");
-export const PACKAGES_DIR = join(REPO_ROOT, "packages");
+const PACKAGES_DIR = join(REPO_ROOT, "packages");
 export const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
-export const ADAPTERS_JSON_PATH = join(REPO_ROOT, "apps/docs/adapters.json");
-export const CHAT_SKILL_PATH = join(REPO_ROOT, "skills/chat/SKILL.md");
 
 export const VALID_PACKAGE_README_IMPORTS = [
   "chat",
@@ -19,10 +17,20 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/messenger",
+  "@chat-adapter/web",
+  "@chat-adapter/web/react",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
   "@chat-adapter/state-pg",
   "@chat-adapter/state-memory",
+  "@chat-adapter/tests",
+  "@chat-adapter/tests/matchers",
+  "@chat-adapter/tests/setup",
+  "vitest/config",
+  "@ai-sdk/react",
+  "ai",
+  "react",
   "next/server",
   "redis",
   "ioredis",
@@ -32,6 +40,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
 
 export const VALID_DOC_PACKAGES = [
   "chat",
+  "chat/ai",
   "@chat-adapter/slack",
   "@chat-adapter/teams",
   "@chat-adapter/gchat",
@@ -40,11 +49,18 @@ export const VALID_DOC_PACKAGES = [
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/messenger",
+  "@chat-adapter/web",
+  "@chat-adapter/web/react",
   "@chat-adapter/state-redis",
   "@chat-adapter/state-ioredis",
   "@chat-adapter/state-pg",
   "@chat-adapter/state-memory",
   "@chat-adapter/shared",
+  "@chat-adapter/tests",
+  "@chat-adapter/tests/matchers",
+  "@chat-adapter/tests/setup",
+  "vitest/config",
   "next/server",
   "next",
   "hono",
@@ -66,7 +82,23 @@ export const VALID_DOC_PACKAGES = [
   "vitest/config",
   "bash-tool",
   "@octokit/rest",
+  // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
+  "@beeper/chat-adapter-matrix",
+  "chat-adapter-imessage",
+  "@liveblocks/chat-sdk-adapter",
+  "@resend/chat-sdk-adapter",
+  "@zernio/chat-sdk-adapter",
+  "chat-adapter-baileys",
+  "baileys",
+  "chat-adapter-blooio",
+  "chat-state-cloudflare-do",
+  "chat-adapter-mattermost",
+  "chat-state-mysql",
+  "mysql2/promise",
+  "chat-adapter-sendblue",
+  "@bitbasti/chat-adapter-webex",
+  "chat-adapter-zalo",
 ];
 
 export function extractTypeScriptBlocks(markdown: string): string[] {
@@ -137,6 +169,9 @@ export function createTempProject(codeBlocks: string[]): string {
         ],
         "@chat-adapter/linear": [
           join(import.meta.dirname, "../../adapter-linear/src/index.ts"),
+        ],
+        "@chat-adapter/messenger": [
+          join(import.meta.dirname, "../../adapter-messenger/src/index.ts"),
         ],
         "@chat-adapter/state-redis": [
           join(import.meta.dirname, "../../state-redis/src/index.ts"),

@@ -34,12 +34,12 @@ bot.onNewMention(async (thread) => {
 ```
 
 <Callout type="info">
-  This example uses Redis. Chat SDK also supports [PostgreSQL](/docs/state/postgres) and [ioredis](/docs/state/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
+  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/official/postgres) and [ioredis](/adapters/official/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
 </Callout>
 
 Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
 
-## Multiple [adapters](/adapters)
+## Multiple adapters
 
 Register multiple [adapters](/adapters) to deploy your bot across platforms simultaneously:
 
@@ -72,11 +72,12 @@ Your event handlers work identically across all registered adapters — the SDK 
 | `state` | `StateAdapter` | *required* | State adapter for subscriptions and locking |
 | `logger` | `Logger \| LogLevel` | `"info"` | Logger instance or log level (`"debug"`, `"info"`, `"warn"`, `"error"`, `"silent"`) |
 | `dedupeTtlMs` | `number` | `300000` | TTL in ms for message deduplication (5 minutes) |
+| `concurrency` | `"drop" \| "queue" \| "debounce" \| "burst" \| "concurrent" \| ConcurrencyConfig` | `"drop"` | Strategy for overlapping messages on the same thread |
 | `streamingUpdateIntervalMs` | `number` | `500` | Update interval in ms for post+edit streaming |
 | `fallbackStreamingPlaceholderText` | `string \| null` | `"..."` | Placeholder text while streaming starts. Set to `null` to skip |
 | `onLockConflict` | `'drop' \| 'force' \| (threadId, message) => 'drop' \| 'force'` | `"drop"` | Behavior when a thread lock is already held. `'force'` releases the existing lock and re-acquires it, enabling interrupt/steerability for long-running handlers |
 
-## Accessing [adapters](/adapters)
+## Accessing adapters
 
 Use `getAdapter` to access platform-specific APIs when you need functionality beyond the unified interface:
 
@@ -88,6 +89,18 @@ await slack.setSuggestedPrompts(channelId, threadTs, [
   { title: "Get started", message: "What can you help me with?" },
 ]);
 ```
+
+For typed access to the platform's native API client, use the SDK-named getter on each adapter:
+
+```typescript title="lib/bot.ts" lineNumbers
+const slack = bot.getAdapter("slack").webClient; // WebClient
+const linear = bot.getAdapter("linear").linearClient; // LinearClient
+const github = bot.getAdapter("github").octokit; // Octokit
+```
+
+The previous `.client` getter still works as a deprecated alias on all three adapters.
+
+See [`getAdapter`](/docs/api/chat#getadapter) for multi-tenant constraints.
 
 ## Webhook routing
 
@@ -139,7 +152,7 @@ const bot = Chat.getSingleton();
 Open a DM thread with a user by passing their platform user ID or an `Author` object:
 
 ```typescript title="lib/bot.ts" lineNumbers
-const dm = await bot.openDM("slack:U123ABC");
+const dm = await bot.openDM("U123ABC");
 await dm.post("Hey! Just wanted to follow up on your request.");
 ```
 

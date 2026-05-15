@@ -29,6 +29,7 @@ import type {
   RawMessage,
   ThreadInfo,
   ThreadSummary,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -39,10 +40,14 @@ import {
   Message,
 } from "chat";
 import {
+  type ChatInputCommandInteraction,
   Client,
+  type Interaction as DiscordJsInteraction,
   type Message as DiscordJsMessage,
+  type User as DiscordJsUser,
   Events,
   GatewayIntentBits,
+  type MessageComponentInteraction,
   Partials,
 } from "discord.js";
 import { MessageType } from "discord-api-types/v9";
@@ -56,7 +61,7 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, cardToFallbackText } from "./cards";
+import { cardToDiscordPayload, decodeDiscordCustomId } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordActionRow,
@@ -72,6 +77,7 @@ import {
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
   type DiscordThreadId,
+  type DiscordUser,
   InteractionResponseType,
 } from "./types";
 
@@ -80,25 +86,33 @@ const DISCORD_MAX_CONTENT_LENGTH = 2000;
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
 const HEX_PATTERN = /^[0-9a-f]+$/;
 
+interface GatewayCommandOption {
+  name: string;
+  options?: readonly GatewayCommandOption[];
+  type: number;
+  value?: boolean | number | string;
+}
+
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
   readonly userName: string;
   readonly botUserId?: string;
 
-  private readonly botToken: string;
-  private readonly publicKey: string;
-  private readonly applicationId: string;
-  private readonly mentionRoleIds: string[];
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private readonly formatConverter = new DiscordFormatConverter();
-  private readonly requestContext =
+  protected readonly apiBaseUrl: string;
+  protected readonly botToken: string;
+  protected readonly publicKey: string;
+  protected readonly applicationId: string;
+  protected readonly mentionRoleIds: string[];
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new DiscordFormatConverter();
+  protected readonly requestContext =
     new AsyncLocalStorage<DiscordRequestContext>();
   private readonly threadParentCache = new Map<
     string,
     { parentId: string; expiresAt: number }
   >();
-  private static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
+  protected static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
   constructor(config: DiscordAdapterConfig = {}) {
     const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
@@ -124,6 +138,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
+    this.apiBaseUrl =
+      config.apiUrl ?? process.env.DISCORD_API_URL ?? DISCORD_API_BASE;
     this.botToken = botToken;
     this.publicKey = publicKey.trim().toLowerCase();
     this.applicationId = applicationId;
@@ -148,6 +164,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
     this.logger.info("Discord adapter initialized");
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const response = await this.discordFetch(`/users/${userId}`, "GET");
+      const user = (await response.json()) as DiscordUser;
+      return {
+        avatarUrl: user.avatar
+          ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+          : undefined,
+        email: undefined,
+        fullName: user.global_name || user.username,
+        isBot: user.bot ?? false,
+        userId: user.id,
+        userName: user.username,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -253,7 +288,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Verify Discord's Ed25519 signature using official discord-interactions library.
    */
-  private async verifySignature(
+  protected async verifySignature(
     bodyBytes: Uint8Array,
     signature: string | null,
     timestamp: string | null
@@ -317,14 +352,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Create a JSON response for Discord interactions.
    */
-  private respondToInteraction(response: DiscordInteractionResponse): Response {
+  protected respondToInteraction(
+    response: DiscordInteractionResponse
+  ): Response {
     return Response.json(response);
   }
 
   /**
    * Handle MESSAGE_COMPONENT interactions (button clicks).
    */
-  private handleComponentInteraction(
+  protected handleComponentInteraction(
     interaction: DiscordInteraction,
     options?: WebhookOptions
   ): void {
@@ -372,11 +409,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           channelId: interactionChannelId,
         });
 
+    const decoded = decodeDiscordCustomId(customId);
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
     } = {
-      actionId: customId,
-      value: customId, // Discord custom_id often contains the value
+      actionId: decoded.actionId,
+      value: decoded.value ?? decoded.actionId,
       user: {
         userId: user.id,
         userName: user.username,
@@ -402,7 +440,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle APPLICATION_COMMAND interactions (slash commands).
    */
-  private handleApplicationCommandInteraction(
+  protected handleApplicationCommandInteraction(
     interaction: DiscordInteraction,
     options?: WebhookOptions
   ): void {
@@ -501,7 +539,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Leaf option values are flattened into `text`. Consumers needing the full
    * option tree (names, types) can use `event.raw`.
    */
-  private parseSlashCommand(
+  protected parseSlashCommand(
     name: string,
     options?: DiscordCommandOption[]
   ): { command: string; text: string } {
@@ -532,10 +570,121 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
+  protected async handleGatewayInteraction(
+    interaction: DiscordJsInteraction
+  ): Promise<void> {
+    if (interaction.isChatInputCommand()) {
+      await interaction.deferReply();
+      this.handleApplicationCommandInteraction(
+        this.normalizeGatewaySlashCommandInteraction(interaction)
+      );
+      return;
+    }
+
+    if (interaction.isMessageComponent()) {
+      await interaction.deferUpdate();
+      this.handleComponentInteraction(
+        this.normalizeGatewayComponentInteraction(interaction)
+      );
+    }
+  }
+
+  protected normalizeGatewaySlashCommandInteraction(
+    interaction: ChatInputCommandInteraction
+  ): DiscordInteraction {
+    return {
+      application_id: interaction.applicationId,
+      channel: this.normalizeGatewayChannel(interaction),
+      channel_id: interaction.channelId ?? undefined,
+      data: {
+        name: interaction.commandName,
+        options: this.normalizeGatewayCommandOptions(interaction.options.data),
+        type: interaction.commandType,
+      },
+      guild_id: interaction.guildId ?? undefined,
+      id: interaction.id,
+      token: interaction.token,
+      type: interaction.type,
+      user: this.normalizeGatewayUser(interaction.user),
+      version: interaction.version,
+    };
+  }
+
+  protected normalizeGatewayComponentInteraction(
+    interaction: MessageComponentInteraction
+  ): DiscordInteraction {
+    const values =
+      "values" in interaction && Array.isArray(interaction.values)
+        ? interaction.values
+        : undefined;
+
+    return {
+      application_id: interaction.applicationId,
+      channel: this.normalizeGatewayChannel(interaction),
+      channel_id: interaction.channelId ?? undefined,
+      data: {
+        component_type: interaction.componentType,
+        custom_id: interaction.customId,
+        values,
+      },
+      guild_id: interaction.guildId ?? undefined,
+      id: interaction.id,
+      message: { id: interaction.message.id } as APIMessage,
+      token: interaction.token,
+      type: interaction.type,
+      user: this.normalizeGatewayUser(interaction.user),
+      version: interaction.version,
+    };
+  }
+
+  protected normalizeGatewayChannel(
+    interaction: ChatInputCommandInteraction | MessageComponentInteraction
+  ): DiscordInteraction["channel"] {
+    if (!interaction.channel) {
+      return undefined;
+    }
+
+    const parentId =
+      "parentId" in interaction.channel &&
+      typeof interaction.channel.parentId === "string"
+        ? interaction.channel.parentId
+        : undefined;
+
+    return {
+      id: interaction.channel.id,
+      parent_id: parentId,
+      type: interaction.channel.type,
+    };
+  }
+
+  protected normalizeGatewayCommandOptions(
+    options: readonly GatewayCommandOption[]
+  ): DiscordCommandOption[] {
+    return options.map((option) => ({
+      name: option.name,
+      options: option.options
+        ? this.normalizeGatewayCommandOptions(option.options)
+        : undefined,
+      type: option.type,
+      value: option.value,
+    }));
+  }
+
+  protected normalizeGatewayUser(user: DiscordJsUser): DiscordUser {
+    return {
+      avatar: user.avatar ?? undefined,
+      bot: user.bot,
+      discriminator: user.discriminator,
+      global_name: user.globalName ?? undefined,
+      id: user.id,
+      username: user.username,
+    };
+  }
+
   /**
    * Handle a forwarded Gateway event received via webhook.
    */
-  private async handleForwardedGatewayEvent(
+  protected async handleForwardedGatewayEvent(
     event: DiscordForwardedEvent,
     options?: WebhookOptions
   ): Promise<Response> {
@@ -581,7 +730,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a forwarded MESSAGE_CREATE event.
    */
-  private async handleForwardedMessage(
+  protected async handleForwardedMessage(
     data: DiscordGatewayMessageData,
     _options?: WebhookOptions
   ): Promise<void> {
@@ -699,7 +848,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a forwarded REACTION_ADD or REACTION_REMOVE event.
    */
-  private async handleForwardedReaction(
+  protected async handleForwardedReaction(
     data: DiscordGatewayReactionData,
     added: boolean,
     _options?: WebhookOptions
@@ -811,8 +960,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -875,7 +1023,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
-  private tryPostSlashResponse(
+  protected tryPostSlashResponse(
     threadId: string,
     payload: DiscordMessagePayload,
     files: Array<{
@@ -896,7 +1044,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     );
   }
 
-  private async postSlashCommandResponse(
+  protected async postSlashCommandResponse(
     slashContext: DiscordSlashCommandContext,
     threadId: string,
     payload: DiscordMessagePayload,
@@ -947,7 +1095,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Create a Discord thread from a message.
    */
-  private async createDiscordThread(
+  protected async createDiscordThread(
     channelId: string,
     messageId: string
   ): Promise<{ id: string; name: string }> {
@@ -999,7 +1147,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Truncate content to Discord's maximum length.
    */
-  private truncateContent(content: string): string {
+  protected truncateContent(content: string): string {
     if (content.length <= DISCORD_MAX_CONTENT_LENGTH) {
       return content;
     }
@@ -1010,7 +1158,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Post a message with file attachments.
    */
-  private async postMessageWithFiles(
+  protected async postMessageWithFiles(
     channelId: string,
     threadId: string,
     payload: DiscordMessagePayload,
@@ -1071,7 +1219,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
-  private async discordInteractionFetch(
+  protected async discordInteractionFetch(
     path: string,
     method: string,
     body?: unknown
@@ -1099,7 +1247,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     return response;
   }
 
-  private async discordInteractionFetchWithFiles(
+  protected async discordInteractionFetchWithFiles(
     path: string,
     method: string,
     payload: DiscordMessagePayload,
@@ -1175,8 +1323,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      // Fallback text (truncated to Discord's limit)
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Clear content so old text doesn't persist alongside the card (Discord PATCH keeps omitted fields)
+      payload.content = "";
     } else {
       // Regular text message (truncated to Discord's limit)
       payload.content = this.truncateContent(
@@ -1297,7 +1445,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Encode an emoji for use in Discord API URLs.
    */
-  private encodeEmoji(emoji: EmojiValue | string): string {
+  protected encodeEmoji(emoji: EmojiValue | string): string {
     const emojiStr = defaultEmojiResolver.toDiscord
       ? defaultEmojiResolver.toDiscord(emoji)
       : String(emoji);
@@ -1500,7 +1648,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Parse a Discord API message into normalized format.
    */
-  private parseDiscordMessage(
+  protected parseDiscordMessage(
     raw: APIMessage,
     threadId: string
   ): Message<unknown> {
@@ -1549,7 +1697,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Determine attachment type from MIME type.
    */
-  private getAttachmentType(
+  protected getAttachmentType(
     mimeType?: string | null
   ): "image" | "video" | "audio" | "file" {
     if (!mimeType) {
@@ -1577,12 +1725,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Make a request to the Discord API.
    */
-  private async discordFetch(
+  protected async discordFetch(
     path: string,
     method: string,
     body?: unknown
   ): Promise<Response> {
-    const url = `${DISCORD_API_BASE}${path}`;
+    const url = `${this.apiBaseUrl}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bot ${this.botToken}`,
     };
@@ -1672,7 +1820,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Run the Gateway listener for a specified duration.
    */
-  private async runGatewayListener(
+  protected async runGatewayListener(
     durationMs: number,
     abortSignal?: AbortSignal,
     webhookUrl?: string
@@ -1775,7 +1923,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Set up legacy Gateway handlers for direct processing (when webhookUrl is not provided).
    */
-  private setupLegacyGatewayHandlers(
+  protected setupLegacyGatewayHandlers(
     client: Client,
     isShuttingDown: () => boolean
   ): void {
@@ -1817,6 +1965,27 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
       // Process the message directly
       await this.handleGatewayMessage(message, isMentioned);
+    });
+
+    client.on(Events.InteractionCreate, async (interaction) => {
+      if (isShuttingDown()) {
+        this.logger.debug("Ignoring interaction - Gateway is shutting down");
+        return;
+      }
+
+      this.logger.info("Discord Gateway interaction received", {
+        id: interaction.id,
+        type: interaction.type,
+      });
+
+      try {
+        await this.handleGatewayInteraction(interaction);
+      } catch (error) {
+        this.logger.error("Error handling Gateway interaction", {
+          error: String(error),
+          interactionId: interaction.id,
+        });
+      }
     });
 
     // Reaction add handler
@@ -1891,7 +2060,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Forward a Gateway event to the webhook endpoint.
    */
-  private async forwardGatewayEvent(
+  protected async forwardGatewayEvent(
     webhookUrl: string,
     event: DiscordForwardedEvent
   ): Promise<void> {
@@ -1933,7 +2102,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a message received via the Gateway WebSocket.
    */
-  private async handleGatewayMessage(
+  protected async handleGatewayMessage(
     message: DiscordJsMessage,
     isMentioned: boolean
   ): Promise<void> {
@@ -2038,7 +2207,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle a reaction received via the Gateway WebSocket.
    */
-  private async handleGatewayReaction(
+  protected async handleGatewayReaction(
     reaction: {
       emoji: { name: string | null; id: string | null };
       message: {
@@ -2396,7 +2565,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const cardPayload = cardToDiscordPayload(card);
       embeds.push(...cardPayload.embeds);
       components.push(...cardPayload.components);
-      payload.content = this.truncateContent(cardToFallbackText(card));
+      // Don't include text - Discord shows both text and card if text is present
     } else {
       payload.content = this.truncateContent(
         convertEmojiPlaceholders(
@@ -2450,7 +2619,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Normalize a Discord emoji to our standard EmojiValue format.
    */
-  private normalizeDiscordEmoji(emojiName: string): EmojiValue {
+  protected normalizeDiscordEmoji(emojiName: string): EmojiValue {
     // Map common Discord unicode emoji to our standard names
     const unicodeToName: Record<string, string> = {
       "👍": "thumbs_up",
@@ -2489,7 +2658,12 @@ export function createDiscordAdapter(
 }
 
 // Re-export card converter for advanced use
-export { cardToDiscordPayload, cardToFallbackText } from "./cards";
+export {
+  cardToDiscordPayload,
+  cardToFallbackText,
+  decodeDiscordCustomId,
+  encodeDiscordCustomId,
+} from "./cards";
 
 // Re-export format converter for advanced use
 export {

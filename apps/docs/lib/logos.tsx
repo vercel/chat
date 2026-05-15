@@ -1,5 +1,22 @@
 import type { ComponentProps } from "react";
 
+export const web = (props: ComponentProps<"svg">) => (
+  <svg
+    fill="none"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M3 12h18" stroke="currentColor" strokeWidth="1.5" />
+    <path
+      d="M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    />
+  </svg>
+);
+
 export const github = (props: ComponentProps<"svg">) => (
   <svg
     fill="none"
@@ -492,5 +509,21 @@ export const whatsapp = (props: ComponentProps<"svg">) => (
         <stop offset="1" stopColor="#23B33A" />
       </linearGradient>
     </defs>
+  </svg>
+);
+
+export const messenger = (props: ComponentProps<"svg">) => (
+  <svg
+    fill="none"
+    viewBox="0 0 16 16"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <path
+      clipRule="evenodd"
+      d="M0 7.76C0 3.3 3.5 0 8 0s8 3.3 8 7.76-3.5 7.76-8 7.76q-1.22 0-2.32-.3a.6.6 0 0 0-.42.03l-1.6.7a.64.64 0 0 1-.89-.57l-.04-1.42a.6.6 0 0 0-.22-.46A7.6 7.6 0 0 1 0 7.76M5.55 6.3 3.2 10.03c-.23.36.21.76.55.5l2.52-1.91a.5.5 0 0 1 .58 0l1.87 1.4a1.2 1.2 0 0 0 1.73-.32l2.36-3.73c.22-.36-.22-.76-.56-.5L9.73 7.38a.5.5 0 0 1-.58 0l-1.87-1.4a1.2 1.2 0 0 0-1.73.32"
+      fill="#0865FE"
+      fillRule="evenodd"
+    />
   </svg>
 );

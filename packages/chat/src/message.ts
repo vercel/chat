@@ -5,12 +5,20 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type { Root } from "mdast";
 import type {
+  Adapter,
   Attachment,
   Author,
   FormattedContent,
   LinkPreview,
   MessageMetadata,
+  MessageSubject,
 } from "./types";
+
+const adapterMap = new WeakMap<Message, Adapter>();
+
+export function setMessageAdapter(message: Message, adapter: Adapter): void {
+  adapterMap.set(message, adapter);
+}
 
 /**
  * Input data for creating a Message instance.
@@ -53,6 +61,7 @@ export interface SerializedMessage {
     size?: number;
     width?: number;
     height?: number;
+    fetchMetadata?: Record<string, string>;
   }>;
   author: {
     userId: string;
@@ -144,8 +153,34 @@ export class Message<TRawMessage = unknown> {
    */
   isMention?: boolean;
 
+  /**
+   * Cross-platform user key for this message's author.
+   *
+   * Set by the Chat SDK before passing the message to handlers, when
+   * `ChatConfig.identity` is configured. `undefined` if no resolver is
+   * configured; `undefined` (i.e. absent) when the resolver returned null.
+   *
+   * Used by the Transcripts API to look up / append per-user transcripts.
+   */
+  userKey?: string;
+
   /** Links found in the message */
   links: LinkPreview[];
+
+  private _subjectPromise?: Promise<MessageSubject | null>;
+
+  get subject(): Promise<MessageSubject | null> {
+    if (this._subjectPromise) {
+      return this._subjectPromise;
+    }
+    const adapter = adapterMap.get(this);
+    if (!adapter?.fetchSubject) {
+      this._subjectPromise = Promise.resolve(null);
+      return this._subjectPromise;
+    }
+    this._subjectPromise = adapter.fetchSubject(this.raw).catch(() => null);
+    return this._subjectPromise;
+  }
 
   constructor(data: MessageData<TRawMessage>) {
     this.id = data.id;
@@ -195,6 +230,7 @@ export class Message<TRawMessage = unknown> {
         size: att.size,
         width: att.width,
         height: att.height,
+        fetchMetadata: att.fetchMetadata,
       })),
       isMention: this.isMention,
       links:

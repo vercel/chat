@@ -1,5 +1,109 @@
 # @chat-adapter/telegram
 
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+  - @chat-adapter/shared@4.28.1
+
+## 4.28.0
+
+### Patch Changes
+
+- f46a6fb: fix(telegram): apply MarkdownV2 entity safety trim to streaming chunks
+- 46d183b: Rename `messageHistory` → `threadHistory` (with backwards compatibility).
+
+  The per-thread history cache was previously named `messageHistory`, which collides conceptually with the new cross-platform per-user Transcripts API. Renamed to `threadHistory` to make the distinction clear.
+
+  **Renamed:**
+
+  - `ChatConfig.messageHistory` → `ChatConfig.threadHistory`
+  - `Adapter.persistMessageHistory` → `Adapter.persistThreadHistory`
+  - `MessageHistoryCache` → `ThreadHistoryCache`
+  - `MessageHistoryConfig` → `ThreadHistoryConfig`
+  - File `message-history.ts` → `thread-history.ts`
+
+  **Backwards compatibility:**
+
+  - The old `ChatConfig.messageHistory` field is still read; `threadHistory` takes precedence when both are set.
+  - The old `Adapter.persistMessageHistory` flag is still read; either flag being `true` enables persistence.
+  - `MessageHistoryCache` and `MessageHistoryConfig` are re-exported as deprecated aliases of the new names.
+  - The state-adapter storage key prefix (`msg-history:`) is **unchanged** — renaming it would silently orphan existing data.
+
+  The `@chat-adapter/telegram` and `@chat-adapter/whatsapp` adapters now use `persistThreadHistory`. Custom adapters built against `persistMessageHistory` continue to work unchanged.
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+  - @chat-adapter/shared@4.28.0
+
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+
+### Patch Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- b9a1961: Switch Telegram adapter's outbound `parse_mode` from legacy `Markdown` to `MarkdownV2`, and replace the standard-markdown passthrough renderer with a proper AST → MarkdownV2 renderer. Standard markdown (`**bold**`) and legacy `Markdown` (`*bold*`) use different syntaxes and have no shared escape rules, so any message containing `.`, `!`, `(`, `)`, `-`, `_` in regular text — which is virtually every LLM-generated message — was being rejected with `can't parse entities`. The new renderer walks the mdast tree and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), uniformly applies MarkdownV2 `parse_mode` to every format-converter output (including AST messages, which previously shipped without `parse_mode` and rendered asterisks literally), and escapes card fallback text.
+
+  Also fix silent message truncation that the MarkdownV2 migration widened from a rare bug into a reliable 400. The previous truncator sliced messages at 4096/1024 chars and appended literal `...`, but in MarkdownV2 `.` is a reserved character that must be escaped, the slice can leave an orphan trailing `\`, and it can cut through a paired entity (`*bold*`, `` `code` ``) leaving it unclosed — all of which cause `can't parse entities`. The two truncate methods are unified into `truncateForTelegram(text, limit, parseMode)`, which appends an escaped `\.\.\.` for MarkdownV2 and walks back past unbalanced entity delimiters or orphan backslashes before appending. Plain-text messages keep literal `...`.
+
+  Internal typing hardening: `renderMarkdownV2` is now typed exhaustively on mdast's `Nodes` union with a `never` assertion, so new mdast node types fail the build rather than silently falling through. Introduce `TelegramParseMode = "MarkdownV2" | "plain"` replacing the previous `string | undefined` at call sites, with `toBotApiParseMode` mapping to the Bot API wire format at the boundary. The `chat` package gains a re-export of mdast's `Nodes` union so adapters can build exhaustively typed renderers without importing mdast directly.
+
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
+## 4.24.0
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - @chat-adapter/shared@4.24.0
+  - chat@4.24.0
+
 ## 4.23.0
 
 ### Patch Changes

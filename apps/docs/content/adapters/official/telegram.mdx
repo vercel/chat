@@ -1,0 +1,202 @@
+---
+title: Telegram
+description: Telegram adapter for Chat SDK with webhook and polling modes.
+packageName: "@chat-adapter/telegram"
+slug: telegram
+type: platform
+logo: telegram
+tagline: Connect to Telegram with support for groups, channels, inline keyboards, and a polling fallback for local development.
+beta: true
+features:
+  postMessage: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads:
+    status: partial
+    label: Single file
+  streaming:
+    status: partial
+    label: Post+Edit
+  scheduledMessages: no
+  cardFormat:
+    status: partial
+    label: MarkdownV2 + inline keyboard
+  buttons:
+    status: partial
+    label: Inline keyboard
+  linkButtons:
+    status: partial
+    label: Inline keyboard URLs
+  selectMenus: no
+  tables:
+    status: partial
+    label: ASCII
+  fields: yes
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions: yes
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup:
+    status: partial
+    label: Seen users
+  customApiEndpoint: yes
+  fetchMessages:
+    status: partial
+    label: Cached
+  fetchSingleMessage:
+    status: partial
+    label: Cached
+  fetchThreadInfo: yes
+  fetchChannelMessages:
+    status: partial
+    label: Cached
+  listThreads: no
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/telegram" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, and `TELEGRAM_BOT_USERNAME` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    telegram: createTelegramAdapter(),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+```typescript title="app/api/webhooks/telegram/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.telegram(request);
+}
+```
+
+Configure your bot webhook in BotFather / via the Telegram API:
+
+```bash
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-domain.com/api/webhooks/telegram",
+    "secret_token": "your-secret-token"
+  }'
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    botToken: {
+      type: "string",
+      description: "Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN`.",
+    },
+    secretToken: {
+      type: "string",
+      description:
+        "Optional webhook secret. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN`.",
+    },
+    mode: {
+      type: '"auto" | "webhook" | "polling"',
+      default: '"auto"',
+      description:
+        "Adapter mode. `auto` uses webhooks on serverless and polling everywhere else.",
+    },
+    longPolling: {
+      type: "LongPollingOptions",
+      description:
+        "Long polling tuning. Fields: `timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`.",
+    },
+    userName: {
+      type: "string",
+      description:
+        "Bot username for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe`.",
+    },
+    apiUrl: {
+      type: "string",
+      description:
+        "Override the Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`.",
+    },
+  }}
+/>
+
+`botToken` is required — either via config or env var.
+
+## Authentication
+
+Create a bot via [BotFather](https://t.me/BotFather):
+
+1. Send `/newbot` and follow the prompts.
+2. Copy the token to `TELEGRAM_BOT_TOKEN`.
+3. Optionally pick a username and copy it to `TELEGRAM_BOT_USERNAME`.
+
+## Advanced
+
+### Polling for local development
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+const telegram = createTelegramAdapter({
+  mode: "polling",
+});
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { telegram },
+  state: createMemoryState(),
+});
+```
+
+Polling and webhooks are mutually exclusive in Telegram. `mode: "polling"` deletes the webhook by default before calling `getUpdates`.
+
+### Auto mode
+
+`mode: "auto"` (the default) checks `getWebhookInfo`: if a webhook URL is set, it uses webhook mode; otherwise it falls back to polling on long-running runtimes. If `getWebhookInfo` fails, the adapter stays in webhook mode (safe fallback).
+
+```typescript
+const telegram = createTelegramAdapter({ mode: "auto" });
+void bot.initialize();
+console.log(telegram.runtimeMode); // "webhook" | "polling"
+```
+
+### Markdown formatting
+
+Outbound messages are sent with Telegram's `MarkdownV2` parse mode. The adapter walks the markdown AST and emits MarkdownV2 with context-aware escaping (text vs. code blocks vs. link URLs), so you author standard markdown and the adapter handles every reserved character.
+
+Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+
+### Notes
+
+- Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
+- `listThreads` is not available for Telegram chats.
+- Telegram callback data is limited to 64 bytes — keep `Button` `id`/`value` payloads short.
+- Other rich card elements (images, select menus, radios) render as fallback text.
+
+## Feature support
+
+<FeatureSupport />

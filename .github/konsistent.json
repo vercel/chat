@@ -1,0 +1,111 @@
+{
+  "$schema": "../node_modules/konsistent/konsistent.schema.json",
+  "version": "v1",
+  "conventions": [
+    {
+      "name": "package-dir-must-have-required-files",
+      "description": "Every package directory must contain a specific minimum set of files.",
+      "paths": ["packages/*", "!packages/integration-tests"],
+      "must": [
+        {
+          "name": "package-dir-must-have-package-and-docs-files",
+          "description": "Every package directory must contain README, package.json and tsconfig.json.",
+          "must": {
+            "haveType": "directory",
+            "haveFiles": [
+              "README.md",
+              "package.json",
+              "tsconfig.json",
+              "tsup.config.ts",
+              "src/index.ts"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "adapter-package-must-export-required-symbols",
+      "description": "Every adapter package must have specific files that export a specific set of symbols.",
+      "paths": [
+        "packages/adapter-{adapterId}/src/index.ts",
+        "!packages/adapter-shared"
+      ],
+      "must": [
+        {
+          "name": "adapter-package-must-export-provider-creator-and-settings",
+          "description": "Every adapter package must export adapter class, creator function, and config type from its index.ts file.",
+          "must": {
+            "importTypes": [
+              {
+                "name": "Adapter",
+                "from": "chat"
+              }
+            ],
+            "exportClasses": [
+              {
+                "name": "${adapterId.toPascalCase()}Adapter",
+                "implement": ["Adapter"]
+              }
+            ],
+            "exportFunctions": [
+              {
+                "name": "create${adapterId.toPascalCase()}Adapter",
+                "receiveParamOfType": "${adapterId.toPascalCase()}AdapterConfig",
+                "returnValueOfType": "${adapterId.toPascalCase()}Adapter"
+              }
+            ],
+            "exportTypes": [
+              {
+                "name": "${adapterId.toPascalCase()}AdapterConfig",
+                "from": "./types"
+              }
+            ],
+            "haveFiles": ["types.ts"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "state-package-must-export-required-symbols",
+      "description": "Every state package must have specific files that export a specific set of symbols.",
+      "paths": ["packages/state-{stateAdapterId}/src/index.ts"],
+      "must": [
+        {
+          "name": "state-package-must-export-provider-creator-and-settings",
+          "description": "Every state package must export state adapter class, creator function, and config type from its index.ts file.",
+          "must": {
+            "importTypes": [
+              {
+                "name": "StateAdapter",
+                "from": "chat"
+              }
+            ],
+            "exportClasses": [
+              {
+                "name": "${stateAdapterId.toPascalCase()}StateAdapter",
+                "implement": ["StateAdapter"]
+              }
+            ],
+            "exportFunctions": [
+              {
+                "name": "create${stateAdapterId.toPascalCase()}State",
+                "receiveParamOfType": "${stateAdapterId.toPascalCase()}StateAdapterOptions",
+                "returnValueOfType": "${stateAdapterId.toPascalCase()}StateAdapter"
+              }
+            ],
+            "exportTypes": [
+              "${stateAdapterId.toPascalCase()}StateAdapterOptions"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "kebabToPascalMap": {
+    "gchat": "GoogleChat",
+    "github": "GitHub",
+    "ioredis": "IoRedis",
+    "pg": "Postgres",
+    "whatsapp": "WhatsApp"
+  }
+}

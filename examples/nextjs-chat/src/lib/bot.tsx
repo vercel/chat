@@ -1,10 +1,10 @@
 /** @jsxImportSource chat */
+import type { SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
-import { ToolLoopAgent } from "ai";
+import { generateText, ToolLoopAgent } from "ai";
 import {
   Actions,
-  type AiMessage,
   Button,
   Card,
   CardLink,
@@ -22,14 +22,37 @@ import {
   Table,
   CardText as Text,
   TextInput,
-  toAiMessages,
+  type TranscriptEntry,
 } from "chat";
+import { type AiMessage, createChatTools, toAiMessages } from "chat/ai";
+import { start } from "workflow/api";
+import { buttonWorkflow } from "../workflows/button";
+import { modalWorkflow } from "../workflows/modal";
 import { buildAdapters } from "./adapters";
+
+function getBaseUrl(): string {
+  const fromEnv =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL;
+  if (fromEnv) {
+    return fromEnv.startsWith("http") ? fromEnv : `https://${fromEnv}`;
+  }
+  return "http://localhost:3000";
+}
 
 const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
+const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
+const SLACK_PREFIX_REGEX = /^slack:/;
+
+// Hardcoded user key for testing the Transcripts API — every inbound message
+// is persisted under this single key, so you can exercise append/list/delete
+// without juggling real user identities. Swap the `identity` resolver below
+// for `({ author }) => author.email ?? author.userId` in production.
+const TEST_USER_KEY = "test-user";
 
 const state = process.env.REDIS_URL
   ? createRedisState({
@@ -42,7 +65,6 @@ const adapters = buildAdapters();
 // Define thread state type
 interface ThreadState {
   aiMode?: boolean;
-  history?: AiMessage[];
 }
 
 // Create the bot instance with typed thread state
@@ -52,14 +74,33 @@ export const bot = new Chat<typeof adapters, ThreadState>({
   adapters,
   state,
   logger: "debug",
+
+  // Hardcoded for testing — see `TEST_USER_KEY` above.
+  identity: () => TEST_USER_KEY,
+
+  // Persist a per-user transcript across every adapter the user talks
+  // through. Used below to backfill conversation context for platforms
+  // that don't expose server-side message history.
+  transcripts: {
+    retention: "30d",
+    maxPerUser: 100,
+  },
 });
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-4.5-sonnet",
+  model: "openai/gpt-5.4",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
+
+// Map transcript entries to AI SDK chat-message shape.
+function transcriptToAiMessages(entries: TranscriptEntry[]): AiMessage[] {
+  return entries.map((entry) => ({
+    role: entry.role === "assistant" ? "assistant" : "user",
+    content: entry.text,
+  }));
+}
 
 // Handle new @mentions of the bot
 bot.onNewMention(async (thread, message) => {
@@ -117,12 +158,27 @@ bot.onNewMention(async (thread, message) => {
         <Button id="ephemeral">Ephemeral response</Button>
         <Button id="info">Show Info</Button>
         <Button id="choose_plan">Choose Plan</Button>
-        <Button id="feedback">Send Feedback</Button>
+        <Button id="preferences">Preferences</Button>
+        <Button actionType="modal" id="feedback">
+          Send Feedback
+        </Button>
         <Button id="messages">Fetch Messages</Button>
+        <Button id="transcripts">Show Transcripts</Button>
+        <Button id="clear-transcripts" style="danger">
+          Clear Transcripts
+        </Button>
         <Button id="channel-post">Channel Post</Button>
+        <Button id="channel-info">Channel Info (Slack)</Button>
+        <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
-        <Button id="report" value="bug">
+        <Button id="agent-demo">Run Agent Demo</Button>
+        <Button id="who-am-i">Who Am I</Button>
+        <Button actionType="modal" id="report" value="bug">
           Report Bug
+        </Button>
+        <Button id="workflow_button">Workflow Button</Button>
+        <Button actionType="modal" id="workflow_modal">
+          Workflow Modal
         </Button>
         <LinkButton url="https://vercel.com">Open Link</LinkButton>
         <Button id="goodbye" style="danger">
@@ -148,7 +204,26 @@ bot.onMemberJoinedChannel(async (event) => {
 
 // Handle direct messages — AI conversation by default
 // This fires on every DM, regardless of subscription status
-bot.onDirectMessage(async (_thread, message, channel) => {
+bot.onDirectMessage(async (thread, message, channel) => {
+  if (POSTCARD_TRIGGER_REGEX.test(message.text.trim())) {
+    await thread.post(
+      <Card title={`${emoji.sparkles} Test Menu`}>
+        <Text>Test these button actions:</Text>
+        <Actions>
+          <Button id="hello" style="primary">
+            Say Hello
+          </Button>
+          <Button id="info">Show Info</Button>
+          <Button id="who-am-i">Who Am I</Button>
+          <Button id="goodbye" style="danger">
+            Goodbye
+          </Button>
+        </Actions>
+      </Card>
+    );
+    return;
+  }
+
   await channel.startTyping("Thinking...");
   let history: AiMessage[];
   try {
@@ -168,7 +243,7 @@ bot.onDirectMessage(async (_thread, message, channel) => {
   }
   try {
     const result = await agent.stream({ prompt: history });
-    await channel.post(result.fullStream);
+    await thread.post(result.fullStream);
   } catch (err) {
     console.error("Error in DM AI response:", err);
     await channel.post(
@@ -211,7 +286,7 @@ bot.onAction("ephemeral", async (event) => {
       </Text>
       <Text>Try opening a modal from this ephemeral:</Text>
       <Actions>
-        <Button id="ephemeral_modal" style="primary">
+        <Button actionType="modal" id="ephemeral_modal" style="primary">
           Open Modal
         </Button>
       </Actions>
@@ -237,7 +312,6 @@ bot.onAction("ephemeral_modal", async (event) => {
   );
 });
 
-// @ts-expect-error async void handler vs ModalSubmitHandler return type
 bot.onModalSubmit("ephemeral_modal_form", async (event) => {
   await event.relatedMessage?.edit(
     <Card title={`${emoji.check} Submitted!`}>
@@ -309,6 +383,43 @@ bot.onAction("plan_selected", (event) => {
   );
 });
 
+bot.onAction("preferences", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(
+    <Card title="Set Preferences">
+      <Text>Choose your theme and notification settings:</Text>
+      <Actions>
+        <Select id="theme_selected" label="Theme" placeholder="Pick a theme...">
+          <SelectOption label="Light" value="light" />
+          <SelectOption label="Dark" value="dark" />
+          <SelectOption label="System" value="system" />
+        </Select>
+        <RadioSelect id="notifications_selected" label="Notifications">
+          <SelectOption label="All notifications" value="all" />
+          <SelectOption label="Mentions only" value="mentions" />
+          <SelectOption label="None" value="none" />
+        </RadioSelect>
+      </Actions>
+    </Card>
+  );
+});
+
+bot.onAction("theme_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.sparkles} Theme set to **${event.value}**`);
+});
+
+bot.onAction("notifications_selected", (event) => {
+  if (!event.thread) {
+    return;
+  }
+  event.thread.post(`${emoji.bell} Notifications set to **${event.value}**`);
+});
+
 // Handle card button actions
 bot.onAction("hello", async (event) => {
   if (!event.thread) {
@@ -339,6 +450,36 @@ bot.onAction("info", async (event) => {
   );
 });
 
+bot.onAction("who-am-i", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  try {
+    const user = await bot.getUser(event.user);
+    if (!user) {
+      await event.thread.post(
+        `${emoji.warning} Could not find your user profile.`
+      );
+      return;
+    }
+    await event.thread.post(
+      <Card title={`${emoji.eyes} Who Am I`}>
+        <Fields>
+          <Field label="Name" value={user.fullName} />
+          <Field label="Username" value={user.userName} />
+          <Field label="User ID" value={user.userId} />
+          <Field label="Email" value={user.email ?? "Not available"} />
+          <Field label="Bot" value={user.isBot ? "Yes" : "No"} />
+        </Fields>
+      </Card>
+    );
+  } catch {
+    await event.thread.post(
+      `${emoji.warning} User lookup is not supported on this platform.`
+    );
+  }
+});
+
 bot.onAction("goodbye", async (event) => {
   if (!event.thread) {
     return;
@@ -346,6 +487,43 @@ bot.onAction("goodbye", async (event) => {
   await event.thread.post(
     `${emoji.wave} Goodbye, ${event.user.fullName}! See you later.`
   );
+});
+
+bot.onAction("workflow_button", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await start(buttonWorkflow, [event.thread]);
+});
+
+bot.onAction("workflow_modal", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const token = `modal-${event.user.userId}-${Date.now()}`;
+  const callbackUrl = `${getBaseUrl()}/api/modal-callback/${token}`;
+
+  // Open modal FIRST — Slack's trigger_id expires after ~3 seconds, so we
+  // can't afford to wait on workflow startup before this call.
+  await event.openModal(
+    <Modal
+      callbackId="workflow_modal_form"
+      callbackUrl={callbackUrl}
+      submitLabel="Submit"
+      title="Workflow Modal Demo"
+    >
+      <TextInput
+        id="message"
+        label="Your message"
+        placeholder="Anything you'd like..."
+      />
+    </Modal>
+  );
+
+  // Start the workflow that awaits the modal submission via the hook token.
+  // User typing + clicking Submit takes seconds, plenty of time for the
+  // workflow to register the hook.
+  await start(modalWorkflow, [event.thread, token, event.user.fullName]);
 });
 
 bot.onAction("show-table", async (event) => {
@@ -416,6 +594,116 @@ bot.onSlashCommand("/test-feedback", async (event) => {
   if (!result) {
     await event.channel.post(
       `${emoji.warning} Couldn't open the feedback modal. Please try again.`
+    );
+  }
+});
+
+// Demonstrates `chat/ai` tools end-to-end. The agent reads a few recent
+// messages, reacts to the trigger card, and posts a short summary card —
+// all by calling Chat SDK tools rather than direct adapter methods.
+//
+// Approval is disabled here so the demo runs to completion without UI
+// gating. In production you'd typically leave the default
+// (`requireApproval: true`) and present an approval card for write tools.
+bot.onAction("agent-demo", async (event) => {
+  const thread = event.thread;
+  if (!thread) {
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: "messenger",
+    requireApproval: false,
+  });
+
+  await thread.startTyping("Running agent...");
+  try {
+    const result = await generateText({
+      model: "openai/gpt-5.4",
+      tools,
+      stopWhen: ({ steps }) => steps.length >= 6,
+      system: [
+        "You are demoing the Chat SDK `chat/ai` tools inside a chat thread.",
+        `The active thread id is "${thread.id}".`,
+        "Do exactly the following, in order:",
+        "1. Add a `:eyes:` reaction to the most recent message in this thread using `addReaction`.",
+        "2. Call `fetchMessages` to load up to the 5 most recent messages in this thread.",
+        "3. Call `postMessage` with a single short markdown summary (one to three sentences) of what you saw, prefixed with `Agent demo summary:`.",
+        "Stop after posting the summary. Do not ask follow-up questions.",
+      ].join("\n"),
+      prompt: `User ${event.user.fullName} clicked the "Run Agent Demo" button.`,
+    });
+
+    if (result.steps.length === 0) {
+      await thread.post(
+        `${emoji.warning} Agent finished without calling any tools.`
+      );
+    }
+  } catch (err) {
+    console.error("agent-demo error:", err);
+    await thread.post(
+      `${emoji.warning} Agent demo failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Free-form agent invocation: `/agent <prompt>` lets you exercise the
+// `chat/ai` tools with arbitrary natural-language instructions inside the
+// channel where the command was invoked.
+//
+// The reply streams in incrementally — `thread.post(result.fullStream)`
+// renders model tokens as they arrive while the underlying tool loop keeps
+// running in the background.
+bot.onSlashCommand("/agent", async (event) => {
+  const prompt = event.text.trim();
+  if (!prompt) {
+    await event.channel.post(
+      `${emoji.warning} Usage: \`/agent <instructions>\` - e.g. \`/agent summarize the last 10 messages in this channel\``
+    );
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: ["reader", "messenger"],
+    requireApproval: false,
+  });
+
+  const toolAgent = new ToolLoopAgent({
+    model: "openai/gpt-5.4",
+    tools,
+    stopWhen: ({ steps }) => steps.length >= 8,
+    instructions: [
+      "You are an assistant operating inside a chat workspace via Chat SDK `chat/ai` tools.",
+      `The active channel id is "${event.channel.id}". Use it with channel tools such as fetchChannelMessages or postChannelMessage.`,
+      "Do not pass a channel id as a threadId. Use thread ids only with thread tools such as fetchMessages, postMessage, addReaction, and startTyping.",
+      "Your final assistant text is streamed back to the channel. Do not call postChannelMessage just to answer the slash command.",
+      "If you need recent channel context, call `fetchChannelMessages` first.",
+    ].join("\n"),
+  });
+
+  // `startTyping` on Slack only renders status text inside a thread
+  // (assistant.threads.setStatus requires thread_ts). Slash commands
+  // dispatch in the channel scope, so post an explicit placeholder so
+  // the user sees something while the model warms up. The streamed
+  // reply lands as a follow-up message.
+  await event.channel.startTyping("Agent thinking...");
+  const placeholder = await event.channel.post(
+    `${emoji.sparkles} Agent thinking...`
+  );
+  try {
+    const result = await toolAgent.stream({ prompt });
+    await event.channel.post(result.fullStream);
+    await placeholder.delete();
+  } catch (err) {
+    console.error("/agent error:", err);
+    await placeholder.edit(
+      `${emoji.warning} Agent failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
     );
   }
 });
@@ -525,7 +813,62 @@ bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
-// Demonstrate fetchMessages and allMessages
+// Demonstrate bot.transcripts.list / count / delete
+bot.onAction("transcripts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const entries = await bot.transcripts.list({
+    userKey: TEST_USER_KEY,
+    limit: 50,
+  });
+
+  if (entries.length === 0) {
+    await event.thread.post(
+      <Card title={`${emoji.memo} Transcripts`}>
+        <Text>No entries stored yet for `{TEST_USER_KEY}`.</Text>
+        <Text>
+          Mention the bot with "AI" to enable AI mode, then send a few messages
+          — they'll be persisted here.
+        </Text>
+      </Card>
+    );
+    return;
+  }
+
+  const truncate = (s: string, n = 80) =>
+    s.length > n ? `${s.slice(0, n)}…` : s;
+  const lines = entries
+    .map(
+      (e, i) =>
+        `${i + 1}. **[${e.role}]** \`${e.platform}\` — ${truncate(e.text)}`
+    )
+    .join("\n");
+
+  await event.thread.post(
+    <Card
+      subtitle={`userKey: ${TEST_USER_KEY}`}
+      title={`${emoji.memo} Transcripts (${entries.length})`}
+    >
+      <Text>{lines}</Text>
+    </Card>
+  );
+});
+
+bot.onAction("clear-transcripts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { deleted } = await bot.transcripts.delete({
+    userKey: TEST_USER_KEY,
+  });
+  await event.thread.post(
+    <Card title={`${emoji.check} Transcripts cleared`}>
+      <Text>{`Removed ${deleted} entr${deleted === 1 ? "y" : "ies"} for \`${TEST_USER_KEY}\`.`}</Text>
+    </Card>
+  );
+});
+
 bot.onAction("messages", async (event) => {
   if (!event.thread) {
     return;
@@ -669,6 +1012,124 @@ bot.onAction("channel-post", async (event) => {
   }
 });
 
+// Demonstrate direct Slack WebClient access via adapter.client.
+// `conversations.info` requires the `channels:read` (or `groups:read`) scope.
+bot.onAction("channel-info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  // Strip the "slack:" prefix to get the raw Slack channel ID.
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    const result = await slack.conversations.info({
+      channel: channelId,
+      include_num_members: true,
+    });
+    const channel = result.channel as
+      | {
+          created?: number;
+          creator?: string;
+          id?: string;
+          is_archived?: boolean;
+          is_general?: boolean;
+          is_private?: boolean;
+          name?: string;
+          num_members?: number;
+          purpose?: { value?: string };
+          topic?: { value?: string };
+        }
+      | undefined;
+
+    if (!channel) {
+      await thread.post(
+        `${emoji.warning} Slack returned no channel info for \`${channelId}\`.`
+      );
+      return;
+    }
+
+    const created = channel.created
+      ? new Date(channel.created * 1000).toISOString()
+      : "unknown";
+
+    await thread.post(
+      <Card title={`${emoji.memo} Channel Info`}>
+        <Text>
+          {`Fetched via \`bot.getAdapter("slack").client.conversations.info\``}
+        </Text>
+        <Table
+          headers={["Field", "Value"]}
+          rows={[
+            ["Name", channel.name ? `#${channel.name}` : "—"],
+            ["ID", channel.id ?? channelId],
+            [
+              "Members",
+              typeof channel.num_members === "number"
+                ? String(channel.num_members)
+                : "—",
+            ],
+            ["Created", created],
+            ["Creator", channel.creator ?? "—"],
+            ["Private", channel.is_private ? "Yes" : "No"],
+            ["Archived", channel.is_archived ? "Yes" : "No"],
+            ["Default channel", channel.is_general ? "Yes" : "No"],
+            ["Topic", channel.topic?.value?.trim() || "(no topic set)"],
+            ["Purpose", channel.purpose?.value?.trim() || "(no purpose set)"],
+          ]}
+        />
+      </Card>
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error fetching channel info: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Pin the card containing this button via the Slack WebClient.
+// `pins.add` requires the `pins:write` scope.
+bot.onAction("pin-message", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    await slack.pins.add({ channel: channelId, timestamp: event.messageId });
+    await thread.post(
+      `${emoji.pin} Pinned the welcome card via \`bot.getAdapter("slack").client.pins.add\`.`
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error pinning message: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
 // Helper to delay execution
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -714,28 +1175,36 @@ bot.onSubscribedMessage(async (thread, message) => {
 
   // If AI mode is enabled (or this is a DM), use the AI agent
   if (threadState?.aiMode) {
+    // Capture the user's message in their cross-platform transcript so we can
+    // backfill context on platforms without server-side history.
+    await bot.transcripts.append(thread, message);
+
     // Build conversation history: try fetchMessages first, then fall back to
-    // stored history in thread state (for platforms without message history API)
+    // the user's stored transcript (filtered to this thread) for platforms
+    // without a message history API.
     let history: AiMessage[];
     try {
       const result = await thread.adapter.fetchMessages(thread.id, {
         limit: 20,
       });
-      if (result.messages.length > 0) {
-        history = await toAiMessages(result.messages);
-      } else {
-        // No messages from API — use stored history + current message
-        history = [
-          ...(threadState?.history ?? []),
-          { role: "user" as const, content: message.text },
-        ];
-      }
+      history =
+        result.messages.length > 0
+          ? await toAiMessages(result.messages)
+          : transcriptToAiMessages(
+              await bot.transcripts.list({
+                userKey: message.userKey ?? "",
+                threadId: thread.id,
+                limit: 20,
+              })
+            );
     } catch {
-      // fetchMessages not supported — use stored history + current message
-      history = [
-        ...(threadState?.history ?? []),
-        { role: "user" as const, content: message.text },
-      ];
+      history = transcriptToAiMessages(
+        await bot.transcripts.list({
+          userKey: message.userKey ?? "",
+          threadId: thread.id,
+          limit: 20,
+        })
+      );
     }
 
     await thread.startTyping("Thinking...");
@@ -743,9 +1212,15 @@ bot.onSubscribedMessage(async (thread, message) => {
       const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);
       const responseText = await result.text;
-      // Persist updated history for platforms without message history API
-      history.push({ role: "assistant", content: responseText });
-      await thread.setState({ history });
+      // Persist the assistant reply alongside the user message, so the next
+      // turn can read both sides of the conversation from the transcript.
+      if (message.userKey) {
+        await bot.transcripts.append(
+          thread,
+          { role: "assistant", text: responseText },
+          { userKey: message.userKey }
+        );
+      }
     } catch (err) {
       console.error("Error in AI response:", err);
       await thread.post(
@@ -819,9 +1294,13 @@ bot.onReaction(["thumbs_up", "heart", "fire", "rocket"], async (event) => {
     return;
   }
 
-  // GChat and Teams bots cannot add reactions via their APIs
+  // GChat, Teams, and Messenger bots cannot add reactions via their APIs
   // Respond with a message instead
-  if (event.adapter.name === "gchat" || event.adapter.name === "teams") {
+  if (
+    event.adapter.name === "gchat" ||
+    event.adapter.name === "teams" ||
+    event.adapter.name === "messenger"
+  ) {
     await event.adapter.postMessage(
       event.threadId,
       `Thanks for the ${event.rawEmoji}!`

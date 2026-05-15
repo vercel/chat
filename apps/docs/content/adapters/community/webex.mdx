@@ -1,0 +1,156 @@
+---
+title: Webex
+description: Community Webex adapter for Chat SDK with support for spaces, threads, adaptive cards, and modals.
+packageName: "@bitbasti/chat-adapter-webex"
+slug: webex
+type: platform
+tagline: Community Webex adapter for Chat SDK. Supports spaces, threads, adaptive cards (buttons, selects, fields, sections), modals, and webhook signature verification.
+community: true
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: yes
+  fileUploads:
+    status: partial
+    label: 1 file per message
+  streaming:
+    status: partial
+    label: post+edit
+  scheduledMessages: no
+  cardFormat:
+    status: yes
+    label: Adaptive Cards
+  buttons: yes
+  linkButtons: yes
+  selectMenus: yes
+  tables: no
+  fields: yes
+  imagesInCards: yes
+  modals: yes
+  slashCommands: no
+  mentions: yes
+  addReactions: no
+  removeReactions: no
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: yes
+  customApiEndpoint:
+    status: yes
+    label: baseUrl
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="chat @bitbasti/chat-adapter-webex" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createWebexAdapter } from "@bitbasti/chat-adapter-webex";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    webex: createWebexAdapter({
+      botToken: process.env.WEBEX_BOT_TOKEN,
+      webhookSecret: process.env.WEBEX_WEBHOOK_SECRET,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`Hello from Webex! You said: ${message.text}`);
+});
+```
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `WEBEX_BOT_TOKEN` | Yes | Bot access token from the Webex Developer Portal |
+| `WEBEX_WEBHOOK_SECRET` | Recommended | Shared secret for webhook signature verification |
+| `WEBEX_BASE_URL` | No | Override the Webex API base URL (default: `https://webexapis.com/v1`) |
+| `WEBEX_BOT_USERNAME` | No | Override the bot display name |
+
+## Configuration
+
+<TypeTable
+  type={{
+    botToken: {
+      type: "string",
+      description: "Bot access token. Auto-detected from `WEBEX_BOT_TOKEN`.",
+    },
+    webhookSecret: {
+      type: "string",
+      description:
+        "Shared secret for verifying webhook signatures. Auto-detected from `WEBEX_WEBHOOK_SECRET`.",
+    },
+    baseUrl: {
+      type: "string",
+      default: '"https://webexapis.com/v1"',
+      description: "Webex API base URL.",
+    },
+    userName: {
+      type: "string",
+      default: '"webex-bot"',
+      description:
+        "Bot display name. Overridden by the bot's Webex profile on initialization.",
+    },
+    botUserId: {
+      type: "string",
+      description:
+        "Webex person ID of the bot. Skips the `/people/me` call when provided.",
+    },
+    logger: {
+      type: "Logger",
+      default: "ConsoleLogger",
+      description: "Custom logger instance.",
+    },
+  }}
+/>
+
+## Platform setup
+
+1. Go to the [Webex Developer Portal](https://developer.webex.com/) and sign in.
+2. Navigate to **My Webex Apps → Create a New App → Create a Bot**.
+3. Fill in the bot name, username, and icon, then click **Add Bot**.
+4. Copy the **Bot Access Token** — this is your `WEBEX_BOT_TOKEN`. Store it securely; it is only shown once.
+5. Create a webhook pointing to your server:
+   - **Target URL:** `https://your-domain.com/api/webhooks/webex`
+   - **Resource:** `messages` | **Event:** `created`
+   - **Resource:** `attachmentActions` | **Event:** `created`
+   - **Secret:** a random string — this is your `WEBEX_WEBHOOK_SECRET`
+6. Add the bot to a Webex space and mention it to verify the integration.
+
+See the [Webex Webhooks Guide](https://developer.webex.com/messaging/docs/api/guides/webhooks) for details on webhook registration.
+
+## Capabilities
+
+- Mentions and DMs
+- Rich text (bold, italic, code, links) via Markdown
+- Adaptive Cards — buttons, selects, radio selects, fields, sections
+- Modals — form cards with submit/close actions
+- File uploads (single file per message)
+- Thread support via parent IDs
+- Webhook signature verification (HMAC-SHA1)
+
+## Limitations
+
+- **Reactions** are not supported by Webex bot tokens — `addReaction` / `removeReaction` throw `NotImplementedError`.
+- **Typing indicators** are not available in the Webex Messaging API.
+- Only **one file upload per message** is supported.
+- **Cards and file uploads** cannot be combined in the same message.
+
+## Feature support
+
+<FeatureSupport />

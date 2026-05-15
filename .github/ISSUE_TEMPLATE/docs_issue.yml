@@ -1,0 +1,56 @@
+name: Documentation Issue
+description: Report a problem with the Chat SDK documentation
+title: "I found a docs issue..."
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the Chat SDK docs! Please fill out the information below so we can fix the issue quickly.
+
+  - type: input
+    id: location
+    attributes:
+      label: Affected page or section
+      description: URL on chat-sdk.dev, or path in this repo (e.g., `apps/docs/content/docs/state.mdx`)
+      placeholder: https://chat-sdk.dev/docs/...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of issue
+      options:
+        - Typo or grammar
+        - Inaccurate or outdated information
+        - Unclear or confusing explanation
+        - Missing information
+        - Broken link
+        - Code example does not work
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What's wrong, and what did you expect to see instead?
+      placeholder: Describe the issue...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested fix
+      description: If you have a suggested correction, share it here. Pull requests welcome — see CONTRIBUTING.md.
+      placeholder: ...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, related issues, or anything else.
+      placeholder: Any additional information...

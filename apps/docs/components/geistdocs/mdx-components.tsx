@@ -15,7 +15,11 @@ import {
   CodeBlockTabsList,
   CodeBlockTabsTrigger,
 } from "./code-block-tabs";
+import { Check, Cross, Warn } from "@/components/custom/status-icons";
+import { FeatureSupport } from "./feature-support";
+import { GlobalFeatureMatrix } from "./global-feature-matrix";
 import { Mermaid } from "./mermaid";
+import { PackageInstall } from "./package-install";
 import { Video } from "./video";
 
 export const getMDXComponents = (
@@ -55,6 +59,14 @@ export const getMDXComponents = (
   Mermaid,
 
   Video,
+
+  Check,
+  Cross,
+  Warn,
+
+  FeatureSupport,
+  GlobalFeatureMatrix,
+  PackageInstall,
 
   // User components last to allow overwriting defaults
   ...components,

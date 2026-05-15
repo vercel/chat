@@ -38,6 +38,8 @@ import {
   toModalElement,
 } from "./jsx-runtime";
 import {
+  ExternalSelect,
+  type ExternalSelectElement,
   Modal,
   type ModalElement,
   RadioSelect,
@@ -753,6 +755,28 @@ describe("toModalElement", () => {
       "RadioSelect requires at least one option"
     );
   });
+
+  it("converts ExternalSelect in a modal", () => {
+    const externalSelect = jsx(ExternalSelect, {
+      id: "person",
+      label: "Person",
+      placeholder: "Search people",
+      minQueryLength: 1,
+    });
+    const modal = jsxs(Modal, {
+      callbackId: "test",
+      title: "Test",
+      children: [externalSelect],
+    });
+    const modalElement = toModalElement(modal);
+
+    expect(modalElement).not.toBeNull();
+    const child = modalElement?.children[0];
+    expect(child?.type).toBe("external_select");
+    if (child?.type === "external_select") {
+      expect(child.minQueryLength).toBe(1);
+    }
+  });
 });
 
 // ============================================================================
@@ -966,5 +990,9 @@ describe("ChatElement type compatibility", () => {
 
   it("RadioSelectElement is assignable to ChatElement", () => {
     expectTypeOf<RadioSelectElement>().toMatchTypeOf<ChatElement>();
+  });
+
+  it("ExternalSelectElement is assignable to ChatElement", () => {
+    expectTypeOf<ExternalSelectElement>().toMatchTypeOf<ChatElement>();
   });
 });

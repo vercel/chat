@@ -8,12 +8,17 @@ import {
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
+import {
+  createMessengerAdapter,
+  type MessengerAdapter,
+} from "@chat-adapter/messenger";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
   createTelegramAdapter,
   type TelegramAdapter,
 } from "@chat-adapter/telegram";
+import { createWebAdapter, type WebAdapter } from "@chat-adapter/web";
 import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
@@ -29,9 +34,11 @@ export interface Adapters {
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
   linear?: LinearAdapter;
+  messenger?: MessengerAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
+  web?: WebAdapter;
   whatsapp?: WhatsAppAdapter;
 }
 
@@ -91,6 +98,12 @@ const LINEAR_METHODS = [
   "addReaction",
   "fetchMessages",
 ];
+const MESSENGER_METHODS = [
+  "postMessage",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
 const TELEGRAM_METHODS = [
   "postMessage",
   "editMessage",
@@ -135,6 +148,29 @@ export function buildAdapters(): Adapters {
       "discord",
       DISCORD_METHODS
     );
+  }
+
+  // Messenger adapter (optional) - env vars: FACEBOOK_APP_SECRET, FACEBOOK_PAGE_ACCESS_TOKEN, FACEBOOK_VERIFY_TOKEN
+  if (
+    process.env.FACEBOOK_APP_SECRET &&
+    process.env.FACEBOOK_PAGE_ACCESS_TOKEN &&
+    process.env.FACEBOOK_VERIFY_TOKEN
+  ) {
+    try {
+      adapters.messenger = withRecording(
+        createMessengerAdapter({
+          userName: "Chat SDK Bot",
+          logger: logger.child("messenger"),
+        }),
+        "messenger",
+        MESSENGER_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create messenger adapter:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
@@ -203,19 +239,24 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)
+  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET).
+  // Set LINEAR_MODE=agent-sessions for app-actor installs with Agent session events + app:mentionable.
   if (process.env.LINEAR_WEBHOOK_SECRET) {
     try {
       adapters.linear = withRecording(
         createLinearAdapter({
           logger: logger.child("linear"),
+          mode:
+            process.env.LINEAR_MODE === "agent-sessions"
+              ? "agent-sessions"
+              : "comments",
         }),
         "linear",
         LINEAR_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create linear adapter (check LINEAR_API_KEY or LINEAR_CLIENT_ID/SECRET)"
+        "[chat] Failed to create linear adapter (check LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)"
       );
     }
   }
@@ -257,6 +298,15 @@ export function buildAdapters(): Adapters {
       );
     }
   }
+
+  // Web adapter — always available, no env vars required.
+  // Demo uses a fixed user id; replace `getUser` with your real auth
+  // (NextAuth, Clerk, signed cookie, etc.) in production.
+  adapters.web = createWebAdapter({
+    userName: "Chat SDK Bot",
+    logger: logger.child("web"),
+    getUser: () => ({ id: "demo", name: "Demo User" }),
+  });
 
   return adapters;
 }

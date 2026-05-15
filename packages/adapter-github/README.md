@@ -129,6 +129,24 @@ bot.onNewMention(async (thread, message) => {
 - PAT mode returns `undefined`.
 - Multi-tenant mode only succeeds after the adapter has received a webhook for that repository and cached the installation mapping. Use a persistent state adapter so the mapping survives restarts.
 
+## Direct API client
+
+For anything beyond the unified SDK, access the underlying [Octokit](https://github.com/octokit/octokit.js) instance via `.octokit`:
+
+```typescript
+const github = bot.getAdapter("github").octokit;
+
+const { data: pulls } = await github.rest.pulls.list({
+  owner: "vercel",
+  repo: "chat",
+  state: "open",
+});
+```
+
+PAT and single-tenant GitHub App modes (with a fixed `installationId`) return the same client anywhere. Multi-tenant mode requires webhook handler context to resolve the right installation — calling `.octokit` outside a handler throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.octokit`.
+
 ## Webhook setup
 
 For repository or organization webhooks:
@@ -143,12 +161,13 @@ For repository or organization webhooks:
 
 ## Thread model
 
-GitHub has two types of comment threads:
+GitHub has three types of comment threads:
 
-| Type | Tab | Thread ID format |
-|------|-----|-----------------|
-| PR-level | Conversation | `github:{owner}/{repo}:{prNumber}` |
-| Review comments | Files Changed | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Type | Context | Thread ID format |
+|------|---------|-----------------|
+| PR-level | PR Conversation tab | `github:{owner}/{repo}:{prNumber}` |
+| Review comments | PR Files Changed tab | `github:{owner}/{repo}:{prNumber}:rc:{commentId}` |
+| Issue comments | Issue thread | `github:{owner}/{repo}:issue:{issueNumber}` |
 
 ## Reactions
 
@@ -178,6 +197,7 @@ All options are auto-detected from environment variables when not provided.
 | `webhookSecret` | No** | Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET` |
 | `userName` | No | Bot username for @mention detection. Auto-detected from `GITHUB_BOT_USERNAME` (default: `"github-bot"`) |
 | `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
+| `apiUrl` | No | Override the GitHub API base URL (e.g. for GitHub Enterprise Server). Auto-detected from `GITHUB_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Either `token`/`GITHUB_TOKEN` or `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY` is required.
@@ -197,6 +217,9 @@ GITHUB_INSTALLATION_ID=12345678  # Optional for multi-tenant
 
 # Required
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
+
+# Optional: GitHub Enterprise Server
+GITHUB_API_URL=https://github.example.com/api/v3
 ```
 
 ## Features
@@ -209,7 +232,7 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | No |
-| Streaming | No |
+| Streaming | Buffered (accumulates then sends) |
 
 ### Rich content
 

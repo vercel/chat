@@ -32,7 +32,9 @@ const logger = new ConsoleLogger("error");
 describe("ESM compatibility", () => {
   it(
     "all subpath imports resolve in Node.js ESM (no bare directory imports)",
-    { timeout: 30_000 },
+    {
+      timeout: 30_000,
+    },
     () => {
       const source = readFileSync(
         resolve(import.meta.dirname, "index.ts"),
@@ -274,6 +276,24 @@ describe("TeamsAdapter", () => {
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
       expect(adapter.name).toBe("teams");
+    });
+
+    it("should resolve apiUrl from TEAMS_API_URL env var", () => {
+      process.env.TEAMS_APP_ID = "env-app-id";
+      process.env.TEAMS_APP_PASSWORD = "env-password";
+      process.env.TEAMS_API_URL = "https://custom-teams.example.com";
+      const adapter = new TeamsAdapter();
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        apiUrl: "https://custom-teams.example.com",
+        logger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
   });
 
@@ -772,6 +792,7 @@ describe("TeamsAdapter", () => {
         getState: vi.fn(),
         processMessage: vi.fn(),
         processAction: vi.fn(),
+        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
         processReaction: vi.fn(),
       };
 
@@ -990,6 +1011,7 @@ describe("TeamsAdapter", () => {
         getState: () => mockState,
         processMessage: vi.fn(),
         processAction: vi.fn(),
+        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
         processReaction: vi.fn(),
       };
 
@@ -1004,5 +1026,227 @@ describe("TeamsAdapter", () => {
 
       await expect(adapter.openDM("user-123")).rejects.toThrow(ValidationError);
     });
+  });
+
+  // ==========================================================================
+  // getUser Tests
+  // ==========================================================================
+
+  describe("getUser", () => {
+    it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => ({
+          displayName: "Alice Smith",
+          mail: "alice@contoso.com",
+          userPrincipalName: "alice@contoso.com",
+          id: "aad-object-id-456",
+        })),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Alice Smith");
+      expect(user?.email).toBe("alice@contoso.com");
+      expect(user?.userName).toBe("alice@contoso.com");
+      expect(user?.userId).toBe("29:user-123");
+      expect(user?.isBot).toBe(false);
+    });
+
+    it("should return null when aadObjectId is not cached", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: { initialize: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:unknown-user");
+      expect(user).toBeNull();
+    });
+
+    it("should return null when Graph call fails", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => {
+          throw new Error("Forbidden");
+        }),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).toBeNull();
+    });
+
+    it("should handle missing mail gracefully", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockState = {
+        get: vi.fn(async (key: string) => {
+          if (key === "teams:aadObjectId:29:user-123") {
+            return "aad-object-id-456";
+          }
+          return null;
+        }),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const mockChat = {
+        getState: () => mockState,
+        processMessage: vi.fn(),
+        processAction: vi.fn(),
+        processReaction: vi.fn(),
+      };
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => ({
+          displayName: "Bob Jones",
+          mail: null,
+          userPrincipalName: "bob@contoso.com",
+          id: "aad-object-id-456",
+        })),
+      };
+
+      await adapter.initialize(
+        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
+      );
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Bob Jones");
+      expect(user?.email).toBeUndefined();
+      expect(user?.userName).toBe("bob@contoso.com");
+    });
+
+    it("should return null when adapter is not initialized", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const user = await adapter.getUser("29:user-123");
+      expect(user).toBeNull();
+    });
+  });
+});
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends TeamsAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [
+          this.logger,
+          this.formatConverter,
+          this.handleMessageActivity,
+        ] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });

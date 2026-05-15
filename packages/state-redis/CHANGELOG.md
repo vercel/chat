@@ -1,5 +1,70 @@
 # @chat-adapter/state-redis
 
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+
+## 4.28.0
+
+### Patch Changes
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+
+## 4.27.0
+
+### Patch Changes
+
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+
+## 4.24.0
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 67e0e1b: Fix `createRedisState` typings so `url` appears in IntelliSense and the factory accepts an existing Redis client.
+- Updated dependencies [8d89274]
+- Updated dependencies [4f5d200]
+- Updated dependencies [27b34e1]
+  - chat@4.24.0
+
 ## 4.23.0
 
 ### Patch Changes

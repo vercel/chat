@@ -1,0 +1,304 @@
+---
+title: Zernio
+description: Multi-platform messaging adapter for Chat SDK. Build chatbots that work across Instagram, Facebook, Twitter/X, Telegram, WhatsApp, Bluesky, and Reddit through a single integration.
+packageName: "@zernio/chat-sdk-adapter"
+slug: zernio
+type: platform
+tagline: One adapter, seven platforms. Reach Instagram, Facebook, Twitter/X, Telegram, WhatsApp, Bluesky, and Reddit through Zernio without managing each platform's developer program, app review, or token rotation.
+community: true
+vendorOfficial: true
+author: Zernio
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage:
+    status: partial
+    label: Telegram
+  deleteMessage:
+    status: partial
+    label: Telegram, X
+  fileUploads: yes
+  streaming:
+    status: partial
+    label: post+edit (Telegram)
+  scheduledMessages: no
+  cardFormat:
+    status: partial
+    label: FB, IG, Telegram, WhatsApp
+  buttons:
+    status: partial
+    label: FB, IG, Telegram, WhatsApp
+  linkButtons:
+    status: partial
+    label: FB, IG, Telegram, WhatsApp
+  selectMenus: no
+  tables: no
+  fields: no
+  imagesInCards:
+    status: partial
+    label: FB, IG, Telegram, WhatsApp
+  modals: no
+  slashCommands: no
+  mentions: no
+  addReactions:
+    status: partial
+    label: Telegram, WhatsApp
+  removeReactions:
+    status: partial
+    label: Telegram, WhatsApp
+  typingIndicator:
+    status: partial
+    label: FB, Telegram
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: yes
+  customApiEndpoint:
+    status: yes
+    label: baseUrl
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@zernio/chat-sdk-adapter chat @chat-adapter/state-memory" />
+
+For production, swap `@chat-adapter/state-memory` for a persistent state adapter such as `@chat-adapter/state-redis` or `@chat-adapter/state-pg`. See [State Adapters](/docs/state) for all options.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createZernioAdapter } from "@zernio/chat-sdk-adapter";
+
+export const bot = new Chat({
+  userName: "pizza-bot",
+  adapters: {
+    zernio: createZernioAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+// Pattern is a RegExp — `/.*/ ` matches every message.
+bot.onNewMessage(/.*/, async (thread, message) => {
+  const platform = (message.raw as { platform: string }).platform;
+  await thread.post(`Hello from ${platform}!`);
+});
+```
+
+```typescript title="app/api/chat-webhook/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.zernio(request);
+}
+```
+
+## Why Zernio
+
+Even with native Chat SDK adapters for each platform, shipping a multi-platform bot still means applying to Meta's developer program, going through App Review, getting WhatsApp Business verification, applying for X elevated access, and managing token rotation across all of them. Zernio replaces that with a dashboard where users connect their own accounts and you get one API key.
+
+## Configuration
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `ZERNIO_API_KEY` | Yes | Zernio API key for sending messages |
+| `ZERNIO_WEBHOOK_SECRET` | Recommended | HMAC-SHA256 secret for verifying inbound webhooks |
+| `ZERNIO_API_BASE_URL` | No | Override the API base URL (default: `https://zernio.com/api`) |
+| `ZERNIO_BOT_NAME` | No | Bot display name (default: `"Zernio Bot"`) |
+
+### Explicit configuration
+
+```typescript
+import { createZernioAdapter } from "@zernio/chat-sdk-adapter";
+
+const adapter = createZernioAdapter({
+  apiKey: "your-api-key",
+  webhookSecret: "your-webhook-secret",
+  baseUrl: "https://zernio.com/api",
+  botName: "My Bot",
+});
+```
+
+## Setup
+
+1. **Get a Zernio API key.** Sign up at [zernio.com](https://zernio.com) and create an API key from the dashboard with **read-write** permissions.
+2. **Connect social accounts.** Use the Zernio dashboard or API to connect the platform accounts you want the bot to handle.
+3. **Configure a webhook** pointing at your bot's webhook endpoint:
+   - **URL:** `https://your-app.com/api/chat-webhook`
+   - **Events:** `message.received` and `comment.received`
+   - **Secret:** strong shared secret, passed as `ZERNIO_WEBHOOK_SECRET`
+4. **Enable the inbox addon** on your Zernio account to receive message webhooks.
+
+## How it works
+
+```
+Incoming
+  User sends a DM on Instagram/Telegram/etc.
+    -> Platform delivers to Zernio
+    -> Zernio fires `message.received` webhook
+    -> Adapter verifies signature & parses payload
+    -> Chat SDK routes through your handlers
+
+Outgoing
+  Your handler calls thread.post("Hello!")
+    -> Adapter calls the Zernio REST API
+    -> Zernio delivers to the correct platform
+    -> User receives the message on the originating platform
+```
+
+## Thread ID format
+
+Thread IDs follow the format `zernio:{accountId}:{conversationId}`:
+
+- `accountId` — the Zernio social account ID (which platform account received the message)
+- `conversationId` — the Zernio conversation ID (the specific DM thread)
+- For comments: `zernio:{accountId}:comment:{postId}`
+
+```typescript
+import { ZernioAdapter } from "@zernio/chat-sdk-adapter";
+
+const adapter = new ZernioAdapter({ apiKey: "..." });
+const { accountId, conversationId } = adapter.decodeThreadId(threadId);
+```
+
+## Platform support matrix
+
+| Feature | FB | IG | Telegram | WhatsApp | X | Bluesky | Reddit |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Send text | Y | Y | Y | Y | Y | Y | Y |
+| Buttons | Y | Y | Y | Y | – | – | – |
+| Typing | Y | – | Y | – | – | – | – |
+| Delete | – | – | Y | – | Y | Self | Self |
+| Reactions | – | – | Y | Y | – | – | – |
+| Media | Y | Y | Y | Y | Y | – | – |
+| Edit | – | – | Y | – | – | – | – |
+
+## Rich messages
+
+The adapter maps Chat SDK `Card` elements to native platform formats instead of falling back to plain text:
+
+```typescript
+import { Actions, Button, Card, CardText, LinkButton } from "chat";
+
+await thread.post(
+  Card({
+    title: "Order #1234",
+    subtitle: "Total: $50.00",
+    imageUrl: "https://example.com/product.jpg",
+    children: [
+      CardText("Your order is ready for pickup."),
+      Actions([
+        Button({ id: "confirm", label: "Confirm", style: "primary" }),
+        LinkButton({ label: "Track Order", url: "https://example.com/track" }),
+      ]),
+    ],
+  })
+);
+```
+
+Renders as an interactive card on Facebook, Instagram, Telegram, and WhatsApp. Falls back to plain text on X, Bluesky, and Reddit.
+
+## AI streaming
+
+Stream AI responses using the post+edit pattern — `thread.post()` accepts an `AsyncIterable<string>`, so you can pass the `textStream` from `streamText` directly:
+
+```typescript
+import { openai } from "@ai-sdk/openai";
+import { streamText } from "ai";
+
+bot.onNewMessage(/.*/, async (thread, message) => {
+  const result = streamText({
+    model: openai("gpt-4o"),
+    prompt: message.text,
+  });
+
+  // Telegram: posts initial message, edits as tokens arrive.
+  // Other platforms: collects the full response, posts once.
+  await thread.post(result.textStream);
+});
+```
+
+## Platform-specific data
+
+Reach platform-specific fields through `message.raw`:
+
+```typescript
+bot.onNewMessage(/.*/, async (thread, message) => {
+  const raw = message.raw as {
+    platform: string;
+    sender: {
+      instagramProfile?: { followerCount: number; isVerified: boolean };
+      phoneNumber?: string;
+    };
+  };
+
+  console.log(raw.platform); // "instagram", "facebook", "telegram", ...
+
+  if (raw.sender.instagramProfile) {
+    console.log(`Followers: ${raw.sender.instagramProfile.followerCount}`);
+    console.log(`Verified: ${raw.sender.instagramProfile.isVerified}`);
+  }
+
+  if (raw.sender.phoneNumber) {
+    console.log(`Phone: ${raw.sender.phoneNumber}`);
+  }
+});
+```
+
+## API client
+
+The adapter ships a standalone REST client for direct Zernio API calls:
+
+```typescript
+import { ZernioApiClient } from "@zernio/chat-sdk-adapter";
+
+const client = new ZernioApiClient("your-api-key", "https://zernio.com/api");
+
+const { data, pagination } = await client.listConversations({
+  platform: "instagram",
+  status: "active",
+  limit: 20,
+});
+
+const messages = await client.fetchMessages(conversationId, accountId);
+
+await client.sendTyping(conversationId, accountId);
+await client.addReaction(conversationId, messageId, accountId, "👍");
+
+const { url } = await client.uploadMedia(fileBuffer, "image/jpeg");
+```
+
+## Webhook verification
+
+The adapter automatically verifies webhook signatures when `webhookSecret` is configured. You can also call the verifier directly:
+
+```typescript
+import { verifyWebhookSignature } from "@zernio/chat-sdk-adapter";
+
+const isValid = verifyWebhookSignature(rawBody, signature, secret);
+```
+
+## Error handling
+
+The adapter maps Zernio API errors to standard Chat SDK error classes:
+
+| HTTP status | Error class | Description |
+| --- | --- | --- |
+| 401 | `AuthenticationError` | Invalid or expired API key |
+| 403 | `PermissionError` | Read-only key, missing addon, etc. |
+| 404 | `ResourceNotFoundError` | Conversation or message not found |
+| 429 | `AdapterRateLimitError` | Rate limit hit (includes `retryAfter`) |
+| 5xx | `NetworkError` | Server error |
+
+## Feature support
+
+<FeatureSupport />

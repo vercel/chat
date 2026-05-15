@@ -68,6 +68,8 @@ The adapter creates these tables automatically on `connect()`:
 chat_state_subscriptions
 chat_state_locks
 chat_state_cache
+chat_state_lists
+chat_state_queues
 ```
 
 All rows are namespaced by `key_prefix`.
@@ -90,13 +92,15 @@ The Redis state adapters use atomic `SET NX PX` for lock acquisition, which is a
 
 ## Expired row cleanup
 
-Unlike Redis (which handles TTL expiry natively), PostgreSQL does not automatically delete expired rows. The adapter performs opportunistic cleanup — expired locks are overwritten on the next `acquireLock()` call, and expired cache entries are deleted on the next `get()` call for that key.
+Unlike Redis (which handles TTL expiry natively), PostgreSQL does not automatically delete expired rows. The adapter performs opportunistic cleanup — expired locks are overwritten on the next `acquireLock()` call, expired cache entries are deleted on the next `get()` call for that key, and expired queue entries for a given thread are purged on the next `enqueue()` or `dequeue()` call. Expired list entries are filtered out on read but never deleted by the adapter.
 
 For high-throughput deployments, you may want to run a periodic cleanup job:
 
 ```sql
 DELETE FROM chat_state_locks WHERE expires_at <= now();
 DELETE FROM chat_state_cache WHERE expires_at <= now();
+DELETE FROM chat_state_lists WHERE expires_at <= now();
+DELETE FROM chat_state_queues WHERE expires_at <= now();
 ```
 
 ## License

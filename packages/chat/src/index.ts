@@ -1,15 +1,30 @@
 // Main exports
 
+// Re-exported from `chat/ai` for backwards compatibility.
+// Prefer importing these from `chat/ai` in new code — that subpath is the
+// home for every AI SDK helper (`toAiMessages`, `createChatTools`, etc.)
+// and keeps the optional `ai` / `zod` peer deps out of bundles that don't
+// import them.
 export {
+  /** @deprecated Import `AiAssistantMessage` from `chat/ai` instead. */
   type AiAssistantMessage,
+  /** @deprecated Import `AiFilePart` from `chat/ai` instead. */
   type AiFilePart,
+  /** @deprecated Import `AiImagePart` from `chat/ai` instead. */
   type AiImagePart,
+  /** @deprecated Import `AiMessage` from `chat/ai` instead. */
   type AiMessage,
+  /** @deprecated Import `AiMessagePart` from `chat/ai` instead. */
   type AiMessagePart,
+  /** @deprecated Import `AiTextPart` from `chat/ai` instead. */
   type AiTextPart,
+  /** @deprecated Import `AiUserMessage` from `chat/ai` instead. */
   type AiUserMessage,
+  /** @deprecated Import `ToAiMessagesOptions` from `chat/ai` instead. */
+  type ToAiMessagesOptions,
+  /** @deprecated Import `toAiMessages` from `chat/ai` instead. */
   toAiMessages,
-} from "./ai";
+} from "./ai/messages";
 export {
   ChannelImpl,
   deriveChannelId,
@@ -23,11 +38,40 @@ export {
   type SerializedMessage,
 } from "./message";
 export {
+  /** @deprecated Use `ThreadHistoryCache` instead. */
   MessageHistoryCache,
+  /** @deprecated Use `ThreadHistoryConfig` instead. */
   type MessageHistoryConfig,
 } from "./message-history";
+export type {
+  AddTaskOptions,
+  CompletePlanOptions,
+  PlanContent,
+  PlanModel,
+  PlanModelTask,
+  PlanTask,
+  PlanTaskStatus,
+  StartPlanOptions,
+  UpdateTaskInput,
+} from "./plan";
+export { Plan } from "./plan";
+export type {
+  PostableObject,
+  PostableObjectContext,
+} from "./postable-object";
+export { isPostableObject } from "./postable-object";
+export { reviver } from "./reviver";
 export { StreamingMarkdownRenderer } from "./streaming-markdown";
+export {
+  StreamingPlan,
+  type StreamingPlanData,
+  type StreamingPlanOptions,
+} from "./streaming-plan";
 export { type SerializedThread, ThreadImpl } from "./thread";
+export {
+  ThreadHistoryCache,
+  type ThreadHistoryConfig,
+} from "./thread-history";
 
 // Card builders - import then re-export to ensure values are properly exported
 import {
@@ -53,6 +97,7 @@ import type {
   CardComponent,
   CardLinkComponent,
   DividerComponent,
+  ExternalSelectComponent,
   FieldComponent,
   FieldsComponent,
   ImageComponent,
@@ -94,6 +139,7 @@ export const toModalElement = _toModalElement;
 
 // Modal builders
 import {
+  ExternalSelect as _ExternalSelect,
   fromReactModalElement as _fromReactModalElement,
   isModalElement as _isModalElement,
   Modal as _Modal,
@@ -104,6 +150,8 @@ import {
 } from "./modals";
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
+export const ExternalSelect =
+  _ExternalSelect as unknown as ExternalSelectComponent;
 export const Modal = _Modal as unknown as ModalComponent;
 export const RadioSelect = _RadioSelect as unknown as RadioSelectComponent;
 export const Select = _Select as unknown as SelectComponent;
@@ -159,6 +207,8 @@ export type {
   ContainerProps,
   DividerComponent,
   DividerProps,
+  ExternalSelectComponent,
+  ExternalSelectProps,
   FieldComponent,
   FieldProps,
   FieldsComponent,
@@ -190,6 +240,7 @@ export type {
   Link,
   List,
   ListItem,
+  Nodes,
   Paragraph,
   Root,
   Strong,
@@ -244,6 +295,8 @@ export {
 } from "./markdown";
 // Modal types
 export type {
+  ExternalSelectElement,
+  ExternalSelectOptions,
   ModalChild,
   ModalElement,
   ModalOptions,
@@ -255,12 +308,14 @@ export type {
   TextInputElement,
   TextInputOptions,
 } from "./modals";
-// Types
+// Types (Plan types are exported from ./plan, PostableObject types from ./postable-object)
 export type {
   ActionEvent,
   ActionHandler,
   Adapter,
   AdapterPostableMessage,
+  AppendInput,
+  AppendOptions,
   AppHomeOpenedEvent,
   AppHomeOpenedHandler,
   AssistantContextChangedEvent,
@@ -276,8 +331,11 @@ export type {
   ChatInstance,
   ConcurrencyConfig,
   ConcurrencyStrategy,
+  CountQuery,
   CustomEmojiMap,
+  DeleteTarget,
   DirectMessageHandler,
+  DurationString,
   Emoji,
   EmojiFormats,
   EmojiMapConfig,
@@ -287,7 +345,10 @@ export type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  IdentityContext,
+  IdentityResolver,
   LinkPreview,
+  ListQuery,
   ListThreadsOptions,
   ListThreadsResult,
   Lock,
@@ -302,6 +363,8 @@ export type {
   MessageContext,
   MessageHandler,
   MessageMetadata,
+  MessageSubject,
+  ModalClearResponse,
   ModalCloseEvent,
   ModalCloseHandler,
   ModalCloseResponse,
@@ -311,6 +374,10 @@ export type {
   ModalSubmitEvent,
   ModalSubmitHandler,
   ModalUpdateResponse,
+  OptionsLoadEvent,
+  OptionsLoadGroup,
+  OptionsLoadHandler,
+  OptionsLoadResult,
   PlanUpdateChunk,
   Postable,
   PostableAst,
@@ -338,6 +405,11 @@ export type {
   Thread,
   ThreadInfo,
   ThreadSummary,
+  TranscriptEntry,
+  TranscriptRole,
+  TranscriptsApi,
+  TranscriptsConfig,
+  UserInfo,
   WebhookOptions,
   WellKnownEmoji,
 } from "./types";

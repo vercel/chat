@@ -1,8 +1,11 @@
 {
   "name": "chat",
-  "version": "4.23.0",
+  "version": "4.28.1",
   "description": "Unified chat abstraction for Slack, Teams, Google Chat, and Discord",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./ai": {
+      "types": "./dist/ai/index.d.ts",
+      "import": "./dist/ai/index.js"
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
@@ -22,7 +29,8 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "resources"
   ],
   "scripts": {
     "build": "pnpm clean && tsup && cp -r ../../apps/docs/content/docs ./docs",
@@ -44,9 +52,23 @@
   "devDependencies": {
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.3.2",
+    "ai": "^6.0.182",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "ai": "^6.0.182",
+    "zod": "^3.0.0 || ^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",

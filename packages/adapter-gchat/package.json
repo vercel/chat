@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/gchat",
-  "version": "4.23.0",
+  "version": "4.28.1",
   "description": "Google Chat adapter for chat",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

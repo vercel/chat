@@ -59,6 +59,10 @@ export type TextStyle = "plain" | "bold" | "muted";
 
 /** Button element for interactive actions */
 export interface ButtonElement {
+  /** Whether this button triggers a regular action or opens a modal dialog. Default: "action" */
+  actionType?: "action" | "modal";
+  /** URL to POST action data to when this button is clicked */
+  callbackUrl?: string;
   /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
   disabled?: boolean;
   /** Unique action ID for callback routing */
@@ -350,6 +354,10 @@ export function Actions(
 
 /** Options for Button */
 export interface ButtonOptions {
+  /** Whether this button triggers a regular action or opens a modal dialog. Default: "action" */
+  actionType?: "action" | "modal";
+  /** URL to POST action data to when this button is clicked */
+  callbackUrl?: string;
   /** If true, the button is displayed in an inactive state and doesn't respond to user actions */
   disabled?: boolean;
   /** Unique action ID for callback routing */
@@ -379,6 +387,8 @@ export function Button(options: ButtonOptions): ButtonElement {
     style: options.style,
     value: options.value,
     disabled: options.disabled,
+    actionType: options.actionType,
+    callbackUrl: options.callbackUrl,
   };
 }
 
@@ -650,13 +660,15 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
       );
 
     case "Button": {
-      // JSX: <Button id="x" style="primary">Label</Button>
+      // JSX: <Button id="x" style="primary" actionType="modal">Label</Button>
       const label = extractTextContent(props.children);
       return Button({
         id: props.id as string,
         label: (props.label as string | undefined) ?? label,
         style: props.style as ButtonStyle | undefined,
         value: props.value as string | undefined,
+        actionType: props.actionType as "action" | "modal" | undefined,
+        disabled: props.disabled as boolean | undefined,
       });
     }
 

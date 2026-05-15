@@ -15,6 +15,8 @@ import type {
 
 const GCHAT_PREFIX_PATTERN = /^gchat:/;
 const DM_SUFFIX_PATTERN = /:dm$/;
+const VERIFICATION_REQUIRED_PATTERN =
+  /Webhook signature verification is required/;
 
 // Test credentials
 const mockLogger: Logger = {
@@ -28,6 +30,12 @@ const TEST_CREDENTIALS = {
   client_email: "test@test.iam.gserviceaccount.com",
   private_key: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
 };
+
+// The adapter now fails closed by default when no JWT verification config is
+// provided. Most tests in this file exercise non-security mechanics and don't
+// supply one, so set the explicit opt-out env var globally; specific
+// verification-behavior tests override it locally.
+process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
 
 // Mock StateAdapter for testing
 function createMockStateAdapter(): StateAdapter & {
@@ -73,6 +81,7 @@ function createMockChatInstance(state: StateAdapter): ChatInstance {
     processMessage: vi.fn(),
     processReaction: vi.fn(),
     processAction: vi.fn(),
+    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
   } as unknown as ChatInstance;
 }
 
@@ -258,6 +267,9 @@ describe("GoogleChatAdapter", () => {
           delete process.env[key];
         }
       }
+      // Restore the opt-out flag so non-security tests can construct adapters
+      // without supplying JWT verification config.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
     });
 
     afterEach(() => {
@@ -344,6 +356,9 @@ describe("GoogleChatAdapter", () => {
           delete process.env[key];
         }
       }
+      // Restore the opt-out flag so non-security tests can construct adapters
+      // without supplying JWT verification config.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "true";
     });
 
     afterEach(() => {
@@ -386,6 +401,21 @@ describe("GoogleChatAdapter", () => {
       process.env.GOOGLE_CHAT_USE_ADC = "true";
       const adapter = new GoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
+      });
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve apiUrl from GOOGLE_CHAT_API_URL env var", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_API_URL = "https://custom-chat.googleapis.com";
+      const adapter = new GoogleChatAdapter();
+      expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should accept apiUrl config", () => {
+      const adapter = new GoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        apiUrl: "https://custom-chat.googleapis.com",
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
@@ -1069,6 +1099,105 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
+    it("should read selection values from formInputs when parameters.value is missing", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["option-1"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "option-1",
+        }),
+        undefined
+      );
+    });
+
+    it("should prefer parameters.value when both parameters and formInputs are present", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: {
+            actionId: "selection",
+            value: "button-value",
+          },
+          formInputs: {
+            selection: {
+              stringInputs: {
+                value: ["dropdown-value"],
+              },
+            },
+          },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email: "",
+            },
+          },
+        },
+      };
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect(mockChat.processAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionId: "selection",
+          value: "button-value",
+        }),
+        undefined
+      );
+    });
+
     it("should ignore card click when space is missing", async () => {
       const { adapter, mockChat } = await createInitializedAdapter();
       const event: GoogleChatEvent = {
@@ -1384,7 +1513,7 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("editMessage", () => {
-    it("should call chatApi.spaces.messages.update for text", async () => {
+    it("should update text and clear cards when editing to text", async () => {
       const { adapter } = await createInitializedAdapter();
       const threadId = adapter.encodeThreadId({
         spaceName: "spaces/ABC123",
@@ -1406,9 +1535,10 @@ describe("GoogleChatAdapter", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "spaces/ABC123/messages/msg1",
-          updateMask: "text",
+          updateMask: "text,cardsV2",
           requestBody: expect.objectContaining({
             text: expect.any(String),
+            cardsV2: [],
           }),
         })
       );
@@ -2569,6 +2699,7 @@ describe("GoogleChatAdapter", () => {
             message: {
               name: "spaces/ABC123/messages/msg1",
               sender: {
+                avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
                 name: "users/123456789",
                 displayName: "John Doe",
                 type: "HUMAN",
@@ -2586,7 +2717,12 @@ describe("GoogleChatAdapter", () => {
       // Verify user info was cached
       expect(mockState.set).toHaveBeenCalledWith(
         "gchat:user:users/123456789",
-        { displayName: "John Doe", email: "john@example.com" },
+        {
+          avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
+          displayName: "John Doe",
+          email: "john@example.com",
+          isBot: false,
+        },
         expect.any(Number)
       );
     });
@@ -2795,34 +2931,122 @@ describe("GoogleChatAdapter", () => {
       });
     });
 
-    it("should allow direct webhook without verification when project number is not configured and warn once", async () => {
-      const { adapter } = await createInitializedAdapter();
+    it("should fail-closed in constructor when no JWT verification config is provided", () => {
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      // Any value other than "true" disables the opt-out and should make the
+      // constructor refuse to start.
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        expect(() =>
+          createGoogleChatAdapter({
+            credentials: TEST_CREDENTIALS,
+            logger: mockLogger,
+          })
+        ).toThrow(VERIFICATION_REQUIRED_PATTERN);
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
+    });
+
+    it("should accept direct webhook with disableSignatureVerification opt-in (fail-open)", async () => {
+      // Regression: previously the adapter accepted unverified webhooks
+      // silently when no project number was configured. Now this requires
+      // an explicit opt-in flag.
+      const adapter = createGoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        logger: mockLogger,
+        disableSignatureVerification: true,
+      });
+      const mockState = createMockStateAdapter();
+      const mockChat = createMockChatInstance(mockState);
+      await adapter.initialize(mockChat);
 
       const event = makeMessageEvent({ messageText: "Hello" });
-      const request1 = new Request("https://example.com/webhook", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(event),
-      });
-      const request2 = new Request("https://example.com/webhook", {
+      const request = new Request("https://example.com/webhook", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(event),
       });
 
-      const response1 = await adapter.handleWebhook(request1);
-      expect(response1.status).toBe(200);
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
       expect(verifyIdTokenSpy).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
-      );
+    });
 
-      // Second call should not warn again
-      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-      await adapter.handleWebhook(request2);
-      expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PROJECT_NUMBER")
-      );
+    it("should reject Pub/Sub-shaped requests when only googleChatProjectNumber is configured", async () => {
+      // Regression: the two transports share one endpoint. With only the
+      // direct-webhook verifier configured, a Pub/Sub-shaped request
+      // previously fell through to "warn once" and was processed unverified.
+      // The module-level GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true
+      // would otherwise route this through the opt-out path; clear it for
+      // this test.
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        const adapter = createGoogleChatAdapter({
+          credentials: TEST_CREDENTIALS,
+          logger: mockLogger,
+          googleChatProjectNumber: "123456789",
+        });
+        const mockState = createMockStateAdapter();
+        const mockChat = createMockChatInstance(mockState);
+        await adapter.initialize(mockChat);
+
+        const pubsubMessage = makePubSubPushMessage({
+          message: {
+            name: "spaces/ABC123/messages/msg1",
+            text: "Hello",
+            sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+            createTime: new Date().toISOString(),
+          },
+        });
+        const request = new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(pubsubMessage),
+        });
+
+        const response = await adapter.handleWebhook(request);
+        expect(response.status).toBe(401);
+        expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
+    });
+
+    it("should reject direct webhook events when only pubsubAudience is configured", async () => {
+      // Inverse of the previous test.
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        const adapter = createGoogleChatAdapter({
+          credentials: TEST_CREDENTIALS,
+          logger: mockLogger,
+          pubsubAudience: "https://example.com/webhook/pubsub",
+        });
+        const mockState = createMockStateAdapter();
+        const mockChat = createMockChatInstance(mockState);
+        await adapter.initialize(mockChat);
+
+        const event = makeMessageEvent({ messageText: "Hello" });
+        const request = new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(event),
+        });
+
+        const response = await adapter.handleWebhook(request);
+        expect(response.status).toBe(401);
+        expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
     });
 
     it("should reject Pub/Sub webhook without Authorization header when pubsubAudience is configured", async () => {
@@ -2849,38 +3073,33 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(401);
     });
 
-    it("should allow Pub/Sub webhook without verification when pubsubAudience is not configured and warn once", async () => {
-      const { adapter } = await createInitializedAdapter();
+    it("should accept Pub/Sub webhook with disableSignatureVerification opt-in (fail-open)", async () => {
+      const adapter = createGoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        logger: mockLogger,
+        disableSignatureVerification: true,
+      });
+      const mockState = createMockStateAdapter();
+      const mockChat = createMockChatInstance(mockState);
+      await adapter.initialize(mockChat);
 
-      const makePubSubRequest = () => {
-        const pubsubMessage = makePubSubPushMessage({
-          message: {
-            name: "spaces/ABC123/messages/msg1",
-            text: "Hello",
-            sender: { name: "users/100", displayName: "User", type: "HUMAN" },
-            createTime: new Date().toISOString(),
-          },
-        });
-        return new Request("https://example.com/webhook", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(pubsubMessage),
-        });
-      };
+      const pubsubMessage = makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          text: "Hello",
+          sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+          createTime: new Date().toISOString(),
+        },
+      });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pubsubMessage),
+      });
 
-      const response1 = await adapter.handleWebhook(makePubSubRequest());
-      expect(response1.status).toBe(200);
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
       expect(verifyIdTokenSpy).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
-      );
-
-      // Second call should not warn again
-      (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-      await adapter.handleWebhook(makePubSubRequest());
-      expect(mockLogger.warn).not.toHaveBeenCalledWith(
-        expect.stringContaining("GOOGLE_CHAT_PUBSUB_AUDIENCE")
-      );
     });
 
     it("should reject Pub/Sub webhook with invalid token when pubsubAudience is configured", async () => {
@@ -2991,5 +3210,101 @@ describe("GoogleChatAdapter", () => {
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
     });
+  });
+
+  describe("getUser", () => {
+    it("should return cached user info", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/123456", {
+        avatarUrl: "https://lh3.googleusercontent.com/a/alice.jpg",
+        displayName: "Alice Smith",
+        email: "alice@example.com",
+        isBot: false,
+      });
+
+      const user = await adapter.getUser("users/123456");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("Alice Smith");
+      expect(user?.userName).toBe("Alice Smith");
+      expect(user?.email).toBe("alice@example.com");
+      expect(user?.avatarUrl).toBe(
+        "https://lh3.googleusercontent.com/a/alice.jpg"
+      );
+      expect(user?.isBot).toBe(false);
+    });
+
+    it("should return null when user not in cache", async () => {
+      const { adapter } = await createInitializedAdapter();
+
+      const user = await adapter.getUser("users/unknown");
+      expect(user).toBeNull();
+    });
+
+    it("should return null when state throws an error", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.get = vi.fn().mockRejectedValue(new Error("State error"));
+
+      const user = await adapter.getUser("users/error");
+      expect(user).toBeNull();
+    });
+
+    it("should return undefined email when user has no email", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/noemail", {
+        displayName: "No Email User",
+        isBot: false,
+      });
+
+      const user = await adapter.getUser("users/noemail");
+      expect(user).not.toBeNull();
+      expect(user?.fullName).toBe("No Email User");
+      expect(user?.email).toBeUndefined();
+    });
+
+    it("should return isBot true for cached bot users", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/bot123", {
+        displayName: "Bot User",
+        isBot: true,
+      });
+
+      const user = await adapter.getUser("users/bot123");
+      expect(user).not.toBeNull();
+      expect(user?.isBot).toBe(true);
+    });
+
+    it("should return undefined avatarUrl when not cached", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      mockState.storage.set("gchat:user:users/avatar-test", {
+        displayName: "Avatar Test",
+        email: "test@example.com",
+        isBot: false,
+      });
+
+      const user = await adapter.getUser("users/avatar-test");
+      expect(user).not.toBeNull();
+      expect(user?.avatarUrl).toBeUndefined();
+    });
+  });
+});
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends GoogleChatAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [
+          this.logger,
+          this.formatConverter,
+          this.handleMessageEvent,
+        ] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });

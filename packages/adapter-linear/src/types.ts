@@ -2,7 +2,8 @@
  * Type definitions for the Linear adapter.
  *
  * Uses types from @linear/sdk wherever possible.
- * Only defines adapter-specific config, thread IDs, and webhook payloads.
+ * Only defines adapter-specific config, thread IDs, normalized raw-message data,
+ * and GraphQL response shapes specific to this adapter.
  */
 
 import type { Logger } from "chat";
@@ -11,12 +12,59 @@ import type { Logger } from "chat";
 // Configuration
 // =============================================================================
 
+/** Explicit config for single-tenant client credentials auth. */
+export interface LinearClientCredentialsConfig {
+  /** OAuth application client ID. */
+  clientId: string;
+  /** OAuth application client secret. */
+  clientSecret: string;
+  /**
+   * OAuth scopes to request when using client credentials auth.
+   * Defaults to ["read", "write", "comments:create", "issues:create"].
+   */
+  scopes?: string[];
+}
+
+/** Data stored per Linear workspace installation in multi-tenant mode. */
+export interface LinearInstallation {
+  accessToken: string;
+  botUserId: string;
+  expiresAt: number | null;
+  organizationId: string;
+  refreshToken?: string;
+}
+
+/** Options for the OAuth callback exchange. */
+export interface LinearOAuthCallbackOptions {
+  /** The exact redirect URI used in the authorize request. */
+  redirectUri: string;
+}
+
+/** Incoming webhook handling mode for the Linear adapter. */
+export type LinearAdapterMode = "agent-sessions" | "comments";
+
 /**
  * Base configuration options shared by all auth methods.
  */
 interface LinearAdapterBaseConfig {
+  /** Override the Linear API base URL. Defaults to LINEAR_API_URL env var. */
+  apiUrl?: string;
+  /**
+   * Optional 32-byte AES-256-GCM key used to encrypt OAuth `accessToken` and
+   * `refreshToken` values at rest in the state store. Accepts either a 64-char
+   * hex string or a 44-char base64 string. Defaults to the
+   * `LINEAR_ENCRYPTION_KEY` env var. Strongly recommended for multi-tenant
+   * deployments — without it, a state-store compromise yields plaintext per-
+   * tenant Linear API tokens.
+   */
+  encryptionKey?: string;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
+  /**
+   * Controls which inbound Linear webhook model should trigger message handling.
+   * Defaults to "comments". Use "agent-sessions" for app-actor installs.
+   */
+  mode?: LinearAdapterMode;
   /**
    * Bot display name used for @-mention detection.
    * For API key auth, this is typically the user's display name.
@@ -42,6 +90,7 @@ export interface LinearAdapterAPIKeyConfig extends LinearAdapterBaseConfig {
   accessToken?: never;
   /** Personal API key from Linear Settings > Security & Access. Defaults to LINEAR_API_KEY env var. */
   apiKey: string;
+  clientCredentials?: never;
   clientId?: never;
   clientSecret?: never;
 }
@@ -56,26 +105,41 @@ export interface LinearAdapterOAuthConfig extends LinearAdapterBaseConfig {
   /** OAuth access token obtained through the OAuth flow. Defaults to LINEAR_ACCESS_TOKEN env var. */
   accessToken: string;
   apiKey?: never;
+  clientCredentials?: never;
   clientId?: never;
   clientSecret?: never;
 }
 
 /**
- * Configuration using OAuth client credentials (recommended for apps).
- * The adapter handles token management internally - no need to store tokens.
+ * Configuration using top-level OAuth app credentials for multi-tenant installs.
+ * Use with handleOAuthCallback() to exchange and persist per-organization installs.
  *
- * Uses the client_credentials grant type to obtain an app-level token.
- * The token is valid for 30 days and auto-refreshes on 401.
+ * @see https://linear.app/developers/oauth-2-0-authentication
+ */
+export interface LinearAdapterMultiTenantConfig
+  extends LinearAdapterBaseConfig {
+  accessToken?: never;
+  apiKey?: never;
+  clientCredentials?: never;
+  /** OAuth application client ID. Defaults to LINEAR_CLIENT_ID env var in zero-config mode. */
+  clientId: string;
+  /** OAuth application client secret. Defaults to LINEAR_CLIENT_SECRET env var in zero-config mode. */
+  clientSecret: string;
+}
+
+/**
+ * Configuration using explicit single-tenant client credentials auth.
+ * The adapter handles token management internally - no need to store tokens.
  *
  * @see https://linear.app/developers/oauth-2-0-authentication#client-credentials-tokens
  */
-export interface LinearAdapterAppConfig extends LinearAdapterBaseConfig {
+export interface LinearAdapterClientCredentialsConfig
+  extends LinearAdapterBaseConfig {
   accessToken?: never;
   apiKey?: never;
-  /** OAuth application client ID. Defaults to LINEAR_CLIENT_ID env var. */
-  clientId: string;
-  /** OAuth application client secret. Defaults to LINEAR_CLIENT_SECRET env var. */
-  clientSecret: string;
+  clientCredentials: LinearClientCredentialsConfig;
+  clientId?: never;
+  clientSecret?: never;
 }
 
 /**
@@ -84,18 +148,30 @@ export interface LinearAdapterAppConfig extends LinearAdapterBaseConfig {
 export interface LinearAdapterAutoConfig extends LinearAdapterBaseConfig {
   accessToken?: never;
   apiKey?: never;
+  clientCredentials?: never;
   clientId?: never;
   clientSecret?: never;
 }
 
 /**
- * Linear adapter configuration - API Key, OAuth token, or OAuth App (client credentials).
+ * Linear adapter configuration - API Key, OAuth token, multi-tenant OAuth app, or explicit client credentials.
  */
 export type LinearAdapterConfig =
   | LinearAdapterAPIKeyConfig
   | LinearAdapterOAuthConfig
-  | LinearAdapterAppConfig
+  | LinearAdapterMultiTenantConfig
+  | LinearAdapterClientCredentialsConfig
   | LinearAdapterAutoConfig;
+
+// =============================================================================
+// Auth
+// =============================================================================
+
+export interface LinearOAuthTokenResponse {
+  access_token: string;
+  expires_in?: number;
+  refresh_token?: string;
+}
 
 // =============================================================================
 // Thread ID
@@ -109,6 +185,8 @@ export type LinearAdapterConfig =
  * - Comment thread: Replies nested under a specific root comment (has commentId)
  */
 export interface LinearThreadId {
+  /** Agent session UUID for app-actor interactions. */
+  agentSessionId?: string;
   /**
    * Root comment ID for comment-level threads.
    * If present, this is a comment thread (replies nest under this comment).
@@ -119,56 +197,36 @@ export interface LinearThreadId {
   issueId: string;
 }
 
+/**
+ * Decoded thread ID for Linear threads associated with agent sessions.
+ */
+export type LinearAgentSessionThreadId = LinearThreadId & {
+  agentSessionId: string;
+};
+
 // =============================================================================
-// Webhook Payloads
+// Raw Message Type
 // =============================================================================
 
 /**
- * Actor who triggered the webhook event.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
+ * Data associated with a Linear actor.
  */
-export interface LinearWebhookActor {
-  email?: string;
+export interface LinearActorData {
+  /** URL to the actor's avatar image */
+  avatarUrl: string | undefined;
+  /** Actor's display name */
+  displayName: string;
+  /** Actor's email address */
+  email: string | undefined;
+  /** Actor's full name */
+  fullName: string;
+  /** Actor UUID */
   id: string;
-  name: string;
-  type: "user" | "application" | "integration";
-  url?: string;
+  type: "user" | "bot";
 }
 
 /**
- * Base fields present on all Linear webhook payloads.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
- */
-interface LinearWebhookBase {
-  /** Action type: create, update, or remove */
-  action: "create" | "update" | "remove";
-  /** Actor who triggered the action */
-  actor: LinearWebhookActor;
-  /** ISO 8601 date when the action took place */
-  createdAt: string;
-  /** Organization ID */
-  organizationId: string;
-  /** Entity type that triggered the event */
-  type: string;
-  /** For update actions, previous values of changed properties */
-  updatedFrom?: Record<string, unknown>;
-  /** URL of the subject entity */
-  url: string;
-  /** UUID uniquely identifying this webhook */
-  webhookId: string;
-  /** UNIX timestamp (ms) when the webhook was sent */
-  webhookTimestamp: number;
-}
-
-/**
- * Comment data from a webhook payload.
- *
- * Verified against Linear's Webhooks Schema Explorer and
- * example payloads from the official documentation.
- *
- * @see https://linear.app/developers/webhooks#webhook-payload
+ * Comment data stored in a LinearRawMessage, normalized from webhook payloads and API responses.
  */
 export interface LinearCommentData {
   /** Comment body in markdown format */
@@ -180,64 +238,44 @@ export interface LinearCommentData {
   /** Issue UUID the comment is associated with */
   issueId: string;
   /** Parent comment UUID (for nested/threaded replies) */
-  parentId?: string;
+  parentId: string | undefined;
   /** ISO 8601 last update date */
   updatedAt: string;
   /** Direct URL to the comment */
-  url?: string;
-  /** User UUID who wrote the comment */
-  userId: string;
+  url: string | undefined;
+  /** User who wrote the comment */
+  user: LinearActorData;
 }
 
-/**
- * Webhook payload for Comment events.
- *
- * @see https://linear.app/developers/webhooks#data-change-events-payload
- */
-export interface CommentWebhookPayload extends LinearWebhookBase {
-  data: LinearCommentData;
-  type: "Comment";
+interface LinearRawMessageBase {
+  /** Raw message kind. */
+  kind: "agent_session_comment" | "comment";
+  /** Organization ID from the webhook or request context. */
+  organizationId: string;
 }
 
-/**
- * Reaction data from a webhook payload.
- */
-export interface LinearReactionData {
-  /** Comment UUID the reaction is on */
-  commentId?: string;
-  /** Emoji string */
-  emoji: string;
-  /** Reaction UUID */
-  id: string;
-  /** User UUID who reacted */
-  userId: string;
+/** Platform-specific raw message for a standard Linear comment. */
+export interface LinearCommentRawMessage extends LinearRawMessageBase {
+  /** Raw comment data from webhook or API. */
+  comment: LinearCommentData;
+  kind: "comment";
 }
 
-/**
- * Webhook payload for Reaction events.
- */
-export interface ReactionWebhookPayload extends LinearWebhookBase {
-  data: LinearReactionData;
-  type: "Reaction";
+/** Platform-specific raw message for a comment backed by an agent session. */
+export interface LinearAgentSessionCommentRawMessage
+  extends LinearRawMessageBase {
+  /** The agent session the comment belongs to. */
+  agentSessionId: string;
+  /** The prompt context associated with this agent session comment. */
+  agentSessionPromptContext?: string;
+  /** The visible Linear comment backing this message. */
+  comment: LinearCommentData;
+  kind: "agent_session_comment";
 }
-
-/**
- * Union of webhook payload types we handle.
- */
-export type LinearWebhookPayload =
-  | CommentWebhookPayload
-  | ReactionWebhookPayload;
-
-// =============================================================================
-// Raw Message Type
-// =============================================================================
 
 /**
  * Platform-specific raw message type for Linear.
  */
-export interface LinearRawMessage {
-  /** The raw comment data from webhook or API */
-  comment: LinearCommentData;
-  /** Organization ID from the webhook */
-  organizationId?: string;
-}
+export type LinearRawMessage =
+  | LinearAgentSessionCommentRawMessage
+  | LinearCommentRawMessage;

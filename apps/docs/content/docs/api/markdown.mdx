@@ -15,6 +15,25 @@ import {
 } from "chat";
 ```
 
+## Type re-exports
+
+The chat package re-exports mdast's union and content types so adapters and downstream code can build exhaustively-typed AST walkers without depending on `mdast` directly:
+
+```typescript
+import type { Nodes, Root, Content } from "chat";
+
+function render(node: Nodes): string {
+  switch (node.type) {
+    case "text": return node.value;
+    case "strong": return node.children.map(render).join("");
+    // ...
+    default: throw new Error(`Unhandled: ${node satisfies never}`);
+  }
+}
+```
+
+Adapters use this pattern to make the type checker reject the build when a new mdast node type is introduced upstream.
+
 ## Node builders
 
 ### root
@@ -222,7 +241,7 @@ const value = getNodeValue(node);       // string | undefined
 
 ### tableToAscii
 
-Render an mdast `Table` node as a padded ASCII table string. Used by adapters that lack native table support (Slack, Google Chat, Discord, Telegram).
+Render an mdast `Table` node as a padded ASCII table string. Used by adapters that lack native table support (Google Chat, Discord, Telegram).
 
 ```typescript
 import { parseMarkdown, tableToAscii, isTableNode } from "chat";
@@ -261,16 +280,20 @@ The SDK uses mdast as the canonical format and each adapter converts it to the p
 
 | Feature | Slack | Teams | Google Chat |
 |---------|-------|-------|-------------|
-| Bold | `*text*` | `**text**` | `*text*` |
+| Bold | `**text**` | `**text**` | `*text*` |
 | Italic | `_text_` | `_text_` | `_text_` |
-| Strikethrough | `~text~` | `~~text~~` | `~text~` |
+| Strikethrough | `~~text~~` | `~~text~~` | `~text~` |
 | Code | `` `code` `` | `` `code` `` | `` `code` `` |
 | Code blocks | ```` ``` ```` | ```` ``` ```` | ```` ``` ```` |
-| Links | `<url\|text>` | `[text](url)` | `[text](url)` |
+| Links | `[text](url)` | `[text](url)` | `[text](url)` |
 | Lists | Supported | Supported | Supported |
 | Blockquotes | `>` | `>` | Simulated with `>` prefix |
-| Tables | ASCII fallback | Native GFM | ASCII fallback |
+| Tables | Native (markdown_text) | Native GFM | ASCII fallback |
 | Mentions | `<@USER>` | `<at>name</at>` | `<users/{id}>` |
+
+<Callout type="info">
+Slack accepts standard markdown via the `markdown_text` field on `chat.postMessage` and friends, so the SDK passes markdown through directly. Incoming Slack messages still arrive as legacy mrkdwn (`*bold*`, `<url|text>`) and are parsed transparently. If you need to send mrkdwn yourself, use `{ raw: "..." }`.
+</Callout>
 
 <Callout type="info">
 You don't need to worry about these differences when using the SDK — the AST builders and `parseMarkdown` handle conversion automatically. This table is useful if you're working with `raw` platform payloads or debugging formatting issues.

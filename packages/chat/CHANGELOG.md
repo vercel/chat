@@ -1,5 +1,146 @@
 # chat
 
+## 4.28.1
+
+### Patch Changes
+
+- 0cc3d06: fix StreamEvent type from step-finish to finish-step
+
+## 4.28.0
+
+### Minor Changes
+
+- eb5f94a: add message.subject for resolving parent issues and PRs from webhook messages, expose typed platform client via adapter.client
+- c1cd9b5: Add `callbackUrl` to `Button` and `Modal`. When a button is clicked or a modal is submitted, the SDK POSTs the action payload to `callbackUrl` in addition to firing any registered `onAction` / `onModalSubmit` handler. This pairs naturally with webhook-based workflow engines for awaitable button/modal flows.
+
+  Supported platforms: Slack, Teams, Google Chat, WhatsApp, Telegram, and Discord.
+
+- 46d183b: Rename `messageHistory` → `threadHistory` (with backwards compatibility).
+
+  The per-thread history cache was previously named `messageHistory`, which collides conceptually with the new cross-platform per-user Transcripts API. Renamed to `threadHistory` to make the distinction clear.
+
+  **Renamed:**
+
+  - `ChatConfig.messageHistory` → `ChatConfig.threadHistory`
+  - `Adapter.persistMessageHistory` → `Adapter.persistThreadHistory`
+  - `MessageHistoryCache` → `ThreadHistoryCache`
+  - `MessageHistoryConfig` → `ThreadHistoryConfig`
+  - File `message-history.ts` → `thread-history.ts`
+
+  **Backwards compatibility:**
+
+  - The old `ChatConfig.messageHistory` field is still read; `threadHistory` takes precedence when both are set.
+  - The old `Adapter.persistMessageHistory` flag is still read; either flag being `true` enables persistence.
+  - `MessageHistoryCache` and `MessageHistoryConfig` are re-exported as deprecated aliases of the new names.
+  - The state-adapter storage key prefix (`msg-history:`) is **unchanged** — renaming it would silently orphan existing data.
+
+  The `@chat-adapter/telegram` and `@chat-adapter/whatsapp` adapters now use `persistThreadHistory`. Custom adapters built against `persistMessageHistory` continue to work unchanged.
+
+- 46d183b: Add Transcripts API for cross-platform per-user message persistence.
+
+  `bot.transcripts` (when configured via `ChatConfig.transcripts` + `ChatConfig.identity`) provides `append` / `list` / `count` / `delete` keyed by a stable cross-platform user key. Backed by the existing `StateAdapter.appendToList` primitive, so every built-in state adapter (`memory`, `redis`, `ioredis`, `pg`) supports it with no changes.
+
+  - `IdentityResolver` runs once per inbound message during dispatch; the result is cached on the `Message` instance as `message.userKey`.
+  - Distinct from the existing per-thread `threadHistory` config (which backfills thread context for adapters that lack server-side history).
+  - `delete` wipes every stored entry under a user key. Single-entry and time-range deletes are not part of this API — the underlying `appendToList` primitive can't support them safely under concurrent writes.
+
+- 3490a8c: Add **`@chat-adapter/web`** — a new platform adapter that lets a chat-sdk bot serve a browser chat UI alongside Slack/Teams/Discord, without writing any client-side glue.
+
+  The adapter speaks the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so [`@ai-sdk/react`](https://www.npmjs.com/package/@ai-sdk/react)'s `useChat` and the [`ai-elements`](https://elements.ai-sdk.dev/) component library work out of the box. The same `bot.onDirectMessage(...)` handler fires for both web and other platforms — including stream-based replies via `thread.post(stream)`.
+
+  Two subpath exports:
+
+  - `@chat-adapter/web` — server-side `createWebAdapter({ userName, getUser })` that produces an `Adapter` for the `Chat` constructor.
+  - `@chat-adapter/web/react` — thin client wrapper exposing `useChat()` preconfigured with `DefaultChatTransport`. Re-exports `UIMessage` and `UseChatHelpers` types.
+
+  ```ts
+  // server
+  const bot = new Chat({
+    userName: "mybot",
+    adapters: {
+      web: createWebAdapter({
+        userName: "mybot",
+        getUser: (req) => ({ id: getUserIdFromCookie(req) }),
+      }),
+    },
+    state: createMemoryState(),
+  });
+  export const POST = bot.webhooks.web;
+  ```
+
+  ```tsx
+  // client
+  import { useChat } from "@chat-adapter/web/react";
+  const { messages, sendMessage, status } = useChat();
+  ```
+
+  v1 covers text + markdown, native streaming, DM-style routing (`isDM: true`), persisted message history (`persistMessageHistory: true` by default — required for `channel.messages` since web has no platform history API), and abort propagation via `request.signal`. Out of scope for v1: cards/JSX rendering, reactions, modals, file uploads, edit/delete, and multi-tab proactive push.
+
+### Patch Changes
+
+- 9824d33: Security fixes for HIGH-severity findings:
+
+  - **adapter-slack**: Replace timing-unsafe `!==` with `crypto.timingSafeEqual` when validating the `x-slack-socket-token` header on forwarded socket-mode events.
+  - **adapter-github**: In multi-tenant App mode, eagerly auto-detect the bot user ID on the first installation client / first webhook so `isMe` checks work and self-reply loops are prevented. Falls back to `apps.getAuthenticated` + `users.getByUsername` when `users.getAuthenticated` is unavailable for installation tokens.
+  - **adapter-linear**: Add optional `encryptionKey` config (or `LINEAR_ENCRYPTION_KEY` env var) that AES-256-GCM-encrypts `accessToken` and `refreshToken` at rest in the state store. Tolerates plaintext records for zero-downtime rollout.
+  - **adapter-gchat**: Fail-closed by default — the constructor now throws `ValidationError` if neither `googleChatProjectNumber` nor `pubsubAudience` is configured. To accept unverified webhooks (development only), set the new `disableSignatureVerification: true` flag (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`). Mirrors the Slack adapter's signing-secret requirement.
+  - **adapter-shared**: New `decodeKey` / `encryptToken` / `decryptToken` / `isEncryptedTokenData` utilities (AES-256-GCM, hex or base64 32-byte keys), shared by Slack and Linear.
+
+## 4.27.0
+
+### Minor Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- b0ab804: Bundle guide markdown and a templates manifest with the package so AI agents can discover Chat SDK resources without fetching at runtime. Guides are written to `resources/guides/*.md` and templates to `resources/templates.json` by the root-level `pnpm sync-resources` script.
+- b9a1961: Switch Telegram adapter's outbound `parse_mode` from legacy `Markdown` to `MarkdownV2`, and replace the standard-markdown passthrough renderer with a proper AST → MarkdownV2 renderer. Standard markdown (`**bold**`) and legacy `Markdown` (`*bold*`) use different syntaxes and have no shared escape rules, so any message containing `.`, `!`, `(`, `)`, `-`, `_` in regular text — which is virtually every LLM-generated message — was being rejected with `can't parse entities`. The new renderer walks the mdast tree and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), uniformly applies MarkdownV2 `parse_mode` to every format-converter output (including AST messages, which previously shipped without `parse_mode` and rendered asterisks literally), and escapes card fallback text.
+
+  Also fix silent message truncation that the MarkdownV2 migration widened from a rare bug into a reliable 400. The previous truncator sliced messages at 4096/1024 chars and appended literal `...`, but in MarkdownV2 `.` is a reserved character that must be escaped, the slice can leave an orphan trailing `\`, and it can cut through a paired entity (`*bold*`, `` `code` ``) leaving it unclosed — all of which cause `can't parse entities`. The two truncate methods are unified into `truncateForTelegram(text, limit, parseMode)`, which appends an escaped `\.\.\.` for MarkdownV2 and walks back past unbalanced entity delimiters or orphan backslashes before appending. Plain-text messages keep literal `...`.
+
+  Internal typing hardening: `renderMarkdownV2` is now typed exhaustively on mdast's `Nodes` union with a `never` assertion, so new mdast node types fail the build rather than silently falling through. Introduce `TelegramParseMode = "MarkdownV2" | "plain"` replacing the previous `string | undefined` at call sites, with `toBotApiParseMode` mapping to the Bot API wire format at the boundary. The `chat` package gains a re-export of mdast's `Nodes` union so adapters can build exhaustively typed renderers without importing mdast directly.
+
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+- 70281dc: add initialOption and option_groups support for ExternalSelect
+- 9093292: add streaming options to thread.post() with platform-specific namespacing
+- 7e90d9c: Add Socket Mode support for environments behind firewalls that can't expose public HTTP endpoints, and add `{ action: "clear" }` modal response to close the entire modal view stack
+- bca4792: Allow `task_update` streaming chunks to include optional `details` text for Slack task cards
+- 37dbb4a: Add `thread.getParticipants()` to get unique human participants in a thread
+- 608d5f0: Add `chat.thread(threadId)` method to create Thread handles outside of webhook contexts
+- a179b29: Implement external_select block kit for Slack
+- a8f2aab: Allow `plan.updateTask()` to target a specific task by ID via `{ id: taskId }` instead of always updating the last in_progress task
+
+### Patch Changes
+
+- 8a0c7b3: Fix Slack structured streaming when `thread.post(stream)` is called from a handler created by an interactive (`block_actions`) payload.
+  The team ID is now resolved from `team.id` in addition to `team_id` / `team`.
+- d630e6c: fix(chat): honor `concurrency.maxConcurrent` in the `concurrent` strategy. The cap was documented but never applied, so handlers dispatched unbounded. Also warns when `maxConcurrent` is paired with a non-`concurrent` strategy (previously ignored silently) and throws on `maxConcurrent < 1` to prevent a deadlock.
+
+## 4.26.0
+
+### Minor Changes
+
+- 2235c16: export standalone reviver for workflow-safe deserialization without adapter dependencies
+
+### Patch Changes
+
+- ddb084b: guard fallback streaming against empty post and edit calls
+
+## 4.25.0
+
+### Minor Changes
+
+- 2700ce8: Allow Slack native streaming to send markdown tables without wrapping them in code fences, while preserving the previous append-only table fallback for other consumers.
+
+## 4.24.0
+
+### Minor Changes
+
+- 4f5d200: Add Teams dialog (task module) support with `actionType: "modal"` on buttons and `onOpenModal` webhook hook
+
+### Patch Changes
+
+- 8d89274: fix: disable source maps in published packages
+- 27b34e1: Use adapter to parse channel id for `thread.channelId`
+
 ## 4.23.0
 
 ### Minor Changes

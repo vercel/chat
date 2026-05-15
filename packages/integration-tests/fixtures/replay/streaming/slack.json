@@ -203,5 +203,221 @@
     ],
     "is_ext_shared_channel": false,
     "event_context": "4-eyJldCI6ImFwcF9tZW50aW9uIiwidGlkIjoiVDBBNlI5WUxTS0EiLCJhaWQiOiJBMEE2MEswOENMQyIsImNpZCI6IkMwQUNFTENRQkFCIn0"
+  },
+  "promptMessage": {
+    "token": "sanitized-verification-token",
+    "team_id": "T08REALTEAM1",
+    "context_team_id": "T08REALTEAM1",
+    "context_enterprise_id": null,
+    "api_app_id": "A08REALAPP1",
+    "event": {
+      "type": "message",
+      "user": "U08REALBOT1",
+      "ts": "1775407827.773439",
+      "bot_id": "B08REALBOT1",
+      "app_id": "A08REALAPP1",
+      "text": "*Which option should I use?* Select an option to continue:",
+      "team": "T08REALTEAM1",
+      "thread_ts": "1775407823.782829",
+      "parent_user_id": "U08REALUSER1",
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "BP/k8",
+          "text": {
+            "type": "plain_text",
+            "text": "Which option should I use?",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "wIM5b",
+          "text": {
+            "type": "mrkdwn",
+            "text": "Select an option to continue:",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "AXMQo",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "option-select:option-a",
+              "text": {
+                "type": "plain_text",
+                "text": "Option A",
+                "emoji": true
+              },
+              "value": "option-a"
+            }
+          ]
+        }
+      ],
+      "channel": "C08REALCHAN1",
+      "event_ts": "1775407827.773439",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "Ev08REALPROMPT1",
+    "event_time": 1775407827,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T08REALTEAM1",
+        "user_id": "U08REALBOT1",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "4-sanitized-button-prompt"
+  },
+  "buttonAction": {
+    "type": "block_actions",
+    "user": {
+      "id": "U08REALUSER1",
+      "username": "testuser",
+      "name": "testuser",
+      "team_id": "T08REALTEAM1"
+    },
+    "api_app_id": "A08REALAPP1",
+    "token": "sanitized-verification-token",
+    "container": {
+      "type": "message",
+      "message_ts": "1775407827.773439",
+      "channel_id": "C08REALCHAN1",
+      "is_ephemeral": false,
+      "thread_ts": "1775407823.782829"
+    },
+    "trigger_id": "10847034803718.8832297784567.sanitized",
+    "team": {
+      "id": "T08REALTEAM1",
+      "domain": "example-workspace"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C08REALCHAN1",
+      "name": "general"
+    },
+    "message": {
+      "user": "U08REALBOT1",
+      "type": "message",
+      "ts": "1775407827.773439",
+      "bot_id": "B08REALBOT1",
+      "app_id": "A08REALAPP1",
+      "text": "*Which option should I use?* Select an option to continue:",
+      "team": "T08REALTEAM1",
+      "thread_ts": "1775407823.782829",
+      "parent_user_id": "U08REALUSER1",
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "BP/k8",
+          "text": {
+            "type": "plain_text",
+            "text": "Which option should I use?",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "wIM5b",
+          "text": {
+            "type": "mrkdwn",
+            "text": "Select an option to continue:",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "AXMQo",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "option-select:option-a",
+              "text": {
+                "type": "plain_text",
+                "text": "Option A",
+                "emoji": true
+              },
+              "value": "option-a"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.com/actions/T08REALTEAM1/10849095105106/sanitized",
+    "actions": [
+      {
+        "action_id": "option-select:option-a",
+        "block_id": "AXMQo",
+        "text": {
+          "type": "plain_text",
+          "text": "Option A",
+          "emoji": true
+        },
+        "value": "option-a",
+        "type": "button",
+        "action_ts": "1775407849.087100"
+      }
+    ]
+  },
+  "threadFollowUp": {
+    "token": "sanitized-verification-token",
+    "team_id": "T08REALTEAM1",
+    "context_team_id": "T08REALTEAM1",
+    "context_enterprise_id": null,
+    "api_app_id": "A08REALAPP1",
+    "event": {
+      "type": "message",
+      "user": "U08REALUSER1",
+      "ts": "1775407883.655979",
+      "client_msg_id": "23bf75d5-4b7f-4caa-88ff-b9510ae177f4",
+      "text": "ping?",
+      "team": "T08REALTEAM1",
+      "thread_ts": "1775407823.782829",
+      "parent_user_id": "U08REALUSER1",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "v6Z74",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "ping?"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "channel": "C08REALCHAN1",
+      "event_ts": "1775407883.655979",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "Ev08REALFOLLOWUP1",
+    "event_time": 1775407883,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T08REALTEAM1",
+        "user_id": "U08REALBOT1",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "4-sanitized-thread-follow-up"
   }
 }

@@ -17,8 +17,11 @@ export function createWaitUntilTracker(): WaitUntilTracker {
       tasks.push(task);
     },
     waitForAll: async () => {
-      await Promise.all(tasks);
-      tasks.length = 0;
+      // drain in a loop: awaited tasks may register more via waitUntil mid-flight
+      while (tasks.length > 0) {
+        const pending = tasks.splice(0);
+        await Promise.all(pending);
+      }
     },
   };
 }
