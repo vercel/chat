@@ -52,4 +52,7 @@ jobs:
 
       - name: Promote release branch
         if: steps.changesets.outputs.published == 'true'
-        run: git push origin HEAD:refs/heads/release
+        run: |
+          git fetch origin release
+          expected=$(git rev-parse origin/release)
+          git push --force-with-lease=refs/heads/release:$expected origin HEAD:refs/heads/release
