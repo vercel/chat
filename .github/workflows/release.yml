@@ -19,8 +19,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    # Only run if CI workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only run if CI succeeded for a push to main.
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
 
@@ -49,3 +49,10 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote release branch
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          git fetch origin release
+          expected=$(git rev-parse origin/release)
+          git push --force-with-lease=refs/heads/release:$expected origin HEAD:refs/heads/release

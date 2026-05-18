@@ -8,12 +8,13 @@ prerequisites:
 
 Adapters handle webhook verification, message parsing, and API calls for each platform. Install only the adapters you need. Browse all available adapters — including community-built ones — on the [Adapters](/adapters) page.
 
-Need a browser chat UI? See the [Web adapter](/adapters/web) — it speaks the AI SDK `useChat` protocol so the same bot serves Slack, Teams, **and** a `<Conversation>` from `ai-elements` out of the box.
+Need a browser chat UI? See the [Web adapter](/adapters/official/web) — it speaks the AI SDK UI stream protocol and works with React (`@ai-sdk/react`), Vue (`@ai-sdk/vue`), and Svelte (`@ai-sdk/svelte`), so the same bot serves Slack, Teams, **and** any browser framework out of the box.
 
 Ready to build your own? Follow the [building](/docs/contributing/building) guide.
 
 ## Feature matrix
 
+<GlobalFeatureMatrix type="platform" />
 ### Messaging
 
 | Feature | [Slack](/adapters/slack) | [Teams](/adapters/teams) | [Google Chat](/adapters/google-chat) | [Discord](/adapters/discord) | [Telegram](/adapters/telegram) | [GitHub](/adapters/github) | [Linear](/adapters/linear) | [WhatsApp](/adapters/whatsapp) | [Messenger](/adapters/messenger) |
@@ -21,7 +22,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Post message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
 | Edit message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Partial | <Cross /> | <Cross /> |
 | Delete message | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Warn /> Partial | <Cross /> | <Cross /> |
-| File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file | <Cross /> | <Cross /> | <Check /> Images, audio, docs | <Cross /> |
+| File uploads | <Check /> | <Check /> | <Cross /> | <Check /> | <Warn /> Single file/media | <Cross /> | <Cross /> | <Check /> Images, audio, docs | <Cross /> |
 | Streaming | <Check /> Native | <Warn /> Native (DMs) / Buffered | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Post+Edit | <Warn /> Buffered | <Warn /> Agent sessions / Post+Edit | <Warn /> Buffered | <Warn /> Buffered |
 | Scheduled messages | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 
@@ -51,7 +52,7 @@ Ready to build your own? Follow the [building](/docs/contributing/building) guid
 | Ephemeral messages | <Check /> Native | <Cross /> | <Check /> Native | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> |
 | User lookup ([`getUser`](/docs/api/chat#getuser)) | <Check /> | <Warn /> Cached | <Warn /> Cached | <Check /> | <Warn /> Seen users | <Check /> | <Check /> | <Cross /> | <Cross /> |
 | Parent subject ([`message.subject`](/docs/subject)) | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
-| Native client ([`.client`](/docs/api/chat#getadapter)) | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
+| Native client ([`.webClient` / `.octokit` / `.linearClient`](/docs/api/chat#getadapter)) | <Check /> | <Cross /> | <Cross /> | <Cross /> | <Cross /> | <Check /> | <Check /> | <Cross /> | <Cross /> |
 | Custom API endpoint (`apiUrl`) | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> | <Check /> |
 
 ### Message history

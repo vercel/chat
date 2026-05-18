@@ -35,7 +35,7 @@ import {
 } from "chat";
 import { requireWebRequestContext, webRequestContext } from "./als";
 import { WebFormatConverter } from "./format-converter";
-import type { WebAdapterOptions, WebUser } from "./types";
+import type { WebAdapterConfig, WebUser } from "./types";
 
 /** Decoded thread id components for the Web adapter. */
 export interface WebThreadIdData {
@@ -67,10 +67,10 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new WebFormatConverter();
-  protected readonly resolveUser: WebAdapterOptions["getUser"];
-  protected readonly threadIdFor: NonNullable<WebAdapterOptions["threadIdFor"]>;
+  protected readonly resolveUser: WebAdapterConfig["getUser"];
+  protected readonly threadIdFor: NonNullable<WebAdapterConfig["threadIdFor"]>;
 
-  constructor(opts: WebAdapterOptions) {
+  constructor(opts: WebAdapterConfig) {
     if (!opts.userName) {
       throw new ValidationError(ADAPTER_NAME, "userName is required");
     }
@@ -374,7 +374,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
 
   getUser(_userId: string): Promise<UserInfo | null> {
     // The Web adapter doesn't have a user directory — host apps can supply
-    // their own via WebAdapterOptions.getUser.
+    // their own via WebAdapterConfig.getUser.
     return Promise.resolve(null);
   }
 
@@ -485,8 +485,4 @@ function generateId(): string {
     return crypto.randomUUID();
   }
   return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-export function createWebAdapter(opts: WebAdapterOptions): WebAdapter {
-  return new WebAdapter(opts);
 }

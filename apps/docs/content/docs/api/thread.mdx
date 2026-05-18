@@ -146,7 +146,7 @@ if (participants.length > 1) {
 
 ## subscribe / unsubscribe
 
-Manage thread subscriptions. Subscribed threads route all messages to `onSubscribedMessage` handlers.
+Manage thread subscriptions. Subscribed non-DM threads route all messages to `onSubscribedMessage` handlers. DM threads route to `onDirectMessage` first when a direct message handler is registered.
 
 ```typescript
 await thread.subscribe();

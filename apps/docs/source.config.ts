@@ -54,6 +54,42 @@ export const docs = defineDocs({
   },
 });
 
+const adapterFeatureStatusSchema = z.enum(["yes", "no", "partial"]);
+
+const adapterFeatureValueSchema = z.union([
+  adapterFeatureStatusSchema,
+  z.string(),
+  z.object({
+    status: adapterFeatureStatusSchema,
+    label: z.string().optional(),
+  }),
+]);
+
+export const adapters = defineDocs({
+  dir: "content/adapters",
+  docs: {
+    schema: frontmatterSchema.extend({
+      packageName: z.string(),
+      slug: z.string(),
+      type: z.enum(["platform", "state"]),
+      logo: z.string().optional(),
+      tagline: z.string(),
+      beta: z.boolean().optional(),
+      community: z.boolean().optional(),
+      vendorOfficial: z.boolean().optional(),
+      author: z.string().optional(),
+      features: z.record(z.string(), adapterFeatureValueSchema).optional(),
+      mdxBody: z.boolean().optional(),
+    }),
+    postprocess: {
+      includeProcessedMarkdown: true,
+    },
+  },
+  meta: {
+    schema: metaSchema,
+  },
+});
+
 export default defineConfig({
   mdxOptions: {
     remarkPlugins: [remarkMdxMermaid],

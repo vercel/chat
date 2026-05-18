@@ -1,15 +1,30 @@
 // Main exports
 
+// Re-exported from `chat/ai` for backwards compatibility.
+// Prefer importing these from `chat/ai` in new code — that subpath is the
+// home for every AI SDK helper (`toAiMessages`, `createChatTools`, etc.)
+// and keeps the optional `ai` / `zod` peer deps out of bundles that don't
+// import them.
 export {
+  /** @deprecated Import `AiAssistantMessage` from `chat/ai` instead. */
   type AiAssistantMessage,
+  /** @deprecated Import `AiFilePart` from `chat/ai` instead. */
   type AiFilePart,
+  /** @deprecated Import `AiImagePart` from `chat/ai` instead. */
   type AiImagePart,
+  /** @deprecated Import `AiMessage` from `chat/ai` instead. */
   type AiMessage,
+  /** @deprecated Import `AiMessagePart` from `chat/ai` instead. */
   type AiMessagePart,
+  /** @deprecated Import `AiTextPart` from `chat/ai` instead. */
   type AiTextPart,
+  /** @deprecated Import `AiUserMessage` from `chat/ai` instead. */
   type AiUserMessage,
+  /** @deprecated Import `ToAiMessagesOptions` from `chat/ai` instead. */
+  type ToAiMessagesOptions,
+  /** @deprecated Import `toAiMessages` from `chat/ai` instead. */
   toAiMessages,
-} from "./ai";
+} from "./ai/messages";
 export {
   ChannelImpl,
   deriveChannelId,

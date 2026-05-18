@@ -1,0 +1,134 @@
+---
+title: Mattermost
+description: Community Mattermost adapter for Chat SDK with support for posts, edits, reactions, ephemeral messages, typing indicators, file uploads, and interactive actions.
+packageName: chat-adapter-mattermost
+slug: mattermost
+type: platform
+tagline: Community Mattermost adapter for Chat SDK. REST + WebSocket gateway, ephemeral messages, reactions, typing indicators, and interactive action attachments.
+community: true
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads:
+    status: partial
+    label: No edit-with-uploads
+  streaming:
+    status: partial
+    label: post+edit
+  scheduledMessages: no
+  cardFormat:
+    status: partial
+    label: Text fallback + actions
+  buttons:
+    status: partial
+    label: Action attachments
+  linkButtons:
+    status: partial
+    label: Action attachments
+  selectMenus:
+    status: partial
+    label: Action attachments
+  tables: no
+  fields: no
+  imagesInCards:
+    status: partial
+    label: Action attachments
+  modals: no
+  slashCommands: no
+  mentions: yes
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages: yes
+  userLookup: yes
+  customApiEndpoint:
+    status: yes
+    label: baseUrl
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo: yes
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="chat-adapter-mattermost chat" />
+
+Requires Node.js 20+ and a Mattermost server with a bot account.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMattermostAdapter } from "chat-adapter-mattermost";
+
+const adapter = createMattermostAdapter({
+  baseUrl: process.env.MATTERMOST_BASE_URL,
+  botToken: process.env.MATTERMOST_BOT_TOKEN,
+});
+
+const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    mattermost: adapter,
+  },
+});
+
+await bot.initialize();
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello from Mattermost via Chat SDK.");
+});
+```
+
+Configuration can also be provided through environment variables:
+
+```bash
+export MATTERMOST_BASE_URL=https://mattermost.example.com
+export MATTERMOST_BOT_TOKEN=your-bot-token
+```
+
+```typescript
+const adapter = createMattermostAdapter();
+```
+
+## Mattermost setup
+
+1. **Create a bot account.** In Mattermost go to **System Console → Integrations → Bot Accounts** and create a new bot. Copy the generated access token.
+2. **Enable integrations.** Ensure your Mattermost server allows bot accounts and has the REST API + WebSocket gateway accessible (both are enabled by default).
+3. **Add the bot to channels.** Add the bot user to any channels where it should respond — it only receives events from channels it is a member of.
+4. **Interactive actions (optional).** To use buttons and selects, set `callbackUrl` to a public URL that Mattermost can reach. The adapter exposes `handleWebhook()` for this:
+
+   ```typescript
+   adapter.handleWebhook(request);
+   ```
+
+   Register this URL in **System Console → Integrations → Interactive Dialogs** or per-post via the `integration` field.
+
+## Notes
+
+- Connects to Mattermost over the REST API v4 and the `/api/v4/websocket` gateway.
+- Thread IDs are encoded as `mattermost:<channel>` for channel-level contexts or `mattermost:<channel>:<rootPostId>` for threaded replies.
+- User and channel data are cached in-memory with LRU eviction (up to 1000 entries each).
+- WebSocket reconnection uses exponential backoff with jitter (1 s base, 30 s max).
+- The `@chat-adapter/*` npm scope is reserved for official adapters; this package is published as `chat-adapter-mattermost`.
+
+## Limitations
+
+- **Modals** — no modal open or submit flows.
+- **Slash commands** — no slash-command parsing or dispatch.
+- **Interactive actions** — interactive button and select callbacks are received, but the full action lifecycle is not complete.
+- **File uploads on edit** — sending and receiving file attachments works, but editing a message with new uploads is not supported.
+- **Streaming** — falls back to the post+edit pattern; Mattermost has no native streaming transport.
+- **Rate-limit handling** — auth, permission, not-found, and network failures are mapped, but rate-limit responses are not yet surfaced as a typed error.
+
+## Feature support
+
+<FeatureSupport />

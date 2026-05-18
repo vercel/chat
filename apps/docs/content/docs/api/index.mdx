@@ -20,12 +20,6 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 | [`Message`](/docs/api/message) | Normalized message with text, AST, author, and metadata |
 | [`ScheduledMessage`](/docs/api/thread#scheduledmessage) | Returned by `thread.schedule()` / `channel.schedule()` with `cancel()` |
 
-## Utilities
-
-| Export | Description |
-|--------|-------------|
-| [`toAiMessages`](/docs/api/to-ai-messages) | Convert `Message[]` to AI SDK `{ role, content }[]` format |
-
 ## Message formats
 
 | Export | Description |
@@ -36,3 +30,7 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 | [`Cards`](/docs/api/cards) | Rich card components — `Card`, `Text`, `Button`, `Actions`, etc. |
 | [`Markdown`](/docs/api/markdown) | AST builder functions — `root`, `paragraph`, `text`, `strong`, etc. |
 | [`Modals`](/docs/api/modals) | Modal form components — `Modal`, `TextInput`, `Select`, etc. |
+
+## AI utilities
+
+`toAiMessages`, `createChatTools`, and the supporting types live in the [`chat/ai`](/docs/ai) subpath — see the [AI section](/docs/ai) for the full reference.

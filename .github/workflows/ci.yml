@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -66,7 +66,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -78,7 +78,8 @@ jobs:
       - name: Knip
         run: pnpm knip
 
-  typecheck:
+  konsistent:
+    name: 'Code Consistency'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -96,11 +97,37 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Run konsistent
+        run: pnpm konsistent
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@8912a9102ac27614460f54aedde9e1e7f9aec20d # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Typecheck
         run: pnpm typecheck
 
-  build-and-test:
+  build-and-test-matrix:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 24]
+    name: build-and-test (Node ${{ matrix.node-version }})
     env:
       SLACK_BOT_TOKEN: xoxb-mock
       SLACK_SIGNING_SECRET: mock
@@ -120,7 +147,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
       - name: Install dependencies
@@ -131,3 +158,18 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  # Separate "build-and-test" job to set as required in branch protections,
+  # as the matrix build names above change each time Node versions change.
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: build-and-test-matrix
+    if: ${{ !cancelled() }}
+    name: build-and-test (Summary)
+    steps:
+      - name: All matrix versions passed
+        if: ${{ !(contains(needs.*.result, 'failure')) }}
+        run: exit 0
+      - name: Some matrix version failed
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1

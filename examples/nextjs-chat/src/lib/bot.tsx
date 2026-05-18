@@ -1,10 +1,10 @@
 /** @jsxImportSource chat */
+import type { SlackAdapter } from "@chat-adapter/slack";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createRedisState } from "@chat-adapter/state-redis";
-import { ToolLoopAgent } from "ai";
+import { generateText, ToolLoopAgent } from "ai";
 import {
   Actions,
-  type AiMessage,
   Button,
   Card,
   CardLink,
@@ -23,8 +23,8 @@ import {
   CardText as Text,
   TextInput,
   type TranscriptEntry,
-  toAiMessages,
 } from "chat";
+import { type AiMessage, createChatTools, toAiMessages } from "chat/ai";
 import { start } from "workflow/api";
 import { buttonWorkflow } from "../workflows/button";
 import { modalWorkflow } from "../workflows/modal";
@@ -46,6 +46,7 @@ const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
+const SLACK_PREFIX_REGEX = /^slack:/;
 
 // Hardcoded user key for testing the Transcripts API — every inbound message
 // is persisted under this single key, so you can exercise append/list/delete
@@ -88,7 +89,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-4.5-sonnet",
+  model: "openai/gpt-5.4",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -167,7 +168,10 @@ bot.onNewMention(async (thread, message) => {
           Clear Transcripts
         </Button>
         <Button id="channel-post">Channel Post</Button>
+        <Button id="channel-info">Channel Info (Slack)</Button>
+        <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
+        <Button id="agent-demo">Run Agent Demo</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
           Report Bug
@@ -594,6 +598,116 @@ bot.onSlashCommand("/test-feedback", async (event) => {
   }
 });
 
+// Demonstrates `chat/ai` tools end-to-end. The agent reads a few recent
+// messages, reacts to the trigger card, and posts a short summary card —
+// all by calling Chat SDK tools rather than direct adapter methods.
+//
+// Approval is disabled here so the demo runs to completion without UI
+// gating. In production you'd typically leave the default
+// (`requireApproval: true`) and present an approval card for write tools.
+bot.onAction("agent-demo", async (event) => {
+  const thread = event.thread;
+  if (!thread) {
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: "messenger",
+    requireApproval: false,
+  });
+
+  await thread.startTyping("Running agent...");
+  try {
+    const result = await generateText({
+      model: "openai/gpt-5.4",
+      tools,
+      stopWhen: ({ steps }) => steps.length >= 6,
+      system: [
+        "You are demoing the Chat SDK `chat/ai` tools inside a chat thread.",
+        `The active thread id is "${thread.id}".`,
+        "Do exactly the following, in order:",
+        "1. Add a `:eyes:` reaction to the most recent message in this thread using `addReaction`.",
+        "2. Call `fetchMessages` to load up to the 5 most recent messages in this thread.",
+        "3. Call `postMessage` with a single short markdown summary (one to three sentences) of what you saw, prefixed with `Agent demo summary:`.",
+        "Stop after posting the summary. Do not ask follow-up questions.",
+      ].join("\n"),
+      prompt: `User ${event.user.fullName} clicked the "Run Agent Demo" button.`,
+    });
+
+    if (result.steps.length === 0) {
+      await thread.post(
+        `${emoji.warning} Agent finished without calling any tools.`
+      );
+    }
+  } catch (err) {
+    console.error("agent-demo error:", err);
+    await thread.post(
+      `${emoji.warning} Agent demo failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Free-form agent invocation: `/agent <prompt>` lets you exercise the
+// `chat/ai` tools with arbitrary natural-language instructions inside the
+// channel where the command was invoked.
+//
+// The reply streams in incrementally — `thread.post(result.fullStream)`
+// renders model tokens as they arrive while the underlying tool loop keeps
+// running in the background.
+bot.onSlashCommand("/agent", async (event) => {
+  const prompt = event.text.trim();
+  if (!prompt) {
+    await event.channel.post(
+      `${emoji.warning} Usage: \`/agent <instructions>\` - e.g. \`/agent summarize the last 10 messages in this channel\``
+    );
+    return;
+  }
+
+  const tools = createChatTools({
+    chat: bot,
+    preset: ["reader", "messenger"],
+    requireApproval: false,
+  });
+
+  const toolAgent = new ToolLoopAgent({
+    model: "openai/gpt-5.4",
+    tools,
+    stopWhen: ({ steps }) => steps.length >= 8,
+    instructions: [
+      "You are an assistant operating inside a chat workspace via Chat SDK `chat/ai` tools.",
+      `The active channel id is "${event.channel.id}". Use it with channel tools such as fetchChannelMessages or postChannelMessage.`,
+      "Do not pass a channel id as a threadId. Use thread ids only with thread tools such as fetchMessages, postMessage, addReaction, and startTyping.",
+      "Your final assistant text is streamed back to the channel. Do not call postChannelMessage just to answer the slash command.",
+      "If you need recent channel context, call `fetchChannelMessages` first.",
+    ].join("\n"),
+  });
+
+  // `startTyping` on Slack only renders status text inside a thread
+  // (assistant.threads.setStatus requires thread_ts). Slash commands
+  // dispatch in the channel scope, so post an explicit placeholder so
+  // the user sees something while the model warms up. The streamed
+  // reply lands as a follow-up message.
+  await event.channel.startTyping("Agent thinking...");
+  const placeholder = await event.channel.post(
+    `${emoji.sparkles} Agent thinking...`
+  );
+  try {
+    const result = await toolAgent.stream({ prompt });
+    await event.channel.post(result.fullStream);
+    await placeholder.delete();
+  } catch (err) {
+    console.error("/agent error:", err);
+    await placeholder.edit(
+      `${emoji.warning} Agent failed: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
 // Open bug report modal with privateMetadata carrying context from button value
 bot.onAction("report", async (event) => {
   await event.openModal(
@@ -892,6 +1006,124 @@ bot.onAction("channel-post", async (event) => {
   } catch (err) {
     await thread.post(
       `${emoji.warning} Error reading channel: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Demonstrate direct Slack WebClient access via adapter.client.
+// `conversations.info` requires the `channels:read` (or `groups:read`) scope.
+bot.onAction("channel-info", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  // Strip the "slack:" prefix to get the raw Slack channel ID.
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    const result = await slack.conversations.info({
+      channel: channelId,
+      include_num_members: true,
+    });
+    const channel = result.channel as
+      | {
+          created?: number;
+          creator?: string;
+          id?: string;
+          is_archived?: boolean;
+          is_general?: boolean;
+          is_private?: boolean;
+          name?: string;
+          num_members?: number;
+          purpose?: { value?: string };
+          topic?: { value?: string };
+        }
+      | undefined;
+
+    if (!channel) {
+      await thread.post(
+        `${emoji.warning} Slack returned no channel info for \`${channelId}\`.`
+      );
+      return;
+    }
+
+    const created = channel.created
+      ? new Date(channel.created * 1000).toISOString()
+      : "unknown";
+
+    await thread.post(
+      <Card title={`${emoji.memo} Channel Info`}>
+        <Text>
+          {`Fetched via \`bot.getAdapter("slack").client.conversations.info\``}
+        </Text>
+        <Table
+          headers={["Field", "Value"]}
+          rows={[
+            ["Name", channel.name ? `#${channel.name}` : "—"],
+            ["ID", channel.id ?? channelId],
+            [
+              "Members",
+              typeof channel.num_members === "number"
+                ? String(channel.num_members)
+                : "—",
+            ],
+            ["Created", created],
+            ["Creator", channel.creator ?? "—"],
+            ["Private", channel.is_private ? "Yes" : "No"],
+            ["Archived", channel.is_archived ? "Yes" : "No"],
+            ["Default channel", channel.is_general ? "Yes" : "No"],
+            ["Topic", channel.topic?.value?.trim() || "(no topic set)"],
+            ["Purpose", channel.purpose?.value?.trim() || "(no purpose set)"],
+          ]}
+        />
+      </Card>
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error fetching channel info: ${
+        err instanceof Error ? err.message : "Unknown error"
+      }`
+    );
+  }
+});
+
+// Pin the card containing this button via the Slack WebClient.
+// `pins.add` requires the `pins:write` scope.
+bot.onAction("pin-message", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const { thread } = event;
+
+  if (event.adapter.name !== "slack") {
+    await thread.post(
+      `${emoji.warning} This demo uses the Slack \`WebClient\` directly. Try it from a Slack thread.`
+    );
+    return;
+  }
+
+  const channelId = thread.channel.id.replace(SLACK_PREFIX_REGEX, "");
+
+  try {
+    const slack = (event.adapter as SlackAdapter).client;
+    await slack.pins.add({ channel: channelId, timestamp: event.messageId });
+    await thread.post(
+      `${emoji.pin} Pinned the welcome card via \`bot.getAdapter("slack").client.pins.add\`.`
+    );
+  } catch (err) {
+    await thread.post(
+      `${emoji.warning} Error pinning message: ${
         err instanceof Error ? err.message : "Unknown error"
       }`
     );

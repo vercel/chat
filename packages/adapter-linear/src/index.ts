@@ -161,8 +161,41 @@ export class LinearAdapter
   readonly name = "linear";
   readonly userName: string;
 
-  get client(): LinearClient {
+  /**
+   * The underlying [`LinearClient`](https://github.com/linear/linear/tree/master/packages/sdk)
+   * from `@linear/sdk`, authenticated with the credentials this adapter was
+   * configured with. Use this for any Linear API call that isn't covered by
+   * the unified Chat SDK surface.
+   *
+   * Resolution rules:
+   * - **API key**, **access token**, and **single-tenant client-credentials**
+   *   modes: always returns the same client instance.
+   * - **Multi-tenant OAuth** mode: returns the client for the current
+   *   webhook request's organization, resolved from `AsyncLocalStorage`.
+   *   Calling this getter outside a webhook handler throws, since there is
+   *   no organization token to authenticate as.
+   *
+   * @throws {ValidationError} In multi-tenant OAuth mode when called outside
+   * a webhook handler (no per-org installation is in scope).
+   *
+   * @example
+   * ```ts
+   * const linear = bot.getAdapter("linear").linearClient;
+   * const issue = await linear.issue("ENG-123");
+   * const project = await issue.project;
+   * ```
+   */
+  get linearClient(): LinearClient {
     return this.getClient();
+  }
+
+  /**
+   * @deprecated Use {@link LinearAdapter.linearClient | `linearClient`}
+   * instead. This alias is preserved for backwards compatibility and will be
+   * removed in a future major release.
+   */
+  get client(): LinearClient {
+    return this.linearClient;
   }
 
   protected readonly mode: LinearAdapterMode;

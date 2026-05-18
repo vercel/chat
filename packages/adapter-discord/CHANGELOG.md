@@ -1,5 +1,22 @@
 # @chat-adapter/discord
 
+## 4.29.0
+
+### Minor Changes
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- b9b17cd: handle slash commands and button interactions in Discord gateway-only mode
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
 ## 4.28.1
 
 ### Patch Changes

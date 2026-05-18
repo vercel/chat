@@ -128,14 +128,19 @@ interface SlackUnfurl {
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 
-export type SlackAdapterMode = "webhook" | "socket";
+import type {
+  SlackAdapterConfig,
+  SlackAdapterMode,
+  SlackBotToken,
+  SlackInstallation,
+} from "./types";
 
-/**
- * Bot token configuration. Can be a static string, or a function that returns
- * a token (optionally asynchronously). The function is invoked each time a
- * token is needed, enabling rotation or lazy retrieval from a secret manager.
- */
-export type SlackBotToken = string | (() => string | Promise<string>);
+export type {
+  SlackAdapterConfig,
+  SlackAdapterMode,
+  SlackBotToken,
+  SlackInstallation,
+} from "./types";
 
 /**
  * Normalize a SlackBotToken config value to a resolver function, or undefined
@@ -161,93 +166,9 @@ interface SlackForwardedSocketEvent {
   type: "socket_event";
 }
 
-export interface SlackAdapterConfig {
-  /** Override the Slack API base URL (e.g. "https://slack-gov.com/api/" for GovSlack). Defaults to SLACK_API_URL env var. */
-  apiUrl?: string;
-  /** App-level token (xapp-...). Required for socket mode. */
-  appToken?: string;
-  /**
-   * Bot token (xoxb-...). Required for single-workspace mode. Omit for multi-workspace.
-   * May be a string, or a function returning a string or Promise<string> (called
-   * on each use to support rotation or deferred resolution).
-   */
-  botToken?: SlackBotToken;
-  /** Bot user ID (will be fetched if not provided) */
-  botUserId?: string;
-  /** Slack app client ID (required for OAuth / multi-workspace) */
-  clientId?: string;
-  /** Slack app client secret (required for OAuth / multi-workspace) */
-  clientSecret?: string;
-  /**
-   * Base64-encoded 32-byte AES-256-GCM encryption key.
-   * If provided, bot tokens stored via setInstallation() will be encrypted at rest.
-   */
-  encryptionKey?: string;
-  /**
-   * Prefix for the state key used to store workspace installations.
-   * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.
-   */
-  installationKeyPrefix?: string;
-
-  /**
-   * External installation provider for multi-workspace apps using external
-   * token management (e.g., Vercel Connect). When set, the adapter bypasses
-   * internal StateAdapter storage for token lookups.
-   *
-   * For Enterprise Grid org-wide installs, `installationId` will be the
-   * enterprise ID; otherwise it will be the team ID.
-   */
-  installationProvider?: {
-    getInstallation: (
-      installationId: string,
-      isEnterpriseInstall: boolean
-    ) => Promise<SlackInstallation | null>;
-  };
-  /** Logger instance for error reporting. Defaults to ConsoleLogger. */
-  logger?: Logger;
-  /** Connection mode: "webhook" (default) or "socket" */
-  mode?: SlackAdapterMode;
-  /** Signing secret for webhook verification. Defaults to SLACK_SIGNING_SECRET env var. */
-  signingSecret?: string;
-  /** Shared secret for authenticating forwarded socket mode events. Auto-detected from SLACK_SOCKET_FORWARDING_SECRET. Falls back to appToken if not set. */
-  socketForwardingSecret?: string;
-  /** Override bot username (optional) */
-  userName?: string;
-  /**
-   * Custom webhook verifier. Used in place of `signingSecret`.
-   * Receives the incoming `Request` and the raw body text already
-   * read by the adapter. To reject the request, either
-   * return a falsy value (sync or async) or throw/reject; the adapter will
-   * respond with `401 Invalid signature`. Any truthy return value is treated
-   * as a successful verification. If a string is returned, it replaces the
-   * raw body for downstream parsing — useful when the verifier needs to
-   * canonicalize or substitute the verified payload.
-   *
-   * `webhookVerifier` takes precedence over `signingSecret` and the
-   * `SLACK_SIGNING_SECRET` env var; when it is set, those are ignored.
-   *
-   * SECURITY: When this is used in place of `signingSecret`, the built-in
-   * Slack timestamp tolerance check is NOT performed. Implementations are
-   * responsible for verifying the `x-slack-request-timestamp` header (or an
-   * equivalent freshness signal) to prevent replay of captured signed
-   * requests.
-   */
-  webhookVerifier?: (
-    request: Request,
-    body: string
-  ) => unknown | Promise<unknown>;
-}
-
 export interface SlackOAuthCallbackOptions {
   /** Redirect URI to send to Slack during the OAuth code exchange. */
   redirectUri?: string;
-}
-
-/** Data stored per Slack workspace installation */
-export interface SlackInstallation {
-  botToken: string;
-  botUserId?: string;
-  teamName?: string;
 }
 
 /** Slack-specific thread ID data */
@@ -530,7 +451,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
 
-  protected readonly client: WebClient;
+  protected readonly _client: WebClient;
+  protected readonly tokenClientCache = new Map<string, WebClient>();
+  protected readonly slackApiUrl: string | undefined;
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -586,6 +509,77 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return this.mode === "socket";
   }
 
+  /**
+   * Direct access to a [`WebClient`](https://github.com/slackapi/node-slack-sdk/tree/main/packages/web-api)
+   * from `@slack/web-api` bound to the bot token for the current request
+   * context (multi-workspace) or the configured default token
+   * (single-workspace). Use for any Slack Web API call not covered by the
+   * SDK's high-level methods — for example
+   * `adapter.webClient.pins.add(...)` or
+   * `adapter.webClient.usergroups.list(...)`.
+   *
+   * Resolution order:
+   *   1. Token from the current `requestContext` (set during webhook
+   *      handling, or by `withBotToken()`).
+   *   2. The default bot token, when configured as a static string or
+   *      synchronous resolver function.
+   *
+   * Throws `AuthenticationError` if neither is available — typical causes
+   * are calling `.webClient` outside any webhook/`withBotToken()` context
+   * in multi-workspace mode, or having configured `botToken` as an async
+   * function. In the latter case wrap the work in
+   * `adapter.withBotToken(token, () => adapter.webClient...)`.
+   *
+   * @example
+   * ```ts
+   * const slack = bot.getAdapter("slack").webClient;
+   * await slack.pins.add({
+   *   channel: "C123ABC",
+   *   timestamp: "1234567890.123456",
+   * });
+   * ```
+   */
+  get webClient(): WebClient {
+    const ctx = this.requestContext.getStore();
+    if (ctx?.token) {
+      return this.getClientForToken(ctx.token);
+    }
+    if (this.defaultBotTokenProvider) {
+      const result = this.defaultBotTokenProvider();
+      if (typeof result === "string") {
+        return this.getClientForToken(result);
+      }
+      throw new AuthenticationError(
+        "slack",
+        "botToken is configured as an async resolver and cannot be resolved synchronously for `.webClient`. Wrap the work in `adapter.withBotToken(token, () => adapter.webClient...)` after awaiting the token."
+      );
+    }
+    throw new AuthenticationError(
+      "slack",
+      "No bot token available. In multi-workspace mode, ensure the webhook is being processed or use `adapter.withBotToken(token, fn)` to bind a token explicitly."
+    );
+  }
+
+  /**
+   * @deprecated Use {@link SlackAdapter.webClient | `webClient`} instead.
+   * This alias is preserved for backwards compatibility and will be
+   * removed in a future major release.
+   */
+  get client(): WebClient {
+    return this.webClient;
+  }
+
+  private getClientForToken(token: string): WebClient {
+    let client = this.tokenClientCache.get(token);
+    if (!client) {
+      client = new WebClient(token, {
+        ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
+      });
+      this.tokenClientCache.set(token, client);
+    }
+    return client;
+  }
+
   constructor(config: SlackAdapterConfig = {}) {
     const webhookVerifier = config.webhookVerifier;
     // webhookVerifier takes precedence over signingSecret (config) and the
@@ -619,11 +613,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       config.botToken ?? (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined);
     const botTokenProvider = normalizeBotTokenProvider(botTokenConfig);
 
-    const slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
-    this.client = new WebClient(undefined, {
-      ...(slackApiUrl ? { slackApiUrl } : {}),
+    this._client = new WebClient(undefined, {
+      ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
     // verifier is configured.
@@ -692,7 +686,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Only fetch bot user ID in single-workspace mode (when default token is available)
     if (this.defaultBotTokenProvider && !this._botUserId) {
       try {
-        const authResult = await this.client.auth.test(
+        const authResult = await this._client.auth.test(
           await this.withToken({})
         );
         this._botUserId = authResult.user_id as string;
@@ -823,7 +817,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const redirectUri =
       options?.redirectUri ?? url.searchParams.get("redirect_uri") ?? undefined;
 
-    const result = await this.client.oauth.v2.access({
+    const result = await this._client.oauth.v2.access({
       client_id: this.clientId,
       client_secret: this.clientSecret,
       code,
@@ -976,7 +970,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      const result = await this.client.users.info(
+      const result = await this._client.users.info(
         await this.withToken({ user: userId })
       );
       const user = result.user as {
@@ -1055,7 +1049,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      const result = await this.client.conversations.info(
+      const result = await this._client.conversations.info(
         await this.withToken({ channel: channelId })
       );
       const name =
@@ -2270,7 +2264,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // event.item.ts is the reply's ts, not the parent thread_ts.
     let parentTs = event.item.ts;
     try {
-      const result = await this.client.conversations.replies(
+      const result = await this._client.conversations.replies(
         await this.withToken({
           channel: event.item.channel,
           ts: event.item.ts,
@@ -2504,7 +2498,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     userId: string,
     view: Record<string, unknown>
   ): Promise<void> {
-    await this.client.views.publish(
+    await this._client.views.publish(
       // biome-ignore lint/suspicious/noExplicitAny: view blocks are consumer-defined
       (await this.withToken({ user_id: userId, view })) as any
     );
@@ -2520,7 +2514,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     prompts: Array<{ title: string; message: string }>,
     title?: string
   ): Promise<void> {
-    await this.client.assistant.threads.setSuggestedPrompts(
+    await this._client.assistant.threads.setSuggestedPrompts(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
@@ -2540,7 +2534,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     status: string,
     loadingMessages?: string[]
   ): Promise<void> {
-    await this.client.assistant.threads.setStatus(
+    await this._client.assistant.threads.setStatus(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
@@ -2559,7 +2553,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     threadTs: string,
     title: string
   ): Promise<void> {
-    await this.client.assistant.threads.setTitle(
+    await this._client.assistant.threads.setTitle(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
@@ -2764,7 +2758,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return {
       url,
       fetchMessage: async () => {
-        const result = await this.client.conversations.history(
+        const result = await this._client.conversations.history(
           await this.withToken({
             channel,
             latest: ts,
@@ -3219,7 +3213,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.postMessage(
+        const result = await this._client.chat.postMessage(
           await this.withToken({
             channel,
             thread_ts: threadTs,
@@ -3250,7 +3244,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
-      const result = await this.client.chat.postMessage(
+      const result = await this._client.chat.postMessage(
         await this.withToken({
           channel,
           thread_ts: threadTs,
@@ -3300,7 +3294,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.postEphemeral(
+        const result = await this._client.chat.postEphemeral(
           await this.withToken({
             channel,
             thread_ts: threadTs,
@@ -3332,7 +3326,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
-      const result = await this.client.chat.postEphemeral(
+      const result = await this._client.chat.postEphemeral(
         await this.withToken({
           channel,
           thread_ts: threadTs,
@@ -3404,7 +3398,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.scheduleMessage({
+        const result = await this._client.chat.scheduleMessage({
           token,
           channel,
           thread_ts: threadTs,
@@ -3424,7 +3418,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           postAt: options.postAt,
           raw: result,
           async cancel() {
-            await adapter.client.chat.deleteScheduledMessage({
+            await adapter._client.chat.deleteScheduledMessage({
               token: await resolveCancelToken(),
               channel,
               scheduled_message_id: scheduledMessageId,
@@ -3442,7 +3436,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
-      const result = await this.client.chat.scheduleMessage({
+      const result = await this._client.chat.scheduleMessage({
         token,
         channel,
         thread_ts: threadTs,
@@ -3461,7 +3455,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         postAt: options.postAt,
         raw: result,
         async cancel() {
-          await adapter.client.chat.deleteScheduledMessage({
+          await adapter._client.chat.deleteScheduledMessage({
             token: await resolveCancelToken(),
             channel,
             scheduled_message_id: scheduledMessageId,
@@ -3490,7 +3484,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     try {
-      const result = await this.client.views.open(
+      const result = await this._client.views.open(
         await this.withToken({
           trigger_id: triggerId,
           view,
@@ -3520,7 +3514,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     try {
-      const result = await this.client.views.update(
+      const result = await this._client.views.update(
         await this.withToken({
           view_id: viewId,
           view,
@@ -3581,7 +3575,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       uploadArgs.thread_ts = threadTs;
     }
     uploadArgs.token = await this.getToken();
-    const result = (await this.client.files.uploadV2(uploadArgs)) as {
+    const result = (await this._client.files.uploadV2(uploadArgs)) as {
       ok: boolean;
       files?: Array<{ files?: Array<{ id?: string }> }>;
     };
@@ -3639,7 +3633,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this.client.chat.update(
+        const result = await this._client.chat.update(
           await this.withToken({
             channel,
             ts: messageId,
@@ -3668,7 +3662,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         payloadKey: "markdown_text" in payload ? "markdown_text" : "text",
       });
 
-      const result = await this.client.chat.update(
+      const result = await this._client.chat.update(
         await this.withToken({
           channel,
           ts: messageId,
@@ -3716,7 +3710,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         threadTs,
         blockCount: blocks.length,
       });
-      const result = await this.client.chat.postMessage(
+      const result = await this._client.chat.postMessage(
         await this.withToken({
           channel,
           thread_ts: threadTs,
@@ -3755,7 +3749,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         messageId,
         blockCount: blocks.length,
       });
-      const result = await this.client.chat.update(
+      const result = await this._client.chat.update(
         await this.withToken({
           channel,
           ts: messageId,
@@ -3872,7 +3866,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: chat.delete", { channel, messageId });
 
-      await this.client.chat.delete(
+      await this._client.chat.delete(
         await this.withToken({
           channel,
           ts: messageId,
@@ -3902,7 +3896,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         emoji: name,
       });
 
-      await this.client.reactions.add(
+      await this._client.reactions.add(
         await this.withToken({
           channel,
           timestamp: messageId,
@@ -3933,7 +3927,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         emoji: name,
       });
 
-      await this.client.reactions.remove(
+      await this._client.reactions.remove(
         await this.withToken({
           channel,
           timestamp: messageId,
@@ -3971,7 +3965,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       status,
     });
     try {
-      await this.client.assistant.threads.setStatus(
+      await this._client.assistant.threads.setStatus(
         await this.withToken({
           channel_id: channel,
           thread_ts: threadTs,
@@ -4025,7 +4019,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
-    const streamer = this.client.chatStream({
+    const streamer = this._client.chatStream({
       channel,
       thread_ts: threadTs,
       recipient_user_id: options.recipientUserId,
@@ -4153,7 +4147,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: conversations.open", { userId });
 
-      const result = await this.client.conversations.open(
+      const result = await this._client.conversations.open(
         await this.withToken({ users: userId })
       );
 
@@ -4233,7 +4227,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       cursor,
     });
 
-    const result = await this.client.conversations.replies(
+    const result = await this._client.conversations.replies(
       await this.withToken({
         channel,
         ts: threadTs,
@@ -4296,7 +4290,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Slack API max is 1000 messages per request
     const fetchLimit = Math.min(1000, Math.max(limit * 2, 200));
 
-    const result = await this.client.conversations.replies(
+    const result = await this._client.conversations.replies(
       await this.withToken({
         channel,
         ts: threadTs,
@@ -4347,7 +4341,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: conversations.info", { channel });
 
-      const result = await this.client.conversations.info(
+      const result = await this._client.conversations.info(
         await this.withToken({ channel })
       );
       const channelInfo = result.channel as
@@ -4403,7 +4397,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
 
     try {
-      const result = await this.client.conversations.replies(
+      const result = await this._client.conversations.replies(
         await this.withToken({
           channel,
           ts: threadTs,
@@ -4595,7 +4589,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       cursor,
     });
 
-    const result = await this.client.conversations.history(
+    const result = await this._client.conversations.history(
       await this.withToken({
         channel,
         limit,
@@ -4642,7 +4636,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       cursor,
     });
 
-    const result = await this.client.conversations.history(
+    const result = await this._client.conversations.history(
       await this.withToken({
         channel,
         limit,
@@ -4705,7 +4699,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         cursor: options.cursor,
       });
 
-      const result = await this.client.conversations.history(
+      const result = await this._client.conversations.history(
         await this.withToken({
           channel,
           limit: Math.min(limit * 3, 200), // Fetch extra since not all have threads
@@ -4770,7 +4764,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       this.logger.debug("Slack API: conversations.info (channel)", { channel });
 
-      const result = await this.client.conversations.info(
+      const result = await this._client.conversations.info(
         await this.withToken({ channel })
       );
 
@@ -5012,9 +5006,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 }
 
-export function createSlackAdapter(
-  config?: Partial<SlackAdapterConfig>
-): SlackAdapter {
+export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   const mode = config?.mode ?? "webhook";
   const appToken = config?.appToken ?? process.env.SLACK_APP_TOKEN;
 
@@ -5054,8 +5046,8 @@ export function createSlackAdapter(
   const zeroConfig = !config;
 
   const resolved: SlackAdapterConfig = {
-    appToken,
     apiUrl: config?.apiUrl,
+    appToken,
     mode,
     signingSecret,
     botToken:

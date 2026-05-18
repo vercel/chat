@@ -1,5 +1,19 @@
 # @chat-adapter/shared
 
+## 4.29.0
+
+### Minor Changes
+
+- add2730: support typed Telegram attachment uploads
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+
 ## 4.28.1
 
 ### Patch Changes

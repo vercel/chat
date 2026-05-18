@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@emulators/core": "^0.5.0",
+    "@emulators/github": "^0.5.0",
+    "@emulators/slack": "^0.5.0",
+    "@hono/node-server": "^2.0.2",
     "@types/node": "^25.3.2",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
@@ -17,6 +21,7 @@
   "dependencies": {
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
+    "@chat-adapter/github": "workspace:*",
     "@chat-adapter/messenger": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",

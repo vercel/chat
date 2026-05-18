@@ -4034,6 +4034,380 @@ describe("Chat", () => {
     });
   });
 
+  describe("concurrency: burst", () => {
+    it("should collapse an idle burst into the latest message with skipped context", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const receivedMessages: string[] = [];
+        const receivedContexts: Array<
+          { skipped: string[]; totalSinceLastHandler: number } | undefined
+        > = [];
+
+        burstChat.onNewMention(
+          vi.fn().mockImplementation(async (_thread, message, context) => {
+            receivedMessages.push(message.text);
+            receivedContexts.push(
+              context
+                ? {
+                    skipped: context.skipped.map(
+                      (m: { text: string }) => m.text
+                    ),
+                    totalSinceLastHandler: context.totalSinceLastHandler,
+                  }
+                : undefined
+            );
+          })
+        );
+
+        const msg1 = createTestMessage("msg-burst-1", "Hey @slack-bot first");
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          msg1
+        );
+
+        const msg2 = createTestMessage("msg-burst-2", "Hey @slack-bot second");
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          msg2
+        );
+
+        const msg3 = createTestMessage("msg-burst-3", "Hey @slack-bot third");
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          msg3
+        );
+
+        expect(receivedMessages).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(receivedMessages).toEqual(["Hey @slack-bot third"]);
+        expect(receivedContexts).toEqual([
+          {
+            skipped: ["Hey @slack-bot first", "Hey @slack-bot second"],
+            totalSinceLastHandler: 3,
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should process a lone idle message after the debounce window", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockResolvedValue(undefined);
+        burstChat.onNewMention(handler);
+
+        const msg = createTestMessage("msg-burst-4", "Hey @slack-bot solo");
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          msg
+        );
+
+        expect(handler).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(handler.mock.calls[0][1].text).toBe("Hey @slack-bot solo");
+        expect(handler.mock.calls[0][2]).toEqual({
+          skipped: [],
+          totalSinceLastHandler: 1,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should drain messages that arrive while the debounced handler is running", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const receivedMessages: string[] = [];
+        const receivedContexts: Array<
+          { skipped: string[]; totalSinceLastHandler: number } | undefined
+        > = [];
+        let releaseFirstHandler: (() => void) | undefined;
+
+        burstChat.onNewMention(
+          vi.fn().mockImplementation(async (_thread, message, context) => {
+            receivedMessages.push(message.text);
+            receivedContexts.push(
+              context
+                ? {
+                    skipped: context.skipped.map(
+                      (m: { text: string }) => m.text
+                    ),
+                    totalSinceLastHandler: context.totalSinceLastHandler,
+                  }
+                : undefined
+            );
+
+            if (message.id === "msg-burst-drain-2") {
+              await new Promise<void>((resolve) => {
+                releaseFirstHandler = resolve;
+              });
+            }
+          })
+        );
+
+        const firstPromise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drain-1", "Hey @slack-bot first")
+        );
+
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drain-2", "Hey @slack-bot second")
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+
+        expect(receivedMessages).toEqual(["Hey @slack-bot second"]);
+
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drain-3", "Hey @slack-bot third")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drain-4", "Hey @slack-bot fourth")
+        );
+
+        releaseFirstHandler?.();
+        await firstPromise;
+
+        expect(receivedMessages).toEqual([
+          "Hey @slack-bot second",
+          "Hey @slack-bot fourth",
+        ]);
+        expect(receivedContexts).toEqual([
+          {
+            skipped: ["Hey @slack-bot first"],
+            totalSinceLastHandler: 2,
+          },
+          {
+            skipped: ["Hey @slack-bot third"],
+            totalSinceLastHandler: 2,
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should respect drop-newest when the queue fills during debounce", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+            maxQueueSize: 2,
+            onQueueFull: "drop-newest",
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const receivedMessages: string[] = [];
+        const receivedContexts: Array<
+          { skipped: string[]; totalSinceLastHandler: number } | undefined
+        > = [];
+
+        burstChat.onNewMention(
+          vi.fn().mockImplementation(async (_thread, message, context) => {
+            receivedMessages.push(message.text);
+            receivedContexts.push(
+              context
+                ? {
+                    skipped: context.skipped.map(
+                      (m: { text: string }) => m.text
+                    ),
+                    totalSinceLastHandler: context.totalSinceLastHandler,
+                  }
+                : undefined
+            );
+          })
+        );
+
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drop-1", "Hey @slack-bot one")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drop-2", "Hey @slack-bot two")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-drop-3", "Hey @slack-bot three")
+        );
+
+        expect(await state.queueDepth("slack:C123:1234.5678")).toBe(2);
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(receivedMessages).toEqual(["Hey @slack-bot two"]);
+        expect(receivedContexts).toEqual([
+          {
+            skipped: ["Hey @slack-bot one"],
+            totalSinceLastHandler: 2,
+          },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should rehydrate queued messages after JSON roundtrip", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const realEnqueue = state.enqueue.getMockImplementation();
+        if (!realEnqueue) {
+          throw new Error("Expected enqueue mock");
+        }
+        vi.mocked(state.enqueue).mockImplementation(
+          async (threadId, entry, maxSize) => {
+            const serialized = JSON.parse(JSON.stringify(entry));
+            return realEnqueue(threadId, serialized, maxSize);
+          }
+        );
+
+        const adapter = createMockAdapter("slack");
+        const mockSubject = {
+          type: "issue",
+          id: "ENG-414",
+          title: "Burst test",
+          raw: {},
+        };
+        adapter.fetchSubject = vi.fn().mockResolvedValue(mockSubject);
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        let receivedSubject: unknown = "not-called";
+        let receivedSkippedSubject: unknown = "not-called";
+        burstChat.onNewMention(
+          vi.fn().mockImplementation(async (_thread, message, context) => {
+            receivedSubject = await message.subject;
+            receivedSkippedSubject = await context?.skipped[0]?.subject;
+          })
+        );
+
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-json-1", "Hey @slack-bot one")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-json-2", "Hey @slack-bot two")
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(receivedSubject).toEqual(mockSubject);
+        expect(receivedSkippedSubject).toEqual(mockSubject);
+        expect(adapter.fetchSubject).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("concurrency: concurrent", () => {
     it("should process messages without acquiring a lock", async () => {
       const state = createMockState();
