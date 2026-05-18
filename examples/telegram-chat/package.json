@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "start:emulated": "tsx src/index.emulated.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/telegram": "workspace:*",
-    "chat": "workspace:*"
+    "@emulators/telegram": "^0.4.1",
+    "chat": "workspace:*",
+    "emulate": "^0.4.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
