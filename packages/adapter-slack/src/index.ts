@@ -2306,6 +2306,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       (this._botUserId !== null && event.user === this._botUserId) ||
       (this._botId !== null && event.user === this._botId);
 
+    const userInfo = await this.lookupUser(event.user);
+    const userName = userInfo?.displayName ?? event.user;
+    const fullName = userInfo?.realName ?? userName;
+
     // Build reaction event
     const reactionEvent: Omit<ReactionEvent, "adapter" | "thread"> = {
       emoji: normalizedEmoji,
@@ -2313,9 +2317,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       added: event.type === "reaction_added",
       user: {
         userId: event.user,
-        userName: event.user, // Will be resolved below if possible
-        fullName: event.user,
-        isBot: false, // Users add reactions, not bots typically
+        userName,
+        fullName,
+        isBot: userInfo?.isBot ?? false,
         isMe,
       },
       messageId,
