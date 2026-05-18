@@ -821,7 +821,11 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(200);
     });
 
-    it("should auto-detect endpoint URL from request", async () => {
+    it("should not infer endpointUrl from incoming request URL", async () => {
+      // endpointUrl must be explicitly configured. Inferring it from the
+      // first incoming request couples deployment URL to spoofable host
+      // headers and conflates a routing concern with a security one
+      // (audience verification).
       const { adapter } = await createInitializedAdapter();
       const event: GoogleChatEvent = { chat: {} };
       const request = new Request(
@@ -834,24 +838,7 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      expect((adapter as any).endpointUrl).toBe(
-        "https://my-app.vercel.app/api/webhooks/gchat"
-      );
-    });
-
-    it("should not overwrite existing endpointUrl", async () => {
-      const { adapter } = await createInitializedAdapter({
-        endpointUrl: "https://original.com/webhook",
-      });
-      const event: GoogleChatEvent = { chat: {} };
-      const request = new Request("https://other.com/webhook", {
-        method: "POST",
-        body: JSON.stringify(event),
-      });
-
-      await adapter.handleWebhook(request);
-
-      expect((adapter as any).endpointUrl).toBe("https://original.com/webhook");
+      expect((adapter as any).endpointUrl).toBeUndefined();
     });
 
     it("should route Pub/Sub push messages", async () => {
@@ -2859,6 +2846,93 @@ describe("GoogleChatAdapter", () => {
         idToken: "valid-google-jwt",
         audience: "123456789",
       });
+    });
+
+    it("should allow direct webhook with valid Bearer token when only endpointUrl is configured (URL audience)", async () => {
+      // Chat apps configured with "HTTP endpoint URL" as the authentication
+      // audience issue tokens whose `aud` is the endpoint URL rather than
+      // the project number. `endpointUrl` should satisfy direct-webhook
+      // verification on its own.
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email: "chat@system.gserviceaccount.com",
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer valid-google-jwt",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "valid-google-jwt",
+        audience: "https://example.com/webhook",
+      });
+    });
+
+    it("should accept either audience when both googleChatProjectNumber and endpointUrl are configured", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email: "chat@system.gserviceaccount.com",
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer valid-google-jwt",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "valid-google-jwt",
+        audience: ["123456789", "https://example.com/webhook"],
+      });
+    });
+
+    it("should not throw in constructor when only endpointUrl is configured", () => {
+      // endpointUrl alone is enough for direct-webhook verification when
+      // the Chat app uses "HTTP endpoint URL" authentication audience.
+      const previous = process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION;
+      process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = "false";
+      try {
+        expect(() =>
+          createGoogleChatAdapter({
+            credentials: TEST_CREDENTIALS,
+            logger: mockLogger,
+            endpointUrl: "https://example.com/webhook",
+          })
+        ).not.toThrow();
+      } finally {
+        if (previous !== undefined) {
+          process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION = previous;
+        }
+      }
     });
 
     it("should fail-closed in constructor when no JWT verification config is provided", () => {
