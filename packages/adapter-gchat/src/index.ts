@@ -218,8 +218,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   private readonly pendingSubscriptions = new Map<string, Promise<void>>();
   /** Chat API client with impersonation for user-context operations (DMs, etc.) */
   protected readonly impersonatedChatApi?: chat_v1.Chat;
-  /** HTTP endpoint URL for button click actions */
-  protected endpointUrl?: string;
+  /**
+   * HTTP endpoint URL. Used for button-click action routing on cards, and as
+   * an accepted JWT audience for direct-webhook verification.
+   */
+  protected readonly endpointUrl?: string;
   /** Google Cloud project number for verifying direct webhook JWTs */
   protected readonly googleChatProjectNumber?: string;
   /** Expected audience for Pub/Sub push message JWT verification */
@@ -258,16 +261,22 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // the operator has not explicitly opted into the unsafe path. Previously
     // the adapter accepted any webhook in this state, allowing forged
     // payloads to impersonate users / trigger handlers.
+    //
+    // `endpointUrl` counts as a direct-webhook verifier because Chat apps
+    // configured with "HTTP endpoint URL" as the authentication audience
+    // (Google's recommended setting for non-IAM-hosted apps) issue tokens
+    // whose `aud` is the endpoint URL rather than the project number.
     if (
       !(
         this.googleChatProjectNumber ||
+        this.endpointUrl ||
         this.pubsubAudience ||
         this.disableSignatureVerification
       )
     ) {
       throw new ValidationError(
         "gchat",
-        "Webhook signature verification is required. Set googleChatProjectNumber (or GOOGLE_CHAT_PROJECT_NUMBER) for direct webhooks and/or pubsubAudience (or GOOGLE_CHAT_PUBSUB_AUDIENCE) for Pub/Sub. To accept unverified webhooks (NOT recommended in production), set disableSignatureVerification: true."
+        "Webhook signature verification is required. Set googleChatProjectNumber (or GOOGLE_CHAT_PROJECT_NUMBER) and/or endpointUrl for direct webhooks and/or pubsubAudience (or GOOGLE_CHAT_PUBSUB_AUDIENCE) for Pub/Sub. To accept unverified webhooks (NOT recommended in production), set disableSignatureVerification: true."
       );
     }
     const apiRootUrl = config.apiUrl ?? process.env.GOOGLE_CHAT_API_URL;
@@ -623,7 +632,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   protected async verifyBearerToken(
     request: Request,
-    expectedAudience: string
+    expectedAudience: string | string[]
   ): Promise<boolean> {
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -677,21 +686,6 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     request: Request,
     options?: WebhookOptions
   ): Promise<Response> {
-    // Auto-detect endpoint URL from incoming request for button click routing
-    // This allows HTTP endpoint apps to work without manual endpointUrl configuration
-    if (!this.endpointUrl) {
-      try {
-        const url = new URL(request.url);
-        // Preserve the full URL including query strings
-        this.endpointUrl = url.toString();
-        this.logger.debug("Auto-detected endpoint URL", {
-          endpointUrl: this.endpointUrl,
-        });
-      } catch {
-        // URL parsing failed, endpointUrl will remain undefined
-      }
-    }
-
     const body = await request.text();
     this.logger.debug("GChat webhook raw body", { body });
 
@@ -738,14 +732,26 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return this.handlePubSubMessage(maybePubSub, options);
     }
 
-    // Verify direct Google Chat webhook JWT if project number is configured.
+    // Verify direct Google Chat webhook JWT if a verifier is configured.
     // Same reasoning as the Pub/Sub branch: each shape requires its own
     // verifier (or explicit opt-out) to prevent cross-transport bypass.
-    if (this.googleChatProjectNumber) {
-      const valid = await this.verifyBearerToken(
-        request,
-        this.googleChatProjectNumber
-      );
+    //
+    // The expected `aud` depends on the Chat app's "Authentication audience"
+    // setting: it's the project number when set to "Project number", and
+    // the endpoint URL when set to "HTTP endpoint URL". We accept either
+    // when both are configured so a single deployment can support both
+    // modes (e.g. across envs) without code changes.
+    const directAudiences = [
+      this.googleChatProjectNumber,
+      this.endpointUrl,
+    ].filter((a): a is string => Boolean(a));
+    if (directAudiences.length > 0) {
+      // Pass a string when only one verifier is configured to keep the
+      // common single-audience case identical to prior behavior; pass an
+      // array only when both are configured (verifyIdToken accepts either).
+      const audience =
+        directAudiences.length === 1 ? directAudiences[0] : directAudiences;
+      const valid = await this.verifyBearerToken(request, audience);
       if (!valid) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -753,12 +759,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (!this.warnedNoWebhookVerification) {
         this.warnedNoWebhookVerification = true;
         this.logger.warn(
-          "Google Chat webhook verification is disabled. Set GOOGLE_CHAT_PROJECT_NUMBER or googleChatProjectNumber to verify incoming requests."
+          "Google Chat webhook verification is disabled. Set GOOGLE_CHAT_PROJECT_NUMBER, googleChatProjectNumber, or endpointUrl to verify incoming requests."
         );
       }
     } else {
       this.logger.warn(
-        "Rejected direct Google Chat webhook: googleChatProjectNumber is not configured. Set GOOGLE_CHAT_PROJECT_NUMBER, or set disableSignatureVerification to accept unverified payloads."
+        "Rejected direct Google Chat webhook: neither googleChatProjectNumber nor endpointUrl is configured. Set one of them, or set disableSignatureVerification to accept unverified payloads."
       );
       return new Response("Unauthorized", { status: 401 });
     }
