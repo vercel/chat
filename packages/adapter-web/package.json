@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/web",
-  "version": "4.28.1",
+  "version": "4.29.0",
   "description": "Web adapter for chat — browser chat UI via the AI SDK useChat protocol",
   "type": "module",
   "engines": {

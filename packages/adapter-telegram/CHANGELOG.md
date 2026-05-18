@@ -1,5 +1,23 @@
 # @chat-adapter/telegram
 
+## 4.29.0
+
+### Minor Changes
+
+- add2730: support typed Telegram attachment uploads
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- 711babe: Handle `video_note` (round video messages) in `extractAttachments`. Previously these messages were silently dropped; now they are returned as `video` attachments with `width`/`height` set to the clip's `length`.
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
 ## 4.28.1
 
 ### Patch Changes
