@@ -4,6 +4,7 @@ import {
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  type PlatformName,
   toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
@@ -47,6 +48,9 @@ import type {
   WhatsAppThreadId,
   WhatsAppWebhookPayload,
 } from "./types";
+
+/** Platform label for shared buffer utilities (not yet in PlatformName union). */
+const WHATSAPP_BUFFER_PLATFORM = "whatsapp" as PlatformName;
 
 /** Default Graph API version */
 const DEFAULT_API_VERSION = "v21.0";
@@ -862,10 +866,12 @@ export class WhatsAppAdapter
       return this.postMessageWithMedia(threadId, userWaId, message, mediaItems);
     }
 
+    // Check if this is a card with interactive buttons
     const card = extractCard(message);
     if (card) {
       const result = cardToWhatsApp(card);
       if (result.type === "interactive") {
+        // Convert emoji placeholders in interactive message fields
         const interactive = JSON.parse(
           convertEmojiPlaceholders(
             JSON.stringify(result.interactive),
@@ -883,6 +889,7 @@ export class WhatsAppAdapter
       );
     }
 
+    // Regular text message
     const body = convertEmojiPlaceholders(
       this.formatConverter.renderPostable(message),
       "whatsapp"
@@ -1470,7 +1477,9 @@ export class WhatsAppAdapter
     if ("filename" in item) {
       const mimeType = inferMimeType(item.filename, item.mimeType);
       const type = getWhatsAppMediaType(mimeType);
-      const buffer = await toBuffer(item.data, { platform: "whatsapp" });
+      const buffer = await toBuffer(item.data, {
+        platform: WHATSAPP_BUFFER_PLATFORM,
+      });
 
       if (!buffer) {
         throw new ValidationError("whatsapp", "File upload data is empty");
@@ -1501,7 +1510,9 @@ export class WhatsAppAdapter
       item.data ?? (item.fetchData ? await item.fetchData() : undefined);
 
     if (data) {
-      const buffer = await toBuffer(data, { platform: "whatsapp" });
+      const buffer = await toBuffer(data, {
+        platform: WHATSAPP_BUFFER_PLATFORM,
+      });
 
       if (!buffer) {
         throw new ValidationError("whatsapp", "Attachment data is empty");
