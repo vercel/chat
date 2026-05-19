@@ -977,6 +977,7 @@ describe("handleWebhook - interactive payloads", () => {
       });
 
       const responsePromise = adapter.handleWebhook(request);
+      await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(2500);
       const response = await responsePromise;
 
