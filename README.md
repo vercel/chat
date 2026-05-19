@@ -52,7 +52,7 @@ Browse official, vendor-official, and community adapters on [chat-sdk.dev/adapte
 ## Features
 
 - [**Event handlers**](https://chat-sdk.dev/docs/usage) — mentions, messages, reactions, button clicks, slash commands, modals
-- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack streaming and post+edit fallback
+- [**AI streaming**](https://chat-sdk.dev/docs/streaming) — stream LLM responses with native Slack streaming, Telegram DM drafts, and post+edit fallback
 - [**Cards**](https://chat-sdk.dev/docs/cards) — JSX-based interactive cards (Block Kit, Adaptive Cards, Google Chat Cards)
 - [**Actions**](https://chat-sdk.dev/docs/actions) — handle button clicks and dropdown selections
 - [**Modals**](https://chat-sdk.dev/docs/modals) — form dialogs with text inputs, dropdowns, and validation
