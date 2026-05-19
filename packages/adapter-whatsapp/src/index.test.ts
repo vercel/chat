@@ -1150,6 +1150,46 @@ describe("postMessage - file uploads", () => {
     expect(interactiveMessage.type).toBe("interactive");
   });
 
+  it("card with text fallback and file does not send duplicate text", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Order update",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com/track",
+              label: "Track",
+            },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "receipt.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const mediaMessage = parseMessageBody(0);
+    expect(mediaMessage.type).toBe("image");
+    expect((mediaMessage.image as { caption: string }).caption).toContain(
+      "Order update"
+    );
+  });
+
   it("oversize image throws ValidationError before upload", async () => {
     const adapter = createTestAdapter();
     const oversized = Buffer.alloc(6 * 1024 * 1024);

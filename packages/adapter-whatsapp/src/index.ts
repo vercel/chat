@@ -963,7 +963,7 @@ export class WhatsAppAdapter
           userWaId,
           interactive
         );
-      } else if (!(useSeparateText && text.length > 0)) {
+      } else if (text.length === 0) {
         result = await this.sendTextMessage(
           threadId,
           userWaId,
