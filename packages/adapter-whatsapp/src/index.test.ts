@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { CardElement } from "chat";
 import {
   afterEach,
   beforeEach,
@@ -8,11 +9,17 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import { createWhatsAppAdapter, splitMessage, WhatsAppAdapter } from "./index";
+import {
+  createWhatsAppAdapter,
+  getWhatsAppMediaType,
+  splitMessage,
+  WhatsAppAdapter,
+} from "./index";
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
 const APP_SECRET_PATTERN = /appSecret/i;
+const WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN = /exceeds WhatsApp image limit/;
 
 /**
  * Create a minimal WhatsAppAdapter for testing thread ID methods.
@@ -861,6 +868,321 @@ describe("postMessage", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// postMessage - file uploads
+// ---------------------------------------------------------------------------
+
+describe("postMessage - file uploads", () => {
+  const THREAD_ID = "whatsapp:123456789:15551234567";
+
+  let fetchSpy: MockInstance;
+  let messageCounter: number;
+
+  function createMediaFetchMock() {
+    let mediaCounter = 0;
+    messageCounter = 0;
+
+    return (url: string | URL | Request) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes("/media")) {
+        mediaCounter += 1;
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: `media-${mediaCounter}` }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+
+      messageCounter += 1;
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ messages: [{ id: `wamid.msg${messageCounter}` }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    };
+  }
+
+  function getMessageCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/messages")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function getMediaCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/media")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function parseMessageBody(index: number): Record<string, unknown> {
+    const [, init] = getMessageCalls()[index] ?? [];
+    return JSON.parse(init?.body as string) as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(createMediaFetchMock() as never);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("single PDF with markdown caption uploads then sends document", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Here is the report",
+      files: [
+        {
+          data: Buffer.from("pdf-content"),
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("document");
+    expect((sent.document as { id: string }).id).toBe("media-1");
+    expect((sent.document as { caption: string }).caption).toBe(
+      "Here is the report"
+    );
+    expect((sent.document as { filename: string }).filename).toBe("report.pdf");
+    expect(result.id).toBe("wamid.msg1");
+  });
+
+  it("single JPEG maps to image message type", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Photo",
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("audio with text sends leading text message without audio caption", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Listen to this",
+      files: [
+        {
+          data: Buffer.from("audio"),
+          filename: "clip.mp3",
+          mimeType: "audio/mpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const audioMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect((textMessage.text as { body: string }).body).toBe("Listen to this");
+    expect(audioMessage.type).toBe("audio");
+    expect(
+      (audioMessage.audio as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("long text with image sends text first then image without caption", async () => {
+    const adapter = createTestAdapter();
+    const longText = "a".repeat(1025);
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: longText,
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const imageMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect(imageMessage.type).toBe("image");
+    expect(
+      (imageMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("multiple files send sequentially with caption only on first", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Two files",
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "first.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "second.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+
+    expect((first.document as { caption: string }).caption).toBe("Two files");
+    expect((second.document as { caption?: string }).caption).toBeUndefined();
+    expect(result.id).toBe("wamid.msg2");
+  });
+
+  it("attachment with HTTPS url uses link passthrough without upload", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Remote doc",
+      attachments: [
+        {
+          type: "file",
+          url: "https://example.com/report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect((sent.document as { link: string }).link).toBe(
+      "https://example.com/report.pdf"
+    );
+    expect((sent.document as { id?: string }).id).toBeUndefined();
+  });
+
+  it("attachment with fetchData uploads binary", async () => {
+    const adapter = createTestAdapter();
+    const fetchData = vi.fn().mockResolvedValue(Buffer.from("png-bytes"));
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          fetchData,
+        },
+      ],
+    });
+
+    expect(fetchData).toHaveBeenCalledOnce();
+    expect(getMediaCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("card with files sends media then interactive message", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Approve?",
+      children: [
+        {
+          type: "actions",
+          children: [
+            { type: "button", id: "yes", label: "Yes" },
+            { type: "button", id: "no", label: "No" },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "proof.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(mediaMessage.type).toBe("image");
+    expect((mediaMessage.image as { caption: string }).caption).toContain(
+      "Approve"
+    );
+    expect(interactiveMessage.type).toBe("interactive");
+  });
+
+  it("oversize image throws ValidationError before upload", async () => {
+    const adapter = createTestAdapter();
+    const oversized = Buffer.alloc(6 * 1024 * 1024);
+
+    await expect(
+      adapter.postMessage(THREAD_ID, {
+        markdown: "",
+        files: [
+          {
+            data: oversized,
+            filename: "huge.png",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).rejects.toThrow(WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN);
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(0);
+  });
+});
+
+describe("getWhatsAppMediaType", () => {
+  it.each([
+    ["image/png", "image"],
+    ["image/jpeg", "image"],
+    ["image/gif", "document"],
+    ["video/mp4", "video"],
+    ["video/3gpp", "video"],
+    ["audio/mpeg", "audio"],
+    ["application/pdf", "document"],
+  ] as const)("maps %s to %s", (mimeType, expected) => {
+    expect(getWhatsAppMediaType(mimeType)).toBe(expected);
   });
 });
 

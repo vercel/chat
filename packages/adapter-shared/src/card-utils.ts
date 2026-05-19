@@ -15,7 +15,7 @@ import {
 /**
  * Supported platform names for adapter utilities.
  */
-export type PlatformName = "slack" | "gchat" | "teams" | "discord";
+export type PlatformName = "slack" | "gchat" | "teams" | "discord" | "whatsapp";
 
 /**
  * Button style mappings per platform.
@@ -31,6 +31,7 @@ export const BUTTON_STYLE_MAPPINGS: Record<
   gchat: { primary: "primary", danger: "danger" }, // Colors handled via buttonColor
   teams: { primary: "positive", danger: "destructive" },
   discord: { primary: "primary", danger: "danger" },
+  whatsapp: { primary: "primary", danger: "danger" },
 };
 
 /**

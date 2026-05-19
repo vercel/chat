@@ -185,11 +185,30 @@ is closed.
 
 ## File uploads
 
-`postMessage` accepts `FileUpload`. The adapter:
+`postMessage` accepts both `files` (`FileUpload[]`) and `attachments`
+(`Attachment[]`). Binary payloads upload via
+`POST /{phoneNumberId}/media` to obtain a `media_id`; URL-only
+attachments use WhatsApp link passthrough (HTTPS required, no upload).
 
-1. Calls `POST /{phoneNumberId}/media` with the binary content to
-   obtain a `media_id`.
-2. References the `media_id` in the outbound message.
+**One media object per API message.** Multiple files or attachments
+in a single `post()` call are sent as sequential messages. The last
+message ID is returned (same convention as long-text chunking).
+
+**Captions.** Markdown or card fallback text is attached as a caption
+on the first media message when possible (max 1024 characters). A
+separate leading text message is sent when the caption is too long,
+or when the first media is `audio` (audio messages do not support
+captions).
+
+**MIME mapping.** `image/jpeg` and `image/png` map to `image`;
+other `image/*` types (e.g. GIF) map to `document`. `video/mp4` and
+`video/3gpp` map to `video`; `audio/*` maps to `audio`; everything
+else maps to `document`. Pre-flight size checks throw
+`ValidationError` when binary size is known (image 5 MB, audio/video
+16 MB, document 100 MB).
+
+**Cards + files.** Media is sent first (caption from card fallback
+text), then an interactive card message when the card has buttons.
 
 Media IDs expire after 30 days. For inbound media, the adapter
 exposes a lazy `fetchData()` that downloads the binary on demand.

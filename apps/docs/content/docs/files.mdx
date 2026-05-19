@@ -45,6 +45,8 @@ await thread.post({
 
 Outgoing `attachments` are available on `{ raw }`, `{ markdown }`, and `{ ast }` messages. Card messages use `files` for uploads. Use `files` for generic uploads. On Telegram, `files` always upload as documents, while `attachments` preserve image, audio, video, or file media type. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 
+On WhatsApp, each file or attachment is sent as its own message (one media object per API call). Markdown text becomes a caption on the first media message when supported; audio messages and captions over 1024 characters send the text as a separate message first. URL-only attachments must use HTTPS.
+
 ### Multiple files
 
 ```typescript title="lib/bot.ts" lineNumbers
