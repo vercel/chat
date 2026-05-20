@@ -650,10 +650,16 @@ describe("handleWebhook - event_callback", () => {
         messages: [{ ts: replyTs, thread_ts: parentTs }],
       })
     );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
 
-    const mockChat = {
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance;
+    const mockChat = createMockChatInstance(createMockState());
     (adapter as unknown as { chat: ChatInstance }).chat = mockChat;
 
     const body = JSON.stringify({
@@ -679,6 +685,62 @@ describe("handleWebhook - event_callback", () => {
       expect.objectContaining({
         threadId: `slack:C456:${parentTs}`,
         messageId: replyTs,
+      }),
+      undefined
+    );
+  });
+
+  it("resolves reaction user display name", async () => {
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [{ ts: "1234567890.123456" }],
+      })
+    );
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        id: "U123",
+        name: "alice",
+        real_name: "Alice Example",
+        profile: { display_name: "Alice", real_name: "Alice Example" },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const mockChat = createMockChatInstance(createMockState());
+    (adapter as unknown as { chat: ChatInstance }).chat = mockChat;
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: {
+          type: "message",
+          channel: "C456",
+          ts: "1234567890.123456",
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+
+    await adapter.handleWebhook(request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(usersInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "U123" })
+    );
+    expect(mockChat.processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({
+          userId: "U123",
+          userName: "Alice",
+          fullName: "Alice Example",
+        }),
       }),
       undefined
     );
