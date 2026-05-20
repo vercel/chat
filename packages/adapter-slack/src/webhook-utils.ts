@@ -86,23 +86,6 @@ export function optionalString(value: unknown): string | undefined {
   return text || undefined;
 }
 
-export function constantTimeStringEqual(a: string, b: string): boolean {
-  const length = Math.max(a.length, b.length);
-  let diff = Math.abs(a.length - b.length);
-  for (let i = 0; i < length; i++) {
-    diff += Math.abs((a.charCodeAt(i) || 0) - (b.charCodeAt(i) || 0));
-  }
-  return diff === 0;
-}
-
-export function toHex(bytes: Uint8Array): string {
-  let hex = "";
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, "0");
-  }
-  return hex;
-}
-
 function isIterableHeaders(
   headers: SlackHeaders
 ): headers is Iterable<readonly [string, string]> {

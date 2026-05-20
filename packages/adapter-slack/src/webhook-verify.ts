@@ -6,7 +6,9 @@ import {
   type SlackWebhookPayload,
   SlackWebhookVerificationError,
 } from "./webhook-types";
-import { constantTimeStringEqual, getHeader, toHex } from "./webhook-utils";
+import { getHeader } from "./webhook-utils";
+
+const HEX_PATTERN = /^[\da-f]+$/i;
 
 export async function readSlackWebhook(
   request: Request,
@@ -67,17 +69,23 @@ export async function verifySlackSignature(
     throw new SlackWebhookVerificationError("Slack timestamp is too old");
   }
 
-  const expected = await createSlackSignature(body, signingSecret, timestamp);
-  if (!constantTimeStringEqual(expected, signature)) {
+  const verified = await verifySlackSignatureValue(
+    body,
+    signingSecret,
+    timestamp,
+    signature
+  );
+  if (!verified) {
     throw new SlackWebhookVerificationError("Slack signature is invalid");
   }
 }
 
-async function createSlackSignature(
+async function verifySlackSignatureValue(
   body: string,
   signingSecret: string,
-  timestamp: string
-): Promise<string> {
+  timestamp: string,
+  signature: string
+): Promise<boolean> {
   const crypto = globalThis.crypto;
   if (!crypto?.subtle) {
     throw new SlackWebhookVerificationError("Web Crypto is not available");
@@ -88,12 +96,30 @@ async function createSlackSignature(
     encoder.encode(signingSecret),
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"]
+    ["verify"]
   );
-  const signature = await crypto.subtle.sign(
+  return crypto.subtle.verify(
     "HMAC",
     key,
+    parseSlackSignature(signature),
     encoder.encode(`v0:${timestamp}:${body}`)
   );
-  return `v0=${toHex(new Uint8Array(signature))}`;
+}
+
+function parseSlackSignature(signature: string): ArrayBuffer {
+  if (!signature.startsWith("v0=")) {
+    throw new SlackWebhookVerificationError("Slack signature is invalid");
+  }
+
+  const hex = signature.slice(3);
+  if (hex.length % 2 !== 0 || !HEX_PATTERN.test(hex)) {
+    throw new SlackWebhookVerificationError("Slack signature is invalid");
+  }
+
+  const buffer = new ArrayBuffer(hex.length / 2);
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return buffer;
 }

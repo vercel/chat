@@ -77,6 +77,19 @@ describe("verifySlackSignature", () => {
     ).rejects.toBeInstanceOf(SlackWebhookVerificationError);
   });
 
+  it("rejects well-formed signatures with the wrong digest", async () => {
+    const body = "payload";
+    const signedHeaders = headers(body);
+    signedHeaders.set("x-slack-signature", `v0=${"0".repeat(64)}`);
+
+    await expect(
+      verifySlackSignature(body, signedHeaders, {
+        now,
+        signingSecret: secret,
+      })
+    ).rejects.toBeInstanceOf(SlackWebhookVerificationError);
+  });
+
   it("accepts plain object headers case-insensitively", async () => {
     const body = "payload";
 
