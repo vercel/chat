@@ -39,7 +39,7 @@
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "dotenv": "^17.2.3",
-    "postcss": "^8.5.11",
+    "postcss": "^8.5.15",
     "tsx": "^4.21.0",
     "typescript": "^5.7.2"
   }
