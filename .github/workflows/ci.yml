@@ -91,7 +91,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: "pnpm"
 
       - name: Install dependencies
@@ -126,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 24]
+        node-version: [22, 24]
     name: build-and-test (Node ${{ matrix.node-version }})
     env:
       SLACK_BOT_TOKEN: xoxb-mock
