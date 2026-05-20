@@ -21,6 +21,10 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
+  /** Return message flags for the initial deferred slash command response. */
+  flags?: (
+    context: DiscordInteractionFlagsContext
+  ) => DiscordMessagePayload["flags"];
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Role IDs that should trigger mention handlers (in addition to direct user mentions). Defaults to DISCORD_MENTION_ROLE_IDS env var (comma-separated). */
@@ -29,6 +33,22 @@ export interface DiscordAdapterConfig {
   publicKey?: string;
   /** Override bot username (optional) */
   userName?: string;
+}
+
+/**
+ * Context passed to the Discord adapter flags callback for slash commands.
+ */
+export interface DiscordInteractionFlagsContext {
+  /** Chat SDK channel ID where the command was invoked. */
+  channelId: string;
+  /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
+  command: string;
+  /** Raw Discord interaction payload. */
+  interaction: DiscordInteraction;
+  /** Flattened slash command option text. */
+  text: string;
+  /** User who invoked the command. */
+  user: DiscordUser;
 }
 
 /**
@@ -171,11 +191,35 @@ export interface DiscordMessagePayload {
   components?: DiscordActionRow[];
   content?: string;
   embeds?: APIEmbed[];
+  flags?: number;
   message_reference?: {
     message_id: string;
     fail_if_not_exists?: boolean;
   };
 }
+
+/**
+ * Discord message flags.
+ * See https://discord.com/developers/docs/resources/message#message-object-message-flags
+ */
+export const DiscordMessageFlag = {
+  Crossposted: 1,
+  IsCrosspost: 2,
+  SuppressEmbeds: 4,
+  SourceMessageDeleted: 8,
+  Urgent: 16,
+  HasThread: 32,
+  Ephemeral: 64,
+  Loading: 128,
+  FailedToMentionSomeRolesInThread: 256,
+  SuppressNotifications: 4096,
+  IsVoiceMessage: 8192,
+  HasSnapshot: 16_384,
+  IsComponentsV2: 32_768,
+} as const;
+
+export type DiscordMessageFlagValue =
+  (typeof DiscordMessageFlag)[keyof typeof DiscordMessageFlag];
 
 /**
  * Discord interaction response types.

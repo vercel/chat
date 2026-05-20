@@ -10,7 +10,11 @@ import { Actions, Button, Card } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDiscordAdapter, DiscordAdapter } from "./index";
+import {
+  createDiscordAdapter,
+  DiscordAdapter,
+  DiscordMessageFlag,
+} from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
 const AT_ME_REGEX = /\/@me$/;
@@ -516,6 +520,63 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
 
     const responseBody = await response.json();
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
+  });
+
+  it("sets initial deferred slash command flags from config", async () => {
+    const flags = vi.fn().mockReturnValue(DiscordMessageFlag.Ephemeral);
+    const flaggedAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      flags,
+    });
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: ["role123"],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        id: "cmd123",
+        name: "test",
+        type: 1,
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await flaggedAdapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({
+      type: 5,
+      data: { flags: DiscordMessageFlag.Ephemeral },
+    });
+    expect(flags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "discord:guild123:channel456",
+        command: "/test",
+        interaction: expect.objectContaining({
+          id: "interaction123",
+          member: expect.objectContaining({ roles: ["role123"] }),
+        }),
+        text: "",
+        user: expect.objectContaining({ id: "user789" }),
+      })
+    );
   });
 
   it("dispatches slash command to chat core", async () => {
@@ -3310,6 +3371,78 @@ describe("legacy gateway interactions", () => {
           userName: "testuser",
           fullName: "Test User",
         }),
+      }),
+      undefined
+    );
+  });
+
+  it("sets gateway deferred slash command flags from config", async () => {
+    const processSlashCommand = vi.fn();
+    const flags = vi.fn().mockReturnValue(DiscordMessageFlag.Ephemeral);
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      flags,
+    });
+
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand,
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const client = createGatewayClient();
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.ApplicationCommand,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      commandName: "test",
+      commandType: 1,
+      options: {
+        data: [{ name: "topic", type: 3, value: "status" }],
+      },
+      isChatInputCommand: () => true,
+      isMessageComponent: () => false,
+      deferReply,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferReply).toHaveBeenCalledWith({
+      flags: DiscordMessageFlag.Ephemeral,
+    });
+    expect(flags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "discord:guild123:channel456",
+        command: "/test",
+        text: "status",
+        user: expect.objectContaining({ id: "user789" }),
+      })
+    );
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/test",
+        text: "status",
       }),
       undefined
     );

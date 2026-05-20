@@ -116,6 +116,8 @@ bot.onModalSubmit("feedback_form", async (event) => {
 
 Discord slash commands are received via [HTTP Interactions](/adapters/official/discord#http-interactions-vs-gateway) — no Gateway connection is needed. The adapter automatically sends a deferred response to Discord, then resolves it when your handler calls `event.channel.post()`.
 
+To control Discord message flags on the initial deferred response, such as returning `DiscordMessageFlag.Ephemeral` for selected commands, use the Discord adapter's [`flags` option](/adapters/official/discord#interaction-flags).
+
 ### Subcommands
 
 Discord supports subcommand groups and subcommands. The adapter flattens these into the `event.command` path:
