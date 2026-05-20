@@ -32,7 +32,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "knip": "^5.85.0",
     "konsistent": "0.0.1-alpha.20",
-    "turbo": "^2.8.12",
+    "turbo": "^2.9.14",
     "typescript": "^5.9.3",
     "ultracite": "7.2.4",
     "vitest": "^4.0.18"
