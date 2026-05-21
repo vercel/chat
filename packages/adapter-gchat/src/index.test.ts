@@ -2858,6 +2858,7 @@ describe("GoogleChatAdapter", () => {
           iss: "https://accounts.google.com",
           aud: "https://example.com/webhook",
           email: "chat@system.gserviceaccount.com",
+          email_verified: true,
         }),
       });
 
@@ -2883,12 +2884,98 @@ describe("GoogleChatAdapter", () => {
       });
     });
 
+    it("should allow direct webhook with Workspace Add-on service account email when endpointUrl is configured", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email:
+            "service-123456789@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+          email_verified: true,
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer valid-google-jwt",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+    });
+
+    it("should reject endpointUrl direct webhook when token email is not Google Chat", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email: "attacker@example.com",
+          email_verified: true,
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer attacker-google-id-token",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject endpointUrl direct webhook when token email is not verified", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email: "chat@system.gserviceaccount.com",
+          email_verified: false,
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer unverified-email-token",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+    });
+
     it("should accept either audience when both googleChatProjectNumber and endpointUrl are configured", async () => {
       verifyIdTokenSpy.mockResolvedValue({
         getPayload: () => ({
           iss: "https://accounts.google.com",
           aud: "https://example.com/webhook",
           email: "chat@system.gserviceaccount.com",
+          email_verified: true,
         }),
       });
 

@@ -76,6 +76,9 @@ const SUBSCRIPTION_REFRESH_BUFFER_MS = 60 * 60 * 1000;
 const SUBSCRIPTION_CACHE_TTL_MS = 25 * 60 * 60 * 1000;
 /** Key prefix for space subscription cache */
 const SPACE_SUB_KEY_PREFIX = "gchat:space-sub:";
+const GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL = "chat@system.gserviceaccount.com";
+const GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN =
+  /^service-\d+@gcp-sa-gsuiteaddons\.iam\.gserviceaccount\.com$/;
 const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 
 // Re-export GoogleChatThreadId from thread-utils
@@ -632,7 +635,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   protected async verifyBearerToken(
     request: Request,
-    expectedAudience: string | string[]
+    expectedAudience: string | string[],
+    validatePayload?: (payload: {
+      aud?: string | string[];
+      email?: string;
+      email_verified?: boolean;
+      iss?: string;
+    }) => boolean
   ): Promise<boolean> {
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -656,11 +665,52 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         aud: payload.aud,
         email: payload.email,
       });
+      if (validatePayload && !validatePayload(payload)) {
+        this.logger.warn("JWT payload failed claim validation", {
+          iss: payload.iss,
+          aud: payload.aud,
+          email: payload.email,
+        });
+        return false;
+      }
       return true;
     } catch (error) {
       this.logger.warn("JWT verification failed", { error });
       return false;
     }
+  }
+
+  private validateDirectWebhookTokenPayload(payload: {
+    aud?: string | string[];
+    email?: string;
+    email_verified?: boolean;
+    iss?: string;
+  }): boolean {
+    const audiences = Array.isArray(payload.aud)
+      ? payload.aud
+      : [payload.aud].filter((aud): aud is string => Boolean(aud));
+
+    if (
+      this.endpointUrl &&
+      audiences.includes(this.endpointUrl) &&
+      payload.email_verified === true &&
+      (payload.email === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL ||
+        GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN.test(
+          payload.email ?? ""
+        ))
+    ) {
+      return true;
+    }
+
+    if (
+      this.googleChatProjectNumber &&
+      audiences.includes(this.googleChatProjectNumber) &&
+      payload.iss === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   async getUser(userId: string): Promise<UserInfo | null> {
@@ -751,7 +801,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       // array only when both are configured (verifyIdToken accepts either).
       const audience =
         directAudiences.length === 1 ? directAudiences[0] : directAudiences;
-      const valid = await this.verifyBearerToken(request, audience);
+      const valid = await this.verifyBearerToken(request, audience, (payload) =>
+        this.validateDirectWebhookTokenPayload(payload)
+      );
       if (!valid) {
         return new Response("Unauthorized", { status: 401 });
       }
