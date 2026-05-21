@@ -226,6 +226,14 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    * an accepted JWT audience for direct-webhook verification.
    */
   protected readonly endpointUrl?: string;
+  /**
+   * Endpoint URL inferred from the first incoming request's `request.url`.
+   * Used **only** for button-click routing when `endpointUrl` is not
+   * explicitly configured — never used as a JWT verification audience,
+   * because `request.url` derives from the attacker-controllable Host
+   * header in serverless environments.
+   */
+  private inferredEndpointUrl?: string;
   /** Google Cloud project number for verifying direct webhook JWTs */
   protected readonly googleChatProjectNumber?: string;
   /** Expected audience for Pub/Sub push message JWT verification */
@@ -713,6 +721,16 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     return false;
   }
 
+  /**
+   * URL used for routing button-click actions on cards. Prefers explicit
+   * config; falls back to a value inferred from incoming requests so simple
+   * deployments work without manual configuration. Never used as a JWT
+   * audience — see `inferredEndpointUrl`.
+   */
+  private getButtonClickEndpointUrl(): string | undefined {
+    return this.endpointUrl ?? this.inferredEndpointUrl;
+  }
+
   async getUser(userId: string): Promise<UserInfo | null> {
     try {
       const cached = await this.userInfoCache.get(userId);
@@ -744,6 +762,22 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       parsed = JSON.parse(body);
     } catch {
       return new Response("Invalid JSON", { status: 400 });
+    }
+
+    // Infer an endpoint URL for button-click routing if one isn't explicitly
+    // configured. This is intentionally separate from the verification audience
+    // (which only ever uses `this.endpointUrl`), because `request.url` derives
+    // from the Host header in serverless runtimes and is therefore
+    // attacker-controllable.
+    if (!(this.endpointUrl || this.inferredEndpointUrl)) {
+      try {
+        this.inferredEndpointUrl = new URL(request.url).toString();
+        this.logger.debug("Inferred button-click endpoint URL from request", {
+          inferredEndpointUrl: this.inferredEndpointUrl,
+        });
+      } catch {
+        // request.url not a valid URL — leave inference unset
+      }
     }
 
     // Check if this is a Pub/Sub push message (from Workspace Events subscription)
@@ -1357,7 +1391,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const googleCard = cardToGoogleCard(card, {
           cardId,
-          endpointUrl: this.endpointUrl,
+          endpointUrl: this.getButtonClickEndpointUrl(),
         });
 
         this.logger.debug("GChat API: spaces.messages.create (card)", {
@@ -1449,7 +1483,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const googleCard = cardToGoogleCard(card, {
           cardId,
-          endpointUrl: this.endpointUrl,
+          endpointUrl: this.getButtonClickEndpointUrl(),
         });
 
         requestBody.cardsV2 = [googleCard];
@@ -1620,7 +1654,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const googleCard = cardToGoogleCard(card, {
           cardId,
-          endpointUrl: this.endpointUrl,
+          endpointUrl: this.getButtonClickEndpointUrl(),
         });
 
         this.logger.debug("GChat API: spaces.messages.update (card)", {
@@ -2524,7 +2558,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         const cardId = `card-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const googleCard = cardToGoogleCard(card, {
           cardId,
-          endpointUrl: this.endpointUrl,
+          endpointUrl: this.getButtonClickEndpointUrl(),
         });
 
         this.logger.debug("GChat API: spaces.messages.create (channel, card)", {

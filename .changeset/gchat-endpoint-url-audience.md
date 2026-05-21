@@ -15,10 +15,13 @@ Unauthorized. The adapter now verifies the bearer token against
 are set, and the constructor's fail-closed check accepts `endpointUrl` as a
 valid direct-webhook verifier.
 
-**Behavior change**: `endpointUrl` is no longer inferred from the first
-incoming request's URL — it must be explicitly configured. Inferring it from
-the request URL coupled deployment URL to the spoofable Host header and made
-audience verification depend on whichever URL hit the bot first. Apps that
-post cards with buttons must now set `endpointUrl` to route button clicks
-correctly; the JSDoc and connection-settings docs already labelled it as
-required for HTTP-endpoint apps.
+Direct-webhook tokens are now also matched against the expected Google Chat
+issuer/email claims (`chat@system.gserviceaccount.com`, or the
+`service-{projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`
+service identity for Workspace Add-on Chat apps) with `email_verified: true`,
+so a public endpoint URL audience alone is not sufficient to forge a request.
+
+The adapter still infers an endpoint URL from incoming requests for
+button-click action routing only — that inferred value is never used as a
+JWT verification audience, because `request.url` derives from the
+attacker-controllable `Host` header in serverless runtimes.
