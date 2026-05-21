@@ -273,5 +273,16 @@
     "packageName": "chat-adapter-mattermost",
     "author": "thiagoferolla",
     "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost/tree/70eb85321cba65d511f6e158b9a2f5aac2aa922c"
+  },
+  {
+    "name": "Lark / Feishu",
+    "slug": "lark",
+    "type": "platform",
+    "community": true,
+    "description": "Lark / Feishu adapter for Chat SDK with native cardkit streaming, interactive cards, and reactions.",
+    "packageName": "@larksuite/vercel-chat-adapter",
+    "author": "Lark / Feishu",
+    "readme": "https://github.com/larksuite/node-sdk/tree/cbc4adf13cbcb93b389db01faf428e3b3cef053c/docs/vercel-chat-adapter",
+    "vendorOfficial": true
   }
 ]
