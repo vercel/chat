@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -73,6 +73,7 @@ import {
   type SlackModalResponse,
   selectOptionToSlackOption,
 } from "./modals";
+import { verifySlackRequest } from "./webhook";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
@@ -1133,34 +1134,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       });
     }
 
-    let body = await request.text();
-    this.logger.debug("Slack webhook raw body", { body });
-
-    // Verify request using dynamic verifier or signature.
-    if (this.webhookVerifier) {
-      try {
-        const verified = await this.webhookVerifier(request, body);
-        if (!verified) {
-          this.logger.warn("Webhook verifier rejected request");
-          return new Response("Invalid signature", { status: 401 });
-        }
-        // If the verifier returns a string, use it as the verified body for
-        // downstream parsing. Other truthy values (boolean, object) are
-        // treated as a pure verification signal.
-        if (typeof verified === "string") {
-          body = verified;
-        }
-      } catch (error) {
-        this.logger.warn("Webhook verifier rejected request", { error });
-        return new Response("Invalid signature", { status: 401 });
-      }
-    } else {
-      const timestamp = request.headers.get("x-slack-request-timestamp");
-      const signature = request.headers.get("x-slack-signature");
-      if (!this.verifySignature(body, timestamp, signature)) {
-        return new Response("Invalid signature", { status: 401 });
-      }
+    let body: string;
+    try {
+      body = await verifySlackRequest(request, {
+        signingSecret: this.signingSecret,
+        webhookVerifier: this.webhookVerifier,
+      });
+    } catch (error) {
+      this.logger.warn("Webhook verifier rejected request", { error });
+      return new Response("Invalid signature", { status: 401 });
     }
+    this.logger.debug("Slack webhook raw body", { body });
 
     // Check if this is a form-urlencoded payload
     const contentType = request.headers.get("content-type") || "";
@@ -2057,40 +2041,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       await this.socketClient.disconnect();
       this.socketClient = null;
       this.logger.info("Slack socket mode disconnected");
-    }
-  }
-
-  protected verifySignature(
-    body: string,
-    timestamp: string | null,
-    signature: string | null
-  ): boolean {
-    if (!(timestamp && signature && this.signingSecret)) {
-      return false;
-    }
-
-    // Check timestamp is recent (within 5 minutes)
-    const now = Math.floor(Date.now() / 1000);
-    if (Math.abs(now - Number.parseInt(timestamp, 10)) > 300) {
-      return false;
-    }
-
-    // Compute expected signature
-    const sigBasestring = `v0:${timestamp}:${body}`;
-    const expectedSignature =
-      "v0=" +
-      createHmac("sha256", this.signingSecret)
-        .update(sigBasestring)
-        .digest("hex");
-
-    // Compare signatures using timing-safe comparison
-    try {
-      return timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      );
-    } catch {
-      return false;
     }
   }
 

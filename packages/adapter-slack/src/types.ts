@@ -3,6 +3,7 @@
  */
 
 import type { Logger } from "chat";
+import type { SlackWebhookVerifier } from "./webhook";
 
 export type SlackAdapterMode = "webhook" | "socket";
 
@@ -90,8 +91,5 @@ export interface SlackAdapterConfig {
    * equivalent freshness signal) to prevent replay of captured signed
    * requests.
    */
-  webhookVerifier?: (
-    request: Request,
-    body: string
-  ) => unknown | Promise<unknown>;
+  webhookVerifier?: SlackWebhookVerifier;
 }

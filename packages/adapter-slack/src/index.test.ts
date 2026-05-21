@@ -950,6 +950,11 @@ describe("handleWebhook - interactive payloads", () => {
     try {
       const state = createMockState();
       const chatInstance = createMockChatInstance(state);
+      const timeoutAdapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        logger: mockLogger,
+        webhookVerifier: () => true,
+      });
       (
         chatInstance.processOptionsLoad as ReturnType<typeof vi.fn>
       ).mockImplementation(
@@ -961,7 +966,7 @@ describe("handleWebhook - interactive payloads", () => {
             );
           })
       );
-      await adapter.initialize(chatInstance);
+      await timeoutAdapter.initialize(chatInstance);
 
       const payload = JSON.stringify({
         type: "block_suggestion",
@@ -976,7 +981,8 @@ describe("handleWebhook - interactive payloads", () => {
         contentType: "application/x-www-form-urlencoded",
       });
 
-      const responsePromise = adapter.handleWebhook(request);
+      const responsePromise = timeoutAdapter.handleWebhook(request);
+      await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(2500);
       const response = await responsePromise;
 
