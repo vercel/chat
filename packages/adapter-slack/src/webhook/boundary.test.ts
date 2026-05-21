@@ -3,13 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("webhook import boundary", () => {
   it("does not import the full adapter or runtime packages", async () => {
-    const files = [
-      "index.ts",
-      "parse.ts",
-      "types.ts",
-      "utils.ts",
-      "verify.ts",
-    ];
+    const files = ["index.ts", "parse.ts", "types.ts", "utils.ts", "verify.ts"];
     const source = (
       await Promise.all(
         files.map((file) =>
