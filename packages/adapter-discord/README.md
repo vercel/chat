@@ -192,6 +192,22 @@ createDiscordAdapter({
 Later calls to `event.channel.post()` will share the same ephemeral message.
 Calls to `event.channel.postEphemeral()` will fallback to a private DM.
 
+## Components v2 cards
+
+Discord cards render as embeds by default. To render Chat SDK cards with
+[Discord Components v2](https://docs.discord.com/developers/components/reference) instead, enable `componentsV2`:
+
+```typescript
+createDiscordAdapter({
+  componentsV2: true,
+});
+```
+
+When enabled, card messages use Discord's `IS_COMPONENTS_V2` flag and render
+with components such as containers, sections, text displays, media galleries,
+buttons, and string selects. Plain text messages still use Discord message
+content.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided.
@@ -201,6 +217,7 @@ All options are auto-detected from environment variables when not provided.
 | `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `componentsV2` | No | Render Chat SDK cards with Discord Components v2 instead of embeds. Defaults to `false` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
@@ -235,10 +252,10 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 
 | Feature | Supported |
 |---------|-----------|
-| Card format | Embeds |
+| Card format | Embeds by default, Components v2 when enabled |
 | Buttons | Yes |
 | Link buttons | Yes |
-| Select menus | No |
+| Select menus | Components v2 |
 | Tables | GFM |
 | Fields | Yes |
 | Images in cards | Yes |

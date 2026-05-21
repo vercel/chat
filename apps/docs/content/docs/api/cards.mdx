@@ -4,7 +4,7 @@ description: Rich card components for cross-platform interactive messages.
 type: reference
 ---
 
-Card components render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Embeds on Discord, and Google Chat Cards.
+Card components render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, embeds or components on Discord, and Google Chat Cards.
 
 ```typescript
 import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton, Table } from "chat";
@@ -263,7 +263,7 @@ Table({
   }}
 />
 
-On platforms with native table support (Teams, GitHub, Linear), tables render as formatted tables. On other platforms (Slack, Google Chat, Discord, Telegram), tables render as padded ASCII text.
+On platforms with native table support (Teams, GitHub, Linear), tables render as formatted tables. Discord card payloads preserve GFM markdown tables. On other platforms (Slack, Google Chat, Telegram), tables render as padded ASCII text.
 
 ## Divider
 

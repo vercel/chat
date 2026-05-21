@@ -13,8 +13,13 @@ import type {
   CardChild,
   CardElement,
   FieldsElement,
+  ImageElement,
   LinkButtonElement,
+  LinkElement,
+  RadioSelectElement,
   SectionElement,
+  SelectElement,
+  TableElement,
   TextElement,
 } from "chat";
 import {
@@ -24,10 +29,47 @@ import {
 } from "chat";
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
-import type { DiscordActionRow, DiscordButton } from "./types";
+import type {
+  DiscordActionRow,
+  DiscordButton,
+  DiscordContainerChild,
+  DiscordMediaGallery,
+  DiscordMessageComponent,
+  DiscordSection,
+  DiscordStringSelect,
+  DiscordTextDisplay,
+  DiscordThumbnail,
+} from "./types";
+import { DiscordMessageFlag } from "./types";
 
 const DISCORD_CUSTOM_ID_DELIMITER = "\n";
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
+const DISCORD_BLURPLE = 0x5865f2;
+const DISCORD_MAX_BUTTONS_PER_ROW = 5;
+const DISCORD_MAX_SELECT_OPTIONS = 25;
+const DISCORD_MAX_SECTION_TEXT_DISPLAYS = 3;
+
+interface DiscordCardPayloadOptions {
+  componentsV2?: boolean;
+}
+
+interface DiscordEmbedCardPayload {
+  components: DiscordActionRow[];
+  embeds: APIEmbed[];
+  flags?: number;
+}
+
+interface DiscordComponentsV2CardPayload {
+  components: DiscordMessageComponent[];
+  embeds: [];
+  flags: number;
+}
+
+interface DiscordCardPayload {
+  components: DiscordMessageComponent[];
+  embeds: APIEmbed[];
+  flags?: number;
+}
 
 function validateDiscordCustomId(customId: string): void {
   if (customId.length === 0 || customId.length > DISCORD_CUSTOM_ID_MAX_LENGTH) {
@@ -75,10 +117,25 @@ function convertEmoji(text: string): string {
 /**
  * Convert a CardElement to Discord message payload (embeds + components).
  */
-export function cardToDiscordPayload(card: CardElement): {
-  embeds: APIEmbed[];
-  components: DiscordActionRow[];
-} {
+export function cardToDiscordPayload(
+  card: CardElement
+): DiscordEmbedCardPayload;
+export function cardToDiscordPayload(
+  card: CardElement,
+  options: { componentsV2: true }
+): DiscordComponentsV2CardPayload;
+export function cardToDiscordPayload(
+  card: CardElement,
+  options: DiscordCardPayloadOptions
+): DiscordCardPayload;
+export function cardToDiscordPayload(
+  card: CardElement,
+  options: DiscordCardPayloadOptions = {}
+): DiscordCardPayload {
+  if (options.componentsV2) {
+    return cardToDiscordComponentsV2Payload(card);
+  }
+
   const embed: APIEmbed = {};
   const fields: APIEmbedField[] = [];
   const components: DiscordActionRow[] = [];
@@ -100,7 +157,7 @@ export function cardToDiscordPayload(card: CardElement): {
   }
 
   // Set color (default to Discord blurple)
-  embed.color = 0x5865f2;
+  embed.color = DISCORD_BLURPLE;
 
   // Process children
   const textParts: string[] = [];
@@ -126,6 +183,40 @@ export function cardToDiscordPayload(card: CardElement): {
   return {
     embeds: [embed],
     components,
+  };
+}
+
+function cardToDiscordComponentsV2Payload(
+  card: CardElement
+): DiscordComponentsV2CardPayload {
+  const components: DiscordContainerChild[] = [];
+
+  if (card.title) {
+    components.push(toTextDisplay(`# ${convertEmoji(card.title)}`));
+  }
+
+  if (card.subtitle) {
+    components.push(toTextDisplay(convertEmoji(card.subtitle)));
+  }
+
+  if (card.imageUrl) {
+    components.push(toMediaGallery({ url: card.imageUrl }));
+  }
+
+  for (const child of card.children) {
+    components.push(...cardChildToComponentsV2(child));
+  }
+
+  return {
+    embeds: [],
+    flags: DiscordMessageFlag.IsComponentsV2,
+    components: [
+      {
+        type: 17,
+        accent_color: DISCORD_BLURPLE,
+        components: components.length > 0 ? components : [toTextDisplay(" ")],
+      },
+    ],
   };
 }
 
@@ -163,8 +254,7 @@ function processChild(
       textParts.push(`[${convertEmoji(child.label)}](${child.url})`);
       break;
     case "table": {
-      // Render as GFM markdown table in embed description
-      textParts.push(renderGfmTable(child).join("\n"));
+      textParts.push(convertTableElement(child));
       break;
     }
     default: {
@@ -173,6 +263,31 @@ function processChild(
         textParts.push(text);
       }
       break;
+    }
+  }
+}
+
+function cardChildToComponentsV2(child: CardChild): DiscordContainerChild[] {
+  switch (child.type) {
+    case "text":
+      return [toTextDisplay(convertTextElement(child))];
+    case "image":
+      return [toMediaGallery(child)];
+    case "divider":
+      return [{ type: 14, divider: true, spacing: 1 }];
+    case "actions":
+      return convertActionsToV2Rows(child);
+    case "section":
+      return convertSectionElementToV2(child);
+    case "fields":
+      return convertFieldsElementToV2(child);
+    case "link":
+      return [toTextDisplay(convertLinkElement(child))];
+    case "table":
+      return [toTextDisplay(convertTableElement(child))];
+    default: {
+      const text = cardChildToFallbackText(child);
+      return text ? [toTextDisplay(text)] : [];
     }
   }
 }
@@ -194,6 +309,49 @@ function convertTextElement(element: TextElement): string {
   return text;
 }
 
+function toTextDisplay(content: string): DiscordTextDisplay {
+  return {
+    type: 10,
+    content,
+  };
+}
+
+function toMediaGallery(
+  image: ImageElement | { url: string }
+): DiscordMediaGallery {
+  return {
+    type: 12,
+    items: [
+      {
+        media: {
+          url: image.url,
+        },
+        ...("alt" in image && image.alt
+          ? { description: convertEmoji(image.alt) }
+          : {}),
+      },
+    ],
+  };
+}
+
+function toThumbnail(image: ImageElement): DiscordThumbnail {
+  return {
+    type: 11,
+    media: {
+      url: image.url,
+    },
+    ...(image.alt ? { description: convertEmoji(image.alt) } : {}),
+  };
+}
+
+function convertLinkElement(element: LinkElement): string {
+  return `[${convertEmoji(element.label)}](${element.url})`;
+}
+
+function convertTableElement(element: TableElement): string {
+  return renderGfmTable(element).join("\n");
+}
+
 /**
  * Convert an actions element to Discord action rows.
  * Discord limits each action row to 5 components, so we chunk buttons.
@@ -208,14 +366,49 @@ function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
       return convertButtonElement(button);
     });
 
-  // Discord allows max 5 buttons per action row
   const rows: DiscordActionRow[] = [];
-  for (let i = 0; i < buttons.length; i += 5) {
+  for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
     rows.push({
       type: 1, // Action Row
-      components: buttons.slice(i, i + 5),
+      components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
     });
   }
+  return rows;
+}
+
+function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
+  const rows: DiscordActionRow[] = [];
+  let buttons: DiscordButton[] = [];
+
+  const flushButtons = () => {
+    for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
+      rows.push({
+        type: 1,
+        components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
+      });
+    }
+    buttons = [];
+  };
+
+  for (const child of element.children) {
+    if (child.type === "button") {
+      buttons.push(convertButtonElement(child));
+      continue;
+    }
+
+    if (child.type === "link-button") {
+      buttons.push(convertLinkButtonElement(child));
+      continue;
+    }
+
+    flushButtons();
+    rows.push({
+      type: 1,
+      components: [convertSelectElement(child)],
+    });
+  }
+
+  flushButtons();
   return rows;
 }
 
@@ -249,6 +442,32 @@ function convertLinkButtonElement(button: LinkButtonElement): DiscordButton {
   };
 }
 
+function convertSelectElement(
+  select: SelectElement | RadioSelectElement
+): DiscordStringSelect {
+  const options = select.options
+    .slice(0, DISCORD_MAX_SELECT_OPTIONS)
+    .map((option) => ({
+      label: convertEmoji(option.label),
+      value: option.value,
+      ...(option.description
+        ? { description: convertEmoji(option.description) }
+        : {}),
+      ...(option.value === select.initialOption ? { default: true } : {}),
+    }));
+
+  return {
+    type: 3,
+    custom_id: encodeDiscordCustomId(select.id),
+    options,
+    max_values: 1,
+    ...(select.optional ? { min_values: 0 } : {}),
+    ...("placeholder" in select && select.placeholder
+      ? { placeholder: convertEmoji(select.placeholder) }
+      : { placeholder: convertEmoji(select.label) }),
+  };
+}
+
 /**
  * Map button style to Discord button style.
  */
@@ -277,6 +496,99 @@ function processSectionElement(
   }
 }
 
+function convertSectionElementToV2(
+  element: SectionElement
+): DiscordContainerChild[] {
+  const textDisplays: DiscordTextDisplay[] = [];
+  const extraComponents: DiscordContainerChild[] = [];
+  let accessory: DiscordSection["accessory"] | undefined;
+
+  for (const child of element.children) {
+    switch (child.type) {
+      case "text":
+        textDisplays.push(toTextDisplay(convertTextElement(child)));
+        break;
+      case "image":
+        if (accessory) {
+          extraComponents.push(toMediaGallery(child));
+        } else {
+          accessory = toThumbnail(child);
+        }
+        break;
+      case "fields":
+        textDisplays.push(...convertFieldsElementToV2(child));
+        break;
+      case "link":
+        textDisplays.push(toTextDisplay(convertLinkElement(child)));
+        break;
+      case "table":
+        textDisplays.push(toTextDisplay(convertTableElement(child)));
+        break;
+      case "actions": {
+        const sectionButton = getSectionAccessoryButton(child);
+        if (sectionButton && !accessory) {
+          accessory = sectionButton;
+        } else {
+          extraComponents.push(...convertActionsToV2Rows(child));
+        }
+        break;
+      }
+      case "divider":
+        extraComponents.push({ type: 14, divider: true, spacing: 1 });
+        break;
+      case "section":
+        extraComponents.push(...convertSectionElementToV2(child));
+        break;
+      default: {
+        const text = cardChildToFallbackText(child);
+        if (text) {
+          textDisplays.push(toTextDisplay(text));
+        }
+        break;
+      }
+    }
+  }
+
+  if (!(accessory && textDisplays.length > 0)) {
+    return [...textDisplays, ...extraComponents];
+  }
+
+  const section: DiscordSection = {
+    type: 9,
+    components: textDisplays.slice(0, DISCORD_MAX_SECTION_TEXT_DISPLAYS),
+    accessory,
+  };
+
+  return [
+    section,
+    ...textDisplays.slice(DISCORD_MAX_SECTION_TEXT_DISPLAYS),
+    ...extraComponents,
+  ];
+}
+
+function getSectionAccessoryButton(
+  element: ActionsElement
+): DiscordButton | undefined {
+  if (element.children.length !== 1) {
+    return undefined;
+  }
+
+  const [child] = element.children;
+  if (!child) {
+    return undefined;
+  }
+
+  if (child.type === "button") {
+    return convertButtonElement(child);
+  }
+
+  if (child.type === "link-button") {
+    return convertLinkButtonElement(child);
+  }
+
+  return undefined;
+}
+
 /**
  * Convert fields element to Discord embed fields.
  */
@@ -291,6 +603,25 @@ function convertFieldsElement(
       inline: true, // Discord fields can be inline
     });
   }
+}
+
+function convertFieldsElementToV2(
+  element: FieldsElement
+): DiscordTextDisplay[] {
+  if (element.children.length === 0) {
+    return [];
+  }
+
+  return [
+    toTextDisplay(
+      element.children
+        .map(
+          (field) =>
+            `**${convertEmoji(field.label)}**\n${convertEmoji(field.value)}`
+        )
+        .join("\n\n")
+    ),
+  ];
 }
 
 /**

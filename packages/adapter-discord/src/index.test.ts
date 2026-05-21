@@ -6,7 +6,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
-import { Actions, Button, Card } from "chat";
+import { Actions, Button, Card, Select, SelectOption } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import {
   createDiscordAdapter,
   DiscordAdapter,
   DiscordInteractionResponseFlag,
+  DiscordMessageFlag,
 } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -2839,6 +2840,112 @@ describe("postChannelMessage", () => {
   });
 });
 
+describe("componentsV2 card payloads", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+    componentsV2: true,
+  });
+
+  const cardMessage = {
+    card: Card({
+      title: "Components v2",
+      children: [
+        Actions([
+          Select({
+            id: "priority",
+            label: "Priority",
+            options: [SelectOption({ label: "High", value: "high" })],
+          }),
+          Button({ id: "btn1", label: "Click me" }),
+        ]),
+      ],
+    }),
+  };
+
+  function createMessageResponse(id: string): Response {
+    return new Response(
+      JSON.stringify({
+        id,
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  it("posts Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-post"));
+
+    await adapter.postMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("edits messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-edit"));
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg-v2-edit",
+      cardMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("posts channel messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-channel"));
+
+    await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+});
+
 // ============================================================================
 // listThreads Tests
 // ============================================================================
@@ -4238,6 +4345,77 @@ describe("handleWebhook - component interaction edge cases", () => {
       expect.objectContaining({
         actionId: "approve_btn",
         threadId: "discord:guild123:channel789:thread456",
+      }),
+      undefined
+    );
+  });
+
+  it("uses selected values from select interactions", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processAction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.MessageComponent,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      message: {
+        id: "message123",
+        channel_id: "channel456",
+        author: { id: "bot", username: "bot", discriminator: "0000" },
+        content: "Test message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+      data: {
+        custom_id: "priority",
+        component_type: 3,
+        values: ["high"],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    await adapter.handleWebhook(request);
+
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "priority",
+        value: "high",
       }),
       undefined
     );

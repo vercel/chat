@@ -9,7 +9,7 @@ related:
   - /docs/modals
 ---
 
-Cards let you send structured, interactive messages that render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, and Google Chat Cards.
+Cards let you send structured, interactive messages that render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Discord embeds or Components, and Google Chat Cards.
 
 ## Setup
 
@@ -199,7 +199,7 @@ Radio button group for mutually exclusive choices.
 
 ### Table
 
-Structured data display with column headers and rows. Renders as a native table on platforms that support it (Teams, GitHub, Linear) and as padded ASCII text elsewhere.
+Structured data display with column headers and rows. Renders as a native table on platforms that support it (Teams, GitHub, Linear), as GFM markdown in Discord card payloads, and as padded ASCII text elsewhere.
 
 ```tsx title="lib/bot.tsx" lineNumbers
 <Table

@@ -52,7 +52,6 @@ import {
 } from "discord.js";
 import { MessageType } from "discord-api-types/v9";
 import {
-  type APIEmbed,
   type APIMessage,
   ChannelType,
   InteractionType,
@@ -64,7 +63,6 @@ import {
 import { cardToDiscordPayload, decodeDiscordCustomId } from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
-  type DiscordActionRow,
   type DiscordAdapterConfig,
   type DiscordCommandOption,
   type DiscordForwardedEvent,
@@ -105,6 +103,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
+  protected readonly componentsV2: boolean;
   protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -152,6 +151,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.componentsV2 = config.componentsV2 ?? false;
     this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
@@ -282,7 +282,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (interaction.type === InteractionType.ApplicationCommand) {
       const context = this.getApplicationCommandContext(interaction);
       const flags = this.getInteractionFlags(context);
-      this.handleApplicationCommandInteraction(context, options);
+      this.handleApplicationCommandInteraction(context, flags, options);
       return this.respondToInteraction({
         ...(flags === undefined ? {} : { data: { flags } }),
         type: InteractionResponseType.DeferredChannelMessageWithSource,
@@ -417,11 +417,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         });
 
     const decoded = decodeDiscordCustomId(customId);
+    const selectedValue = interaction.data?.values?.[0];
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
     } = {
       actionId: decoded.actionId,
-      value: decoded.value ?? decoded.actionId,
+      value: selectedValue ?? decoded.value ?? decoded.actionId,
       user: {
         userId: user.id,
         userName: user.username,
@@ -510,6 +511,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   protected handleApplicationCommandInteraction(
     context: DiscordInteractionFlagsContext | null,
+    initialResponseFlags?: DiscordMessagePayload["flags"],
     options?: WebhookOptions
   ): void {
     if (!this.chat) {
@@ -536,6 +538,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       {
         slashCommand: {
           channelId,
+          initialResponseFlags,
           interactionToken: interaction.token,
           initialResponseSent: false,
         },
@@ -613,7 +616,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
       const flags = this.getInteractionFlags(context);
       await interaction.deferReply(flags === undefined ? undefined : { flags });
-      this.handleApplicationCommandInteraction(context);
+      this.handleApplicationCommandInteraction(context, flags);
       return;
     }
 
@@ -969,6 +972,60 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.chat.processReaction(reactionEvent);
   }
 
+  protected buildMessagePayload(
+    message: AdapterPostableMessage,
+    options: { clearContentForCard?: boolean } = {}
+  ): {
+    componentCount: number;
+    embedCount: number;
+    payload: DiscordMessagePayload;
+  } {
+    const payload: DiscordMessagePayload = {};
+    const card = extractCard(message);
+
+    if (card) {
+      const cardPayload = cardToDiscordPayload(card, {
+        componentsV2: this.componentsV2,
+      });
+
+      if (cardPayload.embeds.length > 0) {
+        payload.embeds = cardPayload.embeds;
+      }
+
+      if (cardPayload.components.length > 0) {
+        payload.components = cardPayload.components;
+      }
+
+      if (cardPayload.flags !== undefined) {
+        // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+        payload.flags = (payload.flags ?? 0) | cardPayload.flags;
+      }
+
+      if (options.clearContentForCard && !this.componentsV2) {
+        payload.content = "";
+      }
+
+      return {
+        componentCount: payload.components?.length ?? 0,
+        embedCount: payload.embeds?.length ?? 0,
+        payload,
+      };
+    }
+
+    payload.content = this.truncateContent(
+      convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "discord"
+      )
+    );
+
+    return {
+      componentCount: 0,
+      embedCount: 0,
+      payload,
+    };
+  }
+
   /**
    * Post a message to a Discord channel or thread.
    */
@@ -985,34 +1042,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId = discordThreadId;
     }
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    // Check for card
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Don't include text - Discord shows both text and card if text is present
-    } else {
-      // Regular text message (truncated to Discord's limit)
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { componentCount, embedCount, payload } =
+      this.buildMessagePayload(message);
 
     // Handle file uploads
     const files = extractFiles(message);
@@ -1036,8 +1067,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.logger.debug("Discord API: POST message", {
       channelId,
       contentLength: payload.content?.length || 0,
-      embedCount: embeds.length,
-      componentCount: components.length,
+      embedCount,
+      componentCount,
     });
 
     const response = await this.discordFetch(
@@ -1109,15 +1140,26 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       }
     );
 
+    const responsePayload =
+      isInitialResponse &&
+      slashContext.initialResponseFlags !== undefined &&
+      payload.flags !== undefined
+        ? {
+            ...payload,
+            // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+            flags: slashContext.initialResponseFlags | payload.flags,
+          }
+        : payload;
+
     const response =
       files.length > 0
         ? await this.discordInteractionFetchWithFiles(
             path,
             method,
-            payload,
+            responsePayload,
             files
           )
-        : await this.discordInteractionFetch(path, method, payload);
+        : await this.discordInteractionFetch(path, method, responsePayload);
 
     const result = (await response.json()) as APIMessage;
 
@@ -1348,35 +1390,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // Use thread channel ID if in a thread, otherwise use channel ID
     const targetChannelId = discordThreadId || channelId;
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    // Check for card
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Clear content so old text doesn't persist alongside the card (Discord PATCH keeps omitted fields)
-      payload.content = "";
-    } else {
-      // Regular text message (truncated to Discord's limit)
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { payload } = this.buildMessagePayload(message, {
+      clearContentForCard: true,
+    });
 
     this.logger.debug("Discord API: PATCH message", {
       channelId: targetChannelId,
@@ -2591,32 +2607,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Don't include text - Discord shows both text and card if text is present
-    } else {
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { payload } = this.buildMessagePayload(message);
 
     const files = extractFiles(message);
     const slashResponse = this.tryPostSlashResponse(channelId, payload, files);
@@ -2711,6 +2702,8 @@ export type {
   DiscordAdapterConfig,
   DiscordInteractionFlagsContext,
   DiscordInteractionResponseFlags,
+  DiscordMessageFlags,
+  DiscordMessageFlagValue,
   DiscordThreadId,
 } from "./types";
-export { DiscordInteractionResponseFlag } from "./types";
+export { DiscordInteractionResponseFlag, DiscordMessageFlag } from "./types";

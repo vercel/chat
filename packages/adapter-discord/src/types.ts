@@ -21,6 +21,8 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
+  /** Render cards with Discord Components v2 instead of embeds. Defaults to false. */
+  componentsV2?: boolean;
   /** Return interaction flags for the initial deferred slash command response. */
   interactionFlags?: (
     context: DiscordInteractionFlagsContext
@@ -69,6 +71,7 @@ export interface DiscordThreadId {
  */
 export interface DiscordSlashCommandContext {
   channelId: string;
+  initialResponseFlags?: DiscordMessagePayload["flags"];
   initialResponseSent: boolean;
   interactionToken: string;
 }
@@ -166,12 +169,92 @@ export interface DiscordButton {
 }
 
 /**
+ * Discord string select component.
+ */
+export interface DiscordStringSelect {
+  custom_id: string;
+  disabled?: boolean;
+  max_values?: number;
+  min_values?: number;
+  options: {
+    default?: boolean;
+    description?: string;
+    emoji?: DiscordEmoji;
+    label: string;
+    value: string;
+  }[];
+  placeholder?: string;
+  type: 3; // Component type for string select
+}
+
+export type DiscordActionRowComponent = DiscordButton | DiscordStringSelect;
+
+/**
  * Discord action row component.
  */
 export interface DiscordActionRow {
-  components: DiscordButton[];
+  components: DiscordActionRowComponent[];
   type: 1; // Component type for action row
 }
+
+export interface DiscordTextDisplay {
+  content: string;
+  type: 10; // Component type for text display
+}
+
+export interface DiscordThumbnail {
+  description?: string;
+  media: {
+    url: string;
+  };
+  spoiler?: boolean;
+  type: 11; // Component type for thumbnail
+}
+
+export interface DiscordMediaGallery {
+  items: {
+    description?: string;
+    media: {
+      url: string;
+    };
+    spoiler?: boolean;
+  }[];
+  type: 12; // Component type for media gallery
+}
+
+export interface DiscordSeparator {
+  divider?: boolean;
+  spacing?: 1 | 2;
+  type: 14; // Component type for separator
+}
+
+export interface DiscordSection {
+  accessory: DiscordButton | DiscordThumbnail;
+  components: DiscordTextDisplay[];
+  type: 9; // Component type for section
+}
+
+export type DiscordContainerChild =
+  | DiscordActionRow
+  | DiscordMediaGallery
+  | DiscordSection
+  | DiscordSeparator
+  | DiscordTextDisplay;
+
+export interface DiscordContainer {
+  accent_color?: number;
+  components: DiscordContainerChild[];
+  spoiler?: boolean;
+  type: 17; // Component type for container
+}
+
+export type DiscordMessageComponent =
+  | DiscordActionRow
+  | DiscordContainer
+  | DiscordMediaGallery
+  | DiscordSection
+  | DiscordSeparator
+  | DiscordTextDisplay;
 
 /**
  * Discord message create payload.
@@ -188,7 +271,7 @@ export interface DiscordMessagePayload {
     filename: string;
     description?: string;
   }[];
-  components?: DiscordActionRow[];
+  components?: DiscordMessageComponent[];
   content?: string;
   embeds?: APIEmbed[];
   flags?: number;
@@ -197,6 +280,27 @@ export interface DiscordMessagePayload {
     fail_if_not_exists?: boolean;
   };
 }
+
+export const DiscordMessageFlag = {
+  Crossposted: 1,
+  IsCrosspost: 2,
+  SuppressEmbeds: 4,
+  SourceMessageDeleted: 8,
+  Urgent: 16,
+  HasThread: 32,
+  Ephemeral: 64,
+  Loading: 128,
+  FailedToMentionSomeRolesInThread: 256,
+  SuppressNotifications: 4096,
+  IsVoiceMessage: 8192,
+  HasSnapshot: 16_384,
+  IsComponentsV2: 32_768,
+} as const;
+
+export type DiscordMessageFlagValue =
+  (typeof DiscordMessageFlag)[keyof typeof DiscordMessageFlag];
+
+export type DiscordMessageFlags = DiscordMessageFlagValue;
 
 export const DiscordInteractionResponseFlag = {
   Ephemeral: 64,

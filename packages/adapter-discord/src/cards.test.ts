@@ -10,7 +10,11 @@ import {
   Fields,
   Image,
   LinkButton,
+  RadioSelect,
   Section,
+  Select,
+  SelectOption,
+  Table,
 } from "chat";
 import { ButtonStyle } from "discord-api-types/v10";
 import { describe, expect, it } from "vitest";
@@ -20,6 +24,7 @@ import {
   decodeDiscordCustomId,
   encodeDiscordCustomId,
 } from "./cards";
+import { DiscordMessageFlag } from "./types";
 
 describe("cardToDiscordPayload", () => {
   it("converts a simple card with title", () => {
@@ -291,6 +296,197 @@ describe("cardToDiscordPayload", () => {
     expect(embeds[0].title).toBe("Title");
     expect(embeds[0].description).toContain("Subtitle");
     expect(embeds[0].description).toContain("Content");
+  });
+});
+
+describe("cardToDiscordPayload with Components v2", () => {
+  it("converts all Chat SDK card components to Discord Components v2", () => {
+    const card = Card({
+      title: "User Profile",
+      subtitle: "Account details",
+      imageUrl: "https://example.com/header.png",
+      children: [
+        CardText("Regular text"),
+        CardText("Bold text", { style: "bold" }),
+        Fields([
+          Field({ label: "Status", value: "Active" }),
+          Field({ label: "Team", value: "Platform" }),
+        ]),
+        CardLink({ url: "https://example.com/profile", label: "View profile" }),
+        Divider(),
+        Section([
+          CardText("Section content"),
+          Image({
+            url: "https://example.com/avatar.png",
+            alt: "User avatar",
+          }),
+        ]),
+        Table({
+          headers: ["Name", "Role"],
+          rows: [["Jane", "Engineer"]],
+        }),
+        Image({ url: "https://example.com/chart.png", alt: "Chart" }),
+        Actions([
+          Select({
+            id: "priority",
+            label: "Priority",
+            placeholder: "Choose priority",
+            optional: true,
+            initialOption: "high",
+            options: [
+              SelectOption({
+                label: "High",
+                value: "high",
+                description: "Urgent",
+              }),
+              SelectOption({ label: "Low", value: "low" }),
+            ],
+          }),
+          RadioSelect({
+            id: "status",
+            label: "Status",
+            initialOption: "open",
+            options: [
+              SelectOption({ label: "Open", value: "open" }),
+              SelectOption({ label: "Closed", value: "closed" }),
+            ],
+          }),
+          Button({ id: "edit", label: "Edit", style: "primary" }),
+          LinkButton({ url: "https://example.com", label: "Open" }),
+        ]),
+      ],
+    });
+
+    const payload = cardToDiscordPayload(card, { componentsV2: true });
+
+    expect(payload.embeds).toEqual([]);
+    expect(payload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(payload.components).toHaveLength(1);
+
+    const container = payload.components[0];
+    expect(container).toMatchObject({
+      type: 17,
+      accent_color: 0x5865f2,
+    });
+    if (!(container && container.type === 17)) {
+      throw new Error("Expected a Discord Components v2 container");
+    }
+
+    const containerChildren = container.components;
+    expect(containerChildren).toEqual(
+      expect.arrayContaining([
+        { type: 10, content: "# User Profile" },
+        { type: 10, content: "Account details" },
+        {
+          type: 12,
+          items: [{ media: { url: "https://example.com/header.png" } }],
+        },
+        { type: 10, content: "Regular text" },
+        { type: 10, content: "**Bold text**" },
+        {
+          type: 10,
+          content: "**Status**\nActive\n\n**Team**\nPlatform",
+        },
+        {
+          type: 10,
+          content: "[View profile](https://example.com/profile)",
+        },
+        { type: 14, divider: true, spacing: 1 },
+      ])
+    );
+
+    const section = containerChildren.find((child) => child.type === 9);
+    expect(section).toEqual({
+      type: 9,
+      components: [{ type: 10, content: "Section content" }],
+      accessory: {
+        type: 11,
+        media: { url: "https://example.com/avatar.png" },
+        description: "User avatar",
+      },
+    });
+
+    expect(
+      containerChildren.some(
+        (child) =>
+          child.type === 10 &&
+          child.content ===
+            "| Name | Role |\n| --- | --- |\n| Jane | Engineer |"
+      )
+    ).toBe(true);
+
+    expect(
+      containerChildren.some(
+        (child) =>
+          child.type === 12 &&
+          child.items[0]?.media.url === "https://example.com/chart.png" &&
+          child.items[0]?.description === "Chart"
+      )
+    ).toBe(true);
+
+    const selectRows = containerChildren.filter(
+      (child) =>
+        child.type === 1 && child.components.some((item) => item.type === 3)
+    );
+    expect(selectRows).toHaveLength(2);
+    expect(selectRows[0]).toEqual({
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: "priority",
+          placeholder: "Choose priority",
+          min_values: 0,
+          max_values: 1,
+          options: [
+            {
+              label: "High",
+              value: "high",
+              description: "Urgent",
+              default: true,
+            },
+            { label: "Low", value: "low" },
+          ],
+        },
+      ],
+    });
+    expect(selectRows[1]).toEqual({
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: "status",
+          placeholder: "Status",
+          max_values: 1,
+          options: [
+            { label: "Open", value: "open", default: true },
+            { label: "Closed", value: "closed" },
+          ],
+        },
+      ],
+    });
+
+    const buttonRow = containerChildren.find(
+      (child) =>
+        child.type === 1 && child.components.some((item) => item.type === 2)
+    );
+    expect(buttonRow).toEqual({
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: ButtonStyle.Primary,
+          label: "Edit",
+          custom_id: "edit",
+        },
+        {
+          type: 2,
+          style: ButtonStyle.Link,
+          label: "Open",
+          url: "https://example.com",
+        },
+      ],
+    });
   });
 });
 
