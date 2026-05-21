@@ -821,11 +821,11 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(200);
     });
 
-    it("should not infer endpointUrl from incoming request URL", async () => {
-      // endpointUrl must be explicitly configured. Inferring it from the
-      // first incoming request couples deployment URL to spoofable host
-      // headers and conflates a routing concern with a security one
-      // (audience verification).
+    it("should infer button-click endpoint URL from request but never expose it as a verification audience", async () => {
+      // The inferred URL is used only for routing button clicks back to the
+      // app. It is intentionally NOT used as a JWT audience, because
+      // `request.url` derives from the Host header in serverless runtimes
+      // and is attacker-controllable.
       const { adapter } = await createInitializedAdapter();
       const event: GoogleChatEvent = { chat: {} };
       const request = new Request(
@@ -838,7 +838,30 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
+      // Explicit config field stays unset.
       expect((adapter as any).endpointUrl).toBeUndefined();
+      // Routing-only inferred field is populated.
+      expect((adapter as any).inferredEndpointUrl).toBe(
+        "https://my-app.vercel.app/api/webhooks/gchat"
+      );
+    });
+
+    it("should not overwrite explicitly-configured endpointUrl with a request URL", async () => {
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://original.example.com/webhook",
+      });
+      const event: GoogleChatEvent = { chat: {} };
+      const request = new Request("https://other.example.com/webhook", {
+        method: "POST",
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      expect((adapter as any).endpointUrl).toBe(
+        "https://original.example.com/webhook"
+      );
+      expect((adapter as any).inferredEndpointUrl).toBeUndefined();
     });
 
     it("should route Pub/Sub push messages", async () => {
@@ -2967,6 +2990,36 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
+    });
+
+    it("should not use a request-inferred endpoint URL as a verification audience", async () => {
+      // Defense in depth: even if a malicious caller poisons the inferred URL
+      // by sending the first request with a spoofed Host, that value must not
+      // be accepted as a JWT audience.
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+      });
+      // Simulate a prior request that populated `inferredEndpointUrl`.
+      (adapter as any).inferredEndpointUrl = "https://attacker.example/webhook";
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://attacker.example/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer attacker-token",
+        },
+        body: JSON.stringify(event),
+      });
+
+      await adapter.handleWebhook(request);
+
+      // verifyIdToken must be called with only the explicit project number,
+      // never the inferred URL.
+      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
+        idToken: "attacker-token",
+        audience: "123456789",
+      });
     });
 
     it("should accept either audience when both googleChatProjectNumber and endpointUrl are configured", async () => {
