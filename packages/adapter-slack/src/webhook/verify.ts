@@ -1,12 +1,12 @@
-import { parseSlackWebhookBody } from "./webhook-parse";
+import { parseSlackWebhookBody } from "./parse";
 import {
   type SlackHeaders,
   type SlackReadOptions,
   type SlackVerifyOptions,
   type SlackWebhookPayload,
   SlackWebhookVerificationError,
-} from "./webhook-types";
-import { getHeader } from "./webhook-utils";
+} from "./types";
+import { getHeader } from "./utils";
 
 const HEX_PATTERN = /^[\da-f]+$/i;
 

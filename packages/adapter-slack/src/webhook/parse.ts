@@ -10,7 +10,7 @@ import type {
   SlackViewClosedPayload,
   SlackViewSubmissionPayload,
   SlackWebhookPayload,
-} from "./webhook-types";
+} from "./types";
 import {
   getHeader,
   getRetry,
@@ -20,7 +20,7 @@ import {
   parseJsonBody,
   recordValue,
   stringValue,
-} from "./webhook-utils";
+} from "./utils";
 
 export function parseSlackWebhookBody(
   body: string,

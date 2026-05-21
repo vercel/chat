@@ -3,7 +3,7 @@
  */
 
 import type { Logger } from "chat";
-import type { SlackWebhookVerifier } from "./webhook";
+import type { SlackWebhookVerifier } from "./webhook/index";
 
 export type SlackAdapterMode = "webhook" | "socket";
 

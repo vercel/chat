@@ -2,7 +2,7 @@ import {
   type SlackHeaders,
   type SlackRetry,
   SlackWebhookParseError,
-} from "./webhook-types";
+} from "./types";
 
 export function getHeader(
   headers: SlackHeaders | undefined,

@@ -73,7 +73,7 @@ import {
   type SlackModalResponse,
   selectOptionToSlackOption,
 } from "./modals";
-import { verifySlackRequest } from "./webhook";
+import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;

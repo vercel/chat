@@ -1,12 +1,12 @@
-export { parseSlackWebhookBody } from "./webhook-parse";
-export type * from "./webhook-types";
+export { parseSlackWebhookBody } from "./parse";
+export type * from "./types";
 export {
   SlackWebhookError,
   SlackWebhookParseError,
   SlackWebhookVerificationError,
-} from "./webhook-types";
+} from "./types";
 export {
   readSlackWebhook,
   verifySlackRequest,
   verifySlackSignature,
-} from "./webhook-verify";
+} from "./verify";

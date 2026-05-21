@@ -7,7 +7,7 @@ import {
   SlackWebhookVerificationError,
   verifySlackRequest,
   verifySlackSignature,
-} from "./webhook";
+} from "./index";
 
 const secret = "8f742231b10e8888abcd99yyyzzz85a5";
 const timestamp = 1_531_420_618;

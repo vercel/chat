@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 describe("webhook import boundary", () => {
   it("does not import the full adapter or runtime packages", async () => {
     const files = [
-      "webhook.ts",
-      "webhook-parse.ts",
-      "webhook-types.ts",
-      "webhook-utils.ts",
-      "webhook-verify.ts",
+      "index.ts",
+      "parse.ts",
+      "types.ts",
+      "utils.ts",
+      "verify.ts",
     ];
     const source = (
       await Promise.all(
@@ -25,7 +25,7 @@ describe("webhook import boundary", () => {
     expect(source).not.toContain('from "@chat-adapter/shared"');
     expect(source).not.toContain('from "@slack/web-api"');
     expect(source).not.toContain('from "@slack/socket-mode"');
-    expect(source).not.toContain('from "./index"');
+    expect(source).not.toContain('from "../index"');
     expect(source).not.toContain("node:crypto");
   });
 });
