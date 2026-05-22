@@ -21,6 +21,10 @@
     "./format": {
       "types": "./dist/format.d.ts",
       "import": "./dist/format.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
     }
   },
   "files": [
