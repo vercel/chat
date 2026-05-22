@@ -2712,6 +2712,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       type: inner.type ?? "message",
     };
 
+    if (inner.subtype === "tombstone") {
+      this.handleMessageDeleted(event, options);
+      return;
+    }
+
     const hasUnfurlAttachments = inner.attachments?.some(
       (att) => att.from_url || att.original_url
     );
@@ -2753,9 +2758,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     }
 
+    const previousMessage = event.previous_message;
+    const isHiddenMessageEdit = Boolean(
+      previousMessage &&
+        (inner.edited?.ts !== previousMessage.edited?.ts ||
+          inner.text !== previousMessage.text)
+    );
+
     // Slack link unfurls arrive as hidden message_changed events. Preserve the
-    // existing unfurl cache behavior without surfacing those as user edits.
-    if (event.hidden === true) {
+    // existing unfurl cache behavior without surfacing unfurl-only updates as
+    // user edits. Some real message edits are also hidden, but they include a
+    // previous message snapshot and changed content/edit metadata. Slack can
+    // also send hidden thread metadata updates after deletes; ignore those.
+    if (event.hidden === true && !isHiddenMessageEdit) {
       return;
     }
 
@@ -2784,7 +2799,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     event: SlackEvent,
     options?: WebhookOptions
   ): void {
-    if (!(this.chat && event.channel && event.deleted_ts)) {
+    const deletedTs =
+      event.deleted_ts ?? event.message?.ts ?? event.previous_message?.ts;
+    if (!(this.chat && event.channel && deletedTs)) {
       return;
     }
 
@@ -2802,7 +2819,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const isDM = (previous?.channel_type ?? event.channel_type) === "im";
     const threadTs = isDM
       ? previous?.thread_ts || ""
-      : previous?.thread_ts || previous?.ts || event.deleted_ts;
+      : previous?.thread_ts || previous?.ts || deletedTs;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -2814,7 +2831,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         adapter: this,
         channelId: event.channel,
         deletedAt,
-        messageId: event.deleted_ts,
+        messageId: deletedTs,
         previousMessage: previous
           ? this.parseSlackMessageSync(previous, threadId)
           : undefined,
