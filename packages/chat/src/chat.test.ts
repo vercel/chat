@@ -302,6 +302,52 @@ describe("Chat", () => {
     expect(resolved).toBe(true);
   });
 
+  it("should dispatch message updates without normal message routing", async () => {
+    const updateHandler = vi.fn().mockResolvedValue(undefined);
+    const mentionHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onMessageUpdated(updateHandler);
+    chat.onNewMention(mentionHandler);
+
+    const message = createTestMessage("msg-update-1", "Edited @slack-bot");
+    message.metadata.edited = true;
+    message.metadata.editedAt = new Date("2026-05-21T12:00:00.000Z");
+
+    await chat.processMessageUpdated(
+      mockAdapter,
+      "slack:C123:update.1",
+      message
+    );
+
+    expect(updateHandler).toHaveBeenCalledTimes(1);
+    expect(updateHandler.mock.calls[0][0].id).toBe("slack:C123:update.1");
+    expect(updateHandler.mock.calls[0][1]).toBe(message);
+    expect(mentionHandler).not.toHaveBeenCalled();
+  });
+
+  it("should dispatch message deletes with normalized event data", async () => {
+    const deleteHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onMessageDeleted(deleteHandler);
+
+    await chat.processMessageDeleted({
+      adapter: mockAdapter,
+      channelId: "C123",
+      deletedAt: new Date("2026-05-21T12:00:00.000Z"),
+      messageId: "1234.5678",
+      raw: { subtype: "message_deleted" },
+      threadId: "slack:C123:1234.5678",
+    });
+
+    expect(deleteHandler).toHaveBeenCalledWith({
+      adapter: mockAdapter,
+      channelId: "C123",
+      deletedAt: new Date("2026-05-21T12:00:00.000Z"),
+      messageId: "1234.5678",
+      platform: "slack",
+      raw: { subtype: "message_deleted" },
+      threadId: "slack:C123:1234.5678",
+    });
+  });
+
   describe("message deduplication", () => {
     it("should skip duplicate messages with the same id", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
