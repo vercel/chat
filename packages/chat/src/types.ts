@@ -668,6 +668,21 @@ export interface ChatInstance {
   ): Promise<void>;
 
   /**
+   * Process an incoming message delete from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   *
+   * @param event - The normalized delete event
+   * @param options - Webhook options including waitUntil
+   */
+  processMessageDeleted(
+    event: Omit<MessageDeletedEvent, "adapter" | "platform"> & {
+      adapter: Adapter;
+      platform?: string;
+    },
+    options?: WebhookOptions
+  ): Promise<void>;
+
+  /**
    * Process an incoming message update from an adapter.
    * Handles waitUntil registration and error catching internally.
    *
@@ -680,21 +695,6 @@ export interface ChatInstance {
     adapter: Adapter,
     threadId: string,
     message: Message | (() => Promise<Message>),
-    options?: WebhookOptions
-  ): Promise<void>;
-
-  /**
-   * Process an incoming message delete from an adapter.
-   * Handles waitUntil registration and error catching internally.
-   *
-   * @param event - The normalized delete event
-   * @param options - Webhook options including waitUntil
-   */
-  processMessageDeleted(
-    event: Omit<MessageDeletedEvent, "adapter" | "platform"> & {
-      adapter: Adapter;
-      platform?: string;
-    },
     options?: WebhookOptions
   ): Promise<void>;
 
