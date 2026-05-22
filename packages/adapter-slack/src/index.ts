@@ -2239,7 +2239,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ? {
           ...event.previous_message,
           channel: event.previous_message.channel ?? event.channel,
-          channel_type: event.previous_message.channel_type ?? event.channel_type,
+          channel_type:
+            event.previous_message.channel_type ?? event.channel_type,
           team: event.previous_message.team ?? event.team,
           team_id: event.previous_message.team_id ?? event.team_id,
           type: event.previous_message.type ?? "message",

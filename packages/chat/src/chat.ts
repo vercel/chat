@@ -258,8 +258,7 @@ export class Chat<
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
   private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
-  private readonly messageUpdatedHandlers: MessageUpdatedHandler<TState>[] =
-    [];
+  private readonly messageUpdatedHandlers: MessageUpdatedHandler<TState>[] = [];
   private readonly messageDeletedHandlers: MessageDeletedHandler[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
@@ -2175,12 +2174,7 @@ export class Chat<
     });
 
     const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
-    const thread = this.createThread(
-      adapter,
-      threadId,
-      message,
-      isSubscribed
-    );
+    const thread = this.createThread(adapter, threadId, message, isSubscribed);
     await this.resolveMessageIdentity(adapter, threadId, message);
 
     for (const handler of this.messageUpdatedHandlers) {
