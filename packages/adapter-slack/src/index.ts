@@ -210,7 +210,10 @@ export interface SlackEvent {
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
   channel_type?: string;
+  /** Deleted message timestamp on message_deleted events */
+  deleted_ts?: string;
   edited?: { ts: string };
+  event_ts?: string;
   files?: Array<{
     id?: string;
     mimetype?: string;
@@ -226,6 +229,8 @@ export interface SlackEvent {
   latest_reply?: string;
   /** Inner message on message_changed events */
   message?: SlackEvent;
+  /** Previous message snapshot on message_deleted events */
+  previous_message?: SlackEvent;
   /** Number of replies in the thread (present on thread parent messages) */
   reply_count?: number;
   subtype?: string;
@@ -2083,11 +2088,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // Skip message subtypes that are system/meta events (edits, deletes, joins, etc.)
+    // Skip message subtypes that are system/meta events (joins, topic changes, etc.)
     // Allow through: bot_message, file_share, thread_broadcast, me_message, and
     // any other content-carrying subtypes. Chat class handles isMe filtering.
     const ignoredSubtypes = new Set([
-      "message_deleted",
       "message_replied",
       "channel_join",
       "channel_leave",
@@ -2109,6 +2113,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     if (event.subtype === "message_changed") {
       this.handleMessageChanged(event, options);
+      return;
+    }
+
+    if (event.subtype === "message_deleted") {
+      this.handleMessageDeleted(event, options);
       return;
     }
 
@@ -2160,60 +2169,132 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   protected handleMessageChanged(
     event: SlackEvent,
-    _options?: WebhookOptions
+    options?: WebhookOptions
   ): void {
     const inner = event.message;
     if (!(inner && event.channel)) {
       return;
     }
 
+    const normalized: SlackEvent = {
+      ...inner,
+      channel: inner.channel ?? event.channel,
+      channel_type: inner.channel_type ?? event.channel_type,
+      team: inner.team ?? event.team,
+      team_id: inner.team_id ?? event.team_id,
+      type: inner.type ?? "message",
+    };
+
     const hasUnfurlAttachments = inner.attachments?.some(
       (att) => att.from_url || att.original_url
     );
-    if (!hasUnfurlAttachments) {
-      this.logger.debug("Ignoring message_changed without unfurl data");
+    if (hasUnfurlAttachments && this.chat && inner.ts && inner.attachments) {
+      this.logger.debug("Processing message_changed for link unfurls", {
+        channel: event.channel,
+        ts: inner.ts,
+        attachmentCount: inner.attachments?.length,
+      });
+
+      const unfurls: Record<
+        string,
+        {
+          title?: string;
+          description?: string;
+          imageUrl?: string;
+          siteName?: string;
+        }
+      > = {};
+      for (const att of inner.attachments) {
+        const attUrl = att.from_url || att.original_url;
+        if (attUrl && (att.title || att.text)) {
+          unfurls[attUrl] = {
+            title: att.title,
+            description: att.text,
+            imageUrl: att.image_url || att.thumb_url,
+            siteName: att.service_name,
+          };
+        }
+      }
+
+      if (Object.keys(unfurls).length > 0) {
+        this.chat
+          .getState()
+          .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
+          .catch((error) => {
+            this.logger.error("Failed to cache unfurl metadata", { error });
+          });
+      }
+    }
+
+    // Slack link unfurls arrive as hidden message_changed events. Preserve the
+    // existing unfurl cache behavior without surfacing those as user edits.
+    if (event.hidden === true) {
       return;
     }
 
-    this.logger.debug("Processing message_changed for link unfurls", {
-      channel: event.channel,
-      ts: inner.ts,
-      attachmentCount: inner.attachments?.length,
+    if (!(this.chat && normalized.channel && normalized.ts)) {
+      return;
+    }
+
+    const isDM = normalized.channel_type === "im";
+    const threadTs = isDM
+      ? normalized.thread_ts || ""
+      : normalized.thread_ts || normalized.ts;
+    const threadId = this.encodeThreadId({
+      channel: normalized.channel,
+      threadTs,
     });
 
-    if (!(this.chat && inner.ts && inner.attachments)) {
+    this.chat.processMessageUpdated(
+      this,
+      threadId,
+      () => this.parseSlackMessage(normalized, threadId),
+      options
+    );
+  }
+
+  protected handleMessageDeleted(
+    event: SlackEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!(this.chat && event.channel && event.deleted_ts)) {
       return;
     }
 
-    const unfurls: Record<
-      string,
-      {
-        title?: string;
-        description?: string;
-        imageUrl?: string;
-        siteName?: string;
-      }
-    > = {};
-    for (const att of inner.attachments) {
-      const attUrl = att.from_url || att.original_url;
-      if (attUrl && (att.title || att.text)) {
-        unfurls[attUrl] = {
-          title: att.title,
-          description: att.text,
-          imageUrl: att.image_url || att.thumb_url,
-          siteName: att.service_name,
-        };
-      }
-    }
+    const previous = event.previous_message
+      ? {
+          ...event.previous_message,
+          channel: event.previous_message.channel ?? event.channel,
+          channel_type: event.previous_message.channel_type ?? event.channel_type,
+          team: event.previous_message.team ?? event.team,
+          team_id: event.previous_message.team_id ?? event.team_id,
+          type: event.previous_message.type ?? "message",
+        }
+      : undefined;
+    const isDM = (previous?.channel_type ?? event.channel_type) === "im";
+    const threadTs = isDM
+      ? previous?.thread_ts || ""
+      : previous?.thread_ts || previous?.ts || event.deleted_ts;
+    const threadId = this.encodeThreadId({
+      channel: event.channel,
+      threadTs,
+    });
+    const deletedAt = this.parseSlackTimestamp(event.event_ts ?? event.ts);
 
-    if (Object.keys(unfurls).length > 0) {
-      this.chat
-        .getState()
-        .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
-        .catch((error) => {
-          this.logger.error("Failed to cache unfurl metadata", { error });
-        });
-    }
+    this.chat.processMessageDeleted(
+      {
+        adapter: this,
+        channelId: event.channel,
+        deletedAt,
+        messageId: event.deleted_ts,
+        previousMessage: previous
+          ? this.parseSlackMessageSync(previous, threadId)
+          : undefined,
+        raw: event,
+        threadId,
+      },
+      options
+    );
   }
 
   /**
@@ -2830,6 +2911,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ),
       links: await this.enrichLinks(this.extractLinks(event), event.ts),
     });
+  }
+
+  protected parseSlackTimestamp(ts: string | undefined): Date | undefined {
+    if (!ts) {
+      return undefined;
+    }
+    const value = Number.parseFloat(ts);
+    if (Number.isNaN(value)) {
+      return undefined;
+    }
+    return new Date(value * 1000);
   }
 
   protected async enrichLinks(
