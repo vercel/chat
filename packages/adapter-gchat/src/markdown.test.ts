@@ -49,6 +49,40 @@ describe("GoogleChatFormatConverter", () => {
       expect(result).toContain("<https://example.com|click here>");
     });
 
+    it("collapses mailto autolink for plain email text", () => {
+      const ast = converter.toAst("hello@example.com");
+      
+      const result = converter.fromAst(ast);
+      
+      expect(result).toBe("hello@example.com");
+    });
+
+    it("preserves custom label for mailto links", () => {
+      const ast = converter.toAst("[contact](mailto:hello@example.com)");
+
+      const result = converter.fromAst(ast);
+
+      expect(result).toBe("<mailto:hello@example.com|contact>");
+    });
+
+    it("formats http links correctly", () => {
+      const input = "https://example.com";
+
+      const ast = converter.toAst(input);
+      const output = converter.fromAst(ast);
+
+      expect(output).toBe("https://example.com");
+    });
+
+    it("keeps phone numbers as plain text", () => {
+      const input = "+1555123456";
+
+      const ast = converter.toAst(input);
+      const output = converter.fromAst(ast);
+
+      expect(output).toBe("+1555123456");
+    });
+
     it("should handle blockquotes", () => {
       const ast = converter.toAst("> quoted text");
       const result = converter.fromAst(ast);
