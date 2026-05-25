@@ -130,6 +130,15 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/state-pg"
   },
   {
+    "name": "Cloudflare D1",
+    "slug": "d1",
+    "type": "state",
+    "description": "State adapter for Cloudflare Workers using D1 (SQLite) for persistence and distributed locking.",
+    "packageName": "@chat-adapter/state-d1",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/state-d1"
+  },
+  {
     "name": "Memory",
     "slug": "memory",
     "type": "state",

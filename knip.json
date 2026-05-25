@@ -6,6 +6,12 @@
     "apps/docs/**/*",
     "examples/nextjs-chat/src/app/.well-known/workflow/**/*"
   ],
+  "workspaces": {
+    "packages/state-d1": {
+      "entry": ["src/index.test.ts"],
+      "ignoreDependencies": ["wrangler", "cloudflare"]
+    }
+  },
   "rules": {
     "duplicates": "off",
     "types": "off",

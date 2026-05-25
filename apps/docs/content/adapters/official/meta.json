@@ -17,6 +17,7 @@
     "memory",
     "redis",
     "ioredis",
-    "postgres"
+    "postgres",
+    "d1"
   ]
 }

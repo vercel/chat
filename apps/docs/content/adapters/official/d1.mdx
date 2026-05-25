@@ -1,0 +1,121 @@
+---
+title: Cloudflare D1
+description: State adapter for Cloudflare Workers using D1 (SQLite).
+packageName: "@chat-adapter/state-d1"
+slug: d1
+type: state
+tagline: State adapter for Chat SDK running on Cloudflare Workers, backed by a D1 (SQLite) binding. Persistence, distributed locking, queues, lists, and caching with zero external services.
+beta: true
+features:
+  persistence: yes
+  multiInstance: yes
+  subscriptions: yes
+  distributedLocking: yes
+  keyValueCache:
+    status: yes
+    label: TTL
+  lists: yes
+  queues: yes
+  keyPrefix: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/state-d1" />
+
+## Quick start
+
+D1 is a Cloudflare Workers binding, so the adapter is wired up inside your Worker and receives the `D1Database` from `env`.
+
+```jsonc title="wrangler.jsonc"
+{
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chat-state",
+      "database_id": "<your-d1-database-id>"
+    }
+  ]
+}
+```
+
+```typescript title="src/index.ts" lineNumbers
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createD1State } from "@chat-adapter/state-d1";
+
+interface Env {
+  DB: D1Database;
+}
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const bot = new Chat({
+      userName: "mybot",
+      adapters: { slack: createSlackAdapter() },
+      state: createD1State({ database: env.DB }),
+    });
+
+    return bot.webhooks.slack(request);
+  },
+};
+```
+
+The adapter creates its tables on `connect()` if they don't already exist.
+
+## Configuration
+
+<TypeTable
+  type={{
+    database: {
+      type: "D1Database",
+      description:
+        "The D1 binding from your Worker `env`. Required.",
+    },
+    keyPrefix: {
+      type: "string",
+      default: '"chat-sdk"',
+      description: "Prefix applied to every row written by the adapter.",
+    },
+    logger: {
+      type: "Logger",
+      description:
+        'Logger instance. Defaults to `ConsoleLogger("info").child("d1")`.',
+    },
+  }}
+/>
+
+## Advanced
+
+### Data model
+
+The following tables are created on first connect:
+
+```
+chat_state_subscriptions
+chat_state_locks
+chat_state_cache
+chat_state_lists
+chat_state_queues
+```
+
+All rows are namespaced by `key_prefix`.
+
+### Locking and atomicity
+
+The Redis adapters use atomic `SET NX PX` for lock acquisition. The D1 adapter uses `INSERT ... ON CONFLICT DO UPDATE WHERE expires_at <= ?` (an expired lock is atomically stolen, a live one is left untouched). Compound operations — `setIfNotExists`, `appendToList`, and `enqueue` — run as a single `db.batch()`, which D1 executes in one implicit transaction. D1 is single-writer per database, so these operations serialize safely.
+
+### Expired row cleanup
+
+D1 does not delete expired rows automatically. The adapter cleans up opportunistically — expired locks are overwritten on the next `acquireLock()`, expired cache entries are filtered on `get()`, expired queue entries are purged on `enqueue()`/`dequeue()`, and so on. For high-throughput deployments, run a periodic [Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/) that deletes expired rows:
+
+```sql
+DELETE FROM chat_state_locks WHERE expires_at <= ?;
+DELETE FROM chat_state_cache WHERE expires_at IS NOT NULL AND expires_at <= ?;
+DELETE FROM chat_state_lists WHERE expires_at IS NOT NULL AND expires_at <= ?;
+DELETE FROM chat_state_queues WHERE expires_at <= ?;
+```
+
+## Feature support
+
+<FeatureSupport />

@@ -1,0 +1,60 @@
+{
+  "name": "@chat-adapter/state-d1",
+  "version": "4.29.0",
+  "description": "Cloudflare D1 state adapter for chat",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "chat": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/state-d1"
+  },
+  "homepage": "https://github.com/vercel/chat#readme",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "state",
+    "cloudflare",
+    "d1"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.9",
+    "@cloudflare/workers-types": "^4.20260523.1",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.7",
+    "wrangler": "^4.94.0"
+  }
+}
