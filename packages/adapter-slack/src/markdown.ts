@@ -32,11 +32,9 @@ import {
   stringifyMarkdown,
   tableToAscii,
 } from "chat";
+import { linkBareSlackMentions, slackMrkdwnToMarkdown } from "./format";
 
-// Match bare @mentions (e.g. "@george") to rewrite as Slack's `<@george>`.
-// The lookbehind excludes `<` (already-formatted mentions like `<@U123>`) and
-// any word character, so email addresses like `user@example.com` are left alone.
-const BARE_MENTION_REGEX = /(?<![<\w])@(\w+)/g;
+const BARE_MENTION_PATTERN = /(?<![<\w])@(\w+)/g;
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
@@ -53,32 +51,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    * Parse Slack mrkdwn into an AST. Used for incoming `message` events.
    */
   toAst(mrkdwn: string): Root {
-    let markdown = mrkdwn;
-
-    // User mentions: <@U123|name> -> @name or <@U123> -> @U123
-    markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^<>]+)>/g, "@$2");
-    markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
-
-    // Channel mentions: <#C123|name> -> #name
-    markdown = markdown.replace(/<#[A-Z0-9_]+\|([^<>]+)>/g, "#$1");
-    markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
-
-    // Links: <url|text> -> [text](url)
-    markdown = markdown.replace(
-      /<(https?:\/\/[^|<>]+)\|([^<>]+)>/g,
-      "[$2]($1)"
-    );
-
-    // Bare links: <url> -> url
-    markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
-
-    // Bold: *text* -> **text** (Slack uses single * for bold)
-    markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
-
-    // Strikethrough: ~text~ -> ~~text~~
-    markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
-
-    return parseMarkdown(markdown);
+    return parseMarkdown(slackMrkdwnToMarkdown(mrkdwn));
   }
 
   /**
@@ -136,7 +109,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
   private finalize(text: string): string {
     return convertEmojiPlaceholders(
-      text.replace(BARE_MENTION_REGEX, "<@$1>"),
+      linkBareMentionNames(linkBareSlackMentions(text)),
       "slack"
     );
   }
@@ -155,7 +128,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      return node.value.replace(BARE_MENTION_REGEX, "<@$1>");
+      return linkBareMentionNames(linkBareSlackMentions(node.value));
     }
 
     if (isStrongNode(node)) {
@@ -218,4 +191,8 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
     return this.defaultNodeToText(node, (child) => this.nodeToMrkdwn(child));
   }
+}
+
+function linkBareMentionNames(text: string): string {
+  return text.replace(BARE_MENTION_PATTERN, "<@$1>");
 }

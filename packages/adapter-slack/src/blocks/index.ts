@@ -1,3 +1,4 @@
+import { markdownBoldToSlackMrkdwn } from "../format";
 import { SlackBlockError } from "./errors";
 import { LIMITS } from "./limits";
 import type {
@@ -451,10 +452,6 @@ function rawText(
     text: nonemptyText(convertEmoji(text)),
     type: "raw_text",
   };
-}
-
-function markdownBoldToSlackMrkdwn(text: string): string {
-  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
 }
 
 function mapButtonStyle(
