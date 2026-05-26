@@ -1,0 +1,407 @@
+import { describe, expect, it } from "vitest";
+import {
+  cardToBlockKit,
+  cardToFallbackText,
+  cardToSlackBlocks,
+  cardToSlackFallbackText,
+  convertSlackEmojiPlaceholders,
+  type SlackCardElement,
+} from "./index";
+
+function card(children: SlackCardElement["children"] = []): SlackCardElement {
+  return {
+    children,
+    type: "card",
+  };
+}
+
+describe("Slack Block Kit primitives", () => {
+  it("converts card headers and context", () => {
+    expect(
+      cardToSlackBlocks({
+        children: [],
+        imageUrl: "https://example.com/image.png",
+        subtitle: "Status changed",
+        title: "Order",
+        type: "card",
+      })
+    ).toEqual([
+      {
+        text: { emoji: true, text: "Order", type: "plain_text" },
+        type: "header",
+      },
+      {
+        elements: [{ text: "Status changed", type: "mrkdwn" }],
+        type: "context",
+      },
+      {
+        alt_text: "Order",
+        image_url: "https://example.com/image.png",
+        type: "image",
+      },
+    ]);
+  });
+
+  it("truncates header text to Slack's header block limit", () => {
+    const title = "a".repeat(200);
+
+    expect(cardToSlackBlocks({ children: [], title, type: "card" })[0]).toEqual(
+      {
+        text: { emoji: true, text: "a".repeat(150), type: "plain_text" },
+        type: "header",
+      }
+    );
+  });
+
+  it("truncates image URLs to Slack's image block limit", () => {
+    const longUrl = `https://example.com/${"a".repeat(4000)}`;
+    const topBlocks = cardToSlackBlocks({
+      children: [],
+      imageUrl: longUrl,
+      title: "{{emoji:frame}}",
+      type: "card",
+    });
+
+    expect(topBlocks[0]).toEqual({
+      text: { emoji: true, text: ":frame:", type: "plain_text" },
+      type: "header",
+    });
+    expect(topBlocks[1]).toEqual({
+      alt_text: ":frame:",
+      image_url: `https://example.com/${"a".repeat(2980)}`,
+      type: "image",
+    });
+    expect(
+      cardToSlackBlocks({
+        children: [{ type: "image", url: longUrl }],
+        type: "card",
+      })[0]
+    ).toEqual({
+      alt_text: "Image",
+      image_url: `https://example.com/${"a".repeat(2980)}`,
+      type: "image",
+    });
+  });
+
+  it("converts text and links", () => {
+    expect(
+      cardToSlackBlocks(
+        card([
+          { content: "plain", type: "text" },
+          { content: "bold", style: "bold", type: "text" },
+          { content: "muted", style: "muted", type: "text" },
+          { label: "Docs", type: "link", url: "https://example.com" },
+        ])
+      )
+    ).toEqual([
+      { text: { text: "plain", type: "mrkdwn" }, type: "section" },
+      { text: { text: "*bold*", type: "mrkdwn" }, type: "section" },
+      { elements: [{ text: "muted", type: "mrkdwn" }], type: "context" },
+      {
+        text: { text: "<https://example.com|Docs>", type: "mrkdwn" },
+        type: "section",
+      },
+    ]);
+  });
+
+  it("converts actions", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "approve",
+              label: "Approve",
+              style: "primary",
+              type: "button",
+            },
+            {
+              label: "Docs",
+              style: "default",
+              type: "link-button",
+              url: "https://example.com/docs",
+            },
+            {
+              id: "status",
+              label: "Status",
+              options: [
+                { label: "Open", value: "open" },
+                { label: "Closed", value: "closed" },
+              ],
+              placeholder: "Choose",
+              type: "select",
+            },
+            {
+              id: "plan",
+              label: "Plan",
+              options: [
+                { description: "For teams", label: "Pro", value: "pro" },
+              ],
+              type: "radio_select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toMatchObject({
+      elements: [
+        {
+          action_id: "approve",
+          style: "primary",
+          text: { emoji: true, text: "Approve", type: "plain_text" },
+          type: "button",
+        },
+        {
+          text: { emoji: true, text: "Docs", type: "plain_text" },
+          type: "button",
+          url: "https://example.com/docs",
+        },
+        {
+          action_id: "status",
+          options: [
+            { text: { text: "Open", type: "plain_text" }, value: "open" },
+            { text: { text: "Closed", type: "plain_text" }, value: "closed" },
+          ],
+          placeholder: { emoji: true, text: "Choose", type: "plain_text" },
+          type: "static_select",
+        },
+        {
+          action_id: "plan",
+          options: [
+            {
+              description: { text: "For teams", type: "mrkdwn" },
+              text: { text: "Pro", type: "mrkdwn" },
+              value: "pro",
+            },
+          ],
+          type: "radio_buttons",
+        },
+      ],
+      type: "actions",
+    });
+  });
+
+  it("limits action elements and select options to Slack limits", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          children: Array.from({ length: 30 }, (_, index) => ({
+            id: `b${index}`,
+            label: `Button ${index}`,
+            type: "button" as const,
+          })),
+          type: "actions",
+        },
+        {
+          children: [
+            {
+              id: "select",
+              label: "Select",
+              options: Array.from({ length: 120 }, (_, index) => ({
+                label: `Option ${index}`,
+                value: `value-${index}`,
+              })),
+              type: "select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect((blocks[0].elements as unknown[]).length).toBe(25);
+    expect(
+      (blocks[1].elements as Array<{ options: unknown[] }>)[0].options.length
+    ).toBe(100);
+  });
+
+  it("truncates option values to Slack's option object limit", () => {
+    const [block] = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "select",
+              label: "Select",
+              options: [{ label: "Option", value: "v".repeat(200) }],
+              type: "select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(
+      (block.elements as Array<{ options: Array<{ value: string }> }>)[0]
+        .options[0].value
+    ).toBe("v".repeat(150));
+  });
+
+  it("matches truncated initial options for select elements", () => {
+    const longValue = "v".repeat(200);
+    const [block] = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "select",
+              initialOption: longValue,
+              label: "Select",
+              options: [{ label: "Option", value: longValue }],
+              type: "select",
+            },
+            {
+              id: "radio",
+              initialOption: longValue,
+              label: "Radio",
+              options: [{ label: "Option", value: longValue }],
+              type: "radio_select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(
+      (
+        block.elements as Array<{
+          initial_option: { value: string };
+        }>
+      )[0].initial_option.value
+    ).toBe("v".repeat(150));
+    expect(
+      (
+        block.elements as Array<{
+          initial_option: { value: string };
+        }>
+      )[1].initial_option.value
+    ).toBe("v".repeat(150));
+  });
+
+  it("omits initial options when no initial value is provided", () => {
+    const [block] = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "select",
+              label: "Select",
+              options: [{ label: "Option", value: "" }],
+              type: "select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(
+      (block.elements as Array<{ initial_option?: unknown }>)[0].initial_option
+    ).toBeUndefined();
+  });
+
+  it("converts fields and tables", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            { label: "Name", type: "field", value: "Ada" },
+            { label: "Role", type: "field", value: "Engineer" },
+          ],
+          type: "fields",
+        },
+        {
+          align: ["left", "right"],
+          headers: ["Name", "Score"],
+          rows: [["Ada", "10"]],
+          type: "table",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toEqual({
+      fields: [
+        { text: "*Name*\nAda", type: "mrkdwn" },
+        { text: "*Role*\nEngineer", type: "mrkdwn" },
+      ],
+      type: "section",
+    });
+    expect(blocks[1]).toEqual({
+      column_settings: [{ align: "left" }, { align: "right" }],
+      rows: [
+        [
+          { text: "Name", type: "raw_text" },
+          { text: "Score", type: "raw_text" },
+        ],
+        [
+          { text: "Ada", type: "raw_text" },
+          { text: "10", type: "raw_text" },
+        ],
+      ],
+      type: "table",
+    });
+  });
+
+  it("falls back to ASCII tables after one native table", () => {
+    const table = {
+      headers: ["A", "B"],
+      rows: [["1", "2"]],
+      type: "table" as const,
+    };
+
+    expect(cardToSlackBlocks(card([table, table]))[1]).toEqual({
+      text: { text: "```\nA | B\n1 | 2\n```", type: "mrkdwn" },
+      type: "section",
+    });
+  });
+
+  it("generates Slack fallback text", () => {
+    expect(
+      cardToSlackFallbackText({
+        children: [
+          { content: "Hello", type: "text" },
+          {
+            children: [{ label: "Status", type: "field", value: "Ready" }],
+            type: "fields",
+          },
+          {
+            children: [{ id: "ok", label: "OK", type: "button" }],
+            type: "actions",
+          },
+        ],
+        subtitle: "Sub",
+        title: "Title",
+        type: "card",
+      })
+    ).toBe("*Title*\nSub\nHello\nStatus: Ready");
+  });
+
+  it("keeps compatibility aliases", () => {
+    const input = card([{ content: "hello", type: "text" }]);
+
+    expect(cardToBlockKit(input)).toEqual(cardToSlackBlocks(input));
+    expect(cardToFallbackText(input)).toBe(cardToSlackFallbackText(input));
+  });
+
+  it("supports custom emoji conversion", () => {
+    const input = card([{ content: "{{emoji:thumbs_up}}", type: "text" }]);
+
+    expect(cardToSlackBlocks(input)[0]).toEqual({
+      text: { text: ":thumbs_up:", type: "mrkdwn" },
+      type: "section",
+    });
+    expect(cardToSlackBlocks(input, { convertEmoji: () => ":+1:" })[0]).toEqual(
+      {
+        text: { text: ":+1:", type: "mrkdwn" },
+        type: "section",
+      }
+    );
+    expect(convertSlackEmojiPlaceholders("hi {{emoji:wave}}")).toBe(
+      "hi :wave:"
+    );
+  });
+});
