@@ -25,6 +25,10 @@
     "./api": {
       "types": "./dist/api.d.ts",
       "import": "./dist/api.js"
+    },
+    "./blocks": {
+      "types": "./dist/blocks.d.ts",
+      "import": "./dist/blocks.js"
     }
   },
   "files": [
