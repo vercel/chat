@@ -270,9 +270,7 @@ function selectToElement(
     .map((option) => optionObject(option, convertEmoji, "plain_text"));
   return compact({
     action_id: truncateText(select.id, LIMITS.actionId),
-    initial_option: options.find(
-      (option) => option.value === select.initialOption
-    ),
+    initial_option: findInitialOption(options, select.initialOption),
     options,
     placeholder: select.placeholder
       ? plainText(select.placeholder, convertEmoji, LIMITS.placeholder)
@@ -290,12 +288,21 @@ function radioSelectToElement(
     .map((option) => optionObject(option, convertEmoji, "mrkdwn"));
   return compact({
     action_id: truncateText(select.id, LIMITS.actionId),
-    initial_option: options.find(
-      (option) => option.value === select.initialOption
-    ),
+    initial_option: findInitialOption(options, select.initialOption),
     options,
     type: "radio_buttons",
   });
+}
+
+function findInitialOption(
+  options: Record<string, unknown>[],
+  initialOption: string | undefined
+): Record<string, unknown> | undefined {
+  if (initialOption === undefined) {
+    return undefined;
+  }
+  const value = truncateText(initialOption, LIMITS.optionValue);
+  return options.find((option) => option.value === value);
 }
 
 function optionObject(

@@ -240,6 +240,70 @@ describe("Slack Block Kit primitives", () => {
     ).toBe("v".repeat(150));
   });
 
+  it("matches truncated initial options for select elements", () => {
+    const longValue = "v".repeat(200);
+    const [block] = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "select",
+              initialOption: longValue,
+              label: "Select",
+              options: [{ label: "Option", value: longValue }],
+              type: "select",
+            },
+            {
+              id: "radio",
+              initialOption: longValue,
+              label: "Radio",
+              options: [{ label: "Option", value: longValue }],
+              type: "radio_select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(
+      (
+        block.elements as Array<{
+          initial_option: { value: string };
+        }>
+      )[0].initial_option.value
+    ).toBe("v".repeat(150));
+    expect(
+      (
+        block.elements as Array<{
+          initial_option: { value: string };
+        }>
+      )[1].initial_option.value
+    ).toBe("v".repeat(150));
+  });
+
+  it("omits initial options when no initial value is provided", () => {
+    const [block] = cardToSlackBlocks(
+      card([
+        {
+          children: [
+            {
+              id: "select",
+              label: "Select",
+              options: [{ label: "Option", value: "" }],
+              type: "select",
+            },
+          ],
+          type: "actions",
+        },
+      ])
+    );
+
+    expect(
+      (block.elements as Array<{ initial_option?: unknown }>)[0].initial_option
+    ).toBeUndefined();
+  });
+
   it("converts fields and tables", () => {
     const blocks = cardToSlackBlocks(
       card([
