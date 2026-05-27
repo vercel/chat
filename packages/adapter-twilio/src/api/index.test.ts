@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  callTwilioApi,
   deleteTwilioMessage,
   fetchTwilioMedia,
   fetchTwilioMessage,
@@ -10,6 +11,28 @@ import {
 } from "./index";
 
 describe("Twilio api helpers", () => {
+  it("supports object-shaped raw API calls", async () => {
+    const request = mockFetch({ ok: true });
+
+    const response = await callTwilioApi({
+      apiBaseUrl: "https://twilio.test",
+      body: { Body: "hello", Optional: undefined, To: "+15550000002" },
+      credentials: credentials(),
+      fetch: request,
+      path: "/2010-04-01/Accounts/AC123/Messages.json",
+    });
+
+    expect(response.ok).toBe(true);
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      "https://twilio.test/2010-04-01/Accounts/AC123/Messages.json"
+    );
+    const body = request.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(Object.fromEntries(body)).toEqual({
+      Body: "hello",
+      To: "+15550000002",
+    });
+  });
+
   it("sends form encoded messages with phone number sender", async () => {
     const request = mockFetch({ sid: "SM123" });
 

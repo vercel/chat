@@ -6,7 +6,18 @@ export interface TwilioCredentials {
   authToken?: TwilioCredential;
 }
 
+export type TwilioFormValue =
+  | boolean
+  | number
+  | readonly string[]
+  | string
+  | null
+  | undefined;
+
+export type TwilioFormFields = Readonly<Record<string, TwilioFormValue>>;
+
 export interface TwilioApiOptions {
+  apiBaseUrl?: string;
   apiUrl?: string;
   credentials?: TwilioCredentials;
   fetch?: TwilioFetch;
@@ -90,6 +101,13 @@ export interface ListTwilioMessagesOptions extends TwilioApiOptions {
   to?: string;
 }
 
+export interface CallTwilioApiOptions extends TwilioApiOptions {
+  body?: TwilioFormFields | URLSearchParams;
+  method?: "DELETE" | "GET" | "POST";
+  path: string;
+  search?: TwilioFormFields | URLSearchParams;
+}
+
 export class TwilioApiError extends Error {
   body: unknown;
   status: number;
@@ -119,45 +137,49 @@ export async function resolveTwilioCredential(
 }
 
 export async function callTwilioApi(
-  path: string,
-  options: TwilioApiOptions & {
-    body?: URLSearchParams;
-    method?: "DELETE" | "GET" | "POST";
-    search?: URLSearchParams;
-  } = {}
+  pathOrOptions: CallTwilioApiOptions | string,
+  options: Omit<CallTwilioApiOptions, "path"> = {}
 ): Promise<TwilioApiResponse> {
+  const requestOptions =
+    typeof pathOrOptions === "string"
+      ? { ...options, path: pathOrOptions }
+      : pathOrOptions;
   const accountSid = await resolveTwilioCredential(
-    options.credentials?.accountSid,
+    requestOptions.credentials?.accountSid,
     "TWILIO_ACCOUNT_SID"
   );
   const authToken = await resolveTwilioCredential(
-    options.credentials?.authToken,
+    requestOptions.credentials?.authToken,
     "TWILIO_AUTH_TOKEN"
   );
-  const url = new URL(path, options.apiUrl ?? DEFAULT_API_URL);
-  for (const [key, value] of options.search ?? []) {
+  const url = new URL(
+    requestOptions.path,
+    requestOptions.apiUrl ?? requestOptions.apiBaseUrl ?? DEFAULT_API_URL
+  );
+  for (const [key, value] of formParams(requestOptions.search) ?? []) {
     url.searchParams.append(key, value);
   }
-  const request = options.fetch ?? fetch;
+  const body = formParams(requestOptions.body);
+  const request = requestOptions.fetch ?? fetch;
   const response = await request(url, {
-    body: options.body,
+    body,
     headers: {
       authorization: twilioAuthorization(accountSid, authToken),
-      ...(options.body
+      ...(body
         ? { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" }
         : {}),
     },
-    method: options.method ?? "POST",
+    method: requestOptions.method ?? "POST",
   });
-  const body = await parseTwilioResponse(response);
+  const responseBody = await parseTwilioResponse(response);
   if (!response.ok) {
     throw new TwilioApiError(`Twilio API returned HTTP ${response.status}`, {
-      body,
+      body: responseBody,
       status: response.status,
     });
   }
   return {
-    body,
+    body: responseBody,
     ok: response.ok,
     status: response.status,
   };
@@ -296,14 +318,7 @@ export async function listTwilioMessages(
   return (body.messages ?? []).slice(0, options.limit);
 }
 
-export function encodeTwilioForm(
-  fields: Readonly<
-    Record<
-      string,
-      boolean | number | readonly string[] | string | null | undefined
-    >
-  >
-): URLSearchParams {
+export function encodeTwilioForm(fields: TwilioFormFields): URLSearchParams {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined || value === null) {
@@ -318,6 +333,15 @@ export function encodeTwilioForm(
     params.set(key, String(value));
   }
   return params;
+}
+
+function formParams(
+  fields: TwilioFormFields | URLSearchParams | undefined
+): URLSearchParams | undefined {
+  if (fields === undefined) {
+    return undefined;
+  }
+  return fields instanceof URLSearchParams ? fields : encodeTwilioForm(fields);
 }
 
 function twilioAuthorization(accountSid: string, authToken: string): string {
