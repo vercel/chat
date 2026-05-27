@@ -225,6 +225,12 @@ Single-workspace mode (with a static `botToken` or synchronous resolver) returns
 
 > The previous `.client` getter still works as a deprecated alias for `.webClient`.
 
+### Low-level Slack APIs
+
+If your app already owns routing, state, sessions, or workflow execution, use the [low-level Slack APIs](/docs/slack-primitives) instead of the full adapter runtime.
+
+The `@chat-adapter/slack/webhook`, `@chat-adapter/slack/format`, `@chat-adapter/slack/api`, and `@chat-adapter/slack/blocks` subpaths expose request verification, payload parsing, mrkdwn helpers, fetch-based Web API calls, and Block Kit conversion without importing the full `Chat` runtime.
+
 ## Advanced
 
 ### Slack app manifest
