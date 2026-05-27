@@ -11,6 +11,7 @@ import {
   slack,
   teams,
   telegram,
+  twilio,
   web,
   whatsapp,
 } from "@/lib/logos";
@@ -32,6 +33,7 @@ const ICON_MAP: Record<
   postgres,
   memory,
   whatsapp,
+  twilio,
   messenger,
 };
 

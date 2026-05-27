@@ -80,6 +80,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-whatsapp"
   },
   {
+    "name": "Twilio",
+    "slug": "twilio",
+    "type": "platform",
+    "icon": "twilio",
+    "description": "Build SMS and MMS bots with Twilio Messaging webhooks and the Messages API.",
+    "packageName": "@chat-adapter/twilio",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-twilio"
+  },
+  {
     "name": "Messenger",
     "slug": "messenger",
     "type": "platform",

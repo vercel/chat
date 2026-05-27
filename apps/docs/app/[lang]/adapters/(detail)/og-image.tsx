@@ -54,6 +54,11 @@ const ADAPTER_LOGOS: Record<
     width: LOGO_SIZE,
     height: LOGO_SIZE,
   },
+  twilio: {
+    component: logos.twilio,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+  },
 };
 
 const FONTS_DIR = "app/[lang]/og/[...slug]";
