@@ -225,6 +225,8 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
+Custom voice routes should verify the Twilio signature and apply your own caller allow-list before returning TwiML.
+
 For live calls, `updateTwilioCall()` in `@chat-adapter/twilio/api` can post replacement TwiML or redirect the call to another URL.
 
 ### Notes
