@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  answeredSlackInputBlocks,
+  buildSlackFreeformView,
   cardToBlockKit,
   cardToFallbackText,
   cardToSlackBlocks,
   cardToSlackFallbackText,
   convertSlackEmojiPlaceholders,
+  inputRequestToSlackBlocks,
+  parseSlackFreeformValue,
+  parseSlackInputResponse,
   type SlackCardElement,
 } from "./index";
 
@@ -403,5 +408,174 @@ describe("Slack Block Kit primitives", () => {
     expect(convertSlackEmojiPlaceholders("hi {{emoji:wave}}")).toBe(
       "hi :wave:"
     );
+  });
+
+  it("renders input requests as Slack buttons", () => {
+    expect(
+      inputRequestToSlackBlocks({
+        options: [
+          { id: "approve", label: "Approve", style: "primary" },
+          { id: "deny", label: "Deny", style: "danger" },
+        ],
+        prompt: "Approve deploy?",
+        requestId: "req-1",
+      })
+    ).toEqual([
+      {
+        text: { text: "Approve deploy?", type: "mrkdwn" },
+        type: "section",
+      },
+      {
+        elements: [
+          {
+            action_id: "input:req-1:button:0",
+            style: "primary",
+            text: { text: "Approve", type: "plain_text" },
+            type: "button",
+            value: "approve",
+          },
+          {
+            action_id: "input:req-1:button:1",
+            style: "danger",
+            text: { text: "Deny", type: "plain_text" },
+            type: "button",
+            value: "deny",
+          },
+        ],
+        type: "actions",
+      },
+    ]);
+  });
+
+  it("renders input requests as selects", () => {
+    expect(
+      inputRequestToSlackBlocks({
+        display: "select",
+        options: [{ id: "one", label: "One" }],
+        prompt: "Pick one",
+        requestId: "req-1",
+      })[1]
+    ).toEqual({
+      elements: [
+        {
+          action_id: "input:req-1",
+          options: [
+            {
+              text: { text: "One", type: "plain_text" },
+              value: "one",
+            },
+          ],
+          placeholder: { text: "Choose an option", type: "plain_text" },
+          type: "static_select",
+        },
+      ],
+      type: "actions",
+    });
+  });
+
+  it("renders input requests as radios", () => {
+    expect(
+      inputRequestToSlackBlocks({
+        display: "radio",
+        options: [{ id: "one", label: "One" }],
+        prompt: "Pick one",
+        requestId: "req-1",
+      })[1]
+    ).toEqual({
+      elements: [
+        {
+          action_id: "input:req-1",
+          options: [
+            {
+              text: { text: "One", type: "plain_text" },
+              value: "one",
+            },
+          ],
+          type: "radio_buttons",
+        },
+      ],
+      type: "actions",
+    });
+  });
+
+  it("renders freeform alongside options when allowed", () => {
+    expect(
+      inputRequestToSlackBlocks({
+        allowFreeform: true,
+        options: [{ id: "approve", label: "Approve" }],
+        prompt: "Approve deploy?",
+        requestId: "req-1",
+      })[1]
+    ).toEqual({
+      elements: [
+        {
+          action_id: "input:req-1:button:0",
+          text: { text: "Approve", type: "plain_text" },
+          type: "button",
+          value: "approve",
+        },
+        {
+          action_id: "input-freeform:req-1",
+          style: "primary",
+          text: { text: "Type your answer", type: "plain_text" },
+          type: "button",
+          value: "req-1",
+        },
+      ],
+      type: "actions",
+    });
+  });
+
+  it("renders and reads freeform input modals", () => {
+    const view = buildSlackFreeformView({
+      metadata: { requestId: "req-1" },
+      prompt: "Tell me why",
+    });
+
+    expect(view).toMatchObject({
+      callback_id: "input-freeform-submit",
+      private_metadata: '{"requestId":"req-1"}',
+      title: { text: "Tell me why", type: "plain_text" },
+      type: "modal",
+    });
+    expect(
+      parseSlackFreeformValue([
+        {
+          actionId: "input-freeform-text",
+          blockId: "input-freeform-block",
+          value: "because",
+        },
+      ])
+    ).toBe("because");
+  });
+
+  it("parses input actions and answered blocks", () => {
+    expect(
+      parseSlackInputResponse({
+        actionId: "input:req-1:button:0",
+        value: "approve",
+      })
+    ).toEqual({ optionId: "approve", requestId: "req-1" });
+    expect(
+      parseSlackInputResponse({
+        actionId: "input:req-2",
+        selectedOptionValue: "later",
+      })
+    ).toEqual({ optionId: "later", requestId: "req-2" });
+    expect(
+      answeredSlackInputBlocks({
+        answer: "Approve",
+        userId: "U123",
+      })
+    ).toEqual([
+      {
+        text: { text: ":white_check_mark: *Approve*", type: "mrkdwn" },
+        type: "section",
+      },
+      {
+        elements: [{ text: "Answered by <@U123>", type: "mrkdwn" }],
+        type: "context",
+      },
+    ]);
   });
 });

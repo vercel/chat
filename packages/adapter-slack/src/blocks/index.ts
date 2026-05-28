@@ -22,6 +22,7 @@ import type {
 } from "./types";
 
 export { SlackBlockError } from "./errors";
+export * from "./input";
 export type {
   SlackActionsElement,
   SlackBlock,
