@@ -1,4 +1,4 @@
 {
   "title": "Vendor-Official Adapters",
-  "pages": ["matrix", "imessage", "liveblocks", "resend", "zernio"]
+  "pages": ["matrix", "imessage", "liveblocks", "resend", "zernio", "agentphone"]
 }
