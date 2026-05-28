@@ -83,6 +83,14 @@ describe("GoogleChatFormatConverter", () => {
       expect(output).toBe("+1555123456");
     });
 
+    it("collapses tel autolink for plain phone text", () => {
+      const ast = converter.toAst("[+1555123456](tel:+1555123456)");
+
+      const result = converter.fromAst(ast);
+
+      expect(result).toBe("+1555123456");
+    });
+
     it("should handle blockquotes", () => {
       const ast = converter.toAst("> quoted text");
       const result = converter.fromAst(ast);
