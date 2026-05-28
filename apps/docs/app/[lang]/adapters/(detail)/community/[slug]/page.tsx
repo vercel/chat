@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
+import type { ComponentProps, FC } from "react";
 import adaptersJson from "@/adapters.json";
 import { AdapterHero } from "@/components/geistdocs/adapter-hero";
 import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
@@ -16,12 +16,10 @@ import { ReadmeContent } from "../../../components/readme-content";
 
 const EXTERNAL_HREF_PATTERN = /^https?:\/\//i;
 
-type MdxLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>;
+type MdxLinkProps = ComponentProps<"a">;
 
-const wrapWithNofollow = (
-  BaseLink: (props: MdxLinkProps) => ReactNode
-): ((props: MdxLinkProps) => ReactNode) => {
-  const NofollowExternalLink = (props: MdxLinkProps): ReactNode => {
+const wrapWithNofollow = (BaseLink: FC<MdxLinkProps>): FC<MdxLinkProps> => {
+  const NofollowExternalLink: FC<MdxLinkProps> = (props) => {
     if (props.href && EXTERNAL_HREF_PATTERN.test(props.href)) {
       const { children, ...rest } = props;
       return (
@@ -30,7 +28,7 @@ const wrapWithNofollow = (
         </a>
       );
     }
-    return BaseLink(props);
+    return <BaseLink {...props} />;
   };
   return NofollowExternalLink;
 };
