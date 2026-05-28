@@ -31,3 +31,53 @@ export function reviver(_key: string, value: unknown): unknown {
   }
   return value;
 }
+
+/**
+ * Strict variant of {@link reviver}. Throws when a value looks like a
+ * Thread / Channel / Message (i.e. it carries the SDK's required keys)
+ * but is missing the `_type` discriminator the standard reviver needs.
+ *
+ * Use when you construct Thread/Message references by hand and pass
+ * them through `JSON.parse(..., reviver)` — the standard reviver
+ * silently returns the literal in that case, and downstream
+ * `thread.post()` then throws "thread.post is not a function" deep
+ * inside delivery code. `strictReviver()` surfaces the mistake at
+ * the parse boundary instead.
+ *
+ * @example
+ * ```typescript
+ * const data = JSON.parse(payload, strictReviver());
+ * // throws: "[chat-sdk] reviver: object with Thread-shaped keys
+ * //          (id, channelId, isDM) is missing `_type: 'chat:Thread'`."
+ * ```
+ */
+export function strictReviver(): (key: string, value: unknown) => unknown {
+  return (key, value) => {
+    if (value && typeof value === "object" && !("_type" in value)) {
+      const o = value as Record<string, unknown>;
+      // Thread-shaped: has SerializedThread's required keys.
+      if (
+        typeof o.id === "string" &&
+        typeof o.channelId === "string" &&
+        typeof o.isDM === "boolean"
+      ) {
+        throw new Error(
+          "[chat-sdk] reviver: object with Thread-shaped keys (id, channelId, isDM) is missing `_type: 'chat:Thread'`. " +
+            `Add the discriminator or construct via ThreadImpl.fromJSON / new ThreadImpl({...}). Key: ${JSON.stringify(key)}`
+        );
+      }
+      // Message-shaped.
+      if (
+        typeof o.id === "string" &&
+        typeof o.threadId === "string" &&
+        ("text" in o || "parts" in o)
+      ) {
+        throw new Error(
+          "[chat-sdk] reviver: object with Message-shaped keys (id, threadId, text/parts) is missing `_type: 'chat:Message'`. " +
+            `Add the discriminator or construct via Message.fromJSON. Key: ${JSON.stringify(key)}`
+        );
+      }
+    }
+    return reviver(key, value);
+  };
+}
