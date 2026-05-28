@@ -251,6 +251,12 @@ Behavioural changes need a changeset (`pnpm changeset`, choose
 `@chat-adapter/discord` plus `chat` if a public type changed). Sample
 fixtures and AGENTS.md edits don't.
 
+## Resources
+
+- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis) — Walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
+
 ## Where to look next
 
 - User-facing docs: [`apps/docs/content/adapters/official/discord.mdx`](../../apps/docs/content/adapters/official/discord.mdx)

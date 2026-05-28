@@ -242,6 +242,12 @@ Behavioural changes need a changeset (`pnpm changeset`, choose
 `@chat-adapter/github` plus `chat` if a public type changed). Sample
 fixtures and AGENTS.md edits don't.
 
+## Resources
+
+- [Ship a GitHub code review bot with Hono and Redis](https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis) — Walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
+
 ## Where to look next
 
 - User-facing docs: [`apps/docs/content/adapters/official/github.mdx`](../../apps/docs/content/adapters/official/github.mdx)
