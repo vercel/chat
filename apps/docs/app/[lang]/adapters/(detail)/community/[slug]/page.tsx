@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import adaptersJson from "@/adapters.json";
 import { AdapterHero } from "@/components/geistdocs/adapter-hero";
 import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
@@ -12,6 +13,27 @@ import { Upsell } from "@/components/geistdocs/upsell";
 import type { AdapterFeatureValue } from "@/lib/adapter-features";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 import { ReadmeContent } from "../../../components/readme-content";
+
+const EXTERNAL_HREF_PATTERN = /^https?:\/\//i;
+
+type MdxLinkProps = AnchorHTMLAttributes<HTMLAnchorElement>;
+
+const wrapWithNofollow = (
+  BaseLink: (props: MdxLinkProps) => ReactNode
+): ((props: MdxLinkProps) => ReactNode) => {
+  const NofollowExternalLink = (props: MdxLinkProps): ReactNode => {
+    if (props.href && EXTERNAL_HREF_PATTERN.test(props.href)) {
+      const { children, ...rest } = props;
+      return (
+        <a {...rest} rel="nofollow ugc noopener noreferrer" target="_blank">
+          {children}
+        </a>
+      );
+    }
+    return BaseLink(props);
+  };
+  return NofollowExternalLink;
+};
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
 const GITHUB_SUBPATH_PATTERN =
@@ -190,7 +212,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       return (
         <MDX
           components={getMDXComponents({
-            a: createRelativeLink(adaptersSource, page),
+            a: wrapWithNofollow(createRelativeLink(adaptersSource, page)),
             FeatureSupport: BoundFeatureSupport,
           })}
         />

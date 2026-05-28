@@ -84,6 +84,33 @@ const titleCase = (value: string) =>
 
 const ALERT_CLASS_PATTERN = /(?:^|\s)gfm-alert-([a-z]+)(?:\s|$)/;
 
+const EXTERNAL_HREF_PATTERN = /^https?:\/\//i;
+
+const ExternalLink = ({
+  children,
+  href,
+  node: _node,
+  ...rest
+}: ComponentProps<"a"> & { node?: unknown }) => {
+  if (!(href && EXTERNAL_HREF_PATTERN.test(href))) {
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <a
+      {...rest}
+      href={href}
+      rel="nofollow ugc noopener noreferrer"
+      target="_blank"
+    >
+      {children}
+    </a>
+  );
+};
+
 const Blockquote = ({
   children,
   className,
@@ -116,7 +143,7 @@ interface ReadmeContentProps {
 export const ReadmeContent = ({ children }: ReadmeContentProps) => (
   <Streamdown
     allowedTags={{ blockquote: ["className"] }}
-    components={{ blockquote: Blockquote }}
+    components={{ a: ExternalLink, blockquote: Blockquote }}
     disallowedElements={["img", "picture", "source"]}
     linkSafety={{ enabled: false }}
     mode="static"
