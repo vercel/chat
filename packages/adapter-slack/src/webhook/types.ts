@@ -38,6 +38,26 @@ export interface SlackContinuation {
   threadTs: string;
 }
 
+export interface SlackUser {
+  id: string;
+  name?: string;
+  teamId?: string;
+  username?: string;
+}
+
+export interface SlackFile {
+  downloadUrl?: string;
+  filetype?: string;
+  id: string;
+  mimeType?: string;
+  name?: string;
+  raw: Record<string, unknown>;
+  size?: number;
+  title?: string;
+  type: "audio" | "file" | "image" | "video";
+  url?: string;
+}
+
 export type SlackWebhookPayload =
   | SlackAppMentionPayload
   | SlackBlockActionsPayload
@@ -63,6 +83,7 @@ export interface SlackEventBasePayload {
   enterpriseId?: string;
   eventId?: string;
   eventTime?: number;
+  files?: SlackFile[];
   isExtSharedChannel?: boolean;
   raw: Record<string, unknown>;
   retry?: SlackRetry;
@@ -107,8 +128,10 @@ export interface SlackAction {
   blockId?: string;
   label?: string;
   raw: Record<string, unknown>;
+  selectedOptionLabel?: string;
   selectedOptionValue?: string;
   type: string;
+  user?: SlackUser;
   value?: string;
 }
 
@@ -119,6 +142,9 @@ export interface SlackBlockActionsPayload {
   enterpriseId?: string;
   isEnterpriseInstall?: boolean;
   kind: "block_actions";
+  messageBlocks?: unknown[];
+  messagePromptBlock?: unknown;
+  messagePromptText?: string;
   messageTs?: string;
   raw: Record<string, unknown>;
   responseUrl?: string;
@@ -126,6 +152,7 @@ export interface SlackBlockActionsPayload {
   teamId?: string;
   threadTs?: string;
   triggerId?: string;
+  user?: SlackUser;
   userId: string;
   userName?: string;
 }
@@ -144,13 +171,17 @@ export interface SlackBlockSuggestionPayload {
 }
 
 export interface SlackViewSubmissionPayload {
+  callbackId?: string;
   enterpriseId?: string;
   kind: "view_submission";
+  privateMetadata?: string;
   raw: Record<string, unknown>;
   responseUrls?: unknown[];
   retry?: SlackRetry;
   teamId?: string;
+  user?: SlackUser;
   userId: string;
+  values?: SlackViewStateValue[];
   view: Record<string, unknown>;
 }
 
@@ -160,8 +191,19 @@ export interface SlackViewClosedPayload {
   raw: Record<string, unknown>;
   retry?: SlackRetry;
   teamId?: string;
+  user?: SlackUser;
   userId: string;
   view: Record<string, unknown>;
+}
+
+export interface SlackViewStateValue {
+  actionId: string;
+  blockId: string;
+  raw: Record<string, unknown>;
+  selectedOptionLabel?: string;
+  selectedOptionValue?: string;
+  type?: string;
+  value?: string;
 }
 
 export interface SlackUnsupportedPayload {

@@ -4,10 +4,13 @@ import type {
   SlackBlockActionsPayload,
   SlackBlockSuggestionPayload,
   SlackDirectMessagePayload,
+  SlackFile,
   SlackParseOptions,
   SlackRetry,
   SlackSlashCommandPayload,
+  SlackUser,
   SlackViewClosedPayload,
+  SlackViewStateValue,
   SlackViewSubmissionPayload,
   SlackWebhookPayload,
 } from "./types";
@@ -150,6 +153,7 @@ function parseMessageEvent(
     eventId: optionalString(envelope.event_id),
     eventTime:
       typeof envelope.event_time === "number" ? envelope.event_time : undefined,
+    files: parseFiles(event.files),
     eventType: event.type,
     isExtSharedChannel:
       typeof envelope.is_ext_shared_channel === "boolean"
@@ -208,7 +212,7 @@ function parseBlockActions(
   const channel = recordValue(raw.channel);
   const container = recordValue(raw.container);
   const message = recordValue(raw.message);
-  const user = recordValue(raw.user);
+  const user = parseUser(raw.user);
   const team = recordValue(raw.team);
   const enterprise = recordValue(raw.enterprise);
   const channelId =
@@ -219,16 +223,22 @@ function parseBlockActions(
     optionalString(message?.thread_ts) ||
     optionalString(container?.thread_ts) ||
     messageTs;
-  const teamId = optionalString(team?.id) || optionalString(user?.team_id);
+  const teamId = optionalString(team?.id) || user.teamId;
   const enterpriseId =
     optionalString(enterprise?.id) || optionalString(team?.enterprise_id);
   const continuation =
     channelId && threadTs
       ? { channelId, enterpriseId, teamId, threadTs }
       : undefined;
+  const messageBlocks = Array.isArray(message?.blocks)
+    ? message.blocks
+    : undefined;
+  const messagePromptBlock = findPromptBlock(messageBlocks);
 
   return {
-    actions: Array.isArray(raw.actions) ? raw.actions.map(parseAction) : [],
+    actions: Array.isArray(raw.actions)
+      ? raw.actions.map((action) => parseAction(action, user))
+      : [],
     channelId,
     continuation,
     enterpriseId,
@@ -237,6 +247,9 @@ function parseBlockActions(
         ? raw.is_enterprise_install
         : undefined,
     kind: "block_actions",
+    messageBlocks,
+    messagePromptBlock,
+    messagePromptText: readPromptText(messagePromptBlock),
     messageTs,
     raw,
     responseUrl: optionalString(raw.response_url),
@@ -244,22 +257,26 @@ function parseBlockActions(
     teamId,
     threadTs,
     triggerId: optionalString(raw.trigger_id),
-    userId: stringValue(user?.id),
-    userName: optionalString(user?.username) || optionalString(user?.name),
+    user,
+    userId: user.id,
+    userName: user.username || user.name,
   };
 }
 
-function parseAction(action: unknown): SlackAction {
+function parseAction(action: unknown, user?: SlackUser): SlackAction {
   const raw = isRecord(action) ? action : {};
   const selectedOption = recordValue(raw.selected_option);
   const text = recordValue(raw.text);
+  const selectedText = recordValue(selectedOption?.text);
   return {
     actionId: stringValue(raw.action_id),
     blockId: optionalString(raw.block_id),
-    label: optionalString(text?.text),
+    label: optionalString(selectedText?.text) || optionalString(text?.text),
     raw,
+    selectedOptionLabel: optionalString(selectedText?.text),
     selectedOptionValue: optionalString(selectedOption?.value),
     type: stringValue(raw.type),
+    user,
     value: optionalString(raw.value),
   };
 }
@@ -293,19 +310,23 @@ function parseViewSubmission(
 ): SlackViewSubmissionPayload {
   const team = recordValue(raw.team);
   const enterprise = recordValue(raw.enterprise);
-  const user = recordValue(raw.user);
+  const user = parseUser(raw.user);
   const view = recordValue(raw.view) ?? {};
   return {
+    callbackId: optionalString(view.callback_id),
     enterpriseId:
       optionalString(enterprise?.id) || optionalString(team?.enterprise_id),
     kind: "view_submission",
+    privateMetadata: optionalString(view.private_metadata),
     raw,
     responseUrls: Array.isArray(view.response_urls)
       ? view.response_urls
       : undefined,
     retry,
     teamId: optionalString(team?.id),
-    userId: stringValue(user?.id),
+    user,
+    userId: user.id,
+    values: parseViewValues(view),
     view,
   };
 }
@@ -316,7 +337,7 @@ function parseViewClosed(
 ): SlackViewClosedPayload {
   const team = recordValue(raw.team);
   const enterprise = recordValue(raw.enterprise);
-  const user = recordValue(raw.user);
+  const user = parseUser(raw.user);
   return {
     enterpriseId:
       optionalString(enterprise?.id) || optionalString(team?.enterprise_id),
@@ -324,7 +345,101 @@ function parseViewClosed(
     raw,
     retry,
     teamId: optionalString(team?.id),
-    userId: stringValue(user?.id),
+    user,
+    userId: user.id,
     view: recordValue(raw.view) ?? {},
   };
+}
+
+function parseFiles(value: unknown): SlackFile[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((file) => (isRecord(file) ? file : undefined))
+    .filter((file): file is Record<string, unknown> => file !== undefined)
+    .map((file) => {
+      const mimeType = optionalString(file.mimetype);
+      return {
+        downloadUrl: optionalString(file.url_private_download),
+        filetype: optionalString(file.filetype),
+        id: stringValue(file.id),
+        mimeType,
+        name: optionalString(file.name),
+        raw: file,
+        size: typeof file.size === "number" ? file.size : undefined,
+        title: optionalString(file.title),
+        type: inferFileType(mimeType),
+        url: optionalString(file.url_private),
+      };
+    });
+}
+
+function inferFileType(mimeType: string | undefined): SlackFile["type"] {
+  if (mimeType?.startsWith("image/")) {
+    return "image";
+  }
+  if (mimeType?.startsWith("video/")) {
+    return "video";
+  }
+  if (mimeType?.startsWith("audio/")) {
+    return "audio";
+  }
+  return "file";
+}
+
+function parseUser(value: unknown): SlackUser {
+  const user = recordValue(value) ?? {};
+  return {
+    id: stringValue(user.id),
+    name: optionalString(user.name),
+    teamId: optionalString(user.team_id),
+    username: optionalString(user.username),
+  };
+}
+
+function findPromptBlock(blocks: unknown[] | undefined): unknown {
+  return blocks?.find((block) => {
+    const item = recordValue(block);
+    return item?.type === "section" && recordValue(item.text);
+  });
+}
+
+function readPromptText(block: unknown): string | undefined {
+  const item = recordValue(block);
+  const text = recordValue(item?.text);
+  return optionalString(text?.text);
+}
+
+function parseViewValues(view: Record<string, unknown>): SlackViewStateValue[] {
+  const state = recordValue(view.state);
+  const values = recordValue(state?.values);
+  if (!values) {
+    return [];
+  }
+  const output: SlackViewStateValue[] = [];
+  for (const [blockId, block] of Object.entries(values)) {
+    const actions = recordValue(block);
+    if (!actions) {
+      continue;
+    }
+    for (const [actionId, action] of Object.entries(actions)) {
+      const raw = recordValue(action);
+      if (!raw) {
+        continue;
+      }
+      const selectedOption = recordValue(raw.selected_option);
+      const selectedText = recordValue(selectedOption?.text);
+      output.push({
+        actionId,
+        blockId,
+        raw,
+        selectedOptionLabel: optionalString(selectedText?.text),
+        selectedOptionValue: optionalString(selectedOption?.value),
+        type: optionalString(raw.type),
+        value: optionalString(raw.value),
+      });
+    }
+  }
+  return output;
 }
