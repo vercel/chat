@@ -50,9 +50,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "telegram",
+    "telegram-bot",
     "bot",
-    "adapter"
+    "adapter",
+    "bot-api",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

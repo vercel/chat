@@ -50,10 +50,15 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "ioredis",
     "redis",
-    "production"
+    "subscriptions",
+    "distributed-lock",
+    "production",
+    "vercel"
   ],
   "license": "MIT"
 }

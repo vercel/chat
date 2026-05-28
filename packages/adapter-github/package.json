@@ -52,12 +52,19 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "github",
+    "github-bot",
+    "github-app",
     "bot",
     "adapter",
     "pull-request",
     "issue",
-    "code-review"
+    "code-review",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

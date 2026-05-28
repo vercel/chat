@@ -50,12 +50,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "whatsapp",
+    "whatsapp-business",
     "bot",
     "adapter",
     "messaging",
     "meta",
-    "cloud-api"
+    "cloud-api",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

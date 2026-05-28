@@ -51,11 +51,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "linear",
+    "linear-bot",
     "bot",
     "adapter",
     "issues",
-    "project-management"
+    "project-management",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

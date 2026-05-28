@@ -52,10 +52,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "google-chat",
     "gchat",
+    "google-workspace",
     "bot",
-    "adapter"
+    "adapter",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

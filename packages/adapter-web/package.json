@@ -101,14 +101,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "web",
     "react",
     "vue",
     "svelte",
     "useChat",
     "ai-sdk",
+    "ai-agent",
     "bot",
-    "adapter"
+    "adapter",
+    "vercel"
   ],
   "license": "MIT"
 }

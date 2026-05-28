@@ -52,9 +52,15 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "postgres",
-    "production"
+    "postgresql",
+    "subscriptions",
+    "distributed-lock",
+    "production",
+    "vercel"
   ],
   "license": "MIT"
 }

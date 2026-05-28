@@ -50,9 +50,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "messenger",
+    "facebook-messenger",
+    "meta",
     "bot",
-    "adapter"
+    "adapter",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

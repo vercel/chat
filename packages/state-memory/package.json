@@ -49,8 +49,12 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "memory",
+    "in-memory",
+    "development",
     "testing"
   ],
   "license": "MIT"

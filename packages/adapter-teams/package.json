@@ -55,10 +55,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "teams",
+    "microsoft-teams",
     "microsoft",
     "bot",
-    "adapter"
+    "adapter",
+    "bot-framework",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

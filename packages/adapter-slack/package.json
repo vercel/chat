@@ -68,9 +68,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "slack",
+    "slack-bot",
     "bot",
-    "adapter"
+    "adapter",
+    "block-kit",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }
