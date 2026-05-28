@@ -18,8 +18,8 @@ Use the low-level Slack subpaths when your app already owns routing, state, sess
 |---------|---------|
 | `@chat-adapter/slack/webhook` | Request verification, body parsing, Events API payloads, slash commands, interactions, and continuation data |
 | `@chat-adapter/slack/format` | Slack mrkdwn tokens, text objects, dates, links, mentions, and simple mrkdwn to Markdown conversion |
-| `@chat-adapter/slack/api` | Fetch-based Slack Web API calls without `@slack/web-api` |
-| `@chat-adapter/slack/blocks` | Runtime-free conversion from simple card objects to Slack Block Kit |
+| `@chat-adapter/slack/api` | Fetch-based Slack Web API calls, thread replies, views, and files without `@slack/web-api` |
+| `@chat-adapter/slack/blocks` | Runtime-free conversion from simple card objects and input requests to Slack Block Kit |
 
 <Callout type="info">
   These subpaths are for custom runtimes. If you want Chat SDK to handle webhook routing, state, subscriptions, and platform normalization, use `createSlackAdapter` from `@chat-adapter/slack`.
@@ -106,6 +106,13 @@ type SlackContinuation = {
 
 This is not a Chat SDK `Thread`. It is the durable Slack data you need to reply later with `@chat-adapter/slack/api`.
 
+App mention and direct message payloads also include typed `files` parsed from Slack file objects. Each file keeps the raw Slack object plus common fields like `id`, `name`, `mimeType`, `size`, `url`, and `downloadUrl`.
+
+Interaction payloads expose convenience fields from Slack's raw payload:
+
+- `block_actions` includes `actions`, `messageBlocks`, `messagePromptBlock`, `messagePromptText`, `messageTs`, `triggerId`, `responseUrl`, `user`, and `continuation`
+- `view_submission` includes `callbackId`, `privateMetadata`, `values`, `responseUrls`, and `user`
+
 ## Formatting
 
 Slack uses mrkdwn and special tokens for mentions, channels, dates, and links. The format subpath gives you small helpers for those strings.
@@ -182,6 +189,35 @@ const result = await callSlackApi(
 
 The subpath also includes `postSlackEphemeral`, `deleteSlackMessage`, `resolveSlackBotToken`, `encodeSlackApiBody`, and `assertSlackOk`.
 
+Use `fetchSlackThreadReplies` when a custom runtime needs to refresh a thread with [`conversations.replies`](https://docs.slack.dev/reference/methods/conversations.replies/):
+
+```typescript
+import { fetchSlackThreadReplies } from "@chat-adapter/slack/api";
+
+const replies = await fetchSlackThreadReplies({
+  channel: payload.continuation.channelId,
+  limit: 50,
+  token: process.env.SLACK_BOT_TOKEN!,
+  ts: payload.continuation.threadTs,
+});
+```
+
+Use `openSlackView` to open a modal from an interaction `trigger_id`:
+
+```typescript
+import { openSlackView } from "@chat-adapter/slack/api";
+
+await openSlackView({
+  token: process.env.SLACK_BOT_TOKEN!,
+  triggerId: payload.triggerId,
+  view: {
+    type: "modal",
+    title: { type: "plain_text", text: "Answer" },
+    blocks: [],
+  },
+});
+```
+
 ### Files
 
 [Slack's current external upload flow](https://docs.slack.dev/changelog/2024-04-a-better-way-to-upload-files-is-here-to-stay) uses `files.getUploadURLExternal`, then uploads bytes to the returned URL, then calls `files.completeUploadExternal`.
@@ -238,6 +274,39 @@ await postSlackMessage({
 ```
 
 Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/slack/blocks` when you are building a Slack-only runtime and want Block Kit output directly.
+
+The blocks subpath also includes small input request helpers for Slack-only runtimes:
+
+```typescript
+import {
+  inputRequestToSlackBlocks,
+  parseSlackInputResponse,
+} from "@chat-adapter/slack/blocks";
+import { postSlackMessage } from "@chat-adapter/slack/api";
+
+await postSlackMessage({
+  blocks: inputRequestToSlackBlocks({
+    options: [
+      { id: "approve", label: "Approve", style: "primary" },
+      { id: "deny", label: "Deny", style: "danger" },
+    ],
+    prompt: "Approve deploy?",
+    requestId: "deploy-1",
+  }),
+  channel: "C123",
+  text: "Approve deploy?",
+  token: process.env.SLACK_BOT_TOKEN!,
+});
+
+if (payload.kind === "block_actions") {
+  const action = payload.actions[0];
+  const response = action ? parseSlackInputResponse(action) : null;
+}
+```
+
+Set `display: "radio"` for radio buttons, or `display: "select"` for a static select menu. Set `allowFreeform: true` to add a "Type your answer" button next to the provided options.
+
+For freeform answers, use `buildSlackFreeformView` with `openSlackView`, then read the submitted value from `payload.values` with `parseSlackFreeformValue`.
 
 ## Import boundaries
 
