@@ -313,6 +313,12 @@ GITHUB_API_URL=https://github.example.com/api/v3
 - PATs have lower rate limits than GitHub Apps
 - Consider switching to a GitHub App for production use
 
+## Resources
+
+- [Ship a GitHub code review bot with Hono and Redis](https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis) — Walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
+
 ## License
 
 MIT

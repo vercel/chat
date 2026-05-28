@@ -257,6 +257,12 @@ Update the Interactions Endpoint URL in the Discord Developer Portal to your ngr
 2. **Verify endpoint URL**: Must exactly match what's configured in Discord Developer Portal
 3. **Check for body parsing**: Don't parse the request body before verification
 
+## Resources
+
+- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis) — Walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
+
 ## License
 
 MIT
