@@ -21,7 +21,7 @@ This guide walks you through a Slack bot that orchestrates the entire deploy lif
 
 For production deploys, the bot gates the workflow with an approval step, so the deploy proceeds only after an authorized team member approves it.
 
-The bot is built with [Chat SDK](https://chat-sdk.dev) and [Vercel Workflow](https://vercel.com/workflow). Chat SDK handles the Slack interaction layer (cards, buttons, modals, and slash commands), while Vercel Workflow handles stateful orchestration (pausing for approval, polling GitHub, and resuming when events arrive). You write the deploy pipeline as a single function that pauses and resumes over minutes or hours without a database or state machine.
+The bot is built with [Chat SDK](https://chat-sdk.dev) and [Vercel Workflows](https://vercel.com/workflow). Chat SDK handles the Slack interaction layer (cards, buttons, modals, and slash commands), while Vercel Workflow handles stateful orchestration (pausing for approval, polling GitHub, and resuming when events arrive). You write the deploy pipeline as a single function that pauses and resumes over minutes or hours without a database or state machine.
 
 Deploy the template now, or read on for a deeper look at how it all works.
 
@@ -29,11 +29,11 @@ Deploy the template now, or read on for a deeper look at how it all works.
 
 If you're working with an AI coding agent like Claude Code or Cursor, you can clone the template and hand off implementation with this prompt:
 
-`I want to build a deploy bot for Slack using Chat SDK and Vercel Workflow. Clone the template repo at https://github.com/vercel-labs/chat-sdk-deploy-bot, install dependencies with pnpm, and walk me through setting up the environment variables in .env.local. I need a Slack app, a GitHub fine-grained personal access token with Actions (read/write), Contents (read), Issues (write), and Pull requests (read) permissions, and Redis (Upstash) configured. After setup, help me deploy it to Vercel and test the /deploy slash command. When searching for information, check for applicable skill(s) first and review local documentation.`
+`I want to build a deploy bot for Slack using Chat SDK and Vercel Workflows. Clone the template repo at https://github.com/vercel-labs/chat-sdk-deploy-bot, install dependencies with pnpm, and walk me through setting up the environment variables in .env.local. I need a Slack app, a GitHub fine-grained personal access token with Actions (read/write), Contents (read), Issues (write), and Pull requests (read) permissions, and Redis (Upstash) configured. After setup, help me deploy it to Vercel and test the /deploy slash command. When searching for information, check for applicable skill(s) first and review local documentation.`
 
 ### Vercel Plugin
 
-Turn your agent into a Vercel expert with this [plugin](https://vercel.com/docs/agent-resources/vercel-plugin). The [Chat SDK](https://skills.sh/vercel/chat/chat-sdk) and [Workflow](https://skills.sh/vercel/workflow/workflow) skills are both included.
+Turn your agent into a Vercel expert with this [plugin](https://vercel.com/docs/agent-resources/vercel-plugin). The [Chat SDK](https://skills.sh/vercel/chat/chat-sdk) and [Workflow](https://skills.sh/vercel/workflow/workflow) skills are both included. This plugin is optional; it’s not required to use Chat SDK or for this guide.
 
 `npx plugins add vercel/vercel-plugin`
 
@@ -173,7 +173,7 @@ The bot has three interfaces: Slack for user interaction, GitHub for dispatching
 6.  The bot posts a final summary card to Slack with the environment, branch, commit, duration, linked issues, and a link to the workflow run
     
 
-[Vercel Workflow](https://vercel.com/workflow) makes this possible. A Vercel Workflow function can suspend itself mid-execution and resume later with full state preserved. The approval gate and the polling loop are both regular code. The function pauses while waiting for a button click, resumes when it arrives, then loops while polling GitHub. No cron jobs, no queues, no external state store.
+[Vercel Workflows](https://vercel.com/workflow) makes this possible. A Vercel Workflow function can suspend itself mid-execution and resume later with full state preserved. The approval gate and the polling loop are both regular code. The function pauses while waiting for a button click, resumes when it arrives, then loops while polling GitHub. No cron jobs, no queues, no external state store.
 
 ## Code walkthrough
 
@@ -261,7 +261,9 @@ See the [Chat SDK adapter directory](https://chat-sdk.dev/adapters) for the full
     
 *   [Chat SDK GitHub](https://github.com/vercel/chat)
     
-*   [Vercel Workflow documentation](https://vercel.com/docs/workflow)
+*   [The Complete Guide to Chat SDK](https://vercel.com/kb/guide/the-complete-guide-to-chat-sdk)
+    
+*   [Vercel Workflows documentation](https://vercel.com/docs/workflow)
     
 *   [Workflow SDK](https://useworkflow.dev/)
 
