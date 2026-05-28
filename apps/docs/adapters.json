@@ -283,5 +283,16 @@
     "packageName": "chat-adapter-mattermost",
     "author": "thiagoferolla",
     "readme": "https://github.com/thiagoferolla/chat-adapter-mattermost/tree/70eb85321cba65d511f6e158b9a2f5aac2aa922c"
+  },
+  {
+    "name": "AgentPhone",
+    "slug": "agentphone",
+    "type": "platform",
+    "community": true,
+    "description": "Unified SMS, MMS, iMessage, and voice adapter for Chat SDK with HMAC-verified webhooks, iMessage reactions, and voice call transcripts via AgentPhone.",
+    "packageName": "@agentphone/chat-sdk-adapter",
+    "author": "AgentPhone",
+    "readme": "https://github.com/AgentPhone-AI/chat-sdk-adapter",
+    "vendorOfficial": true
   }
 ]
