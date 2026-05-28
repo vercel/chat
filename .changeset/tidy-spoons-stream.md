@@ -3,4 +3,4 @@
 "@chat-adapter/telegram": minor
 ---
 
-Add native Telegram DM draft streaming with markdown-safe segment splitting, and expose segmented stream results in the chat core.
+Add native Telegram private chat draft streaming with fallback streaming elsewhere.

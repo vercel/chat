@@ -25,7 +25,6 @@ import type {
   RawMessage,
   StreamChunk,
   StreamOptions,
-  StreamResult,
   ThreadInfo,
   UserInfo,
   WebhookOptions,
@@ -101,9 +100,6 @@ const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
-// Keep streaming segments below Telegram's 4096-character hard limit to leave
-// room for Markdown parsing and avoid truncating the final sent message.
-const TELEGRAM_STREAM_SEGMENT_LIMIT = 3500;
 const TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN =
   /can't parse (?:caption )?entities/i;
 const TELEGRAM_MAX_POLLING_LIMIT = 100;
@@ -1008,9 +1004,7 @@ export class TelegramAdapter
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<
-    RawMessage<TelegramRawMessage> | StreamResult<TelegramRawMessage> | null
-  > {
+  ): Promise<RawMessage<TelegramRawMessage> | null> {
     if (!this.isDM(threadId)) {
       return null;
     }
@@ -1023,15 +1017,13 @@ export class TelegramAdapter
       Number.MAX_SAFE_INTEGER
     );
 
-    let renderer = new StreamingMarkdownRenderer();
-    let segmentText = "";
-    let draftId = this.createDraftId();
-    let lastDraftText = "";
+    const renderer = new StreamingMarkdownRenderer();
+    const draftId = this.createDraftId();
+    let accumulated = "";
+    let lastDraftText: string | null = null;
     let lastFlushAt = 0;
     let draftStreamingEnabled = true;
     let streamUsesMarkdown = true;
-    let segmentUsesMarkdown = true;
-    const postedSegments: StreamResult<TelegramRawMessage>["messages"] = [];
 
     const renderMarkdownForTelegram = (text: string): string =>
       convertEmojiPlaceholders(
@@ -1053,108 +1045,21 @@ export class TelegramAdapter
         "plain"
       );
 
-    const isMarkdownSegmentWithinLimit = (text: string): boolean => {
-      const rendered = renderMarkdownForTelegram(text);
-      return (
-        rendered.trim().length > 0 &&
-        truncateForTelegram(rendered, TELEGRAM_MESSAGE_LIMIT, "MarkdownV2") ===
-          rendered
-      );
-    };
-
-    const getCommittedPrefixFor = (text: string): string => {
-      const candidateRenderer = new StreamingMarkdownRenderer();
-      candidateRenderer.push(text);
-      return candidateRenderer.getCommittedMarkdownPrefix();
-    };
-
-    const findMarkdownSegmentPrefixWithinLimit = (text: string): string => {
-      if (!text.trim()) {
-        return "";
-      }
-
-      const renderedLength = renderMarkdownForTelegram(text).length;
-      let candidateLength = text.length;
-
-      if (renderedLength > TELEGRAM_MESSAGE_LIMIT) {
-        candidateLength = Math.max(
-          1,
-          Math.min(
-            text.length - 1,
-            Math.floor((text.length * TELEGRAM_MESSAGE_LIMIT) / renderedLength)
-          )
-        );
-      }
-
-      while (candidateLength > 0) {
-        const candidate = getCommittedPrefixFor(text.slice(0, candidateLength));
-        if (candidate.trim() && isMarkdownSegmentWithinLimit(candidate)) {
-          return candidate;
-        }
-
-        const nextLength = Math.floor(candidateLength * 0.9);
-        candidateLength =
-          nextLength < candidateLength ? nextLength : candidateLength - 1;
-      }
-
-      return "";
-    };
-
-    const resetSegment = (nextText = ""): void => {
-      renderer = new StreamingMarkdownRenderer();
-      segmentText = "";
-      draftId = this.createDraftId();
-      lastDraftText = "";
-      lastFlushAt = 0;
-      segmentUsesMarkdown = streamUsesMarkdown;
-
-      if (nextText) {
-        renderer.push(nextText);
-        segmentText = nextText;
-      }
-    };
-
-    const postSegment = async (
+    const sendDraft = async (
       text: string,
       useMarkdown: boolean
     ): Promise<void> => {
-      if (!text.trim()) {
-        return;
-      }
-
-      const postable: AdapterPostableMessage =
-        useMarkdown && isMarkdownSegmentWithinLimit(text)
-          ? { markdown: text }
-          : this.resolveTelegramFallbackText(text, markdownToPlainText(text));
-      const message = await this.postMessage(threadId, postable);
-
-      postedSegments.push({
-        message,
-        postable,
-      });
-    };
-
-    const flushDraft = async (sourceText = segmentText): Promise<void> => {
-      if (!draftStreamingEnabled) {
-        return;
-      }
-
-      const draftText = segmentUsesMarkdown
-        ? renderMarkdownText(
-            sourceText === segmentText ? renderer.render() : sourceText
-          )
-        : renderPlainText(sourceText);
-      if (!draftText.trim() || draftText === lastDraftText) {
+      if (!draftStreamingEnabled || text === lastDraftText) {
         return;
       }
 
       try {
-        if (segmentUsesMarkdown) {
+        if (useMarkdown) {
           await this.telegramFetch<boolean>("sendMessageDraft", {
             chat_id: parsedThread.chatId,
             message_thread_id: parsedThread.messageThreadId,
             draft_id: draftId,
-            text: draftText,
+            text,
             parse_mode: toBotApiParseMode("MarkdownV2"),
           });
         } else {
@@ -1162,21 +1067,16 @@ export class TelegramAdapter
             chat_id: parsedThread.chatId,
             message_thread_id: parsedThread.messageThreadId,
             draft_id: draftId,
-            text: draftText,
+            text,
           });
         }
-        lastDraftText = draftText;
+        lastDraftText = text;
         lastFlushAt = Date.now();
       } catch (error) {
-        if (segmentUsesMarkdown && this.isTelegramMarkdownParseError(error)) {
+        if (useMarkdown && this.isTelegramMarkdownParseError(error)) {
           streamUsesMarkdown = false;
-          segmentUsesMarkdown = false;
 
-          const plainDraftText = renderPlainText(sourceText);
-          if (!plainDraftText.trim()) {
-            draftStreamingEnabled = false;
-            return;
-          }
+          const plainDraftText = renderPlainText(accumulated);
 
           try {
             await this.telegramFetch<boolean>("sendMessageDraft", {
@@ -1205,90 +1105,56 @@ export class TelegramAdapter
       }
     };
 
-    const appendText = async (text: string): Promise<void> => {
-      let remaining = text;
-
-      while (remaining.length > 0) {
-        const available =
-          TELEGRAM_STREAM_SEGMENT_LIMIT - segmentText.length || 0;
-        const nextSlice = available > 0 ? remaining.slice(0, available) : "";
-
-        if (!nextSlice) {
-          await flushDraft();
-          await postSegment(segmentText, segmentUsesMarkdown);
-          resetSegment();
-          continue;
-        }
-
-        renderer.push(nextSlice);
-        segmentText += nextSlice;
-        remaining = remaining.slice(nextSlice.length);
-
-        if (Date.now() - lastFlushAt >= updateIntervalMs) {
-          await flushDraft();
-        }
-
-        const renderedOverflow =
-          segmentUsesMarkdown &&
-          segmentText.length > Math.floor(TELEGRAM_MESSAGE_LIMIT / 2) &&
-          !isMarkdownSegmentWithinLimit(segmentText);
-
-        if (
-          segmentText.length >= TELEGRAM_STREAM_SEGMENT_LIMIT ||
-          renderedOverflow
-        ) {
-          const committedPrefix = segmentUsesMarkdown
-            ? renderer.getCommittedMarkdownPrefix()
-            : "";
-          const markdownPrefix =
-            segmentUsesMarkdown && isMarkdownSegmentWithinLimit(committedPrefix)
-              ? committedPrefix
-              : findMarkdownSegmentPrefixWithinLimit(committedPrefix);
-
-          if (segmentUsesMarkdown && markdownPrefix.trim()) {
-            const overflow = segmentText.slice(markdownPrefix.length);
-            await flushDraft(markdownPrefix);
-            await postSegment(markdownPrefix, true);
-            resetSegment(overflow);
-            continue;
-          }
-
-          if (segmentUsesMarkdown) {
-            streamUsesMarkdown = false;
-            segmentUsesMarkdown = false;
-          }
-
-          await flushDraft();
-          await postSegment(segmentText, segmentUsesMarkdown);
-          resetSegment();
-        }
+    const flushDraft = async (): Promise<void> => {
+      if (!draftStreamingEnabled) {
+        return;
       }
+
+      const draftText = streamUsesMarkdown
+        ? renderMarkdownText(renderer.render())
+        : renderPlainText(accumulated);
+      await sendDraft(draftText, streamUsesMarkdown);
     };
 
+    await sendDraft("", false);
+
     for await (const chunk of textStream) {
+      let text: string | null = null;
       if (typeof chunk === "string") {
-        await appendText(chunk);
+        text = chunk;
       } else if (chunk.type === "markdown_text") {
-        await appendText(chunk.text);
+        text = chunk.text;
+      }
+
+      if (text === null) {
+        continue;
+      }
+
+      accumulated += text;
+      renderer.push(text);
+
+      if (Date.now() - lastFlushAt >= updateIntervalMs) {
+        await flushDraft();
       }
     }
 
     await flushDraft();
 
-    if (segmentText.trim()) {
-      await postSegment(segmentText, segmentUsesMarkdown);
-    }
-
-    if (postedSegments.length === 0) {
+    if (!accumulated.trim()) {
       throw new ValidationError(
         "telegram",
         "Telegram streaming requires text content"
       );
     }
 
-    return postedSegments.length === 1
-      ? postedSegments[0].message
-      : { messages: postedSegments };
+    const finalPostable: AdapterPostableMessage = streamUsesMarkdown
+      ? { markdown: accumulated }
+      : this.resolveTelegramFallbackText(
+          accumulated,
+          markdownToPlainText(accumulated)
+        );
+
+    return this.postMessage(threadId, finalPostable);
   }
 
   async fetchMessages(

@@ -923,6 +923,7 @@ describe("TelegramAdapter", () => {
       )
       .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(
         telegramOk(
           sampleMessage({
@@ -953,15 +954,17 @@ describe("TelegramAdapter", () => {
     expect(result?.id).toBe("123:11");
     expect(result?.threadId).toBe("telegram:123");
 
-    const firstDraftUrl = String(mockFetch.mock.calls[1]?.[0]);
-    const secondDraftUrl = String(mockFetch.mock.calls[2]?.[0]);
-    const finalSendUrl = String(mockFetch.mock.calls[3]?.[0]);
+    const initialDraftUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const firstDraftUrl = String(mockFetch.mock.calls[2]?.[0]);
+    const secondDraftUrl = String(mockFetch.mock.calls[3]?.[0]);
+    const finalSendUrl = String(mockFetch.mock.calls[4]?.[0]);
 
+    expect(initialDraftUrl).toContain("/sendMessageDraft");
     expect(firstDraftUrl).toContain("/sendMessageDraft");
     expect(secondDraftUrl).toContain("/sendMessageDraft");
     expect(finalSendUrl).toContain("/sendMessage");
 
-    const firstDraftBody = JSON.parse(
+    const initialDraftBody = JSON.parse(
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as {
       chat_id: string;
@@ -970,7 +973,7 @@ describe("TelegramAdapter", () => {
       text: string;
     };
 
-    const secondDraftBody = JSON.parse(
+    const firstDraftBody = JSON.parse(
       String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
     ) as {
       chat_id: string;
@@ -979,189 +982,36 @@ describe("TelegramAdapter", () => {
       text: string;
     };
 
-    const finalSendBody = JSON.parse(
+    const secondDraftBody = JSON.parse(
       String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+    ) as {
+      chat_id: string;
+      draft_id: number;
+      parse_mode?: string;
+      text: string;
+    };
+
+    const finalSendBody = JSON.parse(
+      String((mockFetch.mock.calls[4]?.[1] as RequestInit).body)
     ) as { chat_id: string; parse_mode?: string; text: string };
 
+    expect(initialDraftBody.chat_id).toBe("123");
+    expect(initialDraftBody.text).toBe("");
+    expect(initialDraftBody.parse_mode).toBeUndefined();
     expect(firstDraftBody.chat_id).toBe("123");
+    expect(firstDraftBody.draft_id).toBe(initialDraftBody.draft_id);
     expect(firstDraftBody.text).toBe("hello");
-    expect(firstDraftBody.parse_mode).toBe("Markdown");
+    expect(firstDraftBody.parse_mode).toBe("MarkdownV2");
     expect(secondDraftBody.draft_id).toBe(firstDraftBody.draft_id);
     expect(secondDraftBody.text).toBe("hello world");
     expect(finalSendBody.chat_id).toBe("123");
     expect(finalSendBody.text).toBe("hello world");
-    expect(finalSendBody.parse_mode).toBe("Markdown");
+    expect(finalSendBody.parse_mode).toBe("MarkdownV2");
   });
 
-  it("splits long private chat streams into multiple final messages", async () => {
-    const longPrefix = "a".repeat(3600);
-    const longSuffix = "b".repeat(1200);
-
-    mockFetch
-      .mockResolvedValueOnce(
-        telegramOk({
-          id: 999,
-          is_bot: true,
-          first_name: "Bot",
-          username: "mybot",
-        })
-      )
-      .mockResolvedValueOnce(telegramOk(true))
-      .mockResolvedValueOnce(
-        telegramOk(
-          sampleMessage({
-            message_id: 21,
-            text: "a".repeat(3500),
-          })
-        )
-      )
-      .mockResolvedValueOnce(telegramOk(true))
-      .mockResolvedValueOnce(
-        telegramOk(
-          sampleMessage({
-            message_id: 22,
-            text: `${"a".repeat(100)}${"b".repeat(1200)}`,
-          })
-        )
-      );
-
-    const adapter = createTelegramAdapter({
-      botToken: "token",
-      mode: "webhook",
-      logger: mockLogger,
-      userName: "mybot",
-    });
-
-    await adapter.initialize(createMockChat());
-
-    async function* textStream(): AsyncIterable<string> {
-      yield longPrefix;
-      yield longSuffix;
-    }
-
-    const result = await adapter.stream("telegram:123", textStream(), {
-      updateIntervalMs: Number.MAX_SAFE_INTEGER,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result).toHaveProperty("messages");
-    if (!(result && "messages" in result)) {
-      throw new Error("Expected segmented stream result");
-    }
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages[0]?.message.id).toBe("123:21");
-    expect(result.messages[1]?.message.id).toBe("123:22");
-
-    const draftBodies = mockFetch.mock.calls
-      .slice(1)
-      .filter((call) => String(call[0]).endsWith("/sendMessageDraft"))
-      .map(
-        (call) =>
-          JSON.parse(String((call[1] as RequestInit).body)) as {
-            draft_id: number;
-            text: string;
-          }
-      );
-    const sendBodies = mockFetch.mock.calls
-      .slice(1)
-      .filter((call) => String(call[0]).endsWith("/sendMessage"))
-      .map(
-        (call) =>
-          JSON.parse(String((call[1] as RequestInit).body)) as {
-            chat_id: string;
-            text: string;
-          }
-      );
-
-    expect(draftBodies).toHaveLength(2);
-    expect(draftBodies[0]?.text).toHaveLength(3500);
-    expect(draftBodies[1]?.text).toHaveLength(1300);
-    expect(draftBodies[1]?.draft_id).not.toBe(draftBodies[0]?.draft_id);
-
-    expect(sendBodies).toHaveLength(2);
-    expect(sendBodies[0]?.chat_id).toBe("123");
-    expect(sendBodies[0]?.text).toHaveLength(3500);
-    expect(sendBodies[1]?.text).toHaveLength(1300);
-    expect(`${sendBodies[0]?.text ?? ""}${sendBodies[1]?.text ?? ""}`).toBe(
-      `${longPrefix}${longSuffix}`
-    );
-  });
-
-  it("splits long markdown streams on a clean prefix before unbalanced markers", async () => {
-    const longPrefix = `${"a".repeat(3498)}**bo`;
-    const longSuffix = "ld**!";
-
-    mockFetch
-      .mockResolvedValueOnce(
-        telegramOk({
-          id: 999,
-          is_bot: true,
-          first_name: "Bot",
-          username: "mybot",
-        })
-      )
-      .mockResolvedValueOnce(telegramOk(true))
-      .mockResolvedValueOnce(
-        telegramOk(
-          sampleMessage({
-            message_id: 31,
-            text: "a".repeat(3498),
-          })
-        )
-      )
-      .mockResolvedValueOnce(telegramOk(true))
-      .mockResolvedValueOnce(
-        telegramOk(
-          sampleMessage({
-            message_id: 32,
-            text: "**bold**!",
-          })
-        )
-      );
-
-    const adapter = createTelegramAdapter({
-      botToken: "token",
-      mode: "webhook",
-      logger: mockLogger,
-      userName: "mybot",
-    });
-
-    await adapter.initialize(createMockChat());
-
-    async function* textStream(): AsyncIterable<string> {
-      yield longPrefix;
-      yield longSuffix;
-    }
-
-    const result = await adapter.stream("telegram:123", textStream(), {
-      updateIntervalMs: Number.MAX_SAFE_INTEGER,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result).toHaveProperty("messages");
-    if (!(result && "messages" in result)) {
-      throw new Error("Expected segmented stream result");
-    }
-
-    const sendBodies = mockFetch.mock.calls
-      .slice(1)
-      .filter((call) => String(call[0]).endsWith("/sendMessage"))
-      .map(
-        (call) =>
-          JSON.parse(String((call[1] as RequestInit).body)) as {
-            parse_mode?: string;
-            text: string;
-          }
-      );
-
-    expect(sendBodies).toHaveLength(2);
-    expect(sendBodies[0]?.text).toBe("a".repeat(3498));
-    expect(sendBodies[1]?.parse_mode).toBe("Markdown");
-    expect(sendBodies[1]?.text).toBe("**bold**!");
-  });
-
-  it("keeps markdown parse mode for an exact-limit clean segment", async () => {
+  it("keeps markdown parse mode for an exact-limit draft and final message", async () => {
     const longMarkdown = `${"a".repeat(3494)}**ok**`;
+    const renderedMarkdown = `${"a".repeat(3494)}*ok*`;
     const requestBodies: Array<{
       method: string;
       body: { parse_mode?: string; text?: string };
@@ -1238,118 +1088,37 @@ describe("TelegramAdapter", () => {
       },
       {
         method: "sendMessageDraft",
-        len: longMarkdown.length,
-        tail: longMarkdown.slice(-10),
-        parse_mode: "Markdown",
+        len: 0,
+        tail: "",
+        parse_mode: undefined,
+      },
+      {
+        method: "sendMessageDraft",
+        len: renderedMarkdown.length,
+        tail: renderedMarkdown.slice(-10),
+        parse_mode: "MarkdownV2",
       },
       {
         method: "sendMessage",
-        len: longMarkdown.length,
-        tail: longMarkdown.slice(-10),
-        parse_mode: "Markdown",
+        len: renderedMarkdown.length,
+        tail: renderedMarkdown.slice(-10),
+        parse_mode: "MarkdownV2",
       },
     ]);
 
-    const draftBody = requestBodies[1]?.body as {
+    const draftBody = requestBodies[2]?.body as {
       parse_mode?: string;
       text: string;
     };
-    const finalSendBody = requestBodies[2]?.body as {
+    const finalSendBody = requestBodies[3]?.body as {
       parse_mode?: string;
       text: string;
     };
 
-    expect(draftBody.parse_mode).toBe("Markdown");
-    expect(draftBody.text).toBe(longMarkdown);
-    expect(finalSendBody.parse_mode).toBe("Markdown");
-    expect(finalSendBody.text).toBe(longMarkdown);
-  });
-
-  it("splits streams by rendered MarkdownV2 length before final sends can truncate", async () => {
-    const sourceMarkdown = ".".repeat(3500);
-    const renderedMarkdown = "\\.".repeat(3500);
-    const requestBodies: Array<{
-      method: string;
-      body: { parse_mode?: string; text?: string };
-    }> = [];
-    let nextMessageId = 51;
-
-    mockFetch.mockImplementation(async (input, init) => {
-      const url = String(input);
-      const method = url.split("/").at(-1) ?? url;
-      const rawBody = (init as RequestInit | undefined)?.body;
-      const body =
-        typeof rawBody === "string"
-          ? (JSON.parse(rawBody) as { parse_mode?: string; text?: string })
-          : {};
-
-      requestBodies.push({ method, body });
-
-      if (method === "getMe") {
-        return telegramOk({
-          id: 999,
-          is_bot: true,
-          first_name: "Bot",
-          username: "mybot",
-        });
-      }
-
-      if (method === "sendMessageDraft") {
-        return telegramOk(true);
-      }
-
-      if (method === "sendMessage") {
-        return telegramOk(
-          sampleMessage({
-            message_id: nextMessageId++,
-            text: body.text ?? "",
-          })
-        );
-      }
-
-      throw new Error(`Unexpected Telegram method in test: ${method}`);
-    });
-
-    const adapter = createTelegramAdapter({
-      botToken: "token",
-      mode: "webhook",
-      logger: mockLogger,
-      userName: "mybot",
-    });
-
-    await adapter.initialize(createMockChat());
-
-    async function* textStream(): AsyncIterable<string> {
-      yield sourceMarkdown;
-    }
-
-    const result = await adapter.stream("telegram:123", textStream(), {
-      updateIntervalMs: Number.MAX_SAFE_INTEGER,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result).toHaveProperty("messages");
-    if (!(result && "messages" in result)) {
-      throw new Error("Expected segmented stream result");
-    }
-
-    const finalSendBodies = requestBodies
-      .filter((request) => request.method === "sendMessage")
-      .map((request) => request.body);
-
-    expect(finalSendBodies.length).toBeGreaterThan(1);
-    expect(result.messages).toHaveLength(finalSendBodies.length);
-    expect(
-      finalSendBodies.every((body) => body.parse_mode === "MarkdownV2")
-    ).toBe(true);
-    expect(
-      finalSendBodies.every(
-        (body) => (body.text?.length ?? 0) <= TELEGRAM_MESSAGE_LIMIT
-      )
-    ).toBe(true);
-    expect(finalSendBodies.map((body) => body.text ?? "").join("")).toBe(
-      renderedMarkdown
-    );
+    expect(draftBody.parse_mode).toBe("MarkdownV2");
+    expect(draftBody.text).toBe(renderedMarkdown);
+    expect(finalSendBody.parse_mode).toBe("MarkdownV2");
+    expect(finalSendBody.text).toBe(renderedMarkdown);
   });
 
   it("returns null for non-DM streaming so Chat SDK can use fallback streaming", async () => {
@@ -1444,6 +1213,7 @@ describe("TelegramAdapter", () => {
           username: "mybot",
         })
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(
         telegramError(
           400,
@@ -1488,7 +1258,7 @@ describe("TelegramAdapter", () => {
     );
 
     const finalSendBody = JSON.parse(
-      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+      String((mockFetch.mock.calls[4]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
 
     expect(finalSendBody.parse_mode).toBeUndefined();
@@ -2006,7 +1776,7 @@ describe("TelegramAdapter", () => {
       String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
 
-    expect(firstSendBody.parse_mode).toBe("Markdown");
+    expect(firstSendBody.parse_mode).toBe("MarkdownV2");
     expect(secondSendBody.parse_mode).toBeUndefined();
     expect(secondSendBody.text).toBe("**broken");
     expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -2145,7 +1915,7 @@ describe("TelegramAdapter", () => {
       String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
 
-    expect(firstEditBody.parse_mode).toBe("Markdown");
+    expect(firstEditBody.parse_mode).toBe("MarkdownV2");
     expect(secondEditBody.parse_mode).toBeUndefined();
     expect(secondEditBody.text).toBe("**broken");
     expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -2218,6 +1988,7 @@ describe("TelegramAdapter", () => {
           username: "mybot",
         })
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(
         telegramError(
           400,
@@ -2254,10 +2025,10 @@ describe("TelegramAdapter", () => {
     expect(result?.id).toBe("123:11");
 
     const retryDraftBody = JSON.parse(
-      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
     const finalSendBody = JSON.parse(
-      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+      String((mockFetch.mock.calls[4]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
 
     expect(retryDraftBody.parse_mode).toBeUndefined();
@@ -2276,6 +2047,7 @@ describe("TelegramAdapter", () => {
           username: "mybot",
         })
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(
         telegramError(
           400,
@@ -2312,10 +2084,10 @@ describe("TelegramAdapter", () => {
     expect(result?.id).toBe("123:11");
 
     const retryDraftBody = JSON.parse(
-      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
     const finalSendBody = JSON.parse(
-      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+      String((mockFetch.mock.calls[4]?.[1] as RequestInit).body)
     ) as { parse_mode?: string; text: string };
 
     expect(retryDraftBody.parse_mode).toBeUndefined();
