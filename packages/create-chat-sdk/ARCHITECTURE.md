@@ -1,13 +1,13 @@
 # Architecture
 
-`create-bot` is a CLI that scaffolds new [Chat SDK](https://chat-sdk.dev) bot projects. It is published as the `create-bot` npm package and lives in the Chat SDK monorepo at `packages/create-bot`.
+`create-chat-sdk` is a CLI that scaffolds new [Chat SDK](https://chat-sdk.dev) bot projects. It is published as the `create-chat-sdk` npm package and lives in the Chat SDK monorepo at `packages/create-chat-sdk`.
 
 ## Project structure
 
 ```
-packages/create-bot/
+packages/create-chat-sdk/
 ├── src/
-│   ├── index.ts          # Entry point — calls createProgram().parse()
+│   ├── index.ts          # Entry point - calls createProgram().parse()
 │   ├── cli.ts            # Commander program definition, flags, help text
 │   ├── prompts.ts        # Interactive prompts (Clack) and flag resolution
 │   ├── scaffold.ts       # File copying, post-processing, dependency install
@@ -35,7 +35,7 @@ packages/create-bot/
 ## Data flow
 
 ```
-CLI invocation (npx create-bot my-bot --adapter slack redis)
+CLI invocation (npm create chat-sdk@latest my-bot --adapter slack redis)
   │
   ▼
 index.ts ──► cli.ts (Commander parses args and flags)
@@ -73,9 +73,9 @@ index.ts ──► cli.ts (Commander parses args and flags)
 
 Tests use Vitest with v8 coverage. Each source module has a co-located `.test.ts` file. The test strategy:
 
-- **`cli.test.ts`** — Mocks `runPrompts` and `scaffold`; tests Commander program creation, help text output, and action handler logic.
-- **`prompts.test.ts`** — Mocks `@clack/prompts`; tests interactive flows, flag resolution, cancellation, validation, and package manager detection.
-- **`scaffold.test.ts`** — Uses real temp directories; mocks `execa` and `@clack/prompts`; tests file copying, post-processing, dependency installation, and overwrite prompts.
-- **`templates.test.ts`** — Pure function tests for `botTs()` output with various adapter combinations.
+- **`cli.test.ts`** - Mocks `runPrompts` and `scaffold`; tests Commander program creation, help text output, and action handler logic.
+- **`prompts.test.ts`** - Mocks `@clack/prompts`; tests interactive flows, flag resolution, cancellation, validation, and package manager detection.
+- **`scaffold.test.ts`** - Uses real temp directories; mocks `execa` and `@clack/prompts`; tests file copying, post-processing, dependency installation, and overwrite prompts.
+- **`templates.test.ts`** - Pure function tests for `botTs()` output with various adapter combinations.
 
-`types.ts` and `index.ts` are excluded from coverage — `types.ts` is definition-only and `index.ts` is a one-line entry point.
+`types.ts` and `index.ts` are excluded from coverage - `types.ts` is definition-only and `index.ts` is a one-line entry point.

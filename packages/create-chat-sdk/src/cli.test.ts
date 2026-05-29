@@ -72,7 +72,7 @@ describe("buildAdapterList", () => {
 describe("createProgram", () => {
   it("returns a Commander program", () => {
     const prog = createProgram();
-    expect(prog.name()).toBe("create-bot");
+    expect(prog.name()).toBe("create-chat-sdk");
   });
 
   describe("--help", () => {
@@ -106,15 +106,15 @@ describe("createProgram", () => {
       });
       prog.outputHelp();
       expect(helpText).toContain("Examples:");
-      expect(helpText).toContain("$ create-bot my-bot");
+      expect(helpText).toContain("$ create-chat-sdk my-bot");
     });
   });
 
-  describe("action — successful flow", () => {
+  describe("action - successful flow", () => {
     it("calls runPrompts and scaffold", async () => {
       vi.mocked(runPrompts).mockResolvedValueOnce(fakeConfig);
       const prog = createProgram();
-      await prog.parseAsync(["node", "create-bot", "my-bot", "-yq"]);
+      await prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-yq"]);
 
       expect(runPrompts).toHaveBeenCalled();
       expect(scaffold).toHaveBeenCalledWith(fakeConfig, true, true);
@@ -123,7 +123,7 @@ describe("createProgram", () => {
     it("shows intro, note, and outro when not quiet", async () => {
       vi.mocked(runPrompts).mockResolvedValueOnce(fakeConfig);
       const prog = createProgram();
-      await prog.parseAsync(["node", "create-bot", "my-bot", "-y"]);
+      await prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-y"]);
 
       expect(intro).toHaveBeenCalled();
       expect(note).toHaveBeenCalled();
@@ -133,7 +133,7 @@ describe("createProgram", () => {
     it("hides intro, note, and outro when quiet", async () => {
       vi.mocked(runPrompts).mockResolvedValueOnce(fakeConfig);
       const prog = createProgram();
-      await prog.parseAsync(["node", "create-bot", "my-bot", "-yq"]);
+      await prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-yq"]);
 
       expect(intro).not.toHaveBeenCalled();
       expect(note).not.toHaveBeenCalled();
@@ -143,11 +143,12 @@ describe("createProgram", () => {
     it("defaults yes and quiet to false when not passed", async () => {
       vi.mocked(runPrompts).mockResolvedValueOnce(fakeConfig);
       const prog = createProgram();
-      await prog.parseAsync(["node", "create-bot", "my-bot"]);
+      await prog.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
       expect(runPrompts).toHaveBeenCalledWith(
         expect.anything(),
         "my-bot",
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -161,7 +162,7 @@ describe("createProgram", () => {
       const prog = createProgram();
       await prog.parseAsync([
         "node",
-        "create-bot",
+        "create-chat-sdk",
         "my-bot",
         "-d",
         "desc",
@@ -179,19 +180,66 @@ describe("createProgram", () => {
         "desc",
         ["slack", "redis"],
         "pnpm",
+        undefined,
         true,
         true
       );
     });
+
+    it("passes --no-install to runPrompts", async () => {
+      vi.mocked(runPrompts).mockResolvedValueOnce(fakeConfig);
+      const prog = createProgram();
+      await prog.parseAsync([
+        "node",
+        "create-chat-sdk",
+        "my-bot",
+        "--no-install",
+      ]);
+
+      expect(runPrompts).toHaveBeenCalledWith(
+        expect.anything(),
+        "my-bot",
+        undefined,
+        undefined,
+        undefined,
+        false,
+        false,
+        false
+      );
+    });
+
+    it("rejects unknown package managers", async () => {
+      const prog = createProgram();
+      prog.exitOverride();
+      prog.configureOutput({ writeErr: () => {} });
+
+      await expect(
+        prog.parseAsync(["node", "create-chat-sdk", "my-bot", "--pm", "pmpm"])
+      ).rejects.toThrow("expected npm, yarn, pnpm, or bun");
+      expect(runPrompts).not.toHaveBeenCalled();
+    });
+
+    it("shows a clean error when setup fails", async () => {
+      vi.mocked(runPrompts).mockRejectedValueOnce(new Error("bad adapter"));
+      const prog = createProgram();
+
+      await expect(
+        prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-y"])
+      ).rejects.toThrow("process.exit");
+      expect(outro).toHaveBeenCalledWith(
+        expect.stringContaining("bad adapter")
+      );
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
   });
 
-  describe("action — cancelled flow", () => {
+  describe("action - cancelled flow", () => {
     it("calls process.exit when prompts return null", async () => {
       vi.mocked(runPrompts).mockResolvedValueOnce(null);
       const prog = createProgram();
 
       await expect(
-        prog.parseAsync(["node", "create-bot", "my-bot", "-yq"])
+        prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-yq"])
       ).rejects.toThrow("process.exit");
       expect(exitSpy).toHaveBeenCalledWith(0);
       expect(scaffold).not.toHaveBeenCalled();
@@ -202,7 +250,7 @@ describe("createProgram", () => {
       const prog = createProgram();
 
       await expect(
-        prog.parseAsync(["node", "create-bot", "my-bot", "-y"])
+        prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-y"])
       ).rejects.toThrow("process.exit");
       expect(outro).toHaveBeenCalledWith(expect.stringContaining("Cancelled"));
     });
@@ -212,7 +260,7 @@ describe("createProgram", () => {
       const prog = createProgram();
 
       await expect(
-        prog.parseAsync(["node", "create-bot", "my-bot", "-yq"])
+        prog.parseAsync(["node", "create-chat-sdk", "my-bot", "-yq"])
       ).rejects.toThrow("process.exit");
       expect(outro).not.toHaveBeenCalled();
     });

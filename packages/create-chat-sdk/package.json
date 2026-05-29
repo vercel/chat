@@ -1,5 +1,5 @@
 {
-  "name": "create-bot",
+  "name": "create-chat-sdk",
   "description": "Create a new Chat SDK bot project",
   "keywords": [
     "vercel",
@@ -14,7 +14,7 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "bin": {
-    "create-bot": "./dist/index.js"
+    "create-chat-sdk": "./dist/index.js"
   },
   "files": [
     "dist",
@@ -44,7 +44,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vercel/chat.git",
-    "directory": "packages/create-bot"
+    "directory": "packages/create-chat-sdk"
   },
   "homepage": "https://chat-sdk.dev",
   "bugs": {

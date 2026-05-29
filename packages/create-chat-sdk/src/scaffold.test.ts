@@ -98,7 +98,7 @@ function makeConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "create-bot-test-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "create-chat-sdk-test-"));
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
   exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit");
@@ -128,6 +128,17 @@ describe("scaffold", () => {
       );
       expect(fs.existsSync(path.join(projectDir(), ".env.example"))).toBe(true);
       expect(fs.existsSync(path.join(projectDir(), ".gitignore"))).toBe(true);
+    });
+
+    it("includes the dependencies needed for a Next.js app", async () => {
+      await scaffold(makeConfig(), true, true);
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(projectDir(), "package.json"), "utf-8")
+      ) as { dependencies: Record<string, string> };
+
+      expect(pkg.dependencies.next).toBeDefined();
+      expect(pkg.dependencies.react).toBeDefined();
+      expect(pkg.dependencies["react-dom"]).toBeDefined();
     });
 
     it("generates bot.ts with adapter config", async () => {
@@ -208,34 +219,39 @@ describe("scaffold", () => {
   });
 
   describe("package.json population", () => {
-    it("calls npm pkg set with name and adapter deps", async () => {
+    it("writes name and adapter deps", async () => {
       await scaffold(makeConfig(), true, true);
-      expect(execa).toHaveBeenCalledWith(
-        "npm",
-        expect.arrayContaining([
-          "pkg",
-          "set",
-          "name=test-project",
-          "dependencies.@chat-adapter/slack=latest",
-          "dependencies.@chat-adapter/state-memory=latest",
-        ]),
-        expect.objectContaining({ cwd: projectDir() })
-      );
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(projectDir(), "package.json"), "utf-8")
+      ) as {
+        dependencies: Record<string, string>;
+        name: string;
+      };
+
+      expect(pkg.name).toBe("test-project");
+      expect(pkg.dependencies["@chat-adapter/slack"]).toBe("latest");
+      expect(pkg.dependencies["@chat-adapter/state-memory"]).toBe("latest");
     });
 
     it("includes description when provided", async () => {
       await scaffold(makeConfig({ description: "My bot" }), true, true);
-      expect(execa).toHaveBeenCalledWith(
-        "npm",
-        expect.arrayContaining(["description=My bot"]),
-        expect.anything()
-      );
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(projectDir(), "package.json"), "utf-8")
+      ) as { description: string };
+      expect(pkg.description).toBe("My bot");
     });
 
     it("omits description when empty", async () => {
       await scaffold(makeConfig({ description: "" }), true, true);
-      const args = vi.mocked(execa).mock.calls[0]?.[1] as string[];
-      expect(args.some((a) => a.startsWith("description="))).toBe(false);
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(projectDir(), "package.json"), "utf-8")
+      ) as { description?: string };
+      expect(pkg.description).toBeUndefined();
+    });
+
+    it("does not require npm when install is skipped", async () => {
+      await scaffold(makeConfig({ shouldInstall: false }), true, true);
+      expect(execa).not.toHaveBeenCalled();
     });
   });
 
@@ -329,6 +345,20 @@ describe("scaffold", () => {
       );
     });
 
+    it("updates generated readme commands to the selected package manager", async () => {
+      await scaffold(
+        makeConfig({ shouldInstall: false, packageManager: "pnpm" }),
+        true,
+        true
+      );
+      const readme = fs.readFileSync(
+        path.join(projectDir(), "README.md"),
+        "utf-8"
+      );
+      expect(readme).toContain("pnpm run dev");
+      expect(readme).not.toContain("`npm run dev`");
+    });
+
     it("skips install when shouldInstall is false", async () => {
       await scaffold(makeConfig({ shouldInstall: false }), true, true);
       const calls = vi.mocked(execa).mock.calls;
@@ -339,9 +369,7 @@ describe("scaffold", () => {
     });
 
     it("handles install failure gracefully", async () => {
-      vi.mocked(execa)
-        .mockResolvedValueOnce(undefined as never)
-        .mockRejectedValueOnce(new Error("install failed"));
+      vi.mocked(execa).mockRejectedValueOnce(new Error("install failed"));
 
       await scaffold(makeConfig({ shouldInstall: true }), true, false);
       expect(log.warning).toHaveBeenCalledWith(

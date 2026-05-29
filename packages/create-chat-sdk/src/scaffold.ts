@@ -31,6 +31,42 @@ function writeFile(projectDir: string, filePath: string, content: string) {
   fs.writeFileSync(fullPath, content);
 }
 
+function writeJsonFile(projectDir: string, filePath: string, value: unknown) {
+  writeFile(projectDir, filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function postProcessPackageJson(projectDir: string, config: ProjectConfig) {
+  const pkg = JSON.parse(readFile(projectDir, "package.json")) as {
+    dependencies?: Record<string, string>;
+    description?: string;
+    name?: string;
+  };
+
+  pkg.name = config.name;
+  if (config.description) {
+    pkg.description = config.description;
+  } else {
+    pkg.description = undefined;
+  }
+
+  pkg.dependencies ??= {};
+  for (const adapter of config.platformAdapters) {
+    pkg.dependencies[adapter.package] = "latest";
+  }
+  pkg.dependencies[config.stateAdapter.package] = "latest";
+
+  writeJsonFile(projectDir, "package.json", pkg);
+}
+
+function postProcessReadme(projectDir: string, config: ProjectConfig) {
+  const content = readFile(projectDir, "README.md")
+    .replace("npm run dev", `${config.packageManager} run dev`)
+    .replace("| `npm run dev` |", `| \`${config.packageManager} run dev\` |`)
+    .replace("npm run build", `${config.packageManager} run build`)
+    .replace("npm run start", `${config.packageManager} run start`);
+  writeFile(projectDir, "README.md", content);
+}
+
 function postProcessEnvExample(projectDir: string, config: ProjectConfig) {
   let content = readFile(projectDir, ".env.example").replace(
     "BOT_USERNAME=my-bot",
@@ -102,16 +138,8 @@ export async function scaffold(
 
   postProcessEnvExample(projectDir, config);
   postProcessNextConfig(projectDir, config);
-
-  const pkgArgs = [`name=${config.name}`];
-  if (config.description) {
-    pkgArgs.push(`description=${config.description}`);
-  }
-  for (const adapter of config.platformAdapters) {
-    pkgArgs.push(`dependencies.${adapter.package}=latest`);
-  }
-  pkgArgs.push(`dependencies.${config.stateAdapter.package}=latest`);
-  await execa("npm", ["pkg", "set", ...pkgArgs], { cwd: projectDir });
+  postProcessPackageJson(projectDir, config);
+  postProcessReadme(projectDir, config);
 
   writeFile(projectDir, "src/lib/bot.ts", botTs(config));
 

@@ -14,23 +14,45 @@ import type {
   StateAdapter,
 } from "./types.js";
 
-const VALID_PKG_NAME = /^[a-z0-9@._-]+$/i;
+const PACKAGE_NAME_PATTERN =
+  /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+
+function validatePackageName(value: string): string | undefined {
+  const name = value.trim();
+  if (!name) {
+    return "Project name is required";
+  }
+  if (
+    name.startsWith(".") ||
+    name.startsWith("_") ||
+    name.includes("..") ||
+    !PACKAGE_NAME_PATTERN.test(name)
+  ) {
+    return "Use a valid npm package name, like my-bot or @acme/my-bot";
+  }
+}
 
 function resolveAdapterFlags(adapters: AdaptersConfig, values: string[]) {
   const platforms: PlatformAdapter[] = [];
+  const platformValues = new Set<string>();
   let state: StateAdapter | undefined;
   const unknown: string[] = [];
 
   for (const v of values) {
     const platform = adapters.platformAdapters.find((a) => a.value === v);
     if (platform) {
-      platforms.push(platform);
+      if (!platformValues.has(platform.value)) {
+        platformValues.add(platform.value);
+        platforms.push(platform);
+      }
       continue;
     }
     const s = adapters.stateAdapters.find((a) => a.value === v);
     if (s) {
       if (state) {
-        log.warn(`Multiple state adapters passed; using "${s.value}"`);
+        throw new Error(
+          `Choose one state adapter. Received "${state.value}" and "${s.value}"`
+        );
       }
       state = s;
       continue;
@@ -39,7 +61,13 @@ function resolveAdapterFlags(adapters: AdaptersConfig, values: string[]) {
   }
 
   if (unknown.length > 0) {
-    log.warn(`Unknown adapter(s): ${unknown.join(", ")}`);
+    const available = [
+      ...adapters.platformAdapters.map((a) => a.value),
+      ...adapters.stateAdapters.map((a) => a.value),
+    ].join(", ");
+    throw new Error(
+      `Unknown adapter value: ${unknown.join(", ")}. Available values: ${available}`
+    );
   }
 
   return { platforms, state };
@@ -51,31 +79,31 @@ export async function runPrompts(
   initialDescription?: string,
   initialAdapters?: string[],
   initialPm?: PackageManager,
+  initialInstall?: boolean,
   yes = false,
   quiet = false
 ): Promise<ProjectConfig | null> {
-  const name =
-    initialName ??
-    (await text({
-      message: "Project name:",
-      placeholder: "my-bot",
-      validate: (value) => {
-        if (!value.trim()) {
-          return "Project name is required";
-        }
-        if (!VALID_PKG_NAME.test(value)) {
-          return "Invalid package name";
-        }
-      },
-    }));
+  const name = initialName
+    ? initialName.trim()
+    : await text({
+        message: "Project name:",
+        placeholder: "my-bot",
+        validate: validatePackageName,
+      });
   if (isCancel(name)) {
     return null;
+  }
+  const nameError = validatePackageName(name);
+  if (nameError) {
+    throw new Error(nameError);
   }
 
   let description: string;
 
   if (initialDescription != null) {
     description = initialDescription;
+  } else if (yes) {
+    description = "";
   } else {
     const result = await text({
       message: "Description:",
@@ -94,13 +122,15 @@ export async function runPrompts(
 
   let selectedPlatforms: PlatformAdapter[];
 
-  if (flagged?.platforms.length) {
+  if (flagged) {
     selectedPlatforms = flagged.platforms;
     if (!quiet) {
       log.info(
-        `Platform adapters: ${selectedPlatforms.map((a) => a.name).join(", ")}`
+        `Platform adapters: ${selectedPlatforms.map((a) => a.name).join(", ") || "none"}`
       );
     }
+  } else if (yes) {
+    selectedPlatforms = [];
   } else {
     const categories = new Map<string, { label: string; value: string }[]>();
     for (const a of adapters.platformAdapters) {
@@ -131,6 +161,15 @@ export async function runPrompts(
     if (!quiet) {
       log.info(`State adapter: ${selectedState.name}`);
     }
+  } else if (yes) {
+    const defaultState = adapters.stateAdapters[0];
+    if (!defaultState) {
+      throw new Error("No state adapters are available");
+    }
+    selectedState = defaultState;
+    if (!quiet) {
+      log.info(`State adapter: ${selectedState.name}`);
+    }
   } else {
     const stateValue = await select({
       message: "Select state adapter:",
@@ -151,9 +190,9 @@ export async function runPrompts(
     selectedState = found;
   }
 
-  let shouldInstall = true;
+  let shouldInstall = initialInstall ?? true;
 
-  if (!yes) {
+  if (initialInstall === undefined && !yes) {
     const result = await confirm({
       message: "Install dependencies?",
       initialValue: true,

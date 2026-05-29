@@ -1,4 +1,4 @@
-# create-bot
+# create-chat-sdk
 
 Scaffold a new [Chat SDK](https://chat-sdk.dev) bot project.
 
@@ -7,15 +7,23 @@ Chat SDK is a unified TypeScript SDK by Vercel for building chat bots across Sla
 ## Quick Start
 
 ```bash
-npx create-bot my-bot
+npm create chat-sdk@latest my-bot
 ```
 
 Or with your preferred package manager:
 
 ```bash
-pnpm create bot my-bot
-yarn create bot my-bot
-bunx create-bot my-bot
+pnpm create chat-sdk@latest my-bot
+yarn create chat-sdk my-bot
+bunx create-chat-sdk@latest my-bot
+```
+
+You can also run the binary directly:
+
+```bash
+npx create-chat-sdk@latest my-bot
+pnpm create chat-sdk my-bot
+bunx create-chat-sdk my-bot
 ```
 
 The CLI walks you through selecting platform adapters, a state adapter, and installs dependencies for you.
@@ -23,7 +31,7 @@ The CLI walks you through selecting platform adapters, a state adapter, and inst
 ## Usage
 
 ```
-Usage: create-bot [options] [name]
+Usage: create-chat-sdk [options] [name]
 
 Arguments:
   name                      name of the project
@@ -32,7 +40,8 @@ Options:
   -d, --description <text>  project description
   --adapter <values...>     platform or state adapters to include (skips interactive prompt)
   --pm <manager>            package manager to use (npm, yarn, pnpm, bun)
-  -y, --yes                 skip confirmation prompts (accept defaults)
+  -y, --yes                 skip prompts and accept defaults
+  --no-install              skip dependency installation
   -q, --quiet               suppress non-essential output
   --no-color                disable color output (respects NO_COLOR)
   -h, --help                display help for command
@@ -43,31 +52,31 @@ Options:
 Interactive mode (prompts for everything):
 
 ```bash
-npx create-bot
+npm create chat-sdk@latest
 ```
 
 Provide a name and let the CLI prompt for the rest:
 
 ```bash
-npx create-bot my-bot
+npm create chat-sdk@latest my-bot
 ```
 
 Skip adapter prompts by passing them directly:
 
 ```bash
-npx create-bot my-bot --adapter slack teams redis
+npm create chat-sdk@latest my-bot --adapter slack teams redis
 ```
 
 Fully non-interactive:
 
 ```bash
-npx create-bot my-bot -d 'My awesome bot' --adapter slack redis -y
+npm create chat-sdk@latest my-bot -d 'My awesome bot' --adapter slack redis -y
 ```
 
 Silent non-interactive (for CI/scripts):
 
 ```bash
-npx create-bot my-bot --adapter slack pg -yq --pm pnpm
+npm create chat-sdk@latest my-bot --adapter slack pg -yq --pm pnpm --no-install
 ```
 
 ## Available Adapters
@@ -108,10 +117,10 @@ npx create-bot my-bot --adapter slack pg -yq --pm pnpm
 
 The scaffolded project is a Next.js app with:
 
-- **`src/lib/bot.ts`** — Bot configuration with your selected adapters
-- **`src/app/api/webhooks/[platform]/route.ts`** — Dynamic webhook route
-- **`.env.example`** — Pre-populated with the environment variables for your adapters
-- **`next.config.ts`** — Configured with any required `serverExternalPackages`
+- **`src/lib/bot.ts`** - Bot configuration with your selected adapters
+- **`src/app/api/webhooks/[platform]/route.ts`** - Dynamic webhook route
+- **`.env.example`** - Pre-populated with the environment variables for your adapters
+- **`next.config.ts`** - Configured with any required `serverExternalPackages`
 
 ## After Scaffolding
 

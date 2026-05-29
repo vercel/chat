@@ -29,7 +29,7 @@
   "files": {
     "includes": [
       "**/*",
-      "!packages/create-bot/_template",
+      "!packages/create-chat-sdk/_template",
       "!apps/docs/app/\\[lang\\]/docs",
       "!apps/docs/app/\\[lang\\]/llms.mdx",
       "!apps/docs/app/\\[lang\\]/llms.txt",

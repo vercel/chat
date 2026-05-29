@@ -20,21 +20,21 @@ Building a chat bot that works across multiple platforms typically means maintai
 
 ## Quick start
 
-The fastest way to start a new project is with `create-bot`:
+The fastest way to start a new project is with `create-chat-sdk`:
 
 ```bash
-npx create-bot my-bot
+npm create chat-sdk@latest my-bot
 ```
 
-This scaffolds a Next.js app with your chosen adapters, environment variables, and a webhook route — ready to run. See the [create-bot docs](/docs/create-bot) for all options.
+This scaffolds a Next.js app with your chosen adapters, environment variables, and a webhook route - ready to run. See the [create-chat-sdk docs](/docs/create-chat-sdk) for all options.
 
 ## How it works
 
 Chat SDK has three core concepts:
 
-1. **Chat** — the main entry point that coordinates [adapters](/adapters) and routes events to your handlers
-2. **[Adapters](/adapters)** — platform-specific implementations that handle webhook parsing, message formatting, and API calls
-3. **State** — a pluggable persistence layer for thread subscriptions and distributed locking
+1. **Chat** - the main entry point that coordinates [adapters](/adapters) and routes events to your handlers
+2. **[Adapters](/adapters)** - platform-specific implementations that handle webhook parsing, message formatting, and API calls
+3. **State** - a pluggable persistence layer for thread subscriptions and distributed locking
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";

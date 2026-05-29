@@ -209,6 +209,23 @@ describe("runPrompts", () => {
       expect(vi.mocked(text)).toHaveBeenCalledTimes(1);
     });
 
+    it("uses default description when --yes", async () => {
+      vi.mocked(text).mockResolvedValueOnce("my-bot");
+
+      const result = await runPrompts(
+        adapters,
+        undefined,
+        undefined,
+        ["slack"],
+        undefined,
+        undefined,
+        true
+      );
+
+      expect(result?.description).toBe("");
+      expect(vi.mocked(text)).toHaveBeenCalledTimes(1);
+    });
+
     it("uses empty string when description prompt returns empty", async () => {
       vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
       vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
@@ -248,6 +265,42 @@ describe("runPrompts", () => {
       expect(select).not.toHaveBeenCalled();
     });
 
+    it("uses default state adapter when --yes and state is not flagged", async () => {
+      vi.mocked(text)
+        .mockResolvedValueOnce("my-bot")
+        .mockResolvedValueOnce("desc");
+      vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
+
+      const result = await runPrompts(
+        adapters,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true
+      );
+      expect(result?.stateAdapter).toEqual(memoryState);
+      expect(select).not.toHaveBeenCalled();
+    });
+
+    it("uses no platform adapters when --yes and adapters are not flagged", async () => {
+      vi.mocked(text).mockResolvedValueOnce("my-bot");
+
+      const result = await runPrompts(
+        adapters,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true
+      );
+
+      expect(result?.platformAdapters).toEqual([]);
+      expect(groupMultiselect).not.toHaveBeenCalled();
+    });
+
     it("skips install prompt when --yes", async () => {
       vi.mocked(text)
         .mockResolvedValueOnce("my-bot")
@@ -261,38 +314,52 @@ describe("runPrompts", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
         true
       );
       expect(result?.shouldInstall).toBe(true);
       expect(confirm).not.toHaveBeenCalled();
     });
 
-    it("warns on unknown adapter flags", async () => {
+    it("throws on unknown adapter flags", async () => {
       vi.mocked(text)
         .mockResolvedValueOnce("my-bot")
         .mockResolvedValueOnce("desc");
       vi.mocked(select).mockResolvedValueOnce("memory");
       vi.mocked(confirm).mockResolvedValueOnce(true);
 
-      await runPrompts(adapters, undefined, undefined, ["slack", "bogus"]);
-      expect(log.warn).toHaveBeenCalledWith("Unknown adapter(s): bogus");
+      await expect(
+        runPrompts(adapters, undefined, undefined, ["slack", "bogus"])
+      ).rejects.toThrow("Unknown adapter value: bogus");
     });
 
-    it("warns on multiple state adapters and uses last", async () => {
+    it("throws on multiple state adapters", async () => {
       vi.mocked(text)
         .mockResolvedValueOnce("my-bot")
         .mockResolvedValueOnce("desc");
       vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
       vi.mocked(confirm).mockResolvedValueOnce(true);
 
-      const result = await runPrompts(adapters, undefined, undefined, [
-        "memory",
-        "redis",
-      ]);
-      expect(log.warn).toHaveBeenCalledWith(
-        'Multiple state adapters passed; using "redis"'
+      await expect(
+        runPrompts(adapters, undefined, undefined, ["memory", "redis"])
+      ).rejects.toThrow(
+        'Choose one state adapter. Received "memory" and "redis"'
       );
-      expect(result?.stateAdapter).toEqual(redisState);
+    });
+
+    it("dedupes repeated platform adapters", async () => {
+      vi.mocked(text)
+        .mockResolvedValueOnce("my-bot")
+        .mockResolvedValueOnce("desc");
+      vi.mocked(select).mockResolvedValueOnce("memory");
+      vi.mocked(confirm).mockResolvedValueOnce(true);
+
+      const result = await runPrompts(adapters, undefined, undefined, [
+        "slack",
+        "slack",
+      ]);
+
+      expect(result?.platformAdapters).toEqual([slackAdapter]);
     });
 
     it("logs selected adapters when not quiet", async () => {
@@ -306,6 +373,7 @@ describe("runPrompts", () => {
         undefined,
         undefined,
         ["slack", "redis"],
+        undefined,
         undefined,
         false,
         false
@@ -326,23 +394,43 @@ describe("runPrompts", () => {
         undefined,
         ["slack", "redis"],
         undefined,
+        undefined,
         false,
         true
       );
       expect(log.info).not.toHaveBeenCalled();
     });
 
-    it("still prompts state when only platforms flagged", async () => {
+    it("skips install prompt when install is provided", async () => {
       vi.mocked(text)
         .mockResolvedValueOnce("my-bot")
         .mockResolvedValueOnce("desc");
-      vi.mocked(select).mockResolvedValueOnce("redis");
+      vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
+      vi.mocked(select).mockResolvedValueOnce("memory");
+
+      const result = await runPrompts(
+        adapters,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false
+      );
+      expect(result?.shouldInstall).toBe(false);
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("skips platform prompt when only state is flagged", async () => {
+      vi.mocked(text)
+        .mockResolvedValueOnce("my-bot")
+        .mockResolvedValueOnce("desc");
       vi.mocked(confirm).mockResolvedValueOnce(true);
 
       const result = await runPrompts(adapters, undefined, undefined, [
-        "slack",
+        "redis",
       ]);
-      expect(select).toHaveBeenCalled();
+      expect(groupMultiselect).not.toHaveBeenCalled();
+      expect(result?.platformAdapters).toEqual([]);
       expect(result?.stateAdapter).toEqual(redisState);
     });
   });
@@ -366,7 +454,15 @@ describe("runPrompts", () => {
       const textCall = vi.mocked(text).mock.calls[0]?.[0] as {
         validate?: (value: string) => string | undefined;
       };
-      expect(textCall.validate?.("bad name!")).toBe("Invalid package name");
+      expect(textCall.validate?.("bad name!")).toBe(
+        "Use a valid npm package name, like my-bot or @acme/my-bot"
+      );
+      expect(textCall.validate?.("@scope-name")).toBe(
+        "Use a valid npm package name, like my-bot or @acme/my-bot"
+      );
+      expect(textCall.validate?.("BadName")).toBe(
+        "Use a valid npm package name, like my-bot or @acme/my-bot"
+      );
     });
 
     it("accepts valid package names", async () => {
@@ -378,7 +474,13 @@ describe("runPrompts", () => {
       };
       expect(textCall.validate?.("my-bot")).toBeUndefined();
       expect(textCall.validate?.("my_bot.v2")).toBeUndefined();
-      expect(textCall.validate?.("@scope-name")).toBeUndefined();
+      expect(textCall.validate?.("@acme/my-bot")).toBeUndefined();
+    });
+
+    it("validates initial name", async () => {
+      await expect(runPrompts(adapters, "bad name!")).rejects.toThrow(
+        "Use a valid npm package name, like my-bot or @acme/my-bot"
+      );
     });
   });
 

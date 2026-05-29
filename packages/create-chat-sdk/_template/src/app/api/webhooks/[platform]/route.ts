@@ -7,7 +7,6 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/webhooks/[platform]">
 ) {
-
   const { platform } = await context.params;
 
   const handler = bot.webhooks[platform as Platform];

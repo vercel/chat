@@ -345,7 +345,7 @@
       "value": "redis",
       "package": "@chat-adapter/state-redis",
       "factoryFn": "createRedisState",
-      "hint": "production — node-redis driver",
+      "hint": "production - node-redis driver",
       "envVars": [
         {
           "name": "REDIS_URL",
@@ -359,7 +359,7 @@
       "value": "ioredis",
       "package": "@chat-adapter/state-ioredis",
       "factoryFn": "createIoRedisState",
-      "hint": "production — ioredis driver",
+      "hint": "production - ioredis driver",
       "envVars": [
         {
           "name": "REDIS_URL",

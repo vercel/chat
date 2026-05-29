@@ -8,10 +8,10 @@ description: >
   (3) Set up webhook routes or multi-adapter bots,
   (4) Send rich cards or streamed AI responses to chat platforms,
   (5) Build or maintain a custom adapter or state adapter,
-  (6) Scaffold a new bot project with create-bot.
+  (6) Scaffold a new bot project with create-chat-sdk.
   Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "google chat bot", "discord bot",
   "telegram bot", "whatsapp bot", "@chat-adapter", "@chat-adapter/state-", "custom adapter",
-  "state adapter", "build adapter", "create-bot", "scaffold bot", and building bots that work
+  "state adapter", "build adapter", "create-chat-sdk", "scaffold bot", and building bots that work
   across multiple chat platforms.
 ---
 
@@ -21,19 +21,19 @@ Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, 
 
 ## Scaffold a new project
 
-The `create-bot` CLI scaffolds a complete Next.js bot project with adapters, environment variables, and a webhook route:
+The `create-chat-sdk` CLI scaffolds a complete Next.js bot project with adapters, environment variables, and a webhook route:
 
 ```bash
-npx create-bot my-bot
+npm create chat-sdk@latest my-bot
 ```
 
 It supports non-interactive usage for CI or scripting:
 
 ```bash
-npx create-bot my-bot --adapter slack discord --adapter redis -d "My bot" --pm pnpm -y
+npm create chat-sdk@latest my-bot --adapter slack discord redis -d "My bot" --pm pnpm -y
 ```
 
-Key flags: `--adapter <values...>` (platform or state adapters), `-d <text>` (description), `--pm <manager>` (npm/yarn/pnpm/bun), `-y` (skip confirmations), `-q` (quiet output). Run `npx create-bot --help` for the full list.
+Key flags: `--adapter <values...>` (platform or state adapters), `-d <text>` (description), `--pm <manager>` (npm/yarn/pnpm/bun), `-y` (skip prompts), `--no-install` (skip dependency installation), `-q` (quiet output). Run `npm create chat-sdk@latest -- --help` for the full list.
 
 The scaffolded project structure:
 

@@ -1,26 +1,26 @@
 ---
-title: create-bot
+title: create-chat-sdk
 description: Scaffold a new Chat SDK bot project with a single command.
 ---
 
-`create-bot` is the fastest way to start a new Chat SDK project. It scaffolds a Next.js app with your chosen platform adapters, state adapter, environment variables, and webhook route — ready to run.
+`create-chat-sdk` is the fastest way to start a new Chat SDK project. It scaffolds a Next.js app with your chosen platform adapters, state adapter, environment variables, and webhook route - ready to run.
 
 ## Quick start
 
 ```bash tab="npm"
-npx create-bot my-bot
+npm create chat-sdk@latest my-bot
 ```
 
 ```bash tab="pnpm"
-pnpm create bot my-bot
+pnpm create chat-sdk@latest my-bot
 ```
 
 ```bash tab="yarn"
-yarn create bot my-bot
+yarn create chat-sdk my-bot
 ```
 
 ```bash tab="bun"
-bunx create-bot my-bot
+bunx create-chat-sdk@latest my-bot
 ```
 
 The CLI walks you through selecting platform adapters (Slack, Teams, Discord, etc.) and a state adapter (Redis, PostgreSQL, or in-memory), then installs dependencies automatically.
@@ -42,10 +42,10 @@ The generated `bot.ts` includes starter handlers for `onNewMention` and `onSubsc
 
 ## Non-interactive usage
 
-Every prompt can be skipped with flags, making `create-bot` fully scriptable for CI, automation, and AI agents:
+Every prompt can be skipped with flags, making `create-chat-sdk` fully scriptable for CI, automation, and AI agents:
 
 ```bash
-npx create-bot my-bot -d 'My bot' --adapter slack teams redis -yq
+npm create chat-sdk@latest my-bot -d 'My bot' --adapter slack teams redis -yq
 ```
 
 ### Flags
@@ -55,7 +55,8 @@ npx create-bot my-bot -d 'My bot' --adapter slack teams redis -yq
 | `-d, --description <text>` | Project description |
 | `--adapter <values...>` | Platform or state adapters to include (skips interactive prompt) |
 | `--pm <manager>` | Package manager to use (`npm`, `yarn`, `pnpm`, `bun`) |
-| `-y, --yes` | Skip confirmation prompts (accept defaults) |
+| `-y, --yes` | Skip prompts and accept defaults |
+| `--no-install` | Skip dependency installation |
 | `-q, --quiet` | Suppress non-essential output |
 | `--no-color` | Disable color output (respects `NO_COLOR`) |
 
