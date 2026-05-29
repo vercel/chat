@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withWorkflow } from "workflow/next";
 
 const nextConfig: NextConfig = {
   transpilePackages: [
@@ -24,4 +25,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const workflowPort = Number(process.env.PORT) || 3000;
+
+export default withWorkflow(nextConfig, {
+  workflows: { local: { port: workflowPort } },
+});

@@ -9,7 +9,7 @@ function createTestReader(): TeamsGraphReader {
     botId: "test-app",
     graph: new GraphClient(),
     formatConverter: new TeamsFormatConverter(),
-    getChannelContext: async () => null,
+    getGraphContext: async () => null,
     logger: new ConsoleLogger("error"),
   });
 }
@@ -149,5 +149,37 @@ describe("extractCardTitle", () => {
       ],
     };
     expect(reader.extractCardTitle(card)).toBe("First block");
+  });
+});
+
+describe("chatIdFromContext", () => {
+  it("should use graphChatId from DM context", () => {
+    const reader = createTestReader();
+    // biome-ignore lint/complexity/useLiteralKeys: testing private method
+    const result = (reader as never)["chatIdFromContext"](
+      { type: "dm", graphChatId: "19:user-aad-id_bot-id@unq.gbl.spaces" },
+      "a:opaque-conversation-id"
+    );
+    expect(result).toBe("19:user-aad-id_bot-id@unq.gbl.spaces");
+  });
+
+  it("should use raw conversation ID when no context", () => {
+    const reader = createTestReader();
+    // biome-ignore lint/complexity/useLiteralKeys: testing private method
+    const result = (reader as never)["chatIdFromContext"](
+      null,
+      "19:group-chat@thread.v2"
+    );
+    expect(result).toBe("19:group-chat@thread.v2");
+  });
+
+  it("should use raw conversation ID for channel context", () => {
+    const reader = createTestReader();
+    // biome-ignore lint/complexity/useLiteralKeys: testing private method
+    const result = (reader as never)["chatIdFromContext"](
+      { teamId: "team-id", channelId: "channel-id" },
+      "19:channel@thread.tacv2"
+    );
+    expect(result).toBe("19:channel@thread.tacv2");
   });
 });

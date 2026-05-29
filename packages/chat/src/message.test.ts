@@ -1,7 +1,8 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseMarkdown } from "./markdown";
-import { Message, type SerializedMessage } from "./message";
+import { Message, type SerializedMessage, setMessageAdapter } from "./message";
+import type { Adapter, MessageSubject } from "./types";
 
 function makeMessage(overrides?: Record<string, unknown>) {
   return new Message({
@@ -85,9 +86,59 @@ describe("Message", () => {
         size: undefined,
         width: undefined,
         height: undefined,
+        fetchMetadata: undefined,
       });
       expect("data" in json.attachments[0]).toBe(false);
       expect("fetchData" in json.attachments[0]).toBe(false);
+    });
+
+    it("should preserve fetchMetadata in attachments", () => {
+      const msg = makeMessage({
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/img.png",
+            fetchMetadata: {
+              mediaId: "123",
+              url: "https://example.com/img.png",
+            },
+            fetchData: () => Promise.resolve(Buffer.from("binary")),
+          },
+        ],
+      });
+      const json = msg.toJSON();
+      expect(json.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
+      const restored = Message.fromJSON(json);
+      expect(restored.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
+    });
+
+    it("should preserve fetchMetadata through full JSON.stringify/parse roundtrip", () => {
+      const msg = makeMessage({
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/img.png",
+            fetchMetadata: {
+              mediaId: "123",
+              url: "https://example.com/img.png",
+            },
+            fetchData: () => Promise.resolve(Buffer.from("binary")),
+          },
+        ],
+      });
+      const roundtripped = JSON.parse(JSON.stringify(msg.toJSON()));
+      const restored = Message.fromJSON(roundtripped);
+      expect(restored.attachments[0].fetchMetadata).toEqual({
+        mediaId: "123",
+        url: "https://example.com/img.png",
+      });
+      expect(restored.attachments[0].fetchData).toBeUndefined();
     });
 
     it("should include isMention flag", () => {
@@ -189,6 +240,75 @@ describe("Message", () => {
       const restored = Message[WORKFLOW_DESERIALIZE](serialized);
       expect(restored.id).toBe(msg.id);
       expect(restored.metadata.dateSent).toBeInstanceOf(Date);
+    });
+  });
+
+  describe("subject", () => {
+    it("should return null when no adapter is set", async () => {
+      const msg = makeMessage();
+      expect(await msg.subject).toBeNull();
+    });
+
+    it("should return null when adapter has no fetchSubject", async () => {
+      const msg = makeMessage();
+      setMessageAdapter(msg, {} as Adapter);
+      expect(await msg.subject).toBeNull();
+    });
+
+    it("should return subject from adapter", async () => {
+      const msg = makeMessage();
+      const expected: MessageSubject = {
+        type: "issue",
+        id: "ENG-123",
+        title: "Fix bug",
+        status: "In Progress",
+        url: "https://linear.app/team/ENG-123",
+        raw: {},
+      };
+      setMessageAdapter(msg, {
+        fetchSubject: vi.fn().mockResolvedValue(expected),
+      } as unknown as Adapter);
+
+      const result = await msg.subject;
+      expect(result).toEqual(expected);
+    });
+
+    it("should cache the result", async () => {
+      const msg = makeMessage();
+      const fetchSubject = vi.fn().mockResolvedValue({
+        type: "issue",
+        id: "1",
+        raw: {},
+      });
+      setMessageAdapter(msg, { fetchSubject } as unknown as Adapter);
+
+      await msg.subject;
+      await msg.subject;
+      expect(fetchSubject).toHaveBeenCalledTimes(1);
+    });
+
+    it("should cache null result", async () => {
+      const msg = makeMessage();
+      const fetchSubject = vi.fn().mockResolvedValue(null);
+      setMessageAdapter(msg, { fetchSubject } as unknown as Adapter);
+
+      await msg.subject;
+      await msg.subject;
+      expect(fetchSubject).toHaveBeenCalledTimes(1);
+    });
+
+    it("should handle concurrent access", async () => {
+      const msg = makeMessage();
+      const fetchSubject = vi.fn().mockResolvedValue({
+        type: "issue",
+        id: "1",
+        raw: {},
+      });
+      setMessageAdapter(msg, { fetchSubject } as unknown as Adapter);
+
+      const [a, b] = await Promise.all([msg.subject, msg.subject]);
+      expect(a).toEqual(b);
+      expect(fetchSubject).toHaveBeenCalledTimes(1);
     });
   });
 });

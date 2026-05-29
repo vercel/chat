@@ -1,3 +1,8 @@
+import {
+  decodeCallbackValue,
+  postToCallbackUrl,
+  resolveCallbackUrl,
+} from "./callback-url";
 import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
   getChatSingleton,
@@ -5,10 +10,12 @@ import {
   setChatSingleton,
 } from "./chat-singleton";
 import { isJSX, toModalElement } from "./jsx-runtime";
-import { Message, type SerializedMessage } from "./message";
-import { MessageHistoryCache } from "./message-history";
+import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
+import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
+import { ThreadHistoryCache } from "./thread-history";
+import { TranscriptsApiImpl } from "./transcripts";
 import type {
   ActionEvent,
   ActionHandler,
@@ -29,6 +36,7 @@ import type {
   DirectMessageHandler,
   EmojiValue,
   FormattedContent,
+  IdentityResolver,
   LinkPreview,
   Lock,
   LockScope,
@@ -44,6 +52,9 @@ import type {
   ModalResponse,
   ModalSubmitEvent,
   ModalSubmitHandler,
+  OptionsLoadEvent,
+  OptionsLoadHandler,
+  OptionsLoadResult,
   ReactionEvent,
   ReactionHandler,
   SentMessage,
@@ -52,6 +63,8 @@ import type {
   StateAdapter,
   SubscribedMessageHandler,
   Thread,
+  TranscriptsApi,
+  UserInfo,
   WebhookOptions,
 } from "./types";
 import { ChatError, ConsoleLogger, LockError } from "./types";
@@ -62,14 +75,18 @@ const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-const SLACK_USER_ID_REGEX = /^U[A-Z0-9]+$/i;
+const SLACK_USER_ID_REGEX = /^[UW][A-Z0-9]+$/;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
+const LINEAR_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NUMERIC_REGEX = /^\d+$/;
 /** TTL for message deduplication entries */
 const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */
 interface StoredModalContext {
+  callbackUrl?: string;
   channel?: SerializedChannel;
   message?: SerializedMessage;
   thread?: SerializedThread;
@@ -93,6 +110,12 @@ interface ActionPattern {
   /** If specified, only these action IDs trigger the handler. Empty means all actions. */
   actionIds: string[];
   handler: ActionHandler;
+}
+
+interface OptionsLoadPattern {
+  /** If specified, only these action IDs trigger the handler. Empty means all selects. */
+  actionIds: string[];
+  handler: OptionsLoadHandler;
 }
 
 interface ModalSubmitPattern {
@@ -178,6 +201,22 @@ export class Chat<
   }
 
   /**
+   * Cross-platform per-user transcript store.
+   *
+   * Available only when `transcripts` is configured on the Chat instance
+   * (and an `identity` resolver is set). Throws on access otherwise so
+   * callers fail loudly rather than silently no-op'ing.
+   */
+  get transcripts(): TranscriptsApi {
+    if (!this._transcripts) {
+      throw new Error(
+        "chat.transcripts is not configured — pass `transcripts` and `identity` to ChatConfig to enable it"
+      );
+    }
+    return this._transcripts;
+  }
+
+  /**
    * Get the registered singleton Chat instance.
    * Throws if no singleton has been registered.
    */
@@ -200,11 +239,17 @@ export class Chat<
   private readonly _fallbackStreamingPlaceholderText: string | null;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
-  private readonly _messageHistory: MessageHistoryCache;
+  private readonly _threadHistory: ThreadHistoryCache;
+  private readonly _identity: IdentityResolver | undefined;
+  private readonly _transcripts: TranscriptsApiImpl | undefined;
   private readonly _concurrencyStrategy: ConcurrencyStrategy;
   private readonly _concurrencyConfig: Required<
     Omit<ConcurrencyConfig, "strategy">
   >;
+  private readonly _concurrentSlots = new Map<
+    string,
+    { inFlight: number; waiters: Array<() => void> }
+  >();
   private readonly _lockScope: ChatConfig["lockScope"];
 
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
@@ -214,6 +259,7 @@ export class Chat<
     [];
   private readonly reactionHandlers: ReactionPattern[] = [];
   private readonly actionHandlers: ActionPattern[] = [];
+  private readonly optionsLoadHandlers: OptionsLoadPattern[] = [];
   private readonly modalSubmitHandlers: ModalSubmitPattern[] = [];
   private readonly modalCloseHandlers: ModalClosePattern[] = [];
   private readonly slashCommandHandlers: SlashCommandPattern<TState>[] = [];
@@ -249,6 +295,13 @@ export class Chat<
     this._onLockConflict = config.onLockConflict;
     this._lockScope = config.lockScope;
 
+    // Initialize logger first so concurrency parsing can warn on misconfig
+    if (typeof config.logger === "string") {
+      this.logger = new ConsoleLogger(config.logger as LogLevel);
+    } else {
+      this.logger = config.logger || new ConsoleLogger("info");
+    }
+
     // Parse concurrency config — new `concurrency` option takes precedence over deprecated `onLockConflict`
     const concurrency = config.concurrency;
     if (concurrency) {
@@ -262,6 +315,22 @@ export class Chat<
           queueEntryTtlMs: 90_000,
         };
       } else {
+        if (
+          concurrency.maxConcurrent !== undefined &&
+          concurrency.maxConcurrent < 1
+        ) {
+          throw new Error(
+            `concurrency.maxConcurrent must be >= 1 (got ${concurrency.maxConcurrent})`
+          );
+        }
+        if (
+          concurrency.maxConcurrent !== undefined &&
+          concurrency.strategy !== "concurrent"
+        ) {
+          this.logger.warn(
+            `concurrency.maxConcurrent has no effect when strategy is "${concurrency.strategy}" — it only applies to the "concurrent" strategy.`
+          );
+        }
         this._concurrencyStrategy = concurrency.strategy;
         this._concurrencyConfig = {
           debounceMs: concurrency.debounceMs ?? 1500,
@@ -282,16 +351,24 @@ export class Chat<
       };
     }
 
-    this._messageHistory = new MessageHistoryCache(
+    this._threadHistory = new ThreadHistoryCache(
       this._stateAdapter,
-      config.messageHistory
+      config.threadHistory ?? config.messageHistory
     );
 
-    // Initialize logger
-    if (typeof config.logger === "string") {
-      this.logger = new ConsoleLogger(config.logger as LogLevel);
+    if (config.transcripts) {
+      if (!config.identity) {
+        throw new Error(
+          "ChatConfig.transcripts requires ChatConfig.identity to be set — the cross-platform user key must be resolvable"
+        );
+      }
+      this._identity = config.identity;
+      this._transcripts = new TranscriptsApiImpl(
+        this._stateAdapter,
+        config.transcripts
+      );
     } else {
-      this.logger = config.logger || new ConsoleLogger("info");
+      this._identity = config.identity;
     }
 
     // Register adapters and create webhook handlers
@@ -437,9 +514,13 @@ export class Chat<
   /**
    * Register a handler for direct messages.
    *
-   * Called when a message is received in a DM thread that is not subscribed.
-   * If no `onDirectMessage` handlers are registered, DMs fall through to
-   * `onNewMention` for backward compatibility.
+   * Called for every message received in a DM thread when at least one
+   * direct message handler is registered. Direct message handlers run before
+   * `onSubscribedMessage`, `onNewMention`, and pattern handlers.
+   *
+   * If no `onDirectMessage` handlers are registered, DMs continue through
+   * normal routing. Unsubscribed DMs fall through to `onNewMention` for
+   * backward compatibility.
    *
    * @param handler - Handler called for DM messages
    *
@@ -590,6 +671,34 @@ export class Chat<
         : [actionIdOrHandler];
       this.actionHandlers.push({ actionIds, handler });
       this.logger.debug("Registered action handler", { actionIds });
+    }
+  }
+
+  /**
+   * Register a handler for loading dynamic options for external selects.
+   * Specific action IDs run before catch-all handlers.
+   */
+  onOptionsLoad(handler: OptionsLoadHandler): void;
+  onOptionsLoad(
+    actionIds: string[] | string,
+    handler: OptionsLoadHandler
+  ): void;
+  onOptionsLoad(
+    actionIdOrHandler: string | string[] | OptionsLoadHandler,
+    handler?: OptionsLoadHandler
+  ): void {
+    if (typeof actionIdOrHandler === "function") {
+      this.optionsLoadHandlers.push({
+        actionIds: [],
+        handler: actionIdOrHandler,
+      });
+      this.logger.debug("Registered options load handler for all action IDs");
+    } else if (handler) {
+      const actionIds = Array.isArray(actionIdOrHandler)
+        ? actionIdOrHandler
+        : [actionIdOrHandler];
+      this.optionsLoadHandlers.push({ actionIds, handler });
+      this.logger.debug("Registered options load handler", { actionIds });
     }
   }
 
@@ -795,21 +904,7 @@ export class Chat<
   reviver(): (key: string, value: unknown) => unknown {
     // Ensure this chat instance is registered as singleton for thread deserialization
     this.registerSingleton();
-    return function reviver(_key: string, value: unknown): unknown {
-      if (value && typeof value === "object" && "_type" in value) {
-        const typed = value as { _type: string };
-        if (typed._type === "chat:Thread") {
-          return ThreadImpl.fromJSON(value as SerializedThread);
-        }
-        if (typed._type === "chat:Channel") {
-          return ChannelImpl.fromJSON(value as SerializedChannel);
-        }
-        if (typed._type === "chat:Message") {
-          return Message.fromJSON(value as SerializedMessage);
-        }
-      }
-      return value;
-    };
+    return standaloneReviver;
   }
 
   // ChatInstance interface implementations
@@ -824,20 +919,28 @@ export class Chat<
     threadId: string,
     messageOrFactory: Message | (() => Promise<Message>),
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     const task = (async () => {
       const message =
         typeof messageOrFactory === "function"
           ? await messageOrFactory()
           : messageOrFactory;
       await this.handleIncomingMessage(adapter, threadId, message);
-    })().catch((err) => {
+    })();
+
+    // Track via waitUntil with errors swallowed (existing webhook semantics —
+    // platforms shouldn't retry on handler bugs). The returned task itself
+    // still rejects so streaming adapters (e.g. @chat-adapter/web) can
+    // surface failures to the client.
+    const tracked = task.catch((err) => {
       this.logger.error("Message processing error", { error: err, threadId });
     });
 
     if (options?.waitUntil) {
-      options.waitUntil(task);
+      options.waitUntil(tracked);
     }
+
+    return task;
   }
 
   /**
@@ -884,15 +987,44 @@ export class Chat<
     return task;
   }
 
+  async processOptionsLoad(
+    event: OptionsLoadEvent,
+    _options?: WebhookOptions
+  ): Promise<OptionsLoadResult | undefined> {
+    const matchingHandlers = [
+      ...this.optionsLoadHandlers.filter(
+        ({ actionIds }) =>
+          actionIds.length > 0 && actionIds.includes(event.actionId)
+      ),
+      ...this.optionsLoadHandlers.filter(
+        ({ actionIds }) => actionIds.length === 0
+      ),
+    ];
+
+    for (const { handler } of matchingHandlers) {
+      try {
+        const options = await handler(event);
+        if (options) {
+          return options;
+        }
+      } catch (err) {
+        this.logger.error("Options load handler error", {
+          error: err,
+          actionId: event.actionId,
+        });
+      }
+    }
+  }
+
   async processModalSubmit(
     event: Omit<
       ModalSubmitEvent,
       "relatedThread" | "relatedMessage" | "relatedChannel"
     >,
     contextId?: string,
-    _options?: WebhookOptions
+    options?: WebhookOptions
   ): Promise<ModalResponse | undefined> {
-    const { relatedThread, relatedMessage, relatedChannel } =
+    const { callbackUrl, relatedThread, relatedMessage, relatedChannel } =
       await this.retrieveModalContext(event.adapter.name, contextId);
 
     const fullEvent: ModalSubmitEvent = {
@@ -902,12 +1034,14 @@ export class Chat<
       relatedChannel,
     };
 
+    let result: ModalResponse | undefined;
     for (const { callbackIds, handler } of this.modalSubmitHandlers) {
       if (callbackIds.length === 0 || callbackIds.includes(event.callbackId)) {
         try {
           const response = await handler(fullEvent);
           if (response) {
-            return response;
+            result = response;
+            break;
           }
         } catch (err) {
           this.logger.error("Modal submit handler error", {
@@ -917,6 +1051,35 @@ export class Chat<
         }
       }
     }
+
+    if (callbackUrl && result?.action !== "errors") {
+      const task = postToCallbackUrl(callbackUrl, {
+        type: "modal_submit",
+        callbackId: event.callbackId,
+        values: event.values,
+        user: { id: event.user.userId, name: event.user.userName },
+      })
+        .then(({ error }) => {
+          if (error) {
+            this.logger.error("Modal callbackUrl POST failed", {
+              callbackUrl,
+              error,
+            });
+          }
+        })
+        .catch((error) => {
+          this.logger.error("Modal callbackUrl POST failed", {
+            callbackUrl,
+            error,
+          });
+        });
+
+      if (options?.waitUntil) {
+        options.waitUntil(task);
+      }
+    }
+
+    return result;
   }
 
   processModalClose(
@@ -1119,7 +1282,8 @@ export class Chat<
           contextId,
           undefined,
           undefined,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1164,13 +1328,15 @@ export class Chat<
     contextId: string,
     thread?: ThreadImpl<TState>,
     message?: Message,
-    channel?: ChannelImpl<TState>
+    channel?: ChannelImpl<TState>,
+    callbackUrl?: string
   ): Promise<void> {
     const key = `modal-context:${adapterName}:${contextId}`;
     const context: StoredModalContext = {
       thread: thread?.toJSON(),
       message: message?.toJSON(),
       channel: channel?.toJSON(),
+      callbackUrl,
     };
     try {
       await this._stateAdapter.set(key, context, MODAL_CONTEXT_TTL_MS);
@@ -1190,12 +1356,14 @@ export class Chat<
     adapterName: string,
     contextId?: string
   ): Promise<{
+    callbackUrl: string | undefined;
     relatedThread: Thread | undefined;
     relatedMessage: SentMessage | undefined;
     relatedChannel: Channel | undefined;
   }> {
     if (!contextId) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1207,6 +1375,7 @@ export class Chat<
 
     if (!stored) {
       return {
+        callbackUrl: undefined,
         relatedThread: undefined,
         relatedMessage: undefined,
         relatedChannel: undefined,
@@ -1239,7 +1408,12 @@ export class Chat<
       relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
     }
 
-    return { relatedThread, relatedMessage, relatedChannel };
+    return {
+      callbackUrl: stored.callbackUrl,
+      relatedThread,
+      relatedMessage,
+      relatedChannel,
+    };
   }
 
   /**
@@ -1264,6 +1438,39 @@ export class Chat<
         actionId: event.actionId,
       });
       return;
+    }
+
+    const { callbackToken } = decodeCallbackValue(event.value);
+
+    let resolved: { url: string; originalValue?: string } | null = null;
+    if (callbackToken) {
+      resolved = await resolveCallbackUrl(callbackToken, this._stateAdapter);
+    }
+
+    const actionEvent = resolved
+      ? { ...event, value: resolved.originalValue }
+      : event;
+
+    let callbackUrlPromise: Promise<void> | undefined;
+    if (resolved) {
+      const callbackUrl = resolved.url;
+      callbackUrlPromise = (async () => {
+        const { error } = await postToCallbackUrl(callbackUrl, {
+          type: "action",
+          actionId: event.actionId,
+          value: resolved.originalValue,
+          user: { id: event.user.userId, name: event.user.userName },
+          threadId: event.threadId,
+          messageId: event.messageId,
+        });
+        if (error) {
+          this.logger.error("Button callbackUrl POST failed", {
+            callbackUrl,
+            actionId: event.actionId,
+            error,
+          });
+        }
+      })();
     }
 
     const isSubscribed = false;
@@ -1292,7 +1499,7 @@ export class Chat<
 
     // Build full event with thread and openModal helper
     const fullEvent: ActionEvent = {
-      ...event,
+      ...actionEvent,
       thread,
       openModal: async (modal) => {
         // Allow if onOpenModal is provided OR triggerId exists
@@ -1349,7 +1556,8 @@ export class Chat<
           contextId,
           thread ? (thread as ThreadImpl<TState>) : undefined,
           message,
-          channel
+          channel,
+          modalElement.callbackUrl
         );
 
         // Use hook if provided, otherwise fall back to adapter.openModal
@@ -1388,6 +1596,10 @@ export class Chat<
         });
         await handler(fullEvent);
       }
+    }
+
+    if (callbackUrlPromise) {
+      await callbackUrlPromise;
     }
   }
 
@@ -1539,6 +1751,35 @@ export class Chat<
   }
 
   /**
+   * Look up user information by user ID.
+   *
+   * The adapter is automatically inferred from the user ID format.
+   * Returns user details including email (where available — requires
+   * appropriate scopes on some platforms, e.g. `users:read.email` on Slack).
+   *
+   * @param user - Platform-specific user ID string, or an Author object
+   * @returns User info, or null if user not found
+   *
+   * @example
+   * ```typescript
+   * const user = await chat.getUser("U123456");
+   * console.log(user?.email); // "alice@company.com"
+   * ```
+   */
+  async getUser(user: string | Author): Promise<UserInfo | null> {
+    const userId = typeof user === "string" ? user : user.userId;
+    const adapter = this.inferAdapterFromUserId(userId);
+    if (!adapter.getUser) {
+      throw new ChatError(
+        `Adapter "${adapter.name}" does not support getUser`,
+        "NOT_SUPPORTED"
+      );
+    }
+
+    return adapter.getUser(userId);
+  }
+
+  /**
    * Get a Channel by its channel ID.
    *
    * The adapter is automatically inferred from the channel ID prefix.
@@ -1589,10 +1830,46 @@ export class Chat<
   }
 
   /**
+   * Get a Thread handle by its thread ID.
+   *
+   * The adapter is automatically inferred from the thread ID prefix.
+   *
+   * @param threadId - Full thread ID (e.g., "slack:C123ABC:1234567890.123456")
+   * @returns A Thread that can be used to post messages, subscribe, etc.
+   *
+   * @example
+   * ```typescript
+   * const thread = chat.thread("slack:C123ABC:1234567890.123456");
+   * await thread.post("Hello from outside a webhook!");
+   * ```
+   */
+  thread(threadId: string): Thread<TState> {
+    const adapterName = threadId.split(":")[0];
+    if (!adapterName) {
+      throw new ChatError(
+        `Invalid thread ID: ${threadId}`,
+        "INVALID_THREAD_ID"
+      );
+    }
+
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${adapterName}" not found for thread ID "${threadId}"`,
+        "ADAPTER_NOT_FOUND"
+      );
+    }
+
+    return this.createThread(adapter, threadId, {} as Message, false);
+  }
+
+  /**
    * Infer which adapter to use based on the userId format.
    */
   private inferAdapterFromUserId(userId: string): Adapter {
-    // Google Chat: users/123456789
+    // Unique-prefix formats — no collision possible across adapters
+
+    // Google Chat: "users/123456789"
     if (userId.startsWith("users/")) {
       const adapter = this.adapters.get("gchat");
       if (adapter) {
@@ -1600,7 +1877,7 @@ export class Chat<
       }
     }
 
-    // Teams: 29:base64string...
+    // Teams: "29:base64string..."
     if (userId.startsWith("29:")) {
       const adapter = this.adapters.get("teams");
       if (adapter) {
@@ -1608,7 +1885,16 @@ export class Chat<
       }
     }
 
-    // Slack: U followed by alphanumeric (e.g., U00FAKEUSER1)
+    // Linear: UUID v4 (e.g., "8f1f3c7e-d4e1-4f9a-bf2b-1c3d4e5f6a7b")
+    if (LINEAR_UUID_REGEX.test(userId)) {
+      const adapter = this.adapters.get("linear");
+      if (adapter) {
+        return adapter;
+      }
+    }
+
+    // Slack: "U..." or "W..." (uppercase, alphanumeric, 7+ chars total)
+    // — never lowercase, so won't collide with GitHub logins like "user123"
     if (SLACK_USER_ID_REGEX.test(userId)) {
       const adapter = this.adapters.get("slack");
       if (adapter) {
@@ -1616,16 +1902,40 @@ export class Chat<
       }
     }
 
-    // Discord: snowflake ID (17-19 digit number)
-    if (DISCORD_SNOWFLAKE_REGEX.test(userId)) {
-      const adapter = this.adapters.get("discord");
-      if (adapter) {
-        return adapter;
+    // Numeric IDs are shared by Discord (17-19 digit snowflakes), Telegram
+    // (positive integer up to 52 bits), and GitHub (numeric account_id).
+    // Disambiguate by which adapters the caller actually registered.
+    if (NUMERIC_REGEX.test(userId)) {
+      const candidates: string[] = [];
+      if (
+        DISCORD_SNOWFLAKE_REGEX.test(userId) &&
+        this.adapters.has("discord")
+      ) {
+        candidates.push("discord");
+      }
+      if (this.adapters.has("telegram")) {
+        candidates.push("telegram");
+      }
+      if (this.adapters.has("github")) {
+        candidates.push("github");
+      }
+
+      if (candidates.length === 1) {
+        const adapter = this.adapters.get(candidates[0] as string);
+        if (adapter) {
+          return adapter;
+        }
+      }
+      if (candidates.length > 1) {
+        throw new ChatError(
+          `Numeric userId "${userId}" is ambiguous between adapters: ${candidates.join(", ")}. Call the platform's adapter directly (e.g. \`adapter.getUser(userId)\`).`,
+          "AMBIGUOUS_USER_ID"
+        );
       }
     }
 
     throw new ChatError(
-      `Cannot infer adapter from userId "${userId}". Expected format: Slack (U...), Teams (29:...), Google Chat (users/...), or Discord (numeric snowflake).`,
+      `Cannot infer adapter from userId "${userId}". Expected: Slack ("U..."), Teams ("29:..."), Google Chat ("users/..."), Linear (UUID), or Discord/Telegram/GitHub (numeric).`,
       "UNKNOWN_USER_ID_FORMAT"
     );
   }
@@ -1665,13 +1975,15 @@ export class Chat<
    * - Deduplication: Same message may arrive multiple times (e.g., Slack sends
    *   both `message` and `app_mention` events, GChat sends direct webhook + Pub/Sub)
    * - Bot filtering: Messages from the bot itself are skipped
-   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, concurrent)
+   * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, burst, concurrent)
    */
   async handleIncomingMessage(
     adapter: Adapter,
     threadId: string,
     message: Message
   ): Promise<void> {
+    setMessageAdapter(message, adapter);
+
     this.logger.debug("Incoming message", {
       adapter: adapter.name,
       threadId,
@@ -1712,11 +2024,11 @@ export class Chat<
     // Persist incoming message BEFORE acquiring the lock.
     // If the lock is already held (e.g., bot is processing a previous message),
     // we still want to save this message to history so it's not lost.
-    if (adapter.persistMessageHistory) {
+    if (adapter.persistThreadHistory || adapter.persistMessageHistory) {
       const channelId = adapter.channelIdFromThreadId(threadId);
-      const appends = [this._messageHistory.append(threadId, message)];
+      const appends = [this._threadHistory.append(threadId, message)];
       if (channelId !== threadId) {
-        appends.push(this._messageHistory.append(channelId, message));
+        appends.push(this._threadHistory.append(channelId, message));
       }
       await Promise.all(appends);
     }
@@ -1732,7 +2044,11 @@ export class Chat<
       return;
     }
 
-    if (strategy === "queue" || strategy === "debounce") {
+    if (
+      strategy === "queue" ||
+      strategy === "debounce" ||
+      strategy === "burst"
+    ) {
       await this.handleQueueOrDebounce(
         adapter,
         threadId,
@@ -1810,7 +2126,7 @@ export class Chat<
     threadId: string,
     lockKey: string,
     message: Message,
-    strategy: "queue" | "debounce"
+    strategy: "queue" | "debounce" | "burst"
   ): Promise<void> {
     const { maxQueueSize, queueEntryTtlMs, onQueueFull, debounceMs } =
       this._concurrencyConfig;
@@ -1888,6 +2204,25 @@ export class Chat<
           debounceMs,
         });
         await this.debounceLoop(lock, adapter, threadId, lockKey);
+      } else if (strategy === "burst") {
+        await this._stateAdapter.enqueue(
+          lockKey,
+          {
+            message,
+            enqueuedAt: Date.now(),
+            expiresAt: Date.now() + queueEntryTtlMs,
+          },
+          maxQueueSize
+        );
+        this.logger.info("message-debouncing", {
+          threadId,
+          lockKey,
+          messageId: message.id,
+          debounceMs,
+        });
+        await sleep(debounceMs);
+        await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
+        await this.drainQueue(lock, adapter, threadId, lockKey);
       } else {
         // Queue: process our message immediately, then drain any queued messages
         await this.dispatchToHandlers(adapter, threadId, message);
@@ -1922,7 +2257,7 @@ export class Chat<
       }
 
       // Reconstruct Message instance after JSON roundtrip through state adapter
-      const msg = this.rehydrateMessage(entry.message);
+      const msg = this.rehydrateMessage(entry.message, adapter);
 
       if (Date.now() > entry.expiresAt) {
         this.logger.info("message-expired", {
@@ -1974,7 +2309,7 @@ export class Chat<
         if (!entry) {
           break;
         }
-        const msg = this.rehydrateMessage(entry.message);
+        const msg = this.rehydrateMessage(entry.message, adapter);
         if (Date.now() <= entry.expiresAt) {
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
@@ -2021,14 +2356,62 @@ export class Chat<
   }
 
   /**
-   * Concurrent strategy: no locking, process immediately.
+   * Concurrent strategy: no locking, process immediately — but cap
+   * simultaneous handlers per thread at `maxConcurrent` (default Infinity).
    */
   private async handleConcurrent(
     adapter: Adapter,
     threadId: string,
     message: Message
   ): Promise<void> {
-    await this.dispatchToHandlers(adapter, threadId, message);
+    const { maxConcurrent } = this._concurrencyConfig;
+
+    if (!Number.isFinite(maxConcurrent)) {
+      await this.dispatchToHandlers(adapter, threadId, message);
+      return;
+    }
+
+    await this.acquireConcurrentSlot(threadId, maxConcurrent);
+    try {
+      await this.dispatchToHandlers(adapter, threadId, message);
+    } finally {
+      this.releaseConcurrentSlot(threadId);
+    }
+  }
+
+  private acquireConcurrentSlot(
+    threadId: string,
+    maxConcurrent: number
+  ): Promise<void> {
+    let slot = this._concurrentSlots.get(threadId);
+    if (!slot) {
+      slot = { inFlight: 0, waiters: [] };
+      this._concurrentSlots.set(threadId, slot);
+    }
+    if (slot.inFlight < maxConcurrent) {
+      slot.inFlight++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      slot.waiters.push(resolve);
+    });
+  }
+
+  private releaseConcurrentSlot(threadId: string): void {
+    const slot = this._concurrentSlots.get(threadId);
+    if (!slot) {
+      return;
+    }
+    const next = slot.waiters.shift();
+    if (next) {
+      // Hand the slot directly to the next waiter; inFlight stays the same.
+      next();
+      return;
+    }
+    slot.inFlight--;
+    if (slot.inFlight === 0 && slot.waiters.length === 0) {
+      this._concurrentSlots.delete(threadId);
+    }
   }
 
   /**
@@ -2061,6 +2444,29 @@ export class Chat<
       message,
       isSubscribed
     );
+
+    // Resolve cross-platform user key (Transcripts API). Cached on the Message
+    // instance so handlers and the Transcripts API see the same value without
+    // re-invoking the resolver.
+    if (this._identity && message.userKey === undefined) {
+      try {
+        const resolved = await this._identity({
+          adapter: adapter.name,
+          author: message.author,
+          message,
+        });
+        if (resolved) {
+          message.userKey = resolved;
+        }
+      } catch (err) {
+        this.logger.warn("Identity resolver threw; skipping userKey", {
+          error: err,
+          adapter: adapter.name,
+          threadId,
+          authorUserId: message.author.userId,
+        });
+      }
+    }
 
     // Check for DM first - always route to direct message handlers
     const isDM = adapter.isDM?.(threadId) ?? false;
@@ -2167,9 +2573,10 @@ export class Chat<
       logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
-      messageHistory: adapter.persistMessageHistory
-        ? this._messageHistory
-        : undefined,
+      threadHistory:
+        adapter.persistThreadHistory || adapter.persistMessageHistory
+          ? this._threadHistory
+          : undefined,
     });
   }
 
@@ -2223,44 +2630,65 @@ export class Chat<
    * object (not a Message instance). This restores class invariants like
    * `links` defaulting to `[]` and `metadata.dateSent` being a Date.
    */
-  private rehydrateMessage(raw: Message | Record<string, unknown>): Message {
+  private rehydrateMessage(
+    raw: Message | Record<string, unknown>,
+    adapter?: Adapter
+  ): Message {
     if (raw instanceof Message) {
+      if (adapter) {
+        setMessageAdapter(raw, adapter);
+      }
       return raw;
     }
     // After JSON roundtrip, Message.toJSON() was called during stringify,
     // so the shape matches SerializedMessage
     const obj = raw as Record<string, unknown>;
+    let msg: Message;
     if (obj._type === "chat:Message") {
-      return Message.fromJSON(obj as unknown as SerializedMessage);
+      msg = Message.fromJSON(obj as unknown as SerializedMessage);
+    } else {
+      // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
+      // Reconstruct with defensive defaults
+      const metadata = obj.metadata as Record<string, unknown>;
+      const dateSent = metadata.dateSent;
+      const editedAt = metadata.editedAt;
+      msg = new Message({
+        id: obj.id as string,
+        threadId: obj.threadId as string,
+        text: obj.text as string,
+        formatted: obj.formatted as FormattedContent,
+        raw: obj.raw,
+        author: obj.author as Author,
+        metadata: {
+          dateSent:
+            dateSent instanceof Date ? dateSent : new Date(dateSent as string),
+          edited: metadata.edited as boolean,
+          editedAt: editedAt
+            ? new Date(
+                editedAt instanceof Date
+                  ? editedAt.toISOString()
+                  : (editedAt as string)
+              )
+            : undefined,
+        },
+        attachments: (obj.attachments as Attachment[]) ?? [],
+        isMention: obj.isMention as boolean | undefined,
+        links: (obj.links as LinkPreview[] | undefined) ?? [],
+      });
     }
-    // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
-    // Reconstruct with defensive defaults
-    const metadata = obj.metadata as Record<string, unknown>;
-    const dateSent = metadata.dateSent;
-    const editedAt = metadata.editedAt;
-    return new Message({
-      id: obj.id as string,
-      threadId: obj.threadId as string,
-      text: obj.text as string,
-      formatted: obj.formatted as FormattedContent,
-      raw: obj.raw,
-      author: obj.author as Author,
-      metadata: {
-        dateSent:
-          dateSent instanceof Date ? dateSent : new Date(dateSent as string),
-        edited: metadata.edited as boolean,
-        editedAt: editedAt
-          ? new Date(
-              editedAt instanceof Date
-                ? editedAt.toISOString()
-                : (editedAt as string)
-            )
-          : undefined,
-      },
-      attachments: (obj.attachments as Attachment[]) ?? [],
-      isMention: obj.isMention as boolean | undefined,
-      links: (obj.links as LinkPreview[] | undefined) ?? [],
-    });
+
+    if (adapter) {
+      setMessageAdapter(msg, adapter);
+    }
+
+    const rehydrate = adapter?.rehydrateAttachment?.bind(adapter);
+    if (rehydrate && msg.attachments.length > 0) {
+      msg.attachments = msg.attachments.map((att) =>
+        att.fetchData ? att : rehydrate(att)
+      );
+    }
+
+    return msg;
   }
 
   private async runHandlers(

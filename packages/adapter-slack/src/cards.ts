@@ -27,6 +27,7 @@ import type {
   TextElement,
 } from "chat";
 import { cardChildToFallbackText, tableElementToAscii } from "chat";
+import { markdownBoldToSlackMrkdwn } from "./format";
 
 /**
  * Convert emoji placeholders in text to Slack format.
@@ -168,14 +169,8 @@ function convertChildToBlocks(
   }
 }
 
-/** Convert standard Markdown formatting to Slack mrkdwn */
-function markdownToMrkdwn(text: string): string {
-  // **bold** → *bold*
-  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
-}
-
 export function convertTextToBlock(element: TextElement): SlackBlock {
-  const text = markdownToMrkdwn(convertEmoji(element.content));
+  const text = markdownBoldToSlackMrkdwn(convertEmoji(element.content));
   let formattedText = text;
 
   // Apply style
@@ -437,7 +432,7 @@ export function convertFieldsToBlock(element: FieldsElement): SlackBlock {
     // Add label and value as separate field items
     fields.push({
       type: "mrkdwn",
-      text: `*${markdownToMrkdwn(convertEmoji(field.label))}*\n${markdownToMrkdwn(convertEmoji(field.value))}`,
+      text: `*${markdownBoldToSlackMrkdwn(convertEmoji(field.label))}*\n${markdownBoldToSlackMrkdwn(convertEmoji(field.value))}`,
     });
   }
 

@@ -1,3 +1,4 @@
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
@@ -27,7 +28,10 @@ const mockReactionsListForPullRequestReviewComment = vi.fn();
 const mockReactionsDeleteForIssueComment = vi.fn();
 const mockReactionsDeleteForPullRequestComment = vi.fn();
 const mockUsersGetAuthenticated = vi.fn();
+const mockUsersGetByUsername = vi.fn();
+const mockAppsGetAuthenticated = vi.fn();
 const mockReposGet = vi.fn();
+const mockRequest = vi.fn();
 
 vi.mock("@octokit/rest", () => {
   class MockOctokit {
@@ -58,10 +62,15 @@ vi.mock("@octokit/rest", () => {
     };
     users = {
       getAuthenticated: mockUsersGetAuthenticated,
+      getByUsername: mockUsersGetByUsername,
+    };
+    apps = {
+      getAuthenticated: mockAppsGetAuthenticated,
     };
     repos = {
       get: mockReposGet,
     };
+    request = mockRequest;
   }
   return { Octokit: MockOctokit };
 });
@@ -80,6 +89,7 @@ const mockLogger = {
 };
 
 const WEBHOOK_SECRET = "test-secret";
+const INSTALLATION_ERROR_PATTERN = /installation/i;
 
 function signPayload(body: string): string {
   return `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`;
@@ -263,6 +273,101 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("octokit getter", () => {
+    it("should return the underlying Octokit instance in PAT mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      const octokit = a.octokit;
+      expect(octokit).toBeDefined();
+      // Mocked Octokit exposes the rest namespace surface
+      expect(octokit.issues).toBeDefined();
+      expect(octokit.pulls).toBeDefined();
+    });
+
+    it("should return the same instance across calls in single-tenant mode", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.octokit).toBe(a.octokit);
+    });
+
+    it("should expose the same instance via the deprecated `client` alias", () => {
+      const a = new GitHubAdapter({
+        token: "ghp_abc",
+        webhookSecret: "secret",
+        userName: "bot",
+        logger: mockLogger,
+      });
+
+      expect(a.client).toBe(a.octokit);
+    });
+
+    it("should throw in multi-tenant mode when called outside a webhook", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
+      expect(() => a.client).toThrow(INSTALLATION_ERROR_PATTERN);
+    });
+
+    it("should resolve the per-installation Octokit when accessed inside a webhook context", () => {
+      const a = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: "secret",
+        userName: "my-bot[bot]",
+        logger: mockLogger,
+      });
+      const requestContext = (
+        a as unknown as {
+          requestContext: AsyncLocalStorage<{ installationId?: number }>;
+        }
+      ).requestContext;
+
+      // Inside an installation context, the same client is returned
+      // across calls and the deprecated alias matches.
+      let capturedFirst: unknown;
+      let capturedSecond: unknown;
+      let capturedAlias: unknown;
+      requestContext.run({ installationId: 12_345 }, () => {
+        capturedFirst = a.octokit;
+        capturedSecond = a.octokit;
+        capturedAlias = a.client;
+      });
+      expect(capturedFirst).toBeDefined();
+      expect(capturedSecond).toBe(capturedFirst);
+      expect(capturedAlias).toBe(capturedFirst);
+
+      // A different installation resolves to a different cached client.
+      let capturedOther: unknown;
+      requestContext.run({ installationId: 67_890 }, () => {
+        capturedOther = a.octokit;
+      });
+      expect(capturedOther).toBeDefined();
+      expect(capturedOther).not.toBe(capturedFirst);
+
+      // Outside of any context, the getter still throws — the per-call
+      // context isn't sticky.
+      expect(() => a.octokit).toThrow(INSTALLATION_ERROR_PATTERN);
+    });
+  });
+
   describe("initialize", () => {
     it("should store chat instance and fetch bot user ID", async () => {
       mockUsersGetAuthenticated.mockResolvedValueOnce({
@@ -287,6 +392,9 @@ describe("GitHubAdapter", () => {
       mockUsersGetAuthenticated.mockRejectedValueOnce(
         new Error("Bad credentials")
       );
+      mockAppsGetAuthenticated.mockRejectedValueOnce(
+        new Error("Bad credentials")
+      );
 
       const mockChat = {
         getLogger: vi.fn(),
@@ -299,7 +407,7 @@ describe("GitHubAdapter", () => {
       await adapter.initialize(mockChat);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        "Could not fetch bot user ID",
+        "Could not auto-detect GitHub bot user ID",
         expect.any(Object)
       );
       expect(adapter.botUserId).toBeUndefined();
@@ -828,6 +936,105 @@ describe("GitHubAdapter", () => {
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
       expect(mockChat.processMessage).not.toHaveBeenCalled();
+    });
+
+    it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
+      // Regression: previously the multi-tenant App constructor left
+      // this.defaultOctokit null, so initialize()'s detection branch was skipped.
+      // The fallback only ran inside removeReaction(), so bots that never
+      // remove reactions had _botUserId === null forever — meaning isMe was
+      // always false and the bot would re-process its own replies in an
+      // unbounded loop.
+      const state = createMockState();
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      expect(multiTenantAdapter.isMultiTenant).toBe(true);
+      await multiTenantAdapter.initialize(mockChat);
+      // No detection happens at initialize time in multi-tenant mode.
+      expect(multiTenantAdapter.botUserId).toBeUndefined();
+
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot[bot]" },
+      });
+
+      // Bot's own reply arrives as a webhook from a tenant installation.
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+        sender: { id: 777, login: "test-bot[bot]", type: "Bot" },
+        comment: {
+          ...makeIssueCommentPayload().comment,
+          user: { id: 777, login: "test-bot[bot]", type: "Bot" },
+        },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await multiTenantAdapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      // botUserId must be set after the first webhook so isMe works.
+      expect(multiTenantAdapter.botUserId).toBe("777");
+      // The bot's own reply must NOT be dispatched to handlers.
+      expect(mockChat.processMessage).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to apps.getAuthenticated when users.getAuthenticated rejects (multi-tenant App)", async () => {
+      // Belt-and-suspenders: in multi-tenant App mode, /user may not be
+      // available with installation tokens depending on permissions. Fall
+      // back to /app + /users/{slug}[bot] to recover the bot user ID.
+      const state = createMockState();
+      const mockChat = {
+        getLogger: vi.fn(),
+        getState: vi.fn(() => state),
+        getUserName: vi.fn(),
+        handleIncomingMessage: vi.fn(),
+        processMessage: vi.fn(),
+      };
+
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      await multiTenantAdapter.initialize(mockChat);
+
+      mockUsersGetAuthenticated.mockRejectedValueOnce(
+        new Error("Not Found: /user is unavailable for installation tokens")
+      );
+      mockAppsGetAuthenticated.mockResolvedValueOnce({
+        data: { slug: "test-bot" },
+      });
+      mockUsersGetByUsername.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot[bot]" },
+      });
+
+      const payload = makeIssueCommentPayload({
+        installation: { id: 789 },
+      });
+      const body = JSON.stringify(payload);
+      const signature = signPayload(body);
+      const request = makeWebhookRequest(body, "issue_comment", signature);
+
+      const response = await multiTenantAdapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(multiTenantAdapter.botUserId).toBe("777");
     });
   });
 
@@ -2230,6 +2437,7 @@ describe("createGitHubAdapter", () => {
       "GITHUB_PRIVATE_KEY",
       "GITHUB_INSTALLATION_ID",
       "GITHUB_BOT_USERNAME",
+      "GITHUB_API_URL",
     ]) {
       delete process.env[key];
     }
@@ -2336,5 +2544,370 @@ describe("createGitHubAdapter", () => {
       botUserId: 42,
     });
     expect(a.botUserId).toBe("42");
+  });
+
+  it("should accept apiUrl config for GitHub Enterprise", () => {
+    const a = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+      apiUrl: "https://github.example.com/api/v3",
+    });
+    expect(a).toBeInstanceOf(GitHubAdapter);
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://github.example.com/api/v3"
+    );
+  });
+
+  it("should resolve apiUrl from GITHUB_API_URL env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_API_URL = "https://github.example.com/api/v3";
+    const a = createGitHubAdapter();
+    expect(a).toBeInstanceOf(GitHubAdapter);
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://github.example.com/api/v3"
+    );
+  });
+
+  it("should prefer apiUrl config over GITHUB_API_URL env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_API_URL = "https://env-github.example.com/api/v3";
+    const a = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+      apiUrl: "https://config-github.example.com/api/v3",
+    });
+    expect((a as unknown as { apiUrl: string }).apiUrl).toBe(
+      "https://config-github.example.com/api/v3"
+    );
+  });
+});
+
+describe("getUser", () => {
+  it("should return user info from GitHub API", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: "alice@example.com",
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("12345");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.email).toBe("alice@example.com");
+    expect(user?.avatarUrl).toBe(
+      "https://avatars.githubusercontent.com/u/12345"
+    );
+    expect(user?.isBot).toBe(false);
+  });
+
+  it("should return null on error", async () => {
+    mockRequest.mockRejectedValue(new Error("Not found"));
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("999999");
+    expect(user).toBeNull();
+  });
+
+  it("should call GitHub API with correct endpoint and params", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    await adapter.getUser("12345");
+    expect(mockRequest).toHaveBeenCalledWith("GET /user/{account_id}", {
+      account_id: Number("12345"),
+    });
+  });
+
+  it("should return isBot true for Bot type users", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 99999,
+        login: "dependabot[bot]",
+        name: "Dependabot",
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/99999",
+        type: "Bot",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("99999");
+    expect(user).not.toBeNull();
+    expect(user?.isBot).toBe(true);
+  });
+
+  it("should fall back to login when name is null", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 55555,
+        login: "noname-user",
+        name: null,
+        email: null,
+        avatar_url: "https://avatars.githubusercontent.com/u/55555",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("55555");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("noname-user");
+  });
+
+  it("should include userId in the response", async () => {
+    mockRequest.mockResolvedValue({
+      data: {
+        id: 12345,
+        login: "alice",
+        name: "Alice Smith",
+        email: "alice@example.com",
+        avatar_url: "https://avatars.githubusercontent.com/u/12345",
+        type: "User",
+      },
+    });
+
+    const adapter = createGitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "secret",
+    });
+
+    const user = await adapter.getUser("12345");
+    expect(user).not.toBeNull();
+    expect(user?.userId).toBe("12345");
+  });
+});
+
+describe("fetchSubject", () => {
+  it("should return issue data from issue_comment raw", async () => {
+    const mockOctokit = {
+      rest: {
+        issues: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 42,
+              title: "Add feature",
+              body: "Feature description",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/issues/42",
+              user: { id: 123, login: "dancer" },
+              assignees: [{ id: 456, login: "alice" }],
+              labels: [{ name: "enhancement" }],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 42,
+      threadType: "issue" as const,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("issue");
+    expect(result?.id).toBe("42");
+    expect(result?.title).toBe("Add feature");
+    expect(result?.status).toBe("open");
+    expect(result?.labels).toEqual(["enhancement"]);
+  });
+
+  it("should return pull_request data for PR comments", async () => {
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 10,
+              title: "Fix bug",
+              body: "Bug fix",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/pull/10",
+              user: { id: 123, login: "dancer" },
+              assignees: [],
+              labels: [{ name: "fix" }],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 10,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("pull_request");
+    expect(result?.id).toBe("10");
+    expect(result?.title).toBe("Fix bug");
+  });
+
+  it("should return pull_request data for review_comment type", async () => {
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          get: vi.fn().mockResolvedValue({
+            data: {
+              number: 15,
+              title: "Refactor auth",
+              body: "Refactoring",
+              state: "open",
+              html_url: "https://github.com/vercel/chat/pull/15",
+              user: { id: 789, login: "bob" },
+              assignees: [],
+              labels: [],
+            },
+          }),
+        },
+      },
+    };
+
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit =
+      mockOctokit;
+
+    const raw = {
+      type: "review_comment" as const,
+      comment: { id: 1, body: "nit" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 15,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe("pull_request");
+    expect(result?.id).toBe("15");
+    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledWith({
+      owner: "vercel",
+      repo: "chat",
+      pull_number: 15,
+    });
+  });
+
+  it("should return null on API error", async () => {
+    const adapter = new GitHubAdapter({
+      token: "ghp_test",
+      webhookSecret: "test-secret",
+      userName: "test-bot",
+    });
+    (adapter as unknown as { defaultOctokit: unknown }).defaultOctokit = {
+      rest: {
+        issues: {
+          get: vi.fn().mockRejectedValue(new Error("Not Found")),
+        },
+      },
+    };
+
+    const raw = {
+      type: "issue_comment" as const,
+      comment: { id: 1, body: "test" },
+      repository: {
+        id: 0,
+        name: "chat",
+        full_name: "vercel/chat",
+        owner: { login: "vercel" },
+      },
+      prNumber: 99,
+      threadType: "issue" as const,
+    };
+
+    const result = await adapter.fetchSubject(raw);
+    expect(result).toBeNull();
+  });
+});
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends GitHubAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [
+          this.logger,
+          this.formatConverter,
+          this.verifySignature,
+        ] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });

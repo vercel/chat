@@ -14,6 +14,10 @@ Chat SDK adapters are the trust boundary between your application and a platform
 
 All adapters in this repo use [vitest](https://vitest.dev) with `@vitest/coverage-v8`. Community adapters should follow the same convention.
 
+<Callout type="info">
+This page covers the hand-rolled patterns used inside this repo's `packages/`. If you're testing a bot or a custom adapter as a **consumer** of Chat SDK, use [`@chat-adapter/tests`](/docs/testing) — it ships factories and Vitest matchers that cover most of these patterns in a few lines.
+</Callout>
+
 ## Unit tests
 
 ### Factory function

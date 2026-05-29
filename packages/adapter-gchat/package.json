@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/gchat",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "Google Chat adapter for chat",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,10 +52,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "google-chat",
     "gchat",
+    "google-workspace",
     "bot",
-    "adapter"
+    "adapter",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

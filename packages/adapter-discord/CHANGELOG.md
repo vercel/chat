@@ -1,5 +1,91 @@
 # @chat-adapter/discord
 
+## 4.29.0
+
+### Minor Changes
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- b9b17cd: handle slash commands and button interactions in Discord gateway-only mode
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+  - @chat-adapter/shared@4.28.1
+
+## 4.28.0
+
+### Patch Changes
+
+- c1cd9b5: Add `callbackUrl` to `Button` and `Modal`. When a button is clicked or a modal is submitted, the SDK POSTs the action payload to `callbackUrl` in addition to firing any registered `onAction` / `onModalSubmit` handler. This pairs naturally with webhook-based workflow engines for awaitable button/modal flows.
+
+  Supported platforms: Slack, Teams, Google Chat, WhatsApp, Telegram, and Discord.
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+  - @chat-adapter/shared@4.28.0
+
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+
+### Patch Changes
+
+- 7e5b447: Fix duplicate content display when sending card messages on Discord
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
 ## 4.24.0
 
 ### Patch Changes

@@ -6,7 +6,7 @@
  * @see https://discord.com/developers/docs/interactions/message-components
  */
 
-import { renderGfmTable } from "@chat-adapter/shared";
+import { renderGfmTable, ValidationError } from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -25,6 +25,45 @@ import {
 import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
 import { ButtonStyle } from "discord-api-types/v10";
 import type { DiscordActionRow, DiscordButton } from "./types";
+
+const DISCORD_CUSTOM_ID_DELIMITER = "\n";
+const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
+
+function validateDiscordCustomId(customId: string): void {
+  if (customId.length === 0 || customId.length > DISCORD_CUSTOM_ID_MAX_LENGTH) {
+    throw new ValidationError(
+      "discord",
+      `Discord custom_id must be 1-${DISCORD_CUSTOM_ID_MAX_LENGTH} characters. Shorten the button id or value.`
+    );
+  }
+}
+
+export function encodeDiscordCustomId(
+  actionId: string,
+  value?: string
+): string {
+  if (value == null || value === "") {
+    validateDiscordCustomId(actionId);
+    return actionId;
+  }
+  const encoded = `${actionId}${DISCORD_CUSTOM_ID_DELIMITER}${value}`;
+  validateDiscordCustomId(encoded);
+  return encoded;
+}
+
+export function decodeDiscordCustomId(customId: string): {
+  actionId: string;
+  value: string | undefined;
+} {
+  const idx = customId.indexOf(DISCORD_CUSTOM_ID_DELIMITER);
+  if (idx === -1) {
+    return { actionId: customId, value: undefined };
+  }
+  return {
+    actionId: customId.slice(0, idx),
+    value: customId.slice(idx + 1),
+  };
+}
 
 /**
  * Convert emoji placeholders to Discord format.
@@ -188,7 +227,7 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
     type: 2, // Button
     style: getButtonStyle(button.style),
     label: button.label,
-    custom_id: button.id,
+    custom_id: encodeDiscordCustomId(button.id, button.value),
   };
 
   if (button.disabled) {

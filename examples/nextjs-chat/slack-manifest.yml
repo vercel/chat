@@ -23,6 +23,7 @@ oauth_config:
       - mpim:read
       # Send messages and reactions
       - chat:write
+      - pins:write
       - reactions:write
       # User info for display names
       - users:read

@@ -96,6 +96,8 @@ function modalChildToAdaptiveElements(child: ModalChild): CardElementArray {
       return [textInputToAdaptive(child)];
     case "select":
       return [selectToAdaptive(child)];
+    case "external_select":
+      throw new Error("ExternalSelect is only supported by the Slack adapter");
     case "radio_select":
       return [radioSelectToAdaptive(child)];
     case "text":

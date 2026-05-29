@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { extractCard, ValidationError } from "@chat-adapter/shared";
 import { createAppAuth } from "@octokit/auth-app";
@@ -15,11 +16,13 @@ import type {
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
+  MessageSubject,
   RawMessage,
   StreamChunk,
   StreamOptions,
   Thread,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import { ConsoleLogger, convertEmojiPlaceholders, Message } from "chat";
@@ -104,23 +107,72 @@ export class GitHubAdapter
   readonly name = "github";
   readonly userName: string;
 
+  protected readonly requestContext = new AsyncLocalStorage<{
+    installationId?: number;
+  }>();
+
+  /**
+   * The underlying [Octokit](https://github.com/octokit/octokit.js) REST
+   * client, authenticated with the credentials this adapter was configured
+   * with. Use this for any GitHub API call that isn't covered by the unified
+   * Chat SDK surface.
+   *
+   * Resolution rules:
+   * - **PAT mode** and **single-tenant GitHub App mode** (with a fixed
+   *   `installationId`): always returns the same client instance.
+   * - **Multi-tenant GitHub App mode**: returns the client for the current
+   *   webhook request's installation, resolved from `AsyncLocalStorage`.
+   *   Calling this getter outside a webhook handler throws, since there is
+   *   no installation to authenticate as.
+   *
+   * @throws {ValidationError} In multi-tenant mode when called outside a
+   * webhook handler (no installation ID is available).
+   *
+   * @example
+   * ```ts
+   * const github = bot.getAdapter("github").octokit;
+   * const { data: pulls } = await github.rest.pulls.list({
+   *   owner: "vercel",
+   *   repo: "chat",
+   *   state: "open",
+   * });
+   * ```
+   */
+  get octokit(): Octokit {
+    const ctx = this.requestContext.getStore();
+    return this.getOctokit(
+      ctx?.installationId ?? this.fixedInstallationId ?? undefined
+    );
+  }
+
+  /**
+   * @deprecated Use {@link GitHubAdapter.octokit | `octokit`} instead. This
+   * alias is preserved for backwards compatibility and will be removed in a
+   * future major release.
+   */
+  get client(): Octokit {
+    return this.octokit;
+  }
+
   // Single Octokit instance for PAT or single-tenant app mode
-  private readonly octokit: Octokit | null = null;
+  protected readonly defaultOctokit: Octokit | null = null;
   // App credentials for multi-tenant mode
-  private readonly appCredentials: {
+  protected readonly appCredentials: {
     appId: string;
     privateKey: string;
   } | null = null;
   // Fixed installation for single-tenant GitHub App mode
-  private readonly fixedInstallationId: number | null;
+  protected readonly fixedInstallationId: number | null;
   // Cache of Octokit instances per installation (for multi-tenant)
   private readonly installationClients = new Map<number, Octokit>();
+  // Custom API base URL (e.g. for GitHub Enterprise)
+  protected readonly apiUrl?: string;
 
-  private readonly webhookSecret: string;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private _botUserId: number | null = null;
-  private readonly formatConverter = new GitHubFormatConverter();
+  protected readonly webhookSecret: string;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected _botUserId: number | null = null;
+  protected readonly formatConverter = new GitHubFormatConverter();
 
   /** Bot user ID (numeric) used for self-message detection */
   get botUserId(): string | undefined {
@@ -129,7 +181,7 @@ export class GitHubAdapter
 
   /** Whether this adapter is in multi-tenant mode (no fixed installation ID) */
   get isMultiTenant(): boolean {
-    return this.appCredentials !== null && this.octokit === null;
+    return this.appCredentials !== null && this.defaultOctokit === null;
   }
 
   constructor(config: GitHubAdapterConfig = {} as GitHubAdapterAutoConfig) {
@@ -146,6 +198,7 @@ export class GitHubAdapter
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
+    this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
     let fixedInstallationId: number | null = null;
 
     // Create Octokit instance based on auth method.
@@ -159,7 +212,10 @@ export class GitHubAdapter
 
     if ("token" in config && config.token) {
       // PAT mode - single Octokit instance
-      this.octokit = new Octokit({ auth: config.token });
+      this.defaultOctokit = new Octokit({
+        auth: config.token,
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+      });
     } else if (
       "appId" in config &&
       config.appId &&
@@ -169,13 +225,14 @@ export class GitHubAdapter
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
         fixedInstallationId = config.installationId;
-        this.octokit = new Octokit({
+        this.defaultOctokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
             appId: config.appId,
             privateKey: config.privateKey,
             installationId: config.installationId,
           },
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
         });
       } else {
         // Multi-tenant app mode - create clients per installation
@@ -197,7 +254,10 @@ export class GitHubAdapter
       // Auto-detect from env vars
       const token = process.env.GITHUB_TOKEN;
       if (token) {
-        this.octokit = new Octokit({ auth: token });
+        this.defaultOctokit = new Octokit({
+          auth: token,
+          ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+        });
       } else {
         const appId = process.env.GITHUB_APP_ID;
         const privateKey = process.env.GITHUB_PRIVATE_KEY;
@@ -207,9 +267,10 @@ export class GitHubAdapter
             : undefined;
           if (installationIdRaw) {
             fixedInstallationId = installationIdRaw;
-            this.octokit = new Octokit({
+            this.defaultOctokit = new Octokit({
               authStrategy: createAppAuth,
               auth: { appId, privateKey, installationId: installationIdRaw },
+              ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
             });
           } else {
             this.appCredentials = { appId, privateKey };
@@ -234,10 +295,10 @@ export class GitHubAdapter
    * For single-tenant mode, returns the single instance.
    * For multi-tenant mode, creates/caches instances per installation.
    */
-  private getOctokit(installationId?: number): Octokit {
+  protected getOctokit(installationId?: number): Octokit {
     // Single-tenant mode - return the single instance
-    if (this.octokit) {
-      return this.octokit;
+    if (this.defaultOctokit) {
+      return this.defaultOctokit;
     }
 
     // Multi-tenant mode - need an installation ID
@@ -265,45 +326,97 @@ export class GitHubAdapter
           privateKey: this.appCredentials.privateKey,
           installationId,
         },
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
       });
       this.installationClients.set(installationId, client);
       this.logger.debug("Created Octokit client for installation", {
         installationId,
       });
+      // Eagerly detect _botUserId on the first installation client. The bot
+      // identity is the same across all installations of the same App, so we
+      // only do this once. Without this, multi-tenant deployments never set
+      // _botUserId — leading to isMe always being false and self-reply loops
+      // in handlers that respond to every message.
+      if (this._botUserId === null) {
+        this.detectBotUserId(client).catch((error) => {
+          this.logger.warn("Could not auto-detect bot user ID", { error });
+        });
+      }
     }
 
     return client;
   }
 
+  /**
+   * Fetch the bot's user ID from GitHub. Used for self-message detection.
+   * Best-effort: errors are swallowed so they don't block webhook processing.
+   * The returned promise resolves once detection completes (or fails).
+   */
+  protected async detectBotUserId(octokit: Octokit): Promise<void> {
+    if (this._botUserId !== null) {
+      return;
+    }
+    // For App installations, /user is not available. Fetch the App's bot user
+    // via /app then look up the slug to get a numeric user ID. The /user
+    // endpoint works for PAT mode and (returns the bot user) for installation
+    // tokens too, so we try it first.
+    try {
+      const { data: user } = await octokit.users.getAuthenticated();
+      this._botUserId = user.id;
+      this.logger.info("GitHub bot user ID auto-detected", {
+        botUserId: this._botUserId,
+        login: user.login,
+      });
+      return;
+    } catch (error) {
+      this.logger.debug(
+        "users.getAuthenticated failed; falling back to apps.getAuthenticated",
+        { error }
+      );
+    }
+    try {
+      // For App-authenticated installation tokens, use apps.getAuthenticated
+      // and resolve the bot user via /users/{login}[bot].
+      const { data: app } = await octokit.apps.getAuthenticated();
+      if (app) {
+        const login = `${app.slug}[bot]`;
+        const { data: botUser } = await octokit.users.getByUsername({
+          username: login,
+        });
+        this._botUserId = botUser.id;
+        this.logger.info("GitHub bot user ID auto-detected via app slug", {
+          botUserId: this._botUserId,
+          login,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("Could not auto-detect GitHub bot user ID", { error });
+    }
+  }
+
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
 
-    // Fetch bot user ID if not provided (only works for single-tenant or PAT mode)
-    if (!this._botUserId && this.octokit) {
-      try {
-        const { data: user } = await this.octokit.users.getAuthenticated();
-        this._botUserId = user.id;
-        this.logger.info("GitHub auth completed", {
-          botUserId: this._botUserId,
-          login: user.login,
-        });
-      } catch (error) {
-        this.logger.warn("Could not fetch bot user ID", { error });
-      }
+    // Fetch bot user ID if not provided. For multi-tenant mode there's no
+    // global octokit yet — detection happens lazily in getOctokit() on first
+    // installation client creation, and synchronously in handleWebhook() on
+    // the first webhook so isMe checks work for the very first reply.
+    if (!this._botUserId && this.defaultOctokit) {
+      await this.detectBotUserId(this.defaultOctokit);
     }
   }
 
   /**
    * Get the state key for storing installation ID for a repository.
    */
-  private getInstallationKey(owner: string, repo: string): string {
+  protected getInstallationKey(owner: string, repo: string): string {
     return `github:install:${owner}/${repo}`;
   }
 
   /**
    * Store the installation ID for a repository (for multi-tenant mode).
    */
-  private async storeInstallationId(
+  protected async storeInstallationId(
     owner: string,
     repo: string,
     installationId: number
@@ -324,7 +437,7 @@ export class GitHubAdapter
   /**
    * Get the installation ID for a repository (for multi-tenant mode).
    */
-  private async getStoredInstallationId(
+  protected async getStoredInstallationId(
     owner: string,
     repo: string
   ): Promise<number | undefined> {
@@ -364,6 +477,26 @@ export class GitHubAdapter
     }
 
     return this.getStoredInstallationId(owner, repo);
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    try {
+      const { data: user } = await this.getOctokit().request(
+        "GET /user/{account_id}",
+        { account_id: Number(userId) }
+      );
+      return {
+        avatarUrl: user.avatar_url,
+        email: user.email ?? undefined,
+        fullName: user.name || user.login,
+        isBot: user.type === "Bot",
+        userId: String(user.id),
+        userName: user.login,
+      };
+    } catch (error) {
+      this.logger.debug("Failed to fetch user", { userId, error });
+      return null;
+    }
   }
 
   /**
@@ -421,18 +554,29 @@ export class GitHubAdapter
         repo.name,
         installationId
       );
+      // Eagerly resolve the bot user ID before dispatching to handlers, so
+      // isMe checks work on the very first webhook. Without this, multi-tenant
+      // adapters can self-reply-loop until detection fires lazily elsewhere.
+      if (this._botUserId === null) {
+        await this.detectBotUserId(this.getOctokit(installationId));
+      }
     }
 
     // Handle events
+    const ctx = { installationId };
     if (eventType === "issue_comment") {
       const issuePayload = payload as IssueCommentWebhookPayload;
       if (issuePayload.action === "created") {
-        this.handleIssueComment(issuePayload, installationId, options);
+        this.requestContext.run(ctx, () => {
+          this.handleIssueComment(issuePayload, installationId, options);
+        });
       }
     } else if (eventType === "pull_request_review_comment") {
       const reviewPayload = payload as PullRequestReviewCommentWebhookPayload;
       if (reviewPayload.action === "created") {
-        this.handleReviewComment(reviewPayload, installationId, options);
+        this.requestContext.run(ctx, () => {
+          this.handleReviewComment(reviewPayload, installationId, options);
+        });
       }
     }
 
@@ -442,7 +586,7 @@ export class GitHubAdapter
   /**
    * Verify GitHub webhook signature using HMAC-SHA256.
    */
-  private verifySignature(body: string, signature: string | null): boolean {
+  protected verifySignature(body: string, signature: string | null): boolean {
     if (!signature) {
       return false;
     }
@@ -463,7 +607,7 @@ export class GitHubAdapter
   /**
    * Handle issue_comment webhook (PR-level comments in Conversation tab).
    */
-  private handleIssueComment(
+  protected handleIssueComment(
     payload: IssueCommentWebhookPayload,
     _installationId: number | undefined,
     options?: WebhookOptions
@@ -506,7 +650,7 @@ export class GitHubAdapter
   /**
    * Handle pull_request_review_comment webhook (line-specific comments).
    */
-  private handleReviewComment(
+  protected handleReviewComment(
     payload: PullRequestReviewCommentWebhookPayload,
     _installationId: number | undefined,
     options?: WebhookOptions
@@ -553,7 +697,7 @@ export class GitHubAdapter
   /**
    * Parse an issue comment into a normalized Message.
    */
-  private parseIssueComment(
+  protected parseIssueComment(
     comment: GitHubIssueComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
@@ -595,7 +739,7 @@ export class GitHubAdapter
   /**
    * Parse a review comment into a normalized Message.
    */
-  private parseReviewComment(
+  protected parseReviewComment(
     comment: GitHubReviewComment,
     repository: { owner: GitHubUser; name: string },
     prNumber: number,
@@ -635,7 +779,7 @@ export class GitHubAdapter
   /**
    * Parse a GitHub user into an Author.
    */
-  private parseAuthor(user: GitHubUser): Author {
+  protected parseAuthor(user: GitHubUser): Author {
     return {
       userId: user.id.toString(),
       userName: user.login,
@@ -649,7 +793,7 @@ export class GitHubAdapter
    * Get the Octokit client for a specific thread.
    * In multi-tenant mode, looks up the installation ID from state.
    */
-  private async getOctokitForThread(
+  protected async getOctokitForThread(
     owner: string,
     repo: string
   ): Promise<Octokit> {
@@ -906,14 +1050,8 @@ export class GitHubAdapter
 
     const octokit = await this.getOctokitForThread(owner, repo);
 
-    // Multi-tenant mode has no global octokit, so initialize() can't detect _botUserId
-    if (!this._botUserId) {
-      try {
-        const { data: user } = await octokit.users.getAuthenticated();
-        this._botUserId = user.id;
-      } catch {
-        this.logger.warn("Could not detect bot user ID for reaction removal");
-      }
+    if (this._botUserId === null) {
+      await this.detectBotUserId(octokit);
     }
 
     // List reactions to find the one to delete
@@ -960,7 +1098,7 @@ export class GitHubAdapter
   /**
    * Convert SDK emoji to GitHub reaction content.
    */
-  private emojiToGitHubReaction(
+  protected emojiToGitHubReaction(
     emoji: EmojiValue | string
   ): GitHubReactionContent {
     const emojiName = typeof emoji === "string" ? emoji : emoji.name;
@@ -1391,6 +1529,80 @@ export class GitHubAdapter
    */
   renderFormatted(content: FormattedContent): string {
     return this.formatConverter.fromAst(content);
+  }
+
+  async fetchSubject(raw: GitHubRawMessage): Promise<MessageSubject | null> {
+    const githubRaw = raw;
+    const { repository, prNumber } = githubRaw;
+    const [owner, repo] = repository.full_name.split("/");
+    const isIssue =
+      githubRaw.type === "issue_comment" && githubRaw.threadType === "issue";
+
+    try {
+      const octokit = this.octokit;
+
+      if (isIssue) {
+        const { data } = await octokit.rest.issues.get({
+          owner,
+          repo,
+          issue_number: prNumber,
+        });
+        return {
+          type: "issue",
+          id: String(data.number),
+          title: data.title,
+          description: data.body ?? undefined,
+          status: data.state,
+          url: data.html_url,
+          author: data.user
+            ? { id: String(data.user.id), name: data.user.login }
+            : undefined,
+          assignee: data.assignees?.[0]
+            ? {
+                id: String(data.assignees[0].id),
+                name: data.assignees[0].login,
+              }
+            : undefined,
+          labels: data.labels
+            ?.map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+            .filter(Boolean),
+          raw: data,
+        };
+      }
+
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      return {
+        type: "pull_request",
+        id: String(data.number),
+        title: data.title,
+        description: data.body ?? undefined,
+        status: data.state,
+        url: data.html_url,
+        author: data.user
+          ? { id: String(data.user.id), name: data.user.login }
+          : undefined,
+        assignee: data.assignees?.[0]
+          ? {
+              id: String(data.assignees[0].id),
+              name: data.assignees[0].login,
+            }
+          : undefined,
+        labels: data.labels?.map((l) => l.name ?? "").filter(Boolean),
+        raw: data,
+      };
+    } catch (error) {
+      this.logger.debug("Failed to fetch subject", {
+        owner,
+        repo,
+        number: prNumber,
+        error,
+      });
+      return null;
+    }
   }
 }
 

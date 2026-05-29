@@ -1,5 +1,97 @@
 # @chat-adapter/teams
 
+## 4.29.0
+
+### Minor Changes
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+  - @chat-adapter/shared@4.28.1
+
+## 4.28.0
+
+### Patch Changes
+
+- c1cd9b5: Add `callbackUrl` to `Button` and `Modal`. When a button is clicked or a modal is submitted, the SDK POSTs the action payload to `callbackUrl` in addition to firing any registered `onAction` / `onModalSubmit` handler. This pairs naturally with webhook-based workflow engines for awaitable button/modal flows.
+
+  Supported platforms: Slack, Teams, Google Chat, WhatsApp, Telegram, and Discord.
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+  - @chat-adapter/shared@4.28.0
+
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `getUser()` support for Teams adapter using Microsoft Graph API (requires `User.Read.All` permission)
+- ed46bae: Use native Teams SDK streaming for DMs via `stream.emit()`, with accumulate-and-post fallback for group chats
+
+### Patch Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- 4c24c94: Fix fetchMessages 404 for DM conversations by caching the user's AAD object ID and resolving the Graph API chat ID
+- d440b0f: Bump Microsoft Teams SDK to 2.0.8 and switch to standard `User-Agent` header
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Minor Changes
+
+- ce7cd2f: Add Select and RadioSelect support for Teams Adaptive Cards with auto-submit fan-out
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
 ## 4.24.0
 
 ### Minor Changes

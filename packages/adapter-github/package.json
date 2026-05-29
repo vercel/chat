@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "GitHub adapter for chat - PR and issue comment threads",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,12 +52,19 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "github",
+    "github-bot",
+    "github-app",
     "bot",
     "adapter",
     "pull-request",
     "issue",
-    "code-review"
+    "code-review",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

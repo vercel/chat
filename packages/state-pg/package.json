@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/state-pg",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "Postgres state adapter for chat (production)",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,9 +52,15 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "postgres",
-    "production"
+    "postgresql",
+    "subscriptions",
+    "distributed-lock",
+    "production",
+    "vercel"
   ],
   "license": "MIT"
 }

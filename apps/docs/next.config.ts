@@ -31,17 +31,53 @@ const config: NextConfig = {
       },
       {
         source: "/adapters/gchat",
-        destination: "/adapters/google-chat",
+        destination: "/adapters/official/google-chat",
         permanent: true,
       },
       {
-        source: "/docs/adapters/:slug",
-        destination: "/adapters/:slug",
+        source: "/adapters/community/matrix",
+        destination: "/adapters/vendor-official/matrix",
         permanent: true,
       },
       {
-        source: "/docs/state/:slug",
-        destination: "/adapters/:slug",
+        source: "/adapters/community/imessage",
+        destination: "/adapters/vendor-official/imessage",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/resend",
+        destination: "/adapters/vendor-official/resend",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/zernio",
+        destination: "/adapters/vendor-official/zernio",
+        permanent: true,
+      },
+      {
+        source: "/adapters/community/liveblocks",
+        destination: "/adapters/vendor-official/liveblocks",
+        permanent: true,
+      },
+      {
+        source: "/docs/adapters/:slug+",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
+        source: "/docs/state/:slug+",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
+        source: "/adapters/for/:slug*",
+        destination: "/adapters",
+        permanent: true,
+      },
+      {
+        source:
+          "/adapters/:slug((?!official$|community$|vendor-official$|official/.*|community/.*|vendor-official/.*).+)",
+        destination: "/adapters",
         permanent: true,
       },
     ];

@@ -129,6 +129,24 @@ bot.onNewMention(async (thread, message) => {
 - PAT mode returns `undefined`.
 - Multi-tenant mode only succeeds after the adapter has received a webhook for that repository and cached the installation mapping. Use a persistent state adapter so the mapping survives restarts.
 
+## Direct API client
+
+For anything beyond the unified SDK, access the underlying [Octokit](https://github.com/octokit/octokit.js) instance via `.octokit`:
+
+```typescript
+const github = bot.getAdapter("github").octokit;
+
+const { data: pulls } = await github.rest.pulls.list({
+  owner: "vercel",
+  repo: "chat",
+  state: "open",
+});
+```
+
+PAT and single-tenant GitHub App modes (with a fixed `installationId`) return the same client anywhere. Multi-tenant mode requires webhook handler context to resolve the right installation — calling `.octokit` outside a handler throws.
+
+> The previous `.client` getter still works as a deprecated alias for `.octokit`.
+
 ## Webhook setup
 
 For repository or organization webhooks:
@@ -179,6 +197,7 @@ All options are auto-detected from environment variables when not provided.
 | `webhookSecret` | No** | Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET` |
 | `userName` | No | Bot username for @mention detection. Auto-detected from `GITHUB_BOT_USERNAME` (default: `"github-bot"`) |
 | `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
+| `apiUrl` | No | Override the GitHub API base URL (e.g. for GitHub Enterprise Server). Auto-detected from `GITHUB_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Either `token`/`GITHUB_TOKEN` or `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY` is required.
@@ -198,6 +217,9 @@ GITHUB_INSTALLATION_ID=12345678  # Optional for multi-tenant
 
 # Required
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
+
+# Optional: GitHub Enterprise Server
+GITHUB_API_URL=https://github.example.com/api/v3
 ```
 
 ## Features
@@ -210,7 +232,7 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 | Edit message | Yes |
 | Delete message | Yes |
 | File uploads | No |
-| Streaming | No |
+| Streaming | Buffered (accumulates then sends) |
 
 ### Rich content
 
@@ -290,6 +312,12 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 
 - PATs have lower rate limits than GitHub Apps
 - Consider switching to a GitHub App for production use
+
+## Resources
+
+- [Ship a GitHub code review bot with Hono and Redis](https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis) — Walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
 
 ## License
 

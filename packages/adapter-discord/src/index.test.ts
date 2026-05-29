@@ -3,9 +3,11 @@
  */
 
 import { generateKeyPairSync, sign } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
 import type { ChatInstance, Logger } from "chat";
 import { Actions, Button, Card } from "chat";
+import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter, DiscordAdapter } from "./index";
@@ -68,6 +70,10 @@ function createWebhookRequest(
     },
     body,
   });
+}
+
+function waitForGatewayHandlers() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 // ============================================================================
@@ -180,6 +186,33 @@ describe("constructor env var resolution", () => {
       userName: "mybot",
     });
     expect(adapter.userName).toBe("mybot");
+  });
+
+  it("should resolve apiUrl from DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://custom-discord.example.com/api/v10";
+    const adapter = new DiscordAdapter();
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://custom-discord.example.com/api/v10"
+    );
+  });
+
+  it("should prefer apiUrl config over DISCORD_API_URL env var", () => {
+    process.env.DISCORD_BOT_TOKEN = "env-token";
+    process.env.DISCORD_PUBLIC_KEY = testPublicKey;
+    process.env.DISCORD_APPLICATION_ID = "env-app-id";
+    process.env.DISCORD_API_URL = "https://env-url.example.com/api/v10";
+    const adapter = new DiscordAdapter({
+      botToken: "config-token",
+      publicKey: testPublicKey,
+      applicationId: "config-app-id",
+      apiUrl: "https://config-url.example.com/api/v10",
+    });
+    expect((adapter as unknown as { apiBaseUrl: string }).apiBaseUrl).toBe(
+      "https://config-url.example.com/api/v10"
+    );
   });
 });
 
@@ -1536,6 +1569,77 @@ describe("postMessage", () => {
 
     spy.mockRestore();
   });
+
+  it("does not include content text when posting a card message", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg005",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.postMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeDefined();
+    expect(calledPayload.components).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("uses card over text when message has both", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg006",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const mixedMessage = {
+      raw: "Some text that should be ignored",
+      card: Card({
+        title: "Card Wins",
+        children: [Actions([Button({ id: "btn1", label: "Click" })])],
+      }),
+    };
+
+    await adapter.postMessage("discord:guild1:channel456", mixedMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeDefined();
+
+    spy.mockRestore();
+  });
 });
 
 // ============================================================================
@@ -1639,6 +1743,77 @@ describe("editMessage", () => {
     const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
     expect(calledPayload.content?.length).toBeLessThanOrEqual(2000);
     expect(calledPayload.content?.endsWith("...")).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("clears content when editing to a card message", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    const cardMessage = {
+      card: Card({
+        title: "Test Card",
+        children: [Actions([Button({ id: "btn1", label: "Click me" })])],
+      }),
+    };
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg004",
+      cardMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBe("");
+    expect(calledPayload.embeds).toBeDefined();
+    expect(calledPayload.components).toBeDefined();
+
+    spy.mockRestore();
+  });
+
+  it("restores content when editing from card back to text", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg004",
+        channel_id: "channel456",
+        content: "New text message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.editMessage("discord:guild1:channel456", "msg004", {
+      raw: "Updated to plain text",
+    });
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
+      embeds?: unknown[];
+      components?: unknown[];
+    };
+    expect(calledPayload.content).toBe("Updated to plain text");
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.components).toBeUndefined();
 
     spy.mockRestore();
   });
@@ -2551,9 +2726,12 @@ describe("postChannelMessage", () => {
     await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
 
     const calledPayload = spy.mock.calls[0]?.[2] as {
+      content?: string;
       embeds?: unknown[];
       components?: unknown[];
     };
+    // Should NOT include content text when card is present (avoids duplicate display)
+    expect(calledPayload.content).toBeUndefined();
     expect(calledPayload.embeds).toBeDefined();
     expect(Array.isArray(calledPayload.embeds)).toBe(true);
     expect((calledPayload.embeds ?? []).length).toBeGreaterThan(0);
@@ -3057,6 +3235,149 @@ describe("fetchThread", () => {
   });
 });
 
+describe("legacy gateway interactions", () => {
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client, isShuttingDown = () => false) {
+      this.setupLegacyGatewayHandlers(client, isShuttingDown);
+    }
+  }
+
+  function createGatewayClient() {
+    return new EventEmitter() as Client;
+  }
+
+  it("handles slash command interactions from the gateway", async () => {
+    const processSlashCommand = vi.fn();
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand,
+      processAction: vi.fn(),
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const client = createGatewayClient();
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.ApplicationCommand,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      commandName: "test",
+      commandType: 1,
+      options: {
+        data: [
+          { name: "topic", type: 3, value: "status" },
+          { name: "verbose", type: 5, value: true },
+        ],
+      },
+      isChatInputCommand: () => true,
+      isMessageComponent: () => false,
+      deferReply,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferReply).toHaveBeenCalled();
+    expect(processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/test",
+        text: "status true",
+        channelId: "discord:guild123:channel456",
+        user: expect.objectContaining({
+          userId: "user789",
+          userName: "testuser",
+          fullName: "Test User",
+        }),
+      }),
+      undefined
+    );
+  });
+
+  it("handles component interactions from the gateway", async () => {
+    const processAction = vi.fn();
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const client = createGatewayClient();
+    const deferUpdate = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.MessageComponent,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      customId: "approve_btn",
+      componentType: 2,
+      message: {
+        id: "message123",
+      },
+      isChatInputCommand: () => false,
+      isMessageComponent: () => true,
+      deferUpdate,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferUpdate).toHaveBeenCalled();
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "approve_btn",
+        value: "approve_btn",
+        messageId: "message123",
+        threadId: "discord:guild123:channel456",
+      }),
+      undefined
+    );
+  });
+});
+
 // ============================================================================
 // Forwarded Gateway Event Tests
 // ============================================================================
@@ -3129,6 +3450,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: processMessage,
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction: vi.fn(),
     } as unknown as ChatInstance);
 
@@ -3171,6 +3493,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 
@@ -3217,6 +3540,7 @@ describe("handleWebhook - forwarded gateway events", () => {
       handleIncomingMessage: vi.fn(),
       processSlashCommand: vi.fn(),
       processAction: vi.fn(),
+      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
       processReaction,
     } as unknown as ChatInstance);
 
@@ -4033,5 +4357,186 @@ describe("createDiscordThread 160004 recovery", () => {
     ).rejects.toThrow("Connection failed");
 
     spy.mockRestore();
+  });
+});
+
+describe("getUser", () => {
+  it("should return user info from Discord API", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "123456",
+          username: "alice",
+          global_name: "Alice Smith",
+          avatar: "abc123",
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("123456");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("Alice Smith");
+    expect(user?.userName).toBe("alice");
+    expect(user?.avatarUrl).toBe(
+      "https://cdn.discordapp.com/avatars/123456/abc123.png"
+    );
+    expect(user?.isBot).toBe(false);
+    expect(user?.email).toBeUndefined();
+
+    spy.mockRestore();
+  });
+
+  it("should return null on error", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockRejectedValue(new Error("Not found"));
+
+    const user = await adapter.getUser("999999");
+    expect(user).toBeNull();
+
+    spy.mockRestore();
+  });
+
+  it("should return undefined avatarUrl when avatar is null", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "111222",
+          username: "noavatar",
+          global_name: "No Avatar User",
+          avatar: null,
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("111222");
+    expect(user).not.toBeNull();
+    expect(user?.avatarUrl).toBeUndefined();
+
+    spy.mockRestore();
+  });
+
+  it("should fall back to username when global_name is null", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "333444",
+          username: "fallbackuser",
+          global_name: null,
+          avatar: "def456",
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("333444");
+    expect(user).not.toBeNull();
+    expect(user?.fullName).toBe("fallbackuser");
+
+    spy.mockRestore();
+  });
+
+  it("should return isBot true for bot users", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "555666",
+          username: "botuser",
+          global_name: "Bot User",
+          avatar: "ghi789",
+          bot: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const user = await adapter.getUser("555666");
+    expect(user).not.toBeNull();
+    expect(user?.isBot).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it("should call Discord API with correct endpoint and method", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const spy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "777888",
+          username: "verifyuser",
+          global_name: "Verify User",
+          avatar: null,
+          bot: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await adapter.getUser("777888");
+    expect(spy).toHaveBeenCalledWith("/users/777888", "GET");
+
+    spy.mockRestore();
+  });
+});
+
+describe("subclass extensibility", () => {
+  it("exposes protected members and methods to subclasses", () => {
+    class TestSubclass extends DiscordAdapter {
+      checkAccess() {
+        // Compile-time check: if any of these revert to `private`, this fails to type-check.
+        return [
+          this.logger,
+          this.formatConverter,
+          this.verifySignature,
+        ] as const;
+      }
+    }
+    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });

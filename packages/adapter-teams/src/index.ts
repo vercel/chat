@@ -13,11 +13,13 @@ import type {
   IMessageReactionActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
+  SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
 import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
-import type { IActivityContext } from "@microsoft/teams.apps";
-import { App } from "@microsoft/teams.apps";
+import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
+import { App, StreamCancelledError } from "@microsoft/teams.apps";
+import { users } from "@microsoft/teams.graph-endpoints";
 import type {
   ActionEvent,
   Adapter,
@@ -39,6 +41,7 @@ import type {
   StreamChunk,
   StreamOptions,
   ThreadInfo,
+  UserInfo,
   WebhookOptions,
 } from "chat";
 import {
@@ -63,6 +66,8 @@ import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
   TeamsAdapterConfig,
   TeamsChannelContext,
+  TeamsDmContext,
+  TeamsGraphContext,
   TeamsThreadId,
 } from "./types";
 
@@ -82,13 +87,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
-  private readonly app: App;
-  private readonly bridgeAdapter: BridgeHttpAdapter;
-  private chat: ChatInstance | null = null;
-  private readonly logger: Logger;
-  private readonly formatConverter = new TeamsFormatConverter();
-  private readonly config: TeamsAdapterConfig;
-  private readonly graphReader: TeamsGraphReader;
+  protected readonly app: App;
+  protected readonly bridgeAdapter: BridgeHttpAdapter;
+  protected chat: ChatInstance | null = null;
+  protected readonly logger: Logger;
+  protected readonly formatConverter = new TeamsFormatConverter();
+  protected readonly config: TeamsAdapterConfig;
+  protected readonly graphReader: TeamsGraphReader;
+  private readonly activeStreams = new Map<string, IStreamer>();
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = config;
@@ -102,7 +108,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app = new App({
       ...toAppOptions(config),
       client: {
-        headers: { "X-User-Agent": "Vercel.ChatSDK" },
+        headers: { "User-Agent": "Vercel.ChatSDK" },
       },
       httpServerAdapter: this.bridgeAdapter,
     });
@@ -112,8 +118,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       graph: this.app.graph,
       logger: this.logger,
       formatConverter: this.formatConverter,
-      getChannelContext: (baseConversationId) =>
-        this.getChannelContext(baseConversationId),
+      getGraphContext: (baseConversationId) =>
+        this.getGraphContext(baseConversationId),
     });
   }
 
@@ -121,7 +127,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Register TeamsSDK event handlers.
    * Called from initialize() after this.chat is set.
    */
-  private registerEventHandlers(): void {
+  protected registerEventHandlers(): void {
     this.app.on("message", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleMessageActivity(ctx);
@@ -171,7 +177,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Cache serviceUrl, tenantId, and channel context from activity metadata.
    * Called inline from each event handler (not middleware).
    */
-  private cacheUserContext(activity: Activity): void {
+  protected cacheUserContext(activity: Activity): void {
     if (!(this.chat && activity.from?.id)) {
       return;
     }
@@ -184,6 +190,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.chat
         .getState()
         .set(`teams:serviceUrl:${userId}`, activity.serviceUrl, ttl)
+        .catch(() => {});
+    }
+
+    // Cache aadObjectId for Graph API user lookups
+    if (activity.from.aadObjectId) {
+      this.chat
+        .getState()
+        .set(`teams:aadObjectId:${userId}`, activity.from.aadObjectId, ttl)
         .catch(() => {});
     }
 
@@ -216,14 +230,31 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         )
         .catch(() => {});
     }
+
+    // Cache DM context for Graph API chat ID resolution
+    const aadObjectId = (activity.from as { aadObjectId?: string }).aadObjectId;
+    if (aadObjectId && this.app.id && !baseChannelId.startsWith("19:")) {
+      const dmContext: TeamsDmContext = {
+        type: "dm",
+        graphChatId: `19:${aadObjectId}_${this.app.id}@unq.gbl.spaces`,
+      };
+      this.chat
+        .getState()
+        .set(
+          `teams:channelContext:${baseChannelId}`,
+          JSON.stringify(dmContext),
+          ttl
+        )
+        .catch(() => {});
+    }
   }
 
   /**
-   * Look up cached channel context, resolving aadGroupId via Bot API if needed.
+   * Look up cached Graph context (channel or DM), resolving via Bot API if needed.
    */
-  private async getChannelContext(
+  protected async getGraphContext(
     baseConversationId: string
-  ): Promise<TeamsChannelContext | null> {
+  ): Promise<TeamsGraphContext | null> {
     if (!this.chat) {
       return null;
     }
@@ -233,7 +264,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       .get<string>(`teams:channelContext:${baseConversationId}`);
     if (cached) {
       try {
-        return JSON.parse(cached) as TeamsChannelContext;
+        return JSON.parse(cached) as TeamsGraphContext;
       } catch {
         return null;
       }
@@ -274,8 +305,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   /**
    * Handle message activities (normal messages + Action.Submit button clicks).
+   *
+   * For DMs we block the handler until chat processing completes so that
+   * ctx.stream (the Teams SDK's native IStreamer) stays alive for streaming.
+   * The Teams SDK auto-closes the stream after the handler returns.
    */
-  private async handleMessageActivity(
+  protected async handleMessageActivity(
     ctx: IActivityContext<IMessageActivity>
   ): Promise<void> {
     if (!this.chat) {
@@ -313,18 +348,47 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       message.isMention = true;
     }
 
-    this.chat.processMessage(
-      this,
-      threadId,
-      message,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
-    );
+    // For DMs, capture ctx.stream and await processing so the stream stays
+    // alive for native streaming via emit(). Group chats use fire-and-forget.
+    if (this.isDM(threadId)) {
+      this.activeStreams.set(threadId, ctx.stream);
+
+      let resolveProcessing: () => void;
+      const processingDone = new Promise<void>((resolve) => {
+        resolveProcessing = resolve;
+      });
+
+      const baseOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+      this.chat.processMessage(this, threadId, message, {
+        ...baseOptions,
+        waitUntil: (task: Promise<unknown>) => {
+          baseOptions?.waitUntil?.(task);
+          task.then(
+            () => resolveProcessing(),
+            () => resolveProcessing()
+          );
+        },
+      });
+
+      try {
+        await processingDone;
+      } finally {
+        this.activeStreams.delete(threadId);
+      }
+    } else {
+      this.chat.processMessage(
+        this,
+        threadId,
+        message,
+        this.bridgeAdapter.getWebhookOptions(activity.id)
+      );
+    }
   }
 
   /**
    * Handle Action.Submit button clicks sent as message activities.
    */
-  private handleMessageAction(
+  protected handleMessageAction(
     activity: Activity,
     actionValue: ActionSubmitData
   ): void {
@@ -381,7 +445,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle adaptive card button clicks (invoke-based).
    */
-  private async handleAdaptiveCardAction(
+  protected async handleAdaptiveCardAction(
     ctx: IActivityContext<IAdaptiveCardActionInvokeActivity>
   ): Promise<void> {
     if (!this.chat) {
@@ -446,7 +510,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Called when the sentinel __auto_submit action ID is detected.
    * Each input key/value pair is dispatched as a separate action in parallel.
    */
-  private fanOutAutoSubmit(
+  protected fanOutAutoSubmit(
     payload: Record<string, unknown>,
     activity: Activity,
     threadId: string
@@ -495,7 +559,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Handle dialog.open (task/fetch) invoke.
    * Uses Promise.race to resolve as soon as onOpenModal fires.
    */
-  private async handleDialogOpen(
+  protected async handleDialogOpen(
     ctx: IActivityContext<ITaskFetchInvokeActivity>
   ): Promise<TaskModuleResponse | undefined> {
     if (!this.chat) {
@@ -600,7 +664,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   /**
    * Handle dialog.submit (task/submit) invoke.
    */
-  private async handleDialogSubmit(
+  protected async handleDialogSubmit(
     ctx: IActivityContext<ITaskSubmitInvokeActivity>
   ): Promise<TaskModuleResponse | undefined> {
     if (!this.chat) {
@@ -632,14 +696,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       contextId,
     });
 
-    const response = await this.chat.processModalSubmit(event, contextId);
+    const response = await this.chat.processModalSubmit(
+      event,
+      contextId,
+      this.bridgeAdapter.getWebhookOptions(activity.id)
+    );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
 
   /**
    * Handle Teams reaction events.
    */
-  private handleReactionFromContext(
+  protected handleReactionFromContext(
     ctx: IActivityContext<IMessageReactionActivity>
   ): void {
     if (!this.chat) {
@@ -719,7 +787,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
   }
 
-  private parseTeamsMessage(
+  protected parseTeamsMessage(
     activity: Activity,
     threadId: string
   ): Message<unknown> {
@@ -757,7 +825,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
   }
 
-  private createAttachment(att: {
+  protected createAttachment(att: {
     contentType?: string;
     contentUrl?: string;
     name?: string;
@@ -778,23 +846,34 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       url,
       name: att.name,
       mimeType: att.contentType,
-      fetchData: url
-        ? async () => {
-            const response = await fetch(url);
-            if (!response.ok) {
-              throw new NetworkError(
-                "teams",
-                `Failed to fetch file: ${response.status} ${response.statusText}`
-              );
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            return Buffer.from(arrayBuffer);
-          }
-        : undefined,
+      fetchMetadata: url ? { url } : undefined,
+      fetchData: url ? this.createFetchDataFn(url) : undefined,
     };
   }
 
-  private normalizeMentions(text: string): string {
+  protected createFetchDataFn(url: string): () => Promise<Buffer> {
+    return async () => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new NetworkError(
+          "teams",
+          `Failed to fetch file: ${response.status} ${response.statusText}`
+        );
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    };
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!url) {
+      return attachment;
+    }
+    return { ...attachment, fetchData: this.createFetchDataFn(url) };
+  }
+
+  protected normalizeMentions(text: string): string {
     return text.trim();
   }
 
@@ -809,6 +888,43 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     options?: WebhookOptions
   ): Promise<Response> {
     return this.bridgeAdapter.dispatch(request, options);
+  }
+
+  async getUser(userId: string): Promise<UserInfo | null> {
+    if (!this.chat) {
+      return null;
+    }
+
+    try {
+      const aadObjectId = await this.chat
+        .getState()
+        .get<string>(`teams:aadObjectId:${userId}`);
+
+      if (!aadObjectId) {
+        this.logger.debug("No cached aadObjectId for user", { userId });
+        return null;
+      }
+
+      const graphUser = await this.app.graph.call(users.get, {
+        "user-id": aadObjectId,
+      });
+
+      return {
+        avatarUrl: undefined,
+        email: graphUser.mail ?? undefined,
+        fullName: graphUser.displayName ?? aadObjectId,
+        isBot: false,
+        userId,
+        userName:
+          graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
+      };
+    } catch (error) {
+      this.logger.warn("Failed to fetch user info from Graph API", {
+        userId,
+        error,
+      });
+      return null;
+    }
   }
 
   async postMessage(
@@ -887,7 +1003,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
   }
 
-  private async filesToAttachments(
+  protected async filesToAttachments(
     files: FileUpload[]
   ): Promise<Array<{ contentType: string; contentUrl: string; name: string }>> {
     const attachments: Array<{
@@ -1055,46 +1171,92 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   /**
-   * Stream responses via post+edit.
-   * TODO: Use native HttpStream for DMs once @microsoft/teams.apps exports it.
+   * Stream responses using the Teams SDK's native streaming protocol when
+   * an active IStreamer exists (DMs), falling back to a buffered final message otherwise.
    */
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
   ): Promise<RawMessage<unknown>> {
-    const { conversationId } = this.decodeThreadId(threadId);
-    let accumulated = "";
-    let messageId: string | undefined;
+    const activeStream = this.activeStreams.get(threadId);
 
-    for await (const chunk of textStream) {
-      let text = "";
-      if (typeof chunk === "string") {
-        text = chunk;
-      } else if (chunk.type === "markdown_text") {
-        text = chunk.text;
-      }
-      if (!text) {
-        continue;
-      }
-
-      accumulated += text;
-
-      if (messageId) {
-        const activity = new MessageActivity(accumulated);
-        activity.textFormat = "markdown";
-        await this.app.api.conversations
-          .activities(conversationId)
-          .update(messageId, activity);
-      } else {
-        const activity = new MessageActivity(accumulated);
-        activity.textFormat = "markdown";
-        const res = await this.app.send(conversationId, activity);
-        messageId = res.id ?? "";
-      }
+    if (activeStream && !activeStream.canceled) {
+      return this.streamViaEmit(threadId, textStream, activeStream);
     }
 
-    return { id: messageId ?? "", threadId, raw: { text: accumulated } };
+    // No native streamer available (group chats, proactive messages) —
+    // accumulate and post as a single message instead of post+edit.
+    let accumulated = "";
+    for await (const chunk of textStream) {
+      if (typeof chunk === "string") {
+        accumulated += chunk;
+      } else if (chunk.type === "markdown_text") {
+        accumulated += chunk.text;
+      }
+    }
+    if (!accumulated) {
+      return { id: "", threadId, raw: { text: "" } };
+    }
+    return this.postMessage(threadId, { markdown: accumulated });
+  }
+
+  /**
+   * Native streaming using the Teams SDK's IStreamer.emit().
+   * Sends typing activities with streamType: 'streaming', then a final
+   * message with streamType: 'final' on close (handled by the framework).
+   *
+   * We do NOT call stream.close() — the Teams SDK calls it automatically
+   * after the handler returns.
+   */
+  protected async streamViaEmit(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    stream: IStreamer
+  ): Promise<RawMessage<unknown>> {
+    let accumulated = "";
+    let messageId = "";
+
+    const idCaptured = new Promise<string>((resolve) => {
+      stream.events.once("chunk", (activity: SentActivity) => {
+        resolve(activity.id || "");
+      });
+    });
+
+    try {
+      for await (const chunk of textStream) {
+        if (stream.canceled) {
+          this.logger.debug("Teams stream canceled by user", { threadId });
+          break;
+        }
+
+        let text = "";
+        if (typeof chunk === "string") {
+          text = chunk;
+        } else if (chunk.type === "markdown_text") {
+          text = chunk.text;
+        }
+        if (!text) {
+          continue;
+        }
+
+        stream.emit(text);
+        accumulated += text;
+      }
+    } catch (error) {
+      if (!(error instanceof StreamCancelledError)) {
+        throw error;
+      }
+      this.logger.debug("Teams stream canceled during iteration", { threadId });
+    }
+
+    // Only await the chunk ID if we emitted text and the stream wasn't
+    // canceled before any chunk was delivered (which would hang forever).
+    if (accumulated && !stream.canceled) {
+      messageId = await idCaptured;
+    }
+
+    return { id: messageId, threadId, raw: { text: accumulated } };
   }
 
   async openDM(userId: string): Promise<string> {
@@ -1288,7 +1450,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return this.parseTeamsMessage(activity, threadId);
   }
 
-  private isMessageFromSelf(activity: Activity): boolean {
+  protected isMessageFromSelf(activity: Activity): boolean {
     const fromId = activity.from?.id;
     if (!(fromId && this.app.id)) {
       return false;

@@ -20,20 +20,22 @@ import type { Logger } from "chat";
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/get-started
  */
 export interface WhatsAppAdapterConfig {
-  /** Access token (System User token) for WhatsApp Cloud API calls */
-  accessToken: string;
+  /** Access token (System User token) for WhatsApp Cloud API calls. Defaults to WHATSAPP_ACCESS_TOKEN env var. */
+  accessToken?: string;
+  /** Override the Meta Graph API base URL (e.g. for on-premise deployments). Defaults to "https://graph.facebook.com". */
+  apiUrl?: string;
   /** Meta Graph API version (default: "v21.0") */
   apiVersion?: string;
-  /** Meta App Secret for webhook HMAC-SHA256 signature verification */
-  appSecret: string;
+  /** Meta App Secret for webhook HMAC-SHA256 signature verification. Defaults to WHATSAPP_APP_SECRET env var. */
+  appSecret?: string;
   /** Logger instance for error reporting */
-  logger: Logger;
-  /** WhatsApp Business phone number ID (not the phone number itself) */
-  phoneNumberId: string;
+  logger?: Logger;
+  /** WhatsApp Business phone number ID (not the phone number itself). Defaults to WHATSAPP_PHONE_NUMBER_ID env var. */
+  phoneNumberId?: string;
   /** Bot display name used for identification */
-  userName: string;
-  /** Verify token for webhook challenge-response verification */
-  verifyToken: string;
+  userName?: string;
+  /** Verify token for webhook challenge-response verification. Defaults to WHATSAPP_VERIFY_TOKEN env var. */
+  verifyToken?: string;
 }
 
 // =============================================================================

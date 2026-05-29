@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "chat"
+  },
+  "include": ["src/**/*"]
+}

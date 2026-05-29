@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/linear",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "Linear adapter for chat - issue comment threads",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -48,11 +51,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "linear",
+    "linear-bot",
     "bot",
     "adapter",
     "issues",
-    "project-management"
+    "project-management",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

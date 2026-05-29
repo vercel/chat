@@ -1,5 +1,129 @@
 # @chat-adapter/gchat
 
+## 4.29.0
+
+### Minor Changes
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- 06fb8e5: Align package shapes with the new `konsistent` conventions. All changes are
+  backwards-compatible — previous type names are kept as deprecated aliases.
+
+  - `@chat-adapter/gchat`, `@chat-adapter/slack`: moved `*AdapterConfig` (and
+    related sub-types) into a `./types` module; the public re-exports from
+    `index.ts` are unchanged.
+  - `@chat-adapter/slack`: `createSlackAdapter` now accepts `SlackAdapterConfig`
+    directly instead of `Partial<SlackAdapterConfig>`. Every field on the config
+    was already optional, so no call sites need to change.
+  - `@chat-adapter/messenger`: `MessengerAdapterConfig` fields are now optional
+    (the factory still falls back to `FACEBOOK_*` env vars), and `logger` /
+    `userName` live on `MessengerAdapterConfig` directly. The factory signature
+    is now `createMessengerAdapter(config?: MessengerAdapterConfig)`.
+  - `@chat-adapter/web`: renamed `WebAdapterOptions` to `WebAdapterConfig`; the
+    old name is exported as a deprecated alias.
+  - `@chat-adapter/whatsapp`: every field on `WhatsAppAdapterConfig` is optional
+    (the factory still falls back to `WHATSAPP_*` env vars). `createWhatsAppAdapter`
+    is now typed `(config?: WhatsAppAdapterConfig) => WhatsAppAdapter`.
+  - `@chat-adapter/state-memory`: added an empty `MemoryStateAdapterOptions`
+    type so the package matches every other state adapter; `createMemoryState`
+    now accepts an optional argument of that type.
+  - `@chat-adapter/state-ioredis`, `@chat-adapter/state-redis`,
+    `@chat-adapter/state-pg`: the URL- and client-based option shapes were split
+    into named interfaces (`*StateAdapterUrlOptions` /
+    `*StateAdapterClientOptions`) and unified under `*StateAdapterOptions`. The
+    factories now take the union type directly. Old names — `RedisStateClientOptions`,
+    `CreateRedisStateOptions`, `PostgresStateClientOptions`,
+    `CreatePostgresStateOptions`, `IoRedisStateClientOptions` — are kept as
+    deprecated aliases.
+
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
+## 4.28.1
+
+### Patch Changes
+
+- Updated dependencies [0cc3d06]
+  - chat@4.28.1
+  - @chat-adapter/shared@4.28.1
+
+## 4.28.0
+
+### Minor Changes
+
+- 9824d33: Security fixes for HIGH-severity findings:
+
+  - **adapter-slack**: Replace timing-unsafe `!==` with `crypto.timingSafeEqual` when validating the `x-slack-socket-token` header on forwarded socket-mode events.
+  - **adapter-github**: In multi-tenant App mode, eagerly auto-detect the bot user ID on the first installation client / first webhook so `isMe` checks work and self-reply loops are prevented. Falls back to `apps.getAuthenticated` + `users.getByUsername` when `users.getAuthenticated` is unavailable for installation tokens.
+  - **adapter-linear**: Add optional `encryptionKey` config (or `LINEAR_ENCRYPTION_KEY` env var) that AES-256-GCM-encrypts `accessToken` and `refreshToken` at rest in the state store. Tolerates plaintext records for zero-downtime rollout.
+  - **adapter-gchat**: Fail-closed by default — the constructor now throws `ValidationError` if neither `googleChatProjectNumber` nor `pubsubAudience` is configured. To accept unverified webhooks (development only), set the new `disableSignatureVerification: true` flag (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`). Mirrors the Slack adapter's signing-secret requirement.
+  - **adapter-shared**: New `decodeKey` / `encryptToken` / `decryptToken` / `isEncryptedTokenData` utilities (AES-256-GCM, hex or base64 32-byte keys), shared by Slack and Linear.
+
+### Patch Changes
+
+- Updated dependencies [eb5f94a]
+- Updated dependencies [c1cd9b5]
+- Updated dependencies [9824d33]
+- Updated dependencies [46d183b]
+- Updated dependencies [46d183b]
+- Updated dependencies [3490a8c]
+  - chat@4.28.0
+  - @chat-adapter/shared@4.28.0
+
+## 4.27.0
+
+### Minor Changes
+
+- 6b17c60: Add `apiUrl` config option for custom API endpoint configuration (e.g. GovSlack, GitHub Enterprise, GCC-High Teams)
+- a520797: Add `chat.getUser()` method and `UserInfo` type for cross-platform user lookups. Implement `getUser` on Slack, Discord, Google Chat, GitHub, Linear, and Telegram adapters.
+
+### Patch Changes
+
+- 1e7c551: restore attachment fetchData after queue/debounce serialization
+- 53ee151: Clear cardsV2 when editing a message to plain text so old cards don't persist underneath the new text
+- 1c12d33: Support `Select` and `RadioSelect` card actions in Google Chat by rendering them as `selectionInput` widgets and reading selected values from form inputs on action events.
+- Updated dependencies [8a0c7b3]
+- Updated dependencies [1e7c551]
+- Updated dependencies [b0ab804]
+- Updated dependencies [d630e6c]
+- Updated dependencies [b9a1961]
+- Updated dependencies [a520797]
+- Updated dependencies [70281dc]
+- Updated dependencies [9093292]
+- Updated dependencies [7e90d9c]
+- Updated dependencies [bca4792]
+- Updated dependencies [37dbb4a]
+- Updated dependencies [608d5f0]
+- Updated dependencies [a179b29]
+- Updated dependencies [a8f2aab]
+  - chat@4.27.0
+  - @chat-adapter/shared@4.27.0
+
+## 4.26.0
+
+### Patch Changes
+
+- 4cc87dd: Preserve custom link labels in Google Chat text messages by rendering Markdown links with Google Chat's supported `<url|text>` syntax.
+- Updated dependencies [2235c16]
+- Updated dependencies [ddb084b]
+  - chat@4.26.0
+  - @chat-adapter/shared@4.26.0
+
+## 4.25.0
+
+### Patch Changes
+
+- Updated dependencies [2700ce8]
+  - chat@4.25.0
+  - @chat-adapter/shared@4.25.0
+
 ## 4.24.0
 
 ### Patch Changes

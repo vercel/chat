@@ -1,4 +1,5 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
+import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { getChatSingleton } from "./chat-singleton";
 import { fromFullStream } from "./from-full-stream";
@@ -11,8 +12,8 @@ import {
   toPlainText,
 } from "./markdown";
 import { Message } from "./message";
-import type { MessageHistoryCache } from "./message-history";
 import { isPostableObject, postPostableObject } from "./postable-object";
+import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -53,8 +54,8 @@ interface ChannelImplConfigWithAdapter {
   channelVisibility?: ChannelVisibility;
   id: string;
   isDM?: boolean;
-  messageHistory?: MessageHistoryCache;
   stateAdapter: StateAdapter;
+  threadHistory?: ThreadHistoryCache;
 }
 
 /**
@@ -95,7 +96,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
-  private readonly _messageHistory?: MessageHistoryCache;
+  private readonly _threadHistory?: ThreadHistoryCache;
 
   constructor(config: ChannelImplConfig) {
     this.id = config.id;
@@ -107,7 +108,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
-      this._messageHistory = config.messageHistory;
+      this._threadHistory = config.threadHistory;
     }
   }
 
@@ -175,7 +176,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
   get messages(): AsyncIterable<Message> {
     const adapter = this.adapter;
     const channelId = this.id;
-    const messageHistory = this._messageHistory;
+    const threadHistory = this._threadHistory;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -204,8 +205,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
         }
 
         // Fall back to cached history if adapter returned nothing
-        if (!yieldedAny && messageHistory) {
-          const cached = await messageHistory.getMessages(channelId);
+        if (!yieldedAny && threadHistory) {
+          const cached = await threadHistory.getMessages(channelId);
           // Yield newest first
           for (let i = cached.length - 1; i >= 0; i--) {
             yield cached[i];
@@ -281,14 +282,14 @@ export class ChannelImpl<TState = Record<string, unknown>>
       return message;
     }
 
-    // Handle AsyncIterable (streaming) — not supported at channel level,
-    // fall through to postMessage
+    // Handle AsyncIterable (streaming) — accumulate and post as single message
     if (isAsyncIterable(message)) {
-      // For channel-level streaming, accumulate and post as single message
       let accumulated = "";
       for await (const chunk of fromFullStream(message)) {
         if (typeof chunk === "string") {
           accumulated += chunk;
+        } else if (chunk.type === "markdown_text") {
+          accumulated += chunk.text;
         }
       }
       return this.postSingleMessage({ markdown: accumulated });
@@ -305,6 +306,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       }
       postable = card;
     }
+
+    postable = await this.processCallbackUrls(postable);
 
     return this.postSingleMessage(postable);
   }
@@ -330,8 +333,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       rawMessage.threadId
     );
 
-    if (this._messageHistory) {
-      await this._messageHistory.append(this.id, new Message(sent));
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(sent));
     }
 
     return sent;
@@ -355,6 +358,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
     } else {
       postable = message as AdapterPostableMessage;
     }
+
+    postable = await this.processCallbackUrls(postable);
 
     if (this.adapter.postEphemeral) {
       return this.adapter.postEphemeral(this.id, userId, postable);
@@ -393,6 +398,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
+    postable = await this.processCallbackUrls(postable);
+
     if (!this.adapter.scheduleMessage) {
       throw new NotImplementedError(
         "Scheduled messages are not supported by this adapter",
@@ -401,6 +408,30 @@ export class ChannelImpl<TState = Record<string, unknown>>
     }
 
     return this.adapter.scheduleMessage(this.id, postable, options);
+  }
+
+  private async processCallbackUrls(
+    postable: string | AdapterPostableMessage
+  ): Promise<string | AdapterPostableMessage> {
+    if (typeof postable === "string") {
+      return postable;
+    }
+
+    if ("type" in postable && postable.type === "card") {
+      return processCardCallbackUrls(postable, this._stateAdapter);
+    }
+
+    if ("card" in postable && postable.card?.type === "card") {
+      const processed = await processCardCallbackUrls(
+        postable.card,
+        this._stateAdapter
+      );
+      if (processed !== postable.card) {
+        return { ...postable, card: processed };
+      }
+    }
+
+    return postable;
   }
 
   async startTyping(status?: string): Promise<void> {
@@ -415,7 +446,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
     return {
       _type: "chat:Channel",
       id: this.id,
-      adapterName: this.adapter.name,
+      adapterName: this._adapterName ?? this.adapter.name,
       channelVisibility: this.channelVisibility,
       isDM: this.isDM,
     };
@@ -494,6 +525,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
           editPostable = card;
         }
+        editPostable = await self.processCallbackUrls(editPostable);
         await adapter.editMessage(threadId, messageId, editPostable);
         return self.createSentMessage(messageId, editPostable);
       },

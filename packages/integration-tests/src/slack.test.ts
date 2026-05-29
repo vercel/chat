@@ -361,10 +361,10 @@ describe("Slack Integration", () => {
       });
       await tracker.waitForAll();
 
-      // Slack uses *bold*, _italic_, and `code`
+      // Markdown is passed through to Slack's markdown_text field for native rendering
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          text: expect.stringContaining("*Bold*"),
+          markdown_text: "**Bold** and _italic_ and `code`",
         })
       );
     });
@@ -769,7 +769,7 @@ describe("Slack Integration", () => {
       );
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          text: expect.stringContaining("Here's your file:"),
+          markdown_text: expect.stringContaining("Here's your file:"),
         })
       );
     });

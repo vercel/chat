@@ -18,6 +18,8 @@ export interface TeamsAuthFederated {
 }
 
 export interface TeamsAdapterConfig {
+  /** Override the Teams Bot Framework service URL (e.g. for GCC-High environments). Defaults to TEAMS_API_URL env var. */
+  apiUrl?: string;
   /** Microsoft App ID. Defaults to TEAMS_APP_ID env var. */
   appId?: string;
   /** Microsoft App Password. Defaults to TEAMS_APP_PASSWORD env var. */
@@ -49,4 +51,18 @@ export interface TeamsThreadId {
 export interface TeamsChannelContext {
   channelId: string;
   teamId: string;
+  /** Discriminator — absent for channel (backwards-compat with existing cache). */
+  type?: "channel";
 }
+
+/** DM context with the resolved Graph API chat ID */
+export interface TeamsDmContext {
+  graphChatId: string;
+  type: "dm";
+}
+
+/**
+ * Discriminated union for Graph API resolution context.
+ * Group chats are not included — their conversation ID works as-is with Graph.
+ */
+export type TeamsGraphContext = TeamsChannelContext | TeamsDmContext;

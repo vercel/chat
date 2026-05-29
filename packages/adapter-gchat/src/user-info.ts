@@ -14,8 +14,10 @@ const USER_INFO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Cached user info */
 export interface CachedUserInfo {
+  avatarUrl?: string;
   displayName: string;
   email?: string;
+  isBot?: boolean;
 }
 
 /**
@@ -38,13 +40,15 @@ export class UserInfoCache {
   async set(
     userId: string,
     displayName: string,
-    email?: string
+    email?: string,
+    isBot?: boolean,
+    avatarUrl?: string
   ): Promise<void> {
     if (!displayName || displayName === "unknown") {
       return;
     }
 
-    const userInfo: CachedUserInfo = { displayName, email };
+    const userInfo: CachedUserInfo = { avatarUrl, displayName, email, isBot };
 
     // Always update in-memory cache
     this.inMemoryCache.set(userId, userInfo);

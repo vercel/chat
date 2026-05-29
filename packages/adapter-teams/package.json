@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/teams",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "Microsoft Teams adapter for chat",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,14 +28,14 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@microsoft/teams.api": "^2.0.6",
-    "@microsoft/teams.apps": "^2.0.6",
-    "@microsoft/teams.cards": "^2.0.6",
-    "@microsoft/teams.graph-endpoints": "^2.0.6",
+    "@microsoft/teams.api": "^2.0.8",
+    "@microsoft/teams.apps": "^2.0.8",
+    "@microsoft/teams.cards": "^2.0.8",
+    "@microsoft/teams.graph-endpoints": "^2.0.8",
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@microsoft/teams.graph": "^2.0.6",
+    "@microsoft/teams.graph": "^2.0.8",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
@@ -52,10 +55,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "teams",
+    "microsoft-teams",
     "microsoft",
     "bot",
-    "adapter"
+    "adapter",
+    "bot-framework",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

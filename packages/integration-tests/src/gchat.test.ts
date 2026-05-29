@@ -51,6 +51,9 @@ describe("Google Chat Integration", () => {
       credentials: GCHAT_TEST_CREDENTIALS,
       userName: GCHAT_BOT_NAME,
       logger: mockLogger,
+      // Integration tests inject pre-built event payloads directly; no real
+      // webhook signature is exercised here.
+      disableSignatureVerification: true,
     });
 
     mockChatApi = createMockGoogleChatApi();
@@ -413,6 +416,32 @@ describe("Google Chat Integration", () => {
       expect(sent.text).toContain("*Bold*");
       expect(sent.text).toContain("_italic_");
       expect(sent.text).toContain("`code`");
+    });
+
+    it("should preserve custom link labels in posted messages", async () => {
+      chat.onNewMention(async (thread) => {
+        await thread.post({
+          markdown: "[Click here](https://example.com)",
+        });
+      });
+
+      const event = createGoogleChatEvent({
+        text: `@${GCHAT_BOT_NAME} link test`,
+        messageName: `${TEST_SPACE_NAME}/messages/msg-001`,
+        spaceName: TEST_SPACE_NAME,
+        threadName: TEST_THREAD_NAME,
+        senderId: "users/user-123",
+        senderName: "John Doe",
+        hasBotMention: true,
+      });
+
+      await chat.webhooks.gchat(createGoogleChatWebhookRequest(event), {
+        waitUntil: tracker.waitUntil,
+      });
+      await tracker.waitForAll();
+
+      const sent = mockChatApi.sentMessages[0];
+      expect(sent.text).toBe("<https://example.com|Click here>");
     });
 
     it("should pass @mentions through as-is in posted messages", async () => {

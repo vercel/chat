@@ -1,10 +1,15 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreBinaries": ["vercel"],
+  "ignoreBinaries": ["tsx"],
   "ignoreDependencies": ["@biomejs/biome"],
-  "ignore": ["apps/docs/**/*", "packages/create-chat-sdk/_template/**/*"],
+  "ignore": [
+    "apps/docs/**/*",
+    "examples/nextjs-chat/src/app/.well-known/workflow/**/*",
+    "packages/create-chat-sdk/_template/**/*"
+  ],
   "rules": {
     "duplicates": "off",
-    "types": "off"
+    "types": "off",
+    "optionalPeerDependencies": "off"
   }
 }

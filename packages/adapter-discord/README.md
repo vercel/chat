@@ -73,8 +73,11 @@ Discord has two ways to receive events:
 
 **Gateway WebSocket (required for messages):**
 - Receives regular messages and reactions
+- Receives slash commands and button clicks when no Interactions Endpoint URL is configured
 - Requires a persistent connection
 - In serverless environments, use a cron job to maintain the connection
+
+Discord sends interactions through either the Gateway or an Interactions Endpoint URL, not both. Use the HTTP endpoint for serverless apps. For resident gateway-only apps, leave the Interactions Endpoint URL unset and start the Gateway listener without `webhookUrl` so interactions are processed directly.
 
 ## Gateway setup for serverless
 
@@ -102,7 +105,9 @@ export async function GET(request: Request): Promise<Response> {
 
   await bot.initialize();
 
-  return bot.adapters.discord.startGatewayListener(
+  const discord = bot.getAdapter("discord");
+
+  return discord.startGatewayListener(
     { waitUntil: (task) => after(() => task) },
     durationMs,
     undefined,
@@ -157,6 +162,7 @@ All options are auto-detected from environment variables when not provided.
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
@@ -168,6 +174,7 @@ DISCORD_BOT_TOKEN=your-bot-token
 DISCORD_PUBLIC_KEY=your-application-public-key
 DISCORD_APPLICATION_ID=your-application-id
 DISCORD_MENTION_ROLE_IDS=1234567890,0987654321  # Optional
+DISCORD_API_URL=...                              # Optional, override the Discord API base URL
 CRON_SECRET=your-random-secret                   # For Gateway cron
 ```
 
@@ -249,6 +256,12 @@ Update the Interactions Endpoint URL in the Discord Developer Portal to your ngr
 1. **Check public key format**: Should be a 64-character hex string (lowercase)
 2. **Verify endpoint URL**: Must exactly match what's configured in Discord Developer Portal
 3. **Check for body parsing**: Don't parse the request body before verification
+
+## Resources
+
+- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis) — Walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
 
 ## License
 

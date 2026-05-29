@@ -1,0 +1,191 @@
+---
+title: Messenger
+description: Facebook Messenger adapter using the Messenger Platform API.
+packageName: "@chat-adapter/messenger"
+slug: messenger
+type: platform
+logo: messenger
+tagline: Build bots for Facebook Messenger with templates, buttons, reactions, and postbacks.
+beta: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads: no
+  streaming:
+    status: partial
+    label: Buffered
+  scheduledMessages: no
+  cardFormat:
+    status: partial
+    label: Generic / Button Templates
+  buttons:
+    status: partial
+    label: Max 3, postback
+  linkButtons:
+    status: yes
+    label: web_url
+  selectMenus: no
+  tables:
+    status: partial
+    label: ASCII
+  fields:
+    status: partial
+    label: ASCII
+  imagesInCards: yes
+  modals: no
+  slashCommands: no
+  mentions: yes
+  addReactions: no
+  removeReactions: no
+  typingIndicator: yes
+  directMessages: yes
+  ephemeralMessages: no
+  customApiEndpoint: yes
+  fetchMessages:
+    status: partial
+    label: Cached sent only
+  fetchSingleMessage:
+    status: partial
+    label: Cached
+  fetchThreadInfo: yes
+  fetchChannelMessages:
+    status: partial
+    label: Cached
+  listThreads: no
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/messenger" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `FACEBOOK_APP_SECRET`, `FACEBOOK_PAGE_ACCESS_TOKEN`, `FACEBOOK_VERIFY_TOKEN`, and `FACEBOOK_BOT_USERNAME` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMessengerAdapter } from "@chat-adapter/messenger";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    messenger: createMessengerAdapter(),
+  },
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post("Hello from Messenger!");
+});
+```
+
+```typescript title="app/api/webhooks/messenger/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  return bot.webhooks.messenger(request);
+}
+
+export async function POST(request: Request) {
+  return bot.webhooks.messenger(request);
+}
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    appSecret: {
+      type: "string",
+      description:
+        "App secret for `X-Hub-Signature-256` verification. Auto-detected from `FACEBOOK_APP_SECRET`.",
+    },
+    pageAccessToken: {
+      type: "string",
+      description:
+        "Page access token. Auto-detected from `FACEBOOK_PAGE_ACCESS_TOKEN`.",
+    },
+    verifyToken: {
+      type: "string",
+      description:
+        "Webhook verification secret. Auto-detected from `FACEBOOK_VERIFY_TOKEN`.",
+    },
+    userName: {
+      type: "string",
+      default: '"messenger-bot"',
+      description: "Bot username. Auto-detected from `FACEBOOK_BOT_USERNAME`.",
+    },
+    apiUrl: {
+      type: "string",
+      description: "Override the Meta Graph API base URL.",
+    },
+  }}
+/>
+
+## Authentication
+
+### 1. Create a Meta app
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps).
+2. Create an app and select **"Engage with customers on Messenger from Meta"**.
+3. Under **App Settings** then **Basic**, copy the **App Secret** to `FACEBOOK_APP_SECRET`.
+
+### 2. Create a Facebook Page
+
+Your Messenger bot needs a Facebook Page to send and receive messages. Create one under a Facebook Business profile if you don't already have one — users message the Page to interact with your bot.
+
+### 3. Configure Messenger API
+
+In your Meta app dashboard, open **Use Cases** then **Messenger API Settings**.
+
+**Configure webhooks:**
+
+1. Click **Add Callback URL** and enter `https://your-domain.com/api/webhooks/messenger`.
+2. Set a **Verify Token** of your choice — this becomes `FACEBOOK_VERIFY_TOKEN`.
+3. Click **Verify and Save**.
+4. Add subscriptions: `messages`, `messaging_postbacks`, `messaging_reactions`, `message_deliveries`, `message_reads`.
+
+**Generate a Page Access Token:**
+
+1. Under **Generate access tokens** click **Add or remove Pages** and select your Page.
+2. Generate the token and copy it to `FACEBOOK_PAGE_ACCESS_TOKEN`.
+
+## Advanced
+
+### Webhook flow
+
+Messenger uses two webhook mechanisms:
+
+- **Verification handshake** (GET) — Meta sends a `hub.verify_token` challenge that must match your `FACEBOOK_VERIFY_TOKEN`.
+- **Event delivery** (POST) — incoming messages, reactions, and postbacks, verified via `X-Hub-Signature-256`.
+
+### Interactive messages
+
+Card elements are automatically converted to Messenger templates:
+
+- **Generic Template** — used when the card has a `title` or `imageUrl`. Up to 3 buttons.
+- **Button Template** — used when the card has text content and buttons but no title/image. Max 640 characters.
+- **Text Fallback** — used when the card contains unsupported elements (tables, select menus) or exceeds constraints.
+
+Constraints:
+
+- Max 3 buttons per template.
+- Button titles limited to 20 characters (truncated with ellipsis).
+- Subtitles limited to 80 characters.
+- Button Template text limited to 640 characters.
+
+### Thread ID format
+
+```
+messenger:{recipientId}
+```
+
+Example: `messenger:27161130920158013`.
+
+## Feature support
+
+<FeatureSupport />

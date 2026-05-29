@@ -1,8 +1,11 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.24.0",
+  "version": "4.29.0",
   "description": "Slack adapter for chat",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,6 +13,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./webhook": {
+      "types": "./dist/webhook.d.ts",
+      "import": "./dist/webhook.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./blocks": {
+      "types": "./dist/blocks.d.ts",
+      "import": "./dist/blocks.js"
     }
   },
   "files": [
@@ -25,6 +44,7 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
+    "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.14.0",
     "chat": "workspace:*"
   },
@@ -48,9 +68,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "slack",
+    "slack-bot",
     "bot",
-    "adapter"
+    "adapter",
+    "block-kit",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

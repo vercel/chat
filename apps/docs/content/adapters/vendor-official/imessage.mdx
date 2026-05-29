@@ -1,0 +1,319 @@
+---
+title: Photon iMessage
+description: iMessage adapter for Chat SDK with both local (on-device, macOS) and remote (Photon-hosted) modes.
+packageName: chat-adapter-imessage
+slug: imessage
+type: platform
+tagline: iMessage adapter for Chat SDK, built and maintained by Photon. Run locally on a Mac or connect to Photon's hosted iMessage gateway from any platform.
+community: true
+vendorOfficial: true
+author: Photon
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage:
+    status: partial
+    label: Remote only
+  deleteMessage: no
+  fileUploads: yes
+  streaming: no
+  scheduledMessages: no
+  cardFormat: no
+  buttons: no
+  linkButtons: no
+  selectMenus:
+    status: partial
+    label: Polls (remote only)
+  tables: no
+  fields: no
+  imagesInCards: no
+  modals:
+    status: partial
+    label: Polls (remote only)
+  slashCommands: no
+  mentions:
+    status: partial
+    label: DMs only
+  addReactions:
+    status: partial
+    label: Tapbacks (remote only)
+  removeReactions:
+    status: partial
+    label: Tapbacks (remote only)
+  typingIndicator:
+    status: partial
+    label: Remote only
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint:
+    status: yes
+    label: serverUrl
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo:
+    status: partial
+    label: Remote only
+  fetchChannelMessages: yes
+  listThreads:
+    status: partial
+    label: Remote only
+  fetchChannelInfo: yes
+  postChannelMessage: yes
+---
+
+## Install
+
+<PackageInstall package="chat-adapter-imessage" />
+
+## Modes
+
+The adapter ships in two modes; pick one based on where the bot will run.
+
+- **Remote mode** — recommended for production. The adapter connects to [Photon](https://photon.codes)'s hosted iMessage service over HTTP and Socket.IO, so your bot can run on Vercel, AWS, or any other platform.
+- **Local mode** — for development or self-hosting. Reads from the local iMessage `chat.db` and sends messages via AppleScript using [imessage-kit](https://github.com/photon-hq/imessage-kit). Requires macOS with **Full Disk Access** granted to your terminal.
+
+The mode is auto-detected from `IMESSAGE_LOCAL` (default: `true`).
+
+## Quick start
+
+### Remote mode
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createiMessageAdapter } from "chat-adapter-imessage";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    imessage: createiMessageAdapter({
+      local: false,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from iMessage!");
+});
+```
+
+### Local mode
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createiMessageAdapter } from "chat-adapter-imessage";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    imessage: createiMessageAdapter({
+      local: true,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from iMessage!");
+});
+```
+
+## Setup
+
+### Remote mode
+
+Photon manages the macOS-side integration on your behalf — you'll need an active Photon subscription to obtain server credentials.
+
+1. [Request access](https://photon.codes) from Photon to get your server credentials.
+2. Copy your **server URL** and **API key** from the Photon dashboard.
+3. Set `IMESSAGE_SERVER_URL` and `IMESSAGE_API_KEY`.
+4. Set `IMESSAGE_LOCAL=false`.
+
+### Local mode
+
+Local mode runs directly on a macOS machine — no external server required.
+
+1. Grant **Full Disk Access** to your terminal/application in **System Settings → Privacy & Security → Full Disk Access**.
+2. Make sure iMessage is signed in and working on the Mac.
+3. No additional environment variables are required — local mode is the default.
+
+## Configuration
+
+<TypeTable
+  type={{
+    local: {
+      type: "boolean",
+      default: "true",
+      description:
+        "`true` for local mode, `false` for remote. Auto-detected from `IMESSAGE_LOCAL`.",
+    },
+    serverUrl: {
+      type: "string",
+      description:
+        "URL of the remote iMessage server. Required for remote mode. Auto-detected from `IMESSAGE_SERVER_URL`.",
+    },
+    apiKey: {
+      type: "string",
+      description:
+        "API key for remote server authentication. Required for remote mode. Auto-detected from `IMESSAGE_API_KEY`.",
+    },
+    logger: {
+      type: "Logger",
+      default: 'ConsoleLogger("info")',
+      description: "Logger instance for adapter output.",
+    },
+  }}
+/>
+
+## Environment variables
+
+```bash title=".env.local"
+IMESSAGE_LOCAL=false               # "false" for remote mode (default: true)
+IMESSAGE_SERVER_URL=https://...    # Required for remote mode
+IMESSAGE_API_KEY=...               # Required for remote mode
+```
+
+## Receiving messages
+
+Call `startGatewayListener()` to receive new messages in real-time. In remote mode this uses Socket.IO push events; in local mode it polls the iMessage database. In serverless environments, run it from a cron job to keep the connection alive.
+
+### Gateway route on Vercel
+
+```typescript title="app/api/imessage/gateway/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return new Response("CRON_SECRET not configured", { status: 500 });
+  }
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const durationMs = 600 * 1000;
+
+  return bot.adapters.imessage.startGatewayListener(
+    { waitUntil: (task) => after(() => task) },
+    durationMs
+  );
+}
+```
+
+```json title="vercel.json"
+{
+  "crons": [
+    { "path": "/api/imessage/gateway", "schedule": "*/9 * * * *" }
+  ]
+}
+```
+
+The schedule runs every 9 minutes so each invocation overlaps with the 10-minute listener window. `CRON_SECRET` is added automatically by Vercel when you configure a cron.
+
+## Modals (limited)
+
+Remote mode supports a limited modal flow by mapping `openModal()` to iMessage native polls. Only the first `Select` child of a modal is used — its options become the poll choices. Votes trigger `onModalSubmit` with the selected option's `value`.
+
+```typescript
+import { Chat, Modal, Select, SelectOption } from "chat";
+import { createiMessageAdapter } from "chat-adapter-imessage";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    imessage: createiMessageAdapter({ local: false }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await message.openModal(
+    Modal({
+      callbackId: "fav-color",
+      title: "What is your favorite color?",
+      children: [
+        Select({
+          id: "color",
+          label: "Pick a color",
+          options: [
+            SelectOption({ label: "Red", value: "red" }),
+            SelectOption({ label: "Blue", value: "blue" }),
+            SelectOption({ label: "Green", value: "green" }),
+          ],
+        }),
+      ],
+    })
+  );
+});
+
+bot.onModalSubmit("fav-color", async (event) => {
+  const color = event.values.color;
+  // color will be "red", "blue", or "green"
+});
+```
+
+Not supported:
+
+- `Select.placeholder` and `Select.label` — iMessage polls don't have these fields.
+- `TextInput`, `RadioSelect`, or any other modal children — silently ignored.
+- `Modal.submitLabel` and `Modal.closeLabel` — not applicable to polls.
+- More than one `Select` per modal — only the first is used.
+- Local mode — `openModal()` throws `NotImplementedError`.
+
+## Tapback reactions
+
+iMessage uses tapbacks instead of emoji reactions. The adapter maps standard emoji names to iMessage tapbacks:
+
+| Emoji | Tapback |
+| --- | --- |
+| `love` / `heart` | Love |
+| `like` / `thumbs_up` | Like |
+| `dislike` / `thumbs_down` | Dislike |
+| `laugh` | Laugh |
+| `emphasize` / `exclamation` | Emphasize |
+| `question` | Question |
+
+## Agent skill
+
+An agent skill for this adapter is available in the [photon-hq/skills](https://github.com/photon-hq/skills) repository. It gives Cursor, Claude Code, Copilot, and other AI coding assistants a source-accurate reference for building with the adapter without needing to read the source.
+
+```bash
+npx skills add photon-hq/skills --skill chat-adapter-imessage
+```
+
+## Limitations
+
+- **Local mode** only supports sending/receiving messages, message history, and file uploads. Reactions, typing indicators, message editing, modals, and thread fetching require remote mode.
+- **Formatting** — iMessage is plain-text only. Markdown formatting is stripped when sending; only the text content is preserved.
+- **Platform** — local mode requires macOS. Remote mode runs anywhere because Photon manages the iMessage infrastructure.
+- **Cards** — iMessage has no native structured card layout.
+- **Modals** — limited to a single `Select` mapped to a native poll, remote mode only.
+
+## Troubleshooting
+
+### `serverUrl is required`
+
+Set `IMESSAGE_SERVER_URL` or pass `serverUrl` in the adapter config when using remote mode. This error means `IMESSAGE_LOCAL=false` but no server URL was found.
+
+### `apiKey is required`
+
+Set `IMESSAGE_API_KEY` or pass `apiKey` in the adapter config when using remote mode.
+
+### Local mode not receiving messages
+
+- Verify **Full Disk Access** is granted to your terminal/application.
+- Confirm iMessage is signed in and working on the Mac.
+- Messages are polled from the local database — there may be a short delay.
+
+### Remote mode connection issues
+
+- Verify the server URL is correct and reachable.
+- Check that the API key matches your Photon iMessage credentials.
+- Confirm your Photon subscription is active.
+
+## Feature support
+
+<FeatureSupport />

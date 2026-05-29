@@ -35,11 +35,13 @@ export function toAppOptions(
   }
 
   const managedIdentityClientId = config.federated?.clientId;
+  const serviceUrl = config.apiUrl ?? process.env.TEAMS_API_URL;
 
   return {
     ...(clientId ? { clientId } : {}),
     ...(clientSecret ? { clientSecret } : {}),
     ...(tenantId ? { tenantId } : {}),
     ...(managedIdentityClientId ? { managedIdentityClientId } : {}),
+    ...(serviceUrl ? { serviceUrl } : {}),
   };
 }

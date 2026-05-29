@@ -31,9 +31,38 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+### Token rotation
+
+`botToken` accepts a function returning a string or `Promise<string>` — the resolver is invoked per API call, so it composes with [Slack token rotation](https://docs.slack.dev/authentication/using-token-rotation/) (12-hour TTL) or lazy fetch from a secret manager:
+
+```typescript
+createSlackAdapter({
+  botToken: async () => await secrets.get("slack-bot-token"),
+});
+```
+
+If the resolver is expensive (e.g. a vault round-trip), implement caching inside the resolver itself.
+
+### Custom webhook verification
+
+Pass `webhookVerifier` to replace the built-in HMAC check — useful when verification runs in a proxy or signing layer ahead of your handler:
+
+```typescript
+createSlackAdapter({
+  webhookVerifier: async (request, body) => {
+    if (!(await myProxy.verify(request))) {
+      throw new Error("invalid");
+    }
+    return true; // or return a string to substitute the verified body
+  },
+});
+```
+
+If both `signingSecret` and `webhookVerifier` are set, `webhookVerifier` wins — it also takes precedence over the `SLACK_SIGNING_SECRET` env var, so an env-configured deployment can't silently shadow a verifier you wired up. When using `webhookVerifier`, you are responsible for replay/timestamp protection — the built-in 5-minute timestamp tolerance only applies to the `signingSecret` path.
+
 ## Multi-workspace mode
 
-For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks.
+For apps installed across multiple Slack workspaces via OAuth, omit `botToken` and provide OAuth credentials instead. The adapter resolves tokens dynamically from your state adapter using the `team_id` from incoming webhooks — or `enterprise_id` for Enterprise Grid org-wide installs (`is_enterprise_install: true`).
 
 When you pass any auth-related config (like `clientId`), the adapter won't fall back to env vars for other auth fields, preventing accidental mixing of auth modes.
 
@@ -101,6 +130,106 @@ openssl rand -base64 32
 ```
 
 When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts it transparently.
+
+### External installation provider
+
+For deployments that manage Slack tokens in an external system (e.g. Vercel Connect), pass `installationProvider` to bypass the internal state adapter when resolving tokens for incoming webhooks:
+
+```typescript
+createSlackAdapter({
+  clientId: process.env.SLACK_CLIENT_ID!,
+  clientSecret: process.env.SLACK_CLIENT_SECRET!,
+  installationProvider: {
+    getInstallation: async (installationId, isEnterpriseInstall) => {
+      // installationId is enterprise_id when isEnterpriseInstall is true,
+      // otherwise team_id. Return null if not found.
+      return await myTokenStore.lookup(installationId, isEnterpriseInstall);
+    },
+  },
+});
+```
+
+When configured, the provider's `getInstallation` is called for every webhook event, slash command, and interactive payload. It is read-only — the adapter's `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` continue to write to the internal state adapter, so callers using a provider should manage their own writes through their external system.
+
+## Socket mode
+
+For environments behind firewalls that can't expose public HTTP endpoints, the adapter supports [Slack Socket Mode](https://api.slack.com/apis/socket-mode). Instead of receiving webhooks, the adapter connects to Slack over a WebSocket.
+
+```typescript
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    slack: createSlackAdapter({
+      mode: "socket",
+      appToken: process.env.SLACK_APP_TOKEN!,
+      botToken: process.env.SLACK_BOT_TOKEN!,
+    }),
+  },
+});
+```
+
+### Slack app setup for socket mode
+
+1. Go to your app's settings at [api.slack.com/apps](https://api.slack.com/apps)
+2. Navigate to **Socket Mode** and enable it
+3. Generate an **App-Level Token** with the `connections:write` scope — this is your `SLACK_APP_TOKEN` (`xapp-...`)
+4. Event subscriptions and interactivity still need to be configured, but no public request URL is required
+
+> Socket mode is not compatible with multi-workspace OAuth (`clientId`/`clientSecret`). It's designed for single-workspace deployments.
+
+### Socket mode on serverless (Vercel)
+
+Socket mode requires a persistent WebSocket connection, which doesn't fit the request/response model of serverless functions. The adapter provides a forwarding mechanism to bridge this gap:
+
+1. A cron job periodically starts a transient socket listener
+2. The listener connects via WebSocket, acks events immediately, and forwards them as HTTP requests to your webhook endpoint
+3. Your existing webhook route processes the forwarded events normally
+
+```typescript
+// api/slack/socket-mode/route.ts
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  await bot.initialize();
+
+  const slack = bot.getAdapter("slack");
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/slack`;
+
+  return slack.startSocketModeListener(
+    { waitUntil: (task: Promise<unknown>) => after(() => task) },
+    600_000, // 10 minutes
+    undefined,
+    webhookUrl
+  );
+}
+```
+
+Schedule the cron job to run every 9 minutes (overlapping with the 10-minute listener duration) to maintain continuous coverage:
+
+```json
+// vercel.json
+{
+  "crons": [
+    {
+      "path": "/api/slack/socket-mode",
+      "schedule": "*/9 * * * *"
+    }
+  ]
+}
+```
+
+Forwarded events are authenticated using the `socketForwardingSecret` config option (defaults to `SLACK_SOCKET_FORWARDING_SECRET` env var, falling back to `appToken`).
 
 ## Slack app setup
 
@@ -186,24 +315,34 @@ All options are auto-detected from environment variables when not provided. You 
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `botToken` | No | Bot token (`xoxb-...`). Auto-detected from `SLACK_BOT_TOKEN` |
+| `botToken` | No | Bot token (`xoxb-...`) or a function returning one (sync or async) for rotation/lazy fetch. Auto-detected from `SLACK_BOT_TOKEN` |
 | `signingSecret` | No* | Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET` |
+| `webhookVerifier` | No* | Custom verifier `(request, body) => unknown \| Promise<unknown>` used in place of `signingSecret`. Returning a string substitutes the verified body for downstream parsing |
+| `mode` | No | Connection mode: `"webhook"` (default) or `"socket"` |
+| `appToken` | No** | App-level token (`xapp-...`) for socket mode. Auto-detected from `SLACK_APP_TOKEN` |
+| `socketForwardingSecret` | No | Shared secret for authenticating forwarded socket events. Auto-detected from `SLACK_SOCKET_FORWARDING_SECRET`, falls back to `appToken` |
 | `clientId` | No | App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID` |
 | `clientSecret` | No | App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY` |
-| `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` |
+| `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
+| `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
+| `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`signingSecret` is required — either via config or `SLACK_SIGNING_SECRET` env var.
+*`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
+**`appToken` is required for socket mode — either via config or `SLACK_APP_TOKEN` env var.
 
 ## Environment variables
 
 ```bash
 SLACK_BOT_TOKEN=xoxb-...             # Single-workspace only
-SLACK_SIGNING_SECRET=...
+SLACK_SIGNING_SECRET=...             # Required for webhook mode
+SLACK_APP_TOKEN=xapp-...             # Required for socket mode
+SLACK_SOCKET_FORWARDING_SECRET=...   # Optional, for socket event forwarding auth
 SLACK_CLIENT_ID=...                  # Multi-workspace only
 SLACK_CLIENT_SECRET=...              # Multi-workspace only
 SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
+SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted gateway
 ```
 
 ## Features
@@ -264,6 +403,52 @@ SLACK_ENCRYPTION_KEY=...             # Optional, for token encryption
 | Member joined channel | Yes |
 | App Home tab | Yes |
 
+## Direct `WebClient` access
+
+Use `adapter.webClient` to get a typed `WebClient` from `@slack/web-api`
+for any Web API call that isn't wrapped by the SDK's high-level methods.
+
+```typescript
+import type { SlackAdapter } from "@chat-adapter/slack";
+
+bot.onAction("pin-this", async (event) => {
+  const slack = bot.getAdapter("slack") as SlackAdapter;
+  await slack.webClient.pins.add({
+    channel: event.thread!.channel.id.replace(/^slack:/, ""),
+    timestamp: event.messageId,
+  });
+});
+```
+
+The returned client is bound to the bot token resolved in this order:
+
+1. The token from the current request context — set automatically during
+   webhook handling, or by `adapter.withBotToken(token, fn)`.
+2. The default `botToken`, when configured as a static string or a
+   synchronous resolver function.
+
+`adapter.webClient` throws `AuthenticationError` outside of any context
+in multi-workspace mode, or when `botToken` is configured as an async
+resolver function. For both cases, await the token first and bind it
+explicitly:
+
+```typescript
+const install = await slackAdapter.getInstallation(teamId);
+if (!install) throw new Error("Workspace not installed");
+
+await slackAdapter.withBotToken(install.botToken, async () => {
+  const me = await slackAdapter.webClient.auth.test();
+  console.log("Bot user:", me.user_id);
+});
+```
+
+> The previous `.client` getter still works as a deprecated alias for
+> `.webClient`.
+
+Internal API calls (`postMessage`, `editMessage`, `fetchMessages`, etc.) are
+unaffected — they continue to resolve tokens through the same async path
+they always have.
+
 ## Slack Assistants API
 
 The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai) for building AI-powered assistant experiences. This enables suggested prompts, status indicators, and thread titles in assistant DM threads.
@@ -317,14 +502,18 @@ settings:
 
 ### Stream with stop blocks
 
-When streaming in an assistant thread, you can attach Block Kit elements to the final message:
+When streaming in an assistant thread, attach Block Kit elements to the final message by wrapping the stream in a `StreamingPlan` and passing `endWith`:
 
 ```typescript
-await thread.stream(textStream, {
-  stopBlocks: [
-    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
-  ],
-});
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(textStream, {
+    endWith: [
+      { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" }] },
+    ],
+  })
+);
 ```
 
 ## Troubleshooting
@@ -348,12 +537,21 @@ await slackAdapter.handleOAuthCallback(request);
 
 - Verify `SLACK_SIGNING_SECRET` is correct
 - Check that the request timestamp is within 5 minutes (clock sync issue)
+- If using a custom `webhookVerifier`, the error also surfaces when the verifier throws or returns a falsy value
 
 ### Bot not responding to messages
 
 - Verify event subscriptions are configured
 - Check that the bot has been added to the channel
 - Ensure the webhook URL is correct and accessible
+
+## Resources
+
+- [How to build an AI agent for Slack with Chat SDK and AI SDK](https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk) — Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.
+- [How to build a Slack bot that manages files in Vercel Blob](https://vercel.com/kb/guide/slack-bot-vercel-blob) — Build a Slack bot that lists, reads, uploads, and deletes files in Vercel Blob through tool calls. Uses Chat SDK, AI SDK's ToolLoopAgent, and Files SDK's `createFileTools` factory with approval-gated write tools and a read-only mode.
+- [How to build a Slack bot with Next.js and Redis](https://vercel.com/kb/guide/how-to-build-a-slack-bot-with-next-js-and-redis) — Walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
 
 ## License
 
