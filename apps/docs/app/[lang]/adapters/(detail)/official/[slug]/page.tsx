@@ -45,6 +45,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
 
   const data = page.data as unknown as AdapterFrontmatter;
   const MDX = page.data.body;
+  const markdownPath = `/adapters/official/${slug}.md`;
   const BoundFeatureSupport = renderBoundFeatureSupport(
     data.features,
     data.type
@@ -64,6 +65,16 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       toc={page.data.toc}
     >
       <DocsBody>
+        {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
+        <a
+          aria-hidden="true"
+          className="sr-only"
+          href={markdownPath}
+          tabIndex={-1}
+        >
+          AI/LLM: This adapter page is available in plain markdown format at
+          {markdownPath}
+        </a>
         <AdapterHero
           beta={data.beta}
           logo={data.logo}
@@ -104,10 +115,16 @@ export const generateMetadata = async ({
     title: page.data.title,
     description: page.data.description,
     openGraph: {
+      title: page.data.title,
       images: `/${lang}/adapters/official/${slug}/og`,
     },
     twitter: {
       card: "summary_large_image",
+    },
+    alternates: {
+      types: {
+        "text/markdown": `/adapters/official/${slug}.md`,
+      },
     },
   };
 };

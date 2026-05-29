@@ -28,6 +28,8 @@ const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
 
   const markdown = await getLLMText(page);
   const MDX = page.data.body;
+  const slugPath = slug?.join("/");
+  const markdownPath = slugPath ? `/docs/${slugPath}.md` : "/docs.md";
 
   return (
     <DocsPage
@@ -50,6 +52,10 @@ const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
       toc={page.data.toc}
     >
       <MobileDocsBar toc={page.data.toc} />
+      <a aria-hidden="true" className="sr-only" href={markdownPath} tabIndex={-1}>
+        AI/LLM: This documentation page is available in plain markdown format at
+        {markdownPath}
+      </a>
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
@@ -81,6 +87,7 @@ export const generateMetadata = async ({
     title: page.data.title,
     description: page.data.description,
     openGraph: {
+      title: page.data.title,
       images: getPageImage(page).url,
     },
     twitter: {
@@ -88,7 +95,7 @@ export const generateMetadata = async ({
     },
     alternates: {
       types: {
-        "text/markdown": slug ? `/docs/${slug}.md` : "/docs.md",
+        "text/markdown": slug?.length ? `/docs/${slug.join("/")}.md` : "/docs.md",
       },
     },
   };

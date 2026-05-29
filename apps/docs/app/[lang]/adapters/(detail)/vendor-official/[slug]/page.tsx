@@ -1,103 +1,21 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import adaptersJson from "@/adapters.json";
 import { AdapterHero } from "@/components/geistdocs/adapter-hero";
 import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
 import { FeatureSupport } from "@/components/geistdocs/feature-support";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { Upsell } from "@/components/geistdocs/upsell";
 import type { AdapterFeatureValue } from "@/lib/adapter-features";
+import {
+  type Adapter,
+  getAdapter,
+  getAuthor,
+  getIssuesUrl,
+  getReadme,
+} from "@/lib/geistdocs/adapter-readme";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 import { ReadmeContent } from "../../../components/readme-content";
-
-const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
-const GITHUB_SUBPATH_PATTERN =
-  /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/;
-const GITHUB_REPO_REF_PATTERN =
-  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?$/;
-const GITHUB_REPO_PATTERN = /github\.com\/([^/]+)\/([^/]+)/;
-const GITHUB_REPO_ROOT_PATTERN = /^(https:\/\/github\.com\/[^/]+\/[^/]+)/;
-
-const MAX_README_BYTES = 500_000;
-
-type Adapter = (typeof adaptersJson)[number];
-
-const getAdapter = (slug: string): Adapter | undefined =>
-  adaptersJson.find((a) => a.slug === slug);
-
-const getAuthor = (adapter: Adapter): string | undefined =>
-  "author" in adapter ? adapter.author : undefined;
-
-const getIssuesUrl = (readmeUrl: string | undefined): string | undefined => {
-  if (!readmeUrl) {
-    return;
-  }
-  const match = readmeUrl.match(GITHUB_REPO_ROOT_PATTERN);
-  return match ? `${match[1]}/issues` : undefined;
-};
-
-const truncate = (content: string): string =>
-  content.length <= MAX_README_BYTES
-    ? content
-    : `${content.slice(0, MAX_README_BYTES)}\n\n> _README truncated — view the full version on GitHub._`;
-
-const fetchGitHubReadme = async (url: string): Promise<string | undefined> => {
-  const response = await fetch(url, {
-    headers: { Accept: "application/vnd.github.raw+json" },
-    next: { revalidate: 3600 },
-  });
-  if (response.ok) {
-    return response.text();
-  }
-};
-
-const getReadme = async (adapter: Adapter): Promise<string | undefined> => {
-  if (!adapter.readme) {
-    return;
-  }
-  const repoUrl = adapter.readme;
-
-  const localMatch = repoUrl.match(LOCAL_PACKAGE_PATTERN);
-  if (localMatch) {
-    const [, pkgPath] = localMatch;
-    const filePath = join(process.cwd(), "..", "..", pkgPath, "README.md");
-    try {
-      return truncate(await readFile(filePath, "utf-8"));
-    } catch {
-      return;
-    }
-  }
-
-  const subpathMatch = repoUrl.match(GITHUB_SUBPATH_PATTERN);
-  if (subpathMatch) {
-    const [, owner, repo, ref, path] = subpathMatch;
-    const content = await fetchGitHubReadme(
-      `https://api.github.com/repos/${owner}/${repo}/readme/${path}?ref=${ref}`
-    );
-    return content ? truncate(content) : undefined;
-  }
-
-  const repoRefMatch = repoUrl.match(GITHUB_REPO_REF_PATTERN);
-  if (repoRefMatch) {
-    const [, owner, repo, ref] = repoRefMatch;
-    const content = await fetchGitHubReadme(
-      `https://api.github.com/repos/${owner}/${repo}/readme?ref=${ref}`
-    );
-    return content ? truncate(content) : undefined;
-  }
-
-  const repoMatch = repoUrl.match(GITHUB_REPO_PATTERN);
-  if (repoMatch) {
-    const [, owner, repo] = repoMatch;
-    const content = await fetchGitHubReadme(
-      `https://api.github.com/repos/${owner}/${repo}/readme`
-    );
-    return content ? truncate(content) : undefined;
-  }
-};
 
 const VendorOfficialNotice = ({ adapter }: { adapter: Adapter }) => {
   const issuesUrl = getIssuesUrl(adapter.readme);
@@ -172,6 +90,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
 
   const data = page.data as unknown as AdapterFrontmatter;
   const adapter = getAdapter(slug);
+  const markdownPath = `/adapters/vendor-official/${slug}.md`;
   const useMdxBody = data.mdxBody === true;
   let readme: string | undefined;
   if (!useMdxBody && adapter) {
@@ -231,6 +150,16 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       toc={page.data.toc}
     >
       <DocsBody>
+        {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
+        <a
+          aria-hidden="true"
+          className="sr-only"
+          href={markdownPath}
+          tabIndex={-1}
+        >
+          AI/LLM: This adapter page is available in plain markdown format at
+          {markdownPath}
+        </a>
         <AdapterHero
           logo={data.logo}
           name={data.title}
@@ -267,10 +196,16 @@ export const generateMetadata = async ({
     title: page.data.title,
     description: page.data.description,
     openGraph: {
+      title: page.data.title,
       images: `/${lang}/adapters/vendor-official/${slug}/og`,
     },
     twitter: {
       card: "summary_large_image",
+    },
+    alternates: {
+      types: {
+        "text/markdown": `/adapters/vendor-official/${slug}.md`,
+      },
     },
   };
 };
