@@ -111,7 +111,14 @@ describe("Vendor-Official adapter MDX", () => {
 
   it("contains exactly the expected adapters", () => {
     expect(vendorAdapters.map((a) => a.slug).sort()).toEqual(
-      ["imessage", "liveblocks", "matrix", "resend", "zernio"].sort()
+      [
+        "agentphone",
+        "imessage",
+        "liveblocks",
+        "matrix",
+        "resend",
+        "zernio",
+      ].sort()
     );
   });
 

@@ -99,6 +99,7 @@ export const VALID_DOC_PACKAGES = [
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
+  "@agentphone/chat-sdk-adapter",
   "chat-adapter-baileys",
   "baileys",
   "chat-adapter-blooio",
