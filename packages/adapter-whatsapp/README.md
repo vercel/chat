@@ -132,7 +132,7 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | Reactions | Yes (add and remove) |
-| Typing indicator | Yes (requires a recent inbound message and has a 25-second cooldown period) |
+| Typing indicator | Yes (requires a recent inbound message, marks it as read, and displays for up to 25 seconds) |
 | DMs | Yes |
 | Open DM | Yes |
 

@@ -1201,7 +1201,7 @@ describe("createWhatsAppAdapter", () => {
       },
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
-      "https://custom-graph.example.com/v21.0"
+      "https://custom-graph.example.com/v25.0"
     );
   });
 
@@ -1215,7 +1215,7 @@ describe("createWhatsAppAdapter", () => {
     try {
       const adapter = createWhatsAppAdapter();
       expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
-        "https://custom-graph.example.com/v21.0"
+        "https://custom-graph.example.com/v25.0"
       );
     } finally {
       for (const key of [...Object.keys(requiredEnvVars), "WHATSAPP_API_URL"]) {
