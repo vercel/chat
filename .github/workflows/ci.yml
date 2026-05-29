@@ -41,7 +41,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch origin "$BASE_REF" --depth=1
-          if git diff --name-only "origin/$BASE_REF"...HEAD | grep '^packages/' | grep -qEv '\.md$|^packages/chat/resources/'; then
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep '^packages/' | grep -qEv '\.md$|^packages/chat/resources/|^packages/integration-tests/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
