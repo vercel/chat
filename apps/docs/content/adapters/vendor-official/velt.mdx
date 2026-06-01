@@ -1,7 +1,7 @@
 ---
 title: Velt
 description: Chat SDK adapter backed by Velt Comments. Build bots that read and respond in Velt comment threads on documents, text editors, and canvases using the Chat SDK Channel/Thread/Message model.
-packageName: "@velt-js/chat-sdk-adapter"
+packageName: "@veltdev/chat-sdk-adapter"
 slug: velt
 type: platform
 tagline: Chat SDK adapter backed by Velt Comments. Maps Velt organizations, documents, comment annotations, and comments to the Chat SDK Channel/Thread/Message model.
@@ -56,14 +56,14 @@ features:
 
 ## Install
 
-<PackageInstall package="@velt-js/chat-sdk-adapter" />
+<PackageInstall package="@veltdev/chat-sdk-adapter" />
 
 ## Quick start
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { createVeltAdapter, type VeltAdapter } from "@velt-js/chat-sdk-adapter";
+import { createVeltAdapter, type VeltAdapter } from "@veltdev/chat-sdk-adapter";
 
 const bot = new Chat<{ velt: VeltAdapter }>({
   userName: "Velt Bot",
