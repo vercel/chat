@@ -7582,6 +7582,86 @@ describe("stream with empty threadTs", () => {
       })
     ).rejects.toThrow(ValidationError);
   });
+
+  it("passes token to stop when markdown remains buffered", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    const chatStream = vi.fn().mockReturnValue({ append, stop });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    async function* shortStream() {
+      yield "hello";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", shortStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: "xoxb-test-token",
+      })
+    );
+  });
+
+  it("passes token on every stream append", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+
+    async function* chunkStream() {
+      yield {
+        details: "first",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task one",
+        type: "task_update" as const,
+      };
+      yield {
+        details: "second",
+        id: "task-2",
+        status: "in_progress" as const,
+        title: "Task two",
+        type: "task_update" as const,
+      };
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", chunkStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(append).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(append).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+  });
 });
 
 describe("scheduleMessage with empty threadTs", () => {
