@@ -314,7 +314,7 @@
     "description": "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
     "packageName": "@velt-js/chat-sdk-adapter",
     "author": "Velt",
-    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/ceddc1201482b1e74ab6a9f65dc3be2a7280aff9/packages/chat-sdk-adapter",
+    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/88abb446a96bba520b63ae8becf253cfb9da9079/packages/chat-sdk-adapter",
     "vendorOfficial": true
   }
 ]
