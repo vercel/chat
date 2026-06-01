@@ -1,10 +1,15 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
+import {
+  DOCS_CONTENT_DIR,
+  findDocsMdxFiles,
+  REPO_ROOT,
+} from "./documentation-test-utils";
 
 const DOCS_DIR = join(DOCS_CONTENT_DIR, "docs");
 const ADAPTERS_DIR = join(DOCS_CONTENT_DIR, "adapters");
+const PROXY_PATH = join(REPO_ROOT, "apps/docs/proxy.ts");
 
 // The markdown route handler (`/adapters.mdx/[[...slug]]`), the proxy `.md`
 // rewrite, the per-page `sr-only` markdown links + `text/markdown` alternates,
@@ -89,4 +94,22 @@ describe("Adapter markdown URL scheme", () => {
       }
     });
   }
+});
+
+describe("Adapter Accept-header markdown negotiation", () => {
+  const proxy = readFileSync(PROXY_PATH, "utf-8");
+
+  // `rewritePath().rewrite` returns `string | false`. With `??`, a `false`
+  // result from the docs rewriter does NOT fall through to the adapters
+  // rewriter, so `Accept: text/markdown` on an adapter page (e.g.
+  // /adapters/official/slack) would keep serving HTML. It must use `||`.
+  it("falls through to the adapters rewriter with `||`", () => {
+    expect(proxy).toContain(
+      "rewriteLLM(pathname) || rewriteAdaptersLLM(pathname)"
+    );
+  });
+
+  it("does not regress to `??` for the rewriter fallback", () => {
+    expect(proxy).not.toContain("rewriteLLM(pathname) ?? rewriteAdaptersLLM");
+  });
 });

@@ -84,7 +84,7 @@ const proxy = (request: NextRequest, context: NextFetchEvent) => {
 
   // Handle Accept header content negotiation and track the request
   if (isMarkdownPreferred(request)) {
-    const result = rewriteLLM(pathname) ?? rewriteAdaptersLLM(pathname);
+    const result = rewriteLLM(pathname) || rewriteAdaptersLLM(pathname);
     if (result) {
       context.waitUntil(
         trackMdRequest({
