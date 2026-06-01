@@ -3918,7 +3918,10 @@ describe("postMessage", () => {
     mockClientMethod(
       adapter,
       "files.uploadV2",
-      vi.fn().mockResolvedValue({ ok: true })
+      vi.fn().mockResolvedValue({
+        files: [{ files: [{ id: "F123" }] }],
+        ok: true,
+      })
     );
 
     const chatPostMessage = vi.fn();
@@ -3930,7 +3933,48 @@ describe("postMessage", () => {
     } as AdapterPostableMessage);
 
     expect(result.id).toMatch(FILE_ID_PATTERN);
+    expect(result.raw).toEqual({
+      files: [{ data: Buffer.from("hello"), filename: "test.txt" }],
+      uploadedFileIds: ["F123"],
+    });
     expect(chatPostMessage).not.toHaveBeenCalled();
+  });
+
+  it("adds uploaded file ids to text posts with files", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "files.uploadV2",
+      vi.fn().mockResolvedValue({
+        files: [{ files: [{ id: "F123" }, { id: "F456" }] }],
+        ok: true,
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    const result = await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown: "uploaded files",
+      files: [
+        { data: Buffer.from("one"), filename: "one.txt" },
+        { data: Buffer.from("two"), filename: "two.txt" },
+      ],
+    } as AdapterPostableMessage);
+
+    expect(result.id).toBe("1234567890.999999");
+    expect(result.raw).toEqual({
+      ok: true,
+      ts: "1234567890.999999",
+      uploadedFileIds: ["F123", "F456"],
+    });
   });
 });
 

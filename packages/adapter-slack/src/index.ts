@@ -3123,11 +3123,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const threadTs = rawThreadTs || undefined;
 
     try {
+      let uploadedFileIds: string[] | undefined;
+
       // Check for files to upload
       const files = extractFiles(message);
       if (files.length > 0) {
         // Upload files first (they're shared to the channel automatically)
-        await this.uploadFiles(files, channel, threadTs);
+        uploadedFileIds = await this.uploadFiles(files, channel, threadTs);
 
         // If message only has files (no text/card), return early
         const hasText =
@@ -3144,7 +3146,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return {
             id: `file-${Date.now()}`,
             threadId,
-            raw: { files },
+            raw: { files, uploadedFileIds },
           };
         }
       }
@@ -3182,7 +3184,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return {
           id: result.ts as string,
           threadId,
-          raw: result,
+          raw:
+            uploadedFileIds === undefined
+              ? result
+              : { ...result, uploadedFileIds },
         };
       }
 
@@ -3212,7 +3217,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return {
         id: result.ts as string,
         threadId,
-        raw: result,
+        raw:
+          uploadedFileIds === undefined
+            ? result
+            : { ...result, uploadedFileIds },
       };
     } catch (error) {
       this.handleSlackError(error);
