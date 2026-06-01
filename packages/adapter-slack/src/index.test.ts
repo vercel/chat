@@ -7583,7 +7583,7 @@ describe("stream with empty threadTs", () => {
     ).rejects.toThrow(ValidationError);
   });
 
-  it("passes token to stop when markdown remains buffered", async () => {
+  it("passes token on stream stop", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
