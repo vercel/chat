@@ -1,5 +1,11 @@
 # chat
 
+## 4.30.0
+
+### Minor Changes
+
+- 5461ea9: Add native Telegram private chat draft streaming with fallback streaming elsewhere.
+
 ## 4.29.0
 
 ### Minor Changes
