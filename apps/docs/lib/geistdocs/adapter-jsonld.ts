@@ -56,7 +56,7 @@ export const getAdapterJsonLd = ({
     ...(author ? { author } : {}),
     ...(adapter?.readme ? { codeRepository: adapter.readme } : {}),
     ...(group === "official"
-      ? { license: "https://opensource.org/licenses/Apache-2.0" }
+      ? { license: "https://opensource.org/licenses/MIT" }
       : {}),
   };
 
