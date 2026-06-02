@@ -41,7 +41,7 @@
     "chat": "workspace:*",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "repository": {
     "type": "git",

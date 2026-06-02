@@ -16,7 +16,7 @@
     "@hono/node-server": "^2.0.2",
     "@types/node": "^25.3.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@chat-adapter/discord": "workspace:*",
