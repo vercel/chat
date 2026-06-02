@@ -98,6 +98,7 @@ export const VALID_DOC_PACKAGES = [
   "chat-adapter-imessage",
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
+  "@veltdev/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
   "@agentphone/chat-sdk-adapter",
   "chat-adapter-baileys",

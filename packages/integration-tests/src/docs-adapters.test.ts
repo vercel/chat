@@ -118,6 +118,7 @@ describe("Vendor-Official adapter MDX", () => {
         "liveblocks",
         "matrix",
         "resend",
+        "velt",
         "zernio",
       ].sort()
     );
