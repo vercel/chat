@@ -34,10 +34,16 @@ export const getAdapterJsonLd = ({
 }: AdapterJsonLdInput) => {
   const pageUrl = `${BASE_URL}/adapters/${group}/${slug}`;
   const authorName = adapter ? getAuthor(adapter) : undefined;
-  const author =
-    group === "official" || !authorName
-      ? VERCEL_AUTHOR
-      : { "@type": "Organization", name: authorName };
+
+  // Only official adapters are authored by Vercel. Community/vendor-official
+  // adapters use their declared author, and omit the field entirely when none
+  // is declared — never fall back to Vercel.
+  let author: Record<string, string> | undefined;
+  if (group === "official") {
+    author = VERCEL_AUTHOR;
+  } else if (authorName) {
+    author = { "@type": "Organization", name: authorName };
+  }
 
   const softwareSourceCode = {
     "@context": "https://schema.org",
@@ -47,7 +53,7 @@ export const getAdapterJsonLd = ({
     url: pageUrl,
     programmingLanguage: "TypeScript",
     runtimePlatform: "Node.js",
-    author,
+    ...(author ? { author } : {}),
     ...(adapter?.readme ? { codeRepository: adapter.readme } : {}),
     ...(group === "official"
       ? { license: "https://opensource.org/licenses/Apache-2.0" }
