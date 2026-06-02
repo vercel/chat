@@ -95,7 +95,7 @@ const jsonLd = {
   codeRepository: "https://github.com/vercel/chat",
   programmingLanguage: "TypeScript",
   runtimePlatform: "Node.js",
-  license: "https://opensource.org/licenses/Apache-2.0",
+  license: "https://opensource.org/licenses/MIT",
   author: {
     "@type": "Organization",
     name: "Vercel",
