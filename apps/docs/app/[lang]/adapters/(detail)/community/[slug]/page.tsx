@@ -8,6 +8,7 @@ import { FeatureSupport } from "@/components/geistdocs/feature-support";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { Upsell } from "@/components/geistdocs/upsell";
 import type { AdapterFeatureValue } from "@/lib/adapter-features";
+import { getAdapterJsonLd } from "@/lib/geistdocs/adapter-jsonld";
 import {
   type Adapter,
   getAdapter,
@@ -99,6 +100,14 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
   const data = page.data as unknown as AdapterFrontmatter;
   const adapter = getAdapter(slug);
   const markdownPath = `/adapters/community/${slug}.md`;
+  const jsonLd = getAdapterJsonLd({
+    adapter,
+    group: "community",
+    packageName: data.packageName,
+    slug,
+    tagline: data.tagline,
+    title: data.title,
+  });
   const useMdxBody = data.mdxBody === true;
   let readme: string | undefined;
   if (!useMdxBody && adapter) {
@@ -158,6 +167,11 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       toc={page.data.toc}
     >
       <DocsBody>
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          type="application/ld+json"
+        />
         {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
         <a
           aria-hidden="true"

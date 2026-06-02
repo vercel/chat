@@ -7,6 +7,8 @@ import { FeatureSupport } from "@/components/geistdocs/feature-support";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { Upsell } from "@/components/geistdocs/upsell";
 import type { AdapterFeatureValue } from "@/lib/adapter-features";
+import { getAdapterJsonLd } from "@/lib/geistdocs/adapter-jsonld";
+import { getAdapter } from "@/lib/geistdocs/adapter-readme";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 
 interface AdapterFrontmatter {
@@ -46,6 +48,14 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
   const data = page.data as unknown as AdapterFrontmatter;
   const MDX = page.data.body;
   const markdownPath = `/adapters/official/${slug}.md`;
+  const jsonLd = getAdapterJsonLd({
+    adapter: getAdapter(slug),
+    group: "official",
+    packageName: data.packageName,
+    slug,
+    tagline: data.tagline,
+    title: data.title,
+  });
   const BoundFeatureSupport = renderBoundFeatureSupport(
     data.features,
     data.type
@@ -65,6 +75,11 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       toc={page.data.toc}
     >
       <DocsBody>
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          type="application/ld+json"
+        />
         {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
         <a
           aria-hidden="true"
