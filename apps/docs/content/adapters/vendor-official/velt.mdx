@@ -1,10 +1,10 @@
 ---
 title: Velt
-description: Chat SDK adapter backed by Velt Comments. Build bots that read and reply in anchored comment threads across documents, rich-text editors, canvases, PDFs, and video — with per-comment document context and a streaming AI reply flow.
+description: Chat SDK adapter backed by Velt Comments. Build bots that read and reply in anchored comment threads across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and a streaming AI reply flow.
 packageName: "@veltdev/chat-sdk-adapter"
 slug: velt
 type: platform
-tagline: Bots that read and reply in Velt's anchored comment threads — across editors, canvases, PDFs, and video — mapping Velt organizations, documents, comment annotations, and comments to the Chat SDK Channel/Thread/Message model.
+tagline: Bots that read and reply in Velt's anchored comment threads across editors, canvases, PDFs, and video, mapping Velt organizations, documents, comment annotations, and comments to the Chat SDK Channel/Thread/Message model.
 community: true
 vendorOfficial: true
 author: Velt
@@ -83,7 +83,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-The adapter maps Velt documents to Chat SDK channels, comment annotations to Chat SDK threads, and individual comments to messages — so the rest of the Chat SDK API (subscriptions, handlers, posts, reactions) works exactly the same as with any other adapter.
+The adapter maps Velt documents to Chat SDK channels, comment annotations to Chat SDK threads, and individual comments to messages, so the rest of the Chat SDK API (subscriptions, handlers, posts, reactions) works exactly the same as with any other adapter.
 
 ## Configuration
 
@@ -224,13 +224,13 @@ Velt Comments are stored as `commentHtml`, so the adapter converts between Velt 
 
 Reading reactions (`onReaction`) works on all Velt plans.
 
-**Writing** reactions (`addReaction` / `removeReaction`) is not supported on the managed Velt backend — there is no managed REST endpoint to add a reaction as a user, so these methods throw a clear `PermissionError`. To enable reaction writes, provide `selfHostingConfig.reactionsService` (a self-hosted reactions service backed by your own database).
+**Writing** reactions (`addReaction` / `removeReaction`) is not supported on the managed Velt backend, because there is no managed REST endpoint to add a reaction as a user, so these methods throw a clear `PermissionError`. To enable reaction writes, provide `selfHostingConfig.reactionsService` (a self-hosted reactions service backed by your own database).
 
 ## Examples
 
-- **[Live demo](https://sample-apps-tiptap-comments-demo.vercel.app)** — open the Velt tiptap comments demo, leave a comment, and @-mention **Velt Bot** to see a streaming AI reply (runs the AI bot below).
-- [Velt Chat SDK Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-bot) — Next.js bot that replies to @-mentions in Velt comment threads.
-- [Velt Chat SDK AI Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-ai-bot) — same stack with a streaming Claude reply flow.
+- **[Live demo](https://sample-apps-tiptap-comments-demo.vercel.app):** open the Velt tiptap comments demo, leave a comment, and @-mention **Velt Bot** to see a streaming AI reply (runs the AI bot below).
+- [Velt Chat SDK Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-bot): a Next.js bot that replies to @-mentions in Velt comment threads.
+- [Velt Chat SDK AI Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-ai-bot): the same stack with a streaming Claude reply flow.
 - Full walkthrough: [Get started with a Chat SDK bot using Velt](https://velt.dev/docs/ai/chat-sdk-adapter).
 
 ## Feature support
