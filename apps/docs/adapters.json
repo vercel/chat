@@ -316,5 +316,16 @@
     "author": "Velt",
     "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/a30c5e0fdfb1ac07c4efca1a0f3834d313e6eac3/packages/chat-sdk-adapter",
     "vendorOfficial": true
+  },
+  {
+    "name": "Kapso WhatsApp",
+    "slug": "kapso",
+    "type": "platform",
+    "community": true,
+    "description": "Kapso-first WhatsApp adapter for Chat SDK with signed Kapso webhooks, WhatsApp replies, buttons, media, reactions, and conversation history.",
+    "packageName": "@kapso/chat-adapter",
+    "author": "Kapso",
+    "readme": "https://github.com/gokapso/chat-sdk-adapter/tree/7c7e9b349323b8cfa060cc64b15d97bcb9f906b3",
+    "vendorOfficial": true
   }
 ]

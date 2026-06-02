@@ -101,6 +101,7 @@ export const VALID_DOC_PACKAGES = [
   "@veltdev/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
   "@agentphone/chat-sdk-adapter",
+  "@kapso/chat-adapter",
   "chat-adapter-baileys",
   "baileys",
   "chat-adapter-blooio",
