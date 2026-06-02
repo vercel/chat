@@ -311,10 +311,10 @@
     "slug": "velt",
     "type": "platform",
     "community": true,
-    "description": "Velt Comments adapter for bots that read and reply in anchored comment threads across documents, rich-text editors, canvases, PDFs, and video — with per-comment document context and an AI streaming-reply sample app.",
+    "description": "Velt Comments adapter for bots that read and reply in anchored comment threads across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
     "packageName": "@veltdev/chat-sdk-adapter",
     "author": "Velt",
-    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/8b67a626c7ddf1ca0c50cb690924bb90008d5845/packages/chat-sdk-adapter",
+    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/7208e2287ccce5c20b5be8a9c4ebc13a49d2af41/packages/chat-sdk-adapter",
     "vendorOfficial": true
   }
 ]
