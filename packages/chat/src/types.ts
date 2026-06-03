@@ -1427,7 +1427,7 @@ export interface Author {
   fullName: string;
   /** Whether the author is a bot */
   isBot: boolean | "unknown";
-  /** Whether the author is this bot */
+  /** Whether this message was sent by this bot/runtime */
   isMe: boolean;
   /** Unique user ID */
   userId: string;
