@@ -13,7 +13,9 @@ features:
   postMessage: yes
   editMessage: yes
   deleteMessage: yes
-  fileUploads: no
+  fileUploads:
+    status: partial
+    label: By reference
   streaming: no
   scheduledMessages: no
   cardFormat:
@@ -34,10 +36,10 @@ features:
     label: Users
   addReactions:
     status: partial
-    label: Self-hosted only
+    label: "Bot writes: self-hosted"
   removeReactions:
     status: partial
-    label: Self-hosted only
+    label: "Bot writes: self-hosted"
   typingIndicator: no
   directMessages: no
   ephemeralMessages: no
@@ -46,12 +48,12 @@ features:
     label: resolveUsers
   customApiEndpoint: no
   fetchMessages: yes
-  fetchSingleMessage: no
+  fetchSingleMessage: yes
   fetchThreadInfo: yes
-  fetchChannelMessages: no
-  listThreads: no
-  fetchChannelInfo: no
-  postChannelMessage: no
+  fetchChannelMessages: yes
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: yes
 ---
 
 ## Install
