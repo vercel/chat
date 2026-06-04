@@ -34,7 +34,7 @@ features:
   fields: yes
   imagesInCards: no
   modals: no
-  slashCommands: no
+  slashCommands: yes
   mentions: yes
   addReactions: yes
   removeReactions: yes
@@ -183,6 +183,10 @@ const telegram = createTelegramAdapter({ mode: "auto" });
 void bot.initialize();
 console.log(telegram.runtimeMode); // "webhook" | "polling"
 ```
+
+### Slash commands
+
+Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `/status@mybot`. Commands addressed to another bot are ignored.
 
 ### Markdown formatting
 

@@ -8,11 +8,12 @@ related:
   - /docs/modals
   - /adapters/official/slack
   - /adapters/official/discord
+  - /adapters/official/telegram
 ---
 
 Slash commands let users invoke your bot with `/command` syntax. Register handlers with `onSlashCommand` to respond.
 
-Slash commands are supported on [Slack](/adapters/official/slack) and [Discord](/adapters/official/discord).
+Slash commands are supported on [Slack](/adapters/official/slack), [Discord](/adapters/official/discord), and [Telegram](/adapters/official/telegram).
 
 ## Handle a specific command
 
@@ -111,6 +112,10 @@ bot.onModalSubmit("feedback_form", async (event) => {
   }
 });
 ```
+
+## Telegram
+
+Telegram supports bot commands such as `/status` and `/status@mybot`. Register handlers with `onSlashCommand`; commands addressed to another bot are ignored.
 
 ## Discord
 
