@@ -170,6 +170,50 @@
     "readme": "https://github.com/DivyanshGolyan/chat-state-mysql/tree/26502f2c43e2aee16b0b58f2066a81e01b2c289b"
   },
   {
+    "name": "Liveblocks",
+    "slug": "liveblocks",
+    "type": "platform",
+    "community": true,
+    "description": "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
+    "packageName": "@liveblocks/chat-sdk-adapter",
+    "author": "Liveblocks",
+    "readme": "https://github.com/liveblocks/liveblocks/tree/a939486c73819ea78a96443d54cb5557881d80b6/packages/liveblocks-chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Resend",
+    "slug": "resend",
+    "type": "platform",
+    "community": true,
+    "description": "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
+    "packageName": "@resend/chat-sdk-adapter",
+    "author": "Resend",
+    "readme": "https://github.com/resend/resend-chat-sdk/tree/6b66fc12eabdf2529422fc0c0cf946392f1b5a76",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Sendblue",
+    "slug": "sendblue",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage, SMS, and RCS adapter for Chat SDK, built and maintained by Sendblue.",
+    "packageName": "chat-adapter-sendblue",
+    "author": "Sendblue",
+    "readme": "https://github.com/sendblue-api/chat-adapter-sendblue",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Zernio",
+    "slug": "zernio",
+    "type": "platform",
+    "community": true,
+    "description": "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
+    "packageName": "@zernio/chat-sdk-adapter",
+    "author": "Zernio",
+    "readme": "https://github.com/zernio-dev/chat-sdk-adapter/tree/0a51a1d224536ae5d117a3afb6ab992fab167214",
+    "vendorOfficial": true
+  },
+  {
     "name": "Beeper Matrix",
     "slug": "matrix",
     "type": "platform",
@@ -202,28 +246,6 @@
     "readme": "https://github.com/SebastianBodza/chat-adapter-webex/tree/982d76b24217dfe2e248ec13a17d16c2df32e09e"
   },
   {
-    "name": "Resend",
-    "slug": "resend",
-    "type": "platform",
-    "community": true,
-    "description": "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
-    "packageName": "@resend/chat-sdk-adapter",
-    "author": "Resend",
-    "readme": "https://github.com/resend/resend-chat-sdk/tree/6b66fc12eabdf2529422fc0c0cf946392f1b5a76",
-    "vendorOfficial": true
-  },
-  {
-    "name": "Zernio",
-    "slug": "zernio",
-    "type": "platform",
-    "community": true,
-    "description": "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
-    "packageName": "@zernio/chat-sdk-adapter",
-    "author": "Zernio",
-    "readme": "https://github.com/zernio-dev/chat-sdk-adapter/tree/0a51a1d224536ae5d117a3afb6ab992fab167214",
-    "vendorOfficial": true
-  },
-  {
     "name": "Baileys WhatsApp",
     "slug": "baileys",
     "type": "platform",
@@ -232,27 +254,6 @@
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
     "readme": "https://github.com/rama-adi/chat-adapter-baileys/tree/b5454e7c04c75d91b06213f16a4af82ddb4a120f"
-  },
-  {
-    "name": "Liveblocks",
-    "slug": "liveblocks",
-    "type": "platform",
-    "community": true,
-    "description": "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
-    "packageName": "@liveblocks/chat-sdk-adapter",
-    "author": "Liveblocks",
-    "readme": "https://github.com/liveblocks/liveblocks/tree/a939486c73819ea78a96443d54cb5557881d80b6/packages/liveblocks-chat-sdk-adapter",
-    "vendorOfficial": true
-  },
-  {
-    "name": "Sendblue iMessage",
-    "slug": "sendblue",
-    "type": "platform",
-    "community": true,
-    "description": "iMessage adapter for Chat SDK using Sendblue for building your own iMessage bots.",
-    "packageName": "chat-adapter-sendblue",
-    "author": "midday-ai",
-    "readme": "https://github.com/midday-ai/chat-adapter-sendblue/tree/5125a9d018f5d05dca063cd4d7e554fdb92ecce8"
   },
   {
     "name": "Blooio iMessage",

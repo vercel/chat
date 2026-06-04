@@ -60,6 +60,11 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/adapters/community/sendblue",
+        destination: "/adapters/vendor-official/sendblue",
+        permanent: true,
+      },
+      {
         source: "/docs/adapters/:slug+",
         destination: "/adapters",
         permanent: true,
