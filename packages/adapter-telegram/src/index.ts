@@ -559,7 +559,11 @@ export class TelegramAdapter
       update.channel_post ??
       update.edited_channel_post;
 
-    if (messageUpdate) {
+    const handledSlashCommand =
+      update.message !== undefined &&
+      this.handleSlashCommandUpdate(update.message, options);
+
+    if (messageUpdate && !handledSlashCommand) {
       this.handleIncomingMessageUpdate(messageUpdate, options);
     }
 
@@ -589,6 +593,87 @@ export class TelegramAdapter
     this.cacheMessage(parsedMessage);
 
     this.chat.processMessage(this, threadId, parsedMessage, options);
+  }
+
+  protected handleSlashCommandUpdate(
+    telegramMessage: TelegramMessage,
+    options?: WebhookOptions
+  ): boolean {
+    if (!this.chat) {
+      return false;
+    }
+
+    const slashCommand = this.parseSlashCommand(telegramMessage);
+    if (!slashCommand) {
+      return false;
+    }
+
+    const threadId = this.encodeThreadId({
+      chatId: String(telegramMessage.chat.id),
+      messageThreadId: telegramMessage.message_thread_id,
+    });
+
+    const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
+    this.cacheMessage(parsedMessage);
+
+    this.chat.processSlashCommand(
+      {
+        adapter: this,
+        channelId: threadId,
+        command: slashCommand.command,
+        text: slashCommand.text,
+        user: parsedMessage.author,
+        raw: telegramMessage,
+      },
+      options
+    );
+
+    return true;
+  }
+
+  protected parseSlashCommand(
+    telegramMessage: TelegramMessage
+  ): { command: string; text: string } | null {
+    if (!telegramMessage.text) {
+      return null;
+    }
+
+    const commandEntity = (telegramMessage.entities ?? []).find(
+      (entity) => entity.type === "bot_command" && entity.offset === 0
+    );
+
+    if (!commandEntity) {
+      return null;
+    }
+
+    const rawCommand = this.entityText(telegramMessage.text, commandEntity);
+    if (!rawCommand.startsWith("/")) {
+      return null;
+    }
+
+    const commandWithoutSlash = rawCommand.slice(1);
+    const atIndex = commandWithoutSlash.indexOf("@");
+    const commandName =
+      atIndex === -1
+        ? commandWithoutSlash
+        : commandWithoutSlash.slice(0, atIndex);
+    const targetBot =
+      atIndex === -1 ? undefined : commandWithoutSlash.slice(atIndex + 1);
+
+    if (!commandName) {
+      return null;
+    }
+
+    if (targetBot && targetBot.toLowerCase() !== this.userName.toLowerCase()) {
+      return null;
+    }
+
+    return {
+      command: `/${commandName}`,
+      text: telegramMessage.text
+        .slice(commandEntity.offset + commandEntity.length)
+        .trimStart(),
+    };
   }
 
   protected handleCallbackQuery(
