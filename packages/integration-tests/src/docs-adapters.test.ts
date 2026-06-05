@@ -114,10 +114,12 @@ describe("Vendor-Official adapter MDX", () => {
       [
         "agentphone",
         "imessage",
+        "kapso",
         "lark",
         "liveblocks",
         "matrix",
         "resend",
+        "velt",
         "zernio",
       ].sort()
     );

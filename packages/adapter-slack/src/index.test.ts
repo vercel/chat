@@ -650,10 +650,16 @@ describe("handleWebhook - event_callback", () => {
         messages: [{ ts: replyTs, thread_ts: parentTs }],
       })
     );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "user", profile: { display_name: "User" } },
+      })
+    );
 
-    const mockChat = {
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance;
+    const mockChat = createMockChatInstance(createMockState());
     (adapter as unknown as { chat: ChatInstance }).chat = mockChat;
 
     const body = JSON.stringify({
@@ -679,6 +685,62 @@ describe("handleWebhook - event_callback", () => {
       expect.objectContaining({
         threadId: `slack:C456:${parentTs}`,
         messageId: replyTs,
+      }),
+      undefined
+    );
+  });
+
+  it("resolves reaction user display name", async () => {
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [{ ts: "1234567890.123456" }],
+      })
+    );
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      ok: true,
+      user: {
+        id: "U123",
+        name: "alice",
+        real_name: "Alice Example",
+        profile: { display_name: "Alice", real_name: "Alice Example" },
+      },
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    const mockChat = createMockChatInstance(createMockState());
+    (adapter as unknown as { chat: ChatInstance }).chat = mockChat;
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "reaction_added",
+        user: "U123",
+        reaction: "thumbsup",
+        item: {
+          type: "message",
+          channel: "C456",
+          ts: "1234567890.123456",
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+
+    await adapter.handleWebhook(request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(usersInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "U123" })
+    );
+    expect(mockChat.processReaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({
+          userId: "U123",
+          userName: "Alice",
+          fullName: "Alice Example",
+        }),
       }),
       undefined
     );
@@ -3918,7 +3980,10 @@ describe("postMessage", () => {
     mockClientMethod(
       adapter,
       "files.uploadV2",
-      vi.fn().mockResolvedValue({ ok: true })
+      vi.fn().mockResolvedValue({
+        files: [{ files: [{ id: "F123" }] }],
+        ok: true,
+      })
     );
 
     const chatPostMessage = vi.fn();
@@ -3930,7 +3995,48 @@ describe("postMessage", () => {
     } as AdapterPostableMessage);
 
     expect(result.id).toMatch(FILE_ID_PATTERN);
+    expect(result.raw).toEqual({
+      files: [{ data: Buffer.from("hello"), filename: "test.txt" }],
+      uploadedFileIds: ["F123"],
+    });
     expect(chatPostMessage).not.toHaveBeenCalled();
+  });
+
+  it("adds uploaded file ids to text posts with files", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+
+    mockClientMethod(
+      adapter,
+      "files.uploadV2",
+      vi.fn().mockResolvedValue({
+        files: [{ files: [{ id: "F123" }, { id: "F456" }] }],
+        ok: true,
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "chat.postMessage",
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.999999" })
+    );
+
+    const result = await adapter.postMessage("slack:C123:1234567890.000000", {
+      markdown: "uploaded files",
+      files: [
+        { data: Buffer.from("one"), filename: "one.txt" },
+        { data: Buffer.from("two"), filename: "two.txt" },
+      ],
+    } as AdapterPostableMessage);
+
+    expect(result.id).toBe("1234567890.999999");
+    expect(result.raw).toEqual({
+      ok: true,
+      ts: "1234567890.999999",
+      uploadedFileIds: ["F123", "F456"],
+    });
   });
 });
 
@@ -7581,6 +7687,86 @@ describe("stream with empty threadTs", () => {
         recipientTeamId: "T123",
       })
     ).rejects.toThrow(ValidationError);
+  });
+
+  it("passes token on stream stop", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    const chatStream = vi.fn().mockReturnValue({ append, stop });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    async function* shortStream() {
+      yield "hello";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", shortStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: "xoxb-test-token",
+      })
+    );
+  });
+
+  it("passes token on every stream append", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+
+    async function* chunkStream() {
+      yield {
+        details: "first",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task one",
+        type: "task_update" as const,
+      };
+      yield {
+        details: "second",
+        id: "task-2",
+        status: "in_progress" as const,
+        title: "Task two",
+        type: "task_update" as const,
+      };
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", chunkStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(append).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(append).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
   });
 });
 

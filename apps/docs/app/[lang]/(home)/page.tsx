@@ -28,8 +28,11 @@ const heroDescription =
   "A unified TypeScript SDK for building chat bots with type-safe handlers, JSX cards, and multi-platform support—powered by Vercel";
 
 export const metadata: Metadata = {
-  title: metadataTitle,
+  title: { absolute: metadataTitle },
   description: heroDescription,
+  openGraph: {
+    title: { absolute: metadataTitle },
+  },
   twitter: {
     card: "summary_large_image",
   },
@@ -92,7 +95,7 @@ const jsonLd = {
   codeRepository: "https://github.com/vercel/chat",
   programmingLanguage: "TypeScript",
   runtimePlatform: "Node.js",
-  license: "https://opensource.org/licenses/Apache-2.0",
+  license: "https://opensource.org/licenses/MIT",
   author: {
     "@type": "Organization",
     name: "Vercel",

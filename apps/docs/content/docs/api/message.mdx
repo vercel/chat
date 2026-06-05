@@ -90,7 +90,11 @@ import { Message } from "chat";
 
 ### How `isMe` works
 
-Each adapter detects whether a message came from the bot itself. The detection logic varies by platform:
+Each adapter detects whether a message came from the bot itself. Chat SDK filters `isMe: true` messages before handlers run so bot replies do not loop back into `onNewMessage`, `onNewMention`, or subscribed-thread handlers.
+
+`isMe` means "sent by this bot/runtime", not "sent by the authenticated user or account". For adapters backed by a user-owned account, do not blindly map platform fields like `fromMe` to `isMe`. Only set `isMe: true` for messages the adapter sent itself. If the platform echoes sent messages back through the webhook, track sent message IDs and mark only those echoes as `isMe: true`.
+
+The detection logic varies by platform:
 
 | Platform | Detection method |
 |----------|-----------------|

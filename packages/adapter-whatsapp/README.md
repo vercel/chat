@@ -67,7 +67,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `appSecret` | No* | App secret for webhook verification. Auto-detected from `WHATSAPP_APP_SECRET` |
 | `phoneNumberId` | No* | Bot's phone number ID. Auto-detected from `WHATSAPP_PHONE_NUMBER_ID` |
 | `verifyToken` | No* | Webhook verification secret. Auto-detected from `WHATSAPP_VERIFY_TOKEN` |
-| `apiVersion` | No | Graph API version (defaults to `v21.0`) |
+| `apiVersion` | No | Graph API version (defaults to `v25.0`) |
 | `userName` | No | Bot username for self-message detection. Auto-detected from `WHATSAPP_BOT_USERNAME` (defaults to `whatsapp-bot`) |
 | `apiUrl` | No | Override the Meta Graph API base URL. Auto-detected from `WHATSAPP_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | Reactions | Yes (add and remove) |
-| Typing indicator | No (not supported by Cloud API) |
+| Typing indicator | Yes (requires a recent inbound message, marks it as read, and displays for up to 25 seconds) |
 | DMs | Yes |
 | Open DM | Yes |
 

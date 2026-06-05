@@ -1,5 +1,12 @@
 # @chat-adapter/shared
 
+## 4.30.0
+
+### Patch Changes
+
+- Updated dependencies [5461ea9]
+  - chat@4.30.0
+
 ## 4.29.0
 
 ### Minor Changes
