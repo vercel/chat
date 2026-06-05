@@ -17,6 +17,7 @@ import { OpenInChat } from "@/components/geistdocs/open-in-chat";
 import { ScrollTop } from "@/components/geistdocs/scroll-top";
 import { Separator } from "@/components/ui/separator";
 import { getLLMText, getPageImage, source } from "@/lib/geistdocs/source";
+import { getDocsJsonLd } from "@/lib/geistdocs/docs-jsonld";
 
 const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
   const { slug, lang } = await params;
@@ -30,6 +31,7 @@ const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
   const MDX = page.data.body;
   const slugPath = slug?.join("/");
   const markdownPath = slugPath ? `/docs/${slugPath}.md` : "/docs.md";
+  const jsonLd = getDocsJsonLd(page);
 
   return (
     <DocsPage
@@ -52,6 +54,13 @@ const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
       toc={page.data.toc}
     >
       <MobileDocsBar toc={page.data.toc} />
+      {jsonLd ? (
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          type="application/ld+json"
+        />
+      ) : null}
       <a aria-hidden="true" className="sr-only" href={markdownPath} tabIndex={-1}>
         AI/LLM: This documentation page is available in plain markdown format at
         {markdownPath}

@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/discord",
   "version": "4.30.0",
-  "description": "Discord adapter for chat",
+  "description": "Discord adapter for Chat SDK — HTTP interactions, Gateway events, slash commands, and embeds",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -44,7 +44,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-discord"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/discord",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

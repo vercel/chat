@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/web",
   "version": "4.30.0",
-  "description": "Web adapter for chat — browser chat UI via the AI SDK useChat protocol",
+  "description": "Web adapter for Chat SDK — browser chat UI via the AI SDK useChat stream protocol",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -92,7 +92,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-web"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/web",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

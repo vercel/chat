@@ -1,9 +1,13 @@
 # @chat-adapter/twilio
 
+> npm package: [`@chat-adapter/twilio`](https://www.npmjs.com/package/@chat-adapter/twilio)
+
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
 
 Twilio adapter for [Chat SDK](https://chat-sdk.dev). Build SMS and MMS bots with Twilio Messaging webhooks and the Messages API.
+
+Documentation: [chat-sdk.dev/adapters/official/twilio](https://chat-sdk.dev/adapters/official/twilio) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
@@ -70,3 +74,27 @@ Runtime-light `api`, `format`, `voice`, and `webhook` subpaths are available for
 Voice calls are exposed as low-level helpers, not routed through the SMS/MMS adapter. Use `@chat-adapter/twilio/voice` with `@chat-adapter/twilio/webhook` when your app owns the voice route and wants reusable TwiML or call-update helpers.
 
 Custom voice routes should verify the Twilio signature and apply your own caller allow-list before returning TwiML.
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
+
+## License
+
+MIT

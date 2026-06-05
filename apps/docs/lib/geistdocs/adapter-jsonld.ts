@@ -2,6 +2,13 @@ import { type Adapter, getAuthor } from "./adapter-readme";
 
 const BASE_URL = "https://chat-sdk.dev";
 
+export const ADAPTERS_LISTING_DESCRIPTION =
+  "Browse official Chat SDK platform and state adapters, plus community and vendor-built integrations. Connect your bot to Slack, Teams, Discord, and more.";
+
+/** Matches the official-only `ItemList` in adapters listing JSON-LD. */
+export const ADAPTERS_LISTING_JSON_LD_DESCRIPTION =
+  "Official Chat SDK platform and state adapters for Slack, Teams, Google Chat, Discord, WhatsApp, and more.";
+
 type AdapterGroup = "official" | "community" | "vendor-official";
 
 const VERCEL_AUTHOR = {
@@ -76,4 +83,57 @@ export const getAdapterJsonLd = ({
   };
 
   return [softwareSourceCode, breadcrumb];
+};
+
+interface ListingAdapter {
+  community?: boolean;
+  description: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Build JSON-LD for the adapters listing page: a `CollectionPage` with an
+ * `ItemList` of official (Vercel-maintained) adapters and state packages.
+ */
+export const getAdaptersListingJsonLd = (adapters: ListingAdapter[]) => {
+  const officialAdapters = adapters.filter((adapter) => !adapter.community);
+  const adaptersUrl = `${BASE_URL}/adapters`;
+
+  const collectionPage = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "@id": adaptersUrl,
+    name: "Adapters",
+    description: ADAPTERS_LISTING_JSON_LD_DESCRIPTION,
+    url: adaptersUrl,
+    mainEntity: {
+      "@type": "ItemList",
+      name: "Official Chat SDK platform and state adapters",
+      numberOfItems: officialAdapters.length,
+      itemListElement: officialAdapters.map((adapter, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: adapter.name,
+        description: adapter.description,
+        url: `${BASE_URL}/adapters/official/${adapter.slug}`,
+      })),
+    },
+  };
+
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Chat SDK", item: BASE_URL },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Adapters",
+        item: adaptersUrl,
+      },
+    ],
+  };
+
+  return [collectionPage, breadcrumb];
 };

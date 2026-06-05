@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/slack",
   "version": "4.30.0",
-  "description": "Slack adapter for chat",
+  "description": "Slack adapter for Chat SDK — webhooks, Block Kit cards, OAuth, slash commands, and AI streaming",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -59,7 +59,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-slack"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/slack",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

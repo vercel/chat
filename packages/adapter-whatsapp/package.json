@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/whatsapp",
   "version": "4.30.0",
-  "description": "WhatsApp adapter for chat - WhatsApp Business Cloud API",
+  "description": "WhatsApp adapter for Chat SDK — Business Cloud API webhooks, interactive messages, and templates",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -41,7 +41,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-whatsapp"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/whatsapp",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

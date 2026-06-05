@@ -1,9 +1,13 @@
 # @chat-adapter/gchat
 
+> npm package: [`@chat-adapter/gchat`](https://www.npmjs.com/package/@chat-adapter/gchat)
+
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
 
 Google Chat adapter for [Chat SDK](https://chat-sdk.dev). Configure with service account authentication and optional Pub/Sub.
+
+Documentation: [chat-sdk.dev/adapters/official/google-chat](https://chat-sdk.dev/adapters/official/google-chat) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
@@ -330,6 +334,26 @@ Fetching message history requires domain-wide delegation with the `impersonateUs
 - Verify **Interactive features** is enabled in the Google Chat app configuration
 - Check that the App URL is correctly set and accessible
 - Button clicks go to the same webhook URL as messages
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

@@ -1,11 +1,15 @@
 # @chat-adapter/github
 
+> npm package: [`@chat-adapter/github`](https://www.npmjs.com/package/@chat-adapter/github)
+
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/github)](https://www.npmjs.com/package/@chat-adapter/github)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/github)](https://www.npmjs.com/package/@chat-adapter/github)
 
 GitHub adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in PR and issue comment threads.
 
 The GitHub adapter treats issue and pull request comments as messages, and issues/PRs as threads.
+
+Documentation: [chat-sdk.dev/adapters/official/github](https://chat-sdk.dev/adapters/official/github) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
@@ -315,9 +319,29 @@ GITHUB_API_URL=https://github.example.com/api/v3
 
 ## Resources
 
-- [Ship a GitHub code review bot with Hono and Redis](https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis) — Walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+- [Ship a GitHub code review bot with Hono and Redis](https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-github&utm_content=ship-a-github-code-review-bot-with-hono-and-redis) — Walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
 
-See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources).
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-github&utm_content=resources).
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

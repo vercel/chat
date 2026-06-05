@@ -1,11 +1,15 @@
 # @chat-adapter/web
 
+> npm package: [`@chat-adapter/web`](https://www.npmjs.com/package/@chat-adapter/web)
+
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/web)](https://www.npmjs.com/package/@chat-adapter/web)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/web)](https://www.npmjs.com/package/@chat-adapter/web)
 
 Web adapter for [Chat SDK](https://chat-sdk.dev). Lets a chat-sdk bot serve a browser chat UI alongside Slack, Teams, Discord, etc. — the same `bot.onDirectMessage(...)` handler fires for every platform.
 
 The adapter speaks the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so React, Vue, and Svelte AI SDK clients work against the same server endpoint.
+
+Documentation: [chat-sdk.dev/adapters/official/web](https://chat-sdk.dev/adapters/official/web) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
@@ -362,6 +366,26 @@ Unlike the React helper, Vue and Svelte return the `Chat` instance directly. Acc
 ### `thread.messages` is empty
 
 - `persistMessageHistory` is `false` and there is no platform-side history to fall back on. Either set it to `true` (the default) or read history from the request body's `messages[]` directly inside your handler.
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

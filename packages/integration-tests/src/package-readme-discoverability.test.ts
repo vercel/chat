@@ -1,0 +1,97 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  CHAT_SDK_GUIDES_URL,
+  CHAT_SDK_HOMEPAGE,
+  findPublishedPackages,
+  getExpectedHomepage,
+  REPO_ROOT,
+} from "./documentation-test-utils";
+
+const publishedPackages = findPublishedPackages();
+const NPM_PACKAGE_CALLOUT =
+  /> npm package: \[`([^`]+)`\]\(https:\/\/www\.npmjs\.com\/package\//;
+
+const getNpmPackageCallout = (readme: string) =>
+  readme.match(NPM_PACKAGE_CALLOUT)?.[1];
+
+describe("Published package README discoverability", () => {
+  for (const pkg of publishedPackages) {
+    describe(pkg.name, () => {
+      it("has a README", () => {
+        expect(
+          pkg.readmePath,
+          `${pkg.name}: missing packages/${pkg.dirName}/README.md`
+        ).toBeTruthy();
+      });
+
+      if (!pkg.readmePath) {
+        return;
+      }
+
+      const readme = readFileSync(pkg.readmePath, "utf-8");
+
+      it("includes an npm package callout matching package.json name", () => {
+        expect(
+          getNpmPackageCallout(readme),
+          `${pkg.name}: missing npm callout`
+        ).toBe(pkg.name);
+      });
+
+      it("links to chat-sdk.dev", () => {
+        expect(readme).toContain(CHAT_SDK_HOMEPAGE);
+      });
+
+      if (pkg.name !== "@chat-adapter/tests") {
+        it("includes Documentation and Guides links near the top", () => {
+          const intro = readme.split("\n## ")[0] ?? readme;
+          expect(intro, `${pkg.name}: missing Documentation link`).toContain(
+            "Documentation:"
+          );
+          expect(
+            intro,
+            `${pkg.name}: missing chat-sdk.dev docs link`
+          ).toContain(getExpectedHomepage(pkg.dirName, pkg.name));
+          expect(intro, `${pkg.name}: missing Guides link`).toContain(
+            CHAT_SDK_GUIDES_URL
+          );
+        });
+      }
+
+      it("includes an AI Coding Agents section", () => {
+        expect(readme).toContain("## AI Coding Agents");
+      });
+
+      it("documents the Chat SDK skill install command", () => {
+        expect(readme).toContain("npx skills add vercel/chat");
+      });
+
+      it("links to llms.txt and llms-full.txt", () => {
+        expect(readme).toContain(`${CHAT_SDK_HOMEPAGE}/llms.txt`);
+        expect(readme).toContain(`${CHAT_SDK_HOMEPAGE}/llms-full.txt`);
+      });
+    });
+  }
+});
+
+describe("Root README discoverability", () => {
+  const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
+
+  it("includes an AI Coding Agents section", () => {
+    expect(readme).toContain("## AI Coding Agents");
+  });
+
+  it("documents the Chat SDK skill install command", () => {
+    expect(readme).toContain("npx skills add vercel/chat");
+  });
+
+  it("links to llms.txt and llms-full.txt", () => {
+    expect(readme).toContain(`${CHAT_SDK_HOMEPAGE}/llms.txt`);
+    expect(readme).toContain(`${CHAT_SDK_HOMEPAGE}/llms-full.txt`);
+  });
+
+  it("links to the docs site", () => {
+    expect(readme).toContain(`${CHAT_SDK_HOMEPAGE}/docs`);
+  });
+});

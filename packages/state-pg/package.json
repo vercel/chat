@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/state-pg",
   "version": "4.30.0",
-  "description": "Postgres state adapter for chat (production)",
+  "description": "PostgreSQL state adapter for Chat SDK — production subscriptions, distributed locks, cache, lists, and queues",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -35,7 +35,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/state-pg"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/postgres",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -57,9 +57,13 @@
     "state-adapter",
     "postgres",
     "postgresql",
+    "database",
     "subscriptions",
     "distributed-lock",
+    "cache",
+    "queues",
     "production",
+    "typescript",
     "vercel"
   ],
   "license": "MIT"

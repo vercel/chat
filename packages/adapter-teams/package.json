@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/teams",
   "version": "4.30.0",
-  "description": "Microsoft Teams adapter for chat",
+  "description": "Microsoft Teams adapter for Chat SDK — Bot Framework webhooks, Adaptive Cards, and Graph API",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -46,7 +46,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-teams"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/teams",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/messenger",
   "version": "4.30.0",
-  "description": "Messenger adapter for chat",
+  "description": "Facebook Messenger adapter for Chat SDK — Send API webhooks, templates, and quick replies",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -41,7 +41,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-messenger"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/messenger",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

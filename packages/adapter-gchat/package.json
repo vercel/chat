@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/gchat",
   "version": "4.30.0",
-  "description": "Google Chat adapter for chat",
+  "description": "Google Chat adapter for Chat SDK — service account auth, Card v2, dialogs, and Workspace Events",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -43,7 +43,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-gchat"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/google-chat",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

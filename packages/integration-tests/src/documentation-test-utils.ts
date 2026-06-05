@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -6,6 +12,80 @@ export const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 export const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 export const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
+export const CHAT_SDK_HOMEPAGE = "https://chat-sdk.dev";
+export const CHAT_SDK_GUIDES_URL = "https://vercel.com/kb/chat-sdk";
+
+export interface PublishedPackage {
+  dirName: string;
+  name: string;
+  packageJsonPath: string;
+  readmePath?: string;
+}
+
+export const SHARED_STATE_ADAPTER_KEYWORDS = [
+  "chat-sdk",
+  "state",
+  "state-adapter",
+  "cache",
+  "typescript",
+  "vercel",
+] as const;
+
+export const PRODUCTION_STATE_ADAPTER_KEYWORDS = ["queues"] as const;
+
+export const getExpectedHomepage = (dirName: string, name: string): string => {
+  if (name === "chat") {
+    return `${CHAT_SDK_HOMEPAGE}/docs`;
+  }
+  if (name === "@chat-adapter/tests") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/testing`;
+  }
+  if (name === "@chat-adapter/shared") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/contributing/building`;
+  }
+  if (dirName.startsWith("state-")) {
+    const slug =
+      dirName === "state-pg" ? "postgres" : dirName.slice("state-".length);
+    return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
+  }
+  if (dirName.startsWith("adapter-")) {
+    const slug =
+      dirName === "adapter-gchat"
+        ? "google-chat"
+        : dirName.slice("adapter-".length);
+    return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
+  }
+  throw new Error(`No homepage convention for package "${name}" (${dirName})`);
+};
+
+export const findPublishedPackages = (): PublishedPackage[] => {
+  const packages: PublishedPackage[] = [];
+
+  for (const dirName of readdirSync(PACKAGES_DIR)) {
+    const packageJsonPath = join(PACKAGES_DIR, dirName, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+      name: string;
+      private?: boolean;
+    };
+    if (pkg.private) {
+      continue;
+    }
+
+    const readmePath = join(PACKAGES_DIR, dirName, "README.md");
+    packages.push({
+      dirName,
+      name: pkg.name,
+      packageJsonPath,
+      readmePath: existsSync(readmePath) ? readmePath : undefined,
+    });
+  }
+
+  return packages.sort((a, b) => a.name.localeCompare(b.name));
+};
 
 export const VALID_PACKAGE_README_IMPORTS = [
   "chat",

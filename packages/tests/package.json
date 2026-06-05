@@ -48,7 +48,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/tests"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/docs/testing",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
