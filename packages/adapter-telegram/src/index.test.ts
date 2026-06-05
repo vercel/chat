@@ -403,6 +403,69 @@ describe("TelegramAdapter", () => {
     expect(event.user).toMatchObject({ fullName: "User", userId: "456" });
   });
 
+  it("routes bot command captions to slash command handlers", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 3,
+        message: sampleMessage({
+          caption: "/ping hello world",
+          text: undefined,
+          caption_entities: [
+            { type: "bot_command", offset: 0, length: 5 },
+          ],
+          photo: [
+            {
+              file_id: "photo-1",
+              file_unique_id: "photo-unique-1",
+              height: 100,
+              width: 100,
+            },
+          ],
+        }),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processSlashCommand = chat.processSlashCommand as ReturnType<
+      typeof vi.fn
+    >;
+    expect(processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+
+    const [event] = processSlashCommand.mock.calls[0] as [
+      {
+        command: string;
+        text: string;
+      },
+    ];
+
+    expect(event.command).toBe("/ping");
+    expect(event.text).toBe("hello world");
+  });
+
   it("ignores bot commands addressed to another bot", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({

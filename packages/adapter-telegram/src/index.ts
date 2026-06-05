@@ -634,11 +634,17 @@ export class TelegramAdapter
   protected parseSlashCommand(
     telegramMessage: TelegramMessage
   ): { command: string; text: string } | null {
-    if (!telegramMessage.text) {
+    const hasText = telegramMessage.text !== undefined;
+    const text = hasText ? telegramMessage.text : telegramMessage.caption;
+    const entities = hasText
+      ? telegramMessage.entities ?? []
+      : telegramMessage.caption_entities ?? [];
+
+    if (!text) {
       return null;
     }
 
-    const commandEntity = (telegramMessage.entities ?? []).find(
+    const commandEntity = entities.find(
       (entity) => entity.type === "bot_command" && entity.offset === 0
     );
 
@@ -646,7 +652,7 @@ export class TelegramAdapter
       return null;
     }
 
-    const rawCommand = this.entityText(telegramMessage.text, commandEntity);
+    const rawCommand = this.entityText(text, commandEntity);
     if (!rawCommand.startsWith("/")) {
       return null;
     }
@@ -670,7 +676,7 @@ export class TelegramAdapter
 
     return {
       command: `/${commandName}`,
-      text: telegramMessage.text
+      text: text
         .slice(commandEntity.offset + commandEntity.length)
         .trimStart(),
     };
