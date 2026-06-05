@@ -170,6 +170,16 @@
     "readme": "https://github.com/DivyanshGolyan/chat-state-mysql/tree/26502f2c43e2aee16b0b58f2066a81e01b2c289b"
   },
   {
+    "name": "QQ Bot",
+    "slug": "qq-bot",
+    "type": "platform",
+    "community": true,
+    "description": "Community QQ Bot adapter for Chat SDK with OpenAPI v2 webhooks, Gateway WebSocket events, c2c messaging, buttons, rich media, and live verification tooling.",
+    "packageName": "@youglin/adapter-qq-bot",
+    "author": "YougLin",
+    "readme": "https://github.com/YougLin-dev/adapter-qq-bot/tree/46e76e8e6965d5dc1ee1446bbea76feb23cf7733"
+  },
+  {
     "name": "Liveblocks",
     "slug": "liveblocks",
     "type": "platform",
