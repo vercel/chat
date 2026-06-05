@@ -40,6 +40,7 @@ import type {
   WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppSendResponse,
+  WhatsAppTemplateComponent,
   WhatsAppTemplateMessage,
   WhatsAppThreadId,
   WhatsAppTypingIndicatorResponse,
@@ -924,6 +925,17 @@ export class WhatsAppAdapter
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const { userWaId } = this.decodeThreadId(threadId);
 
+    // Convert emoji placeholders in component parameters (e.g. body text
+    // variables), mirroring the interactive message path
+    const components = template.components?.length
+      ? (JSON.parse(
+          convertEmojiPlaceholders(
+            JSON.stringify(template.components),
+            "whatsapp"
+          )
+        ) as WhatsAppTemplateComponent[])
+      : undefined;
+
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
       {
@@ -934,9 +946,7 @@ export class WhatsAppAdapter
         template: {
           name: template.name,
           language: { code: template.language },
-          ...(template.components?.length
-            ? { components: template.components }
-            : {}),
+          ...(components ? { components } : {}),
         },
       }
     );
