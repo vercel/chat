@@ -637,8 +637,8 @@ export class TelegramAdapter
     const hasText = telegramMessage.text !== undefined;
     const text = hasText ? telegramMessage.text : telegramMessage.caption;
     const entities = hasText
-      ? telegramMessage.entities ?? []
-      : telegramMessage.caption_entities ?? [];
+      ? (telegramMessage.entities ?? [])
+      : (telegramMessage.caption_entities ?? []);
 
     if (!text) {
       return null;
@@ -676,9 +676,7 @@ export class TelegramAdapter
 
     return {
       command: `/${commandName}`,
-      text: text
-        .slice(commandEntity.offset + commandEntity.length)
-        .trimStart(),
+      text: text.slice(commandEntity.offset + commandEntity.length).trimStart(),
     };
   }
 

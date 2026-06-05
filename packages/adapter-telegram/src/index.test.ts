@@ -431,9 +431,7 @@ describe("TelegramAdapter", () => {
         message: sampleMessage({
           caption: "/ping hello world",
           text: undefined,
-          caption_entities: [
-            { type: "bot_command", offset: 0, length: 5 },
-          ],
+          caption_entities: [{ type: "bot_command", offset: 0, length: 5 }],
           photo: [
             {
               file_id: "photo-1",
