@@ -941,6 +941,23 @@ describe("sendTemplate", () => {
     expect(sent.template.components[0].parameters[0].text).toBe("Ada");
   });
 
+  it("converts emoji placeholders in component parameters", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [{ type: "text", text: "Shipped! {{emoji:thumbs_up}}" }],
+        },
+      ],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.components[0].parameters[0].text).toBe("Shipped! 👍");
+  });
+
   it("omits components when the array is empty", async () => {
     const adapter = createTestAdapter();
     await adapter.sendTemplate("whatsapp:123456789:15551234567", {
