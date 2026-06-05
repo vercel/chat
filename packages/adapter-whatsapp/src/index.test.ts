@@ -11,6 +11,7 @@ import {
 import { createWhatsAppAdapter, splitMessage, WhatsAppAdapter } from "./index";
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
+const NO_MESSAGE_ID_PATTERN = /did not return a message ID/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
 const APP_SECRET_PATTERN = /appSecret/i;
 
@@ -861,6 +862,125 @@ describe("postMessage", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendTemplate
+// ---------------------------------------------------------------------------
+
+describe("sendTemplate", () => {
+  let fetchSpy: MockInstance;
+
+  const makeGraphApiResponse = () =>
+    new Response(JSON.stringify({ messages: [{ id: "wamid.template123" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(() => Promise.resolve(makeGraphApiResponse()));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("sends a template with name and language", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.sendTemplate(
+      "whatsapp:123456789:15551234567",
+      {
+        name: "appointment_reminder",
+        language: "en",
+      }
+    );
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.type).toBe("template");
+    expect(sent.to).toBe("15551234567");
+    expect(sent.template).toEqual({
+      name: "appointment_reminder",
+      language: { code: "en" },
+    });
+    expect(result.id).toBe("wamid.template123");
+  });
+
+  it("includes components when provided", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: "Ada" },
+            { type: "text", text: "#12345" },
+          ],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: 0,
+          parameters: [{ type: "text", text: "12345" }],
+        },
+      ],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.name).toBe("order_shipped");
+    expect(sent.template.language).toEqual({ code: "en_US" });
+    expect(sent.template.components).toHaveLength(2);
+    expect(sent.template.components[0].parameters[0].text).toBe("Ada");
+  });
+
+  it("omits components when the array is empty", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "hello_world",
+      language: "en_US",
+      components: [],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template).not.toHaveProperty("components");
+  });
+
+  it("throws when the API returns no message ID", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("whatsapp:123456789:15551234567", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow(NO_MESSAGE_ID_PATTERN);
+  });
+
+  it("throws on invalid thread ID", async () => {
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("slack:C123:ts123", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow("Invalid WhatsApp thread ID");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
