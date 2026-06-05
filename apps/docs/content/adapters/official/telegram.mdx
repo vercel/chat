@@ -186,7 +186,7 @@ console.log(telegram.runtimeMode); // "webhook" | "polling"
 
 ### Slash commands
 
-Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `/status@mybot`. Commands addressed to another bot are ignored.
+Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `/status@mybot`. Commands addressed to another bot are ignored as slash commands and continue through the normal message path.
 
 ### Markdown formatting
 
