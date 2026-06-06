@@ -1,0 +1,385 @@
+---
+title: History
+description: API reference for bot.history — user, thread, and channel scopes.
+type: reference
+---
+
+`bot.history` provides three namespaced scopes for persisting and querying messages. See the [History guide](/docs/history) for setup and usage patterns.
+
+```typescript
+import { Chat } from "chat";
+```
+
+## Configuration
+
+History scopes are configured under the `history` key on `ChatConfig`.
+
+### ChatConfig.history
+
+<TypeTable
+  type={{
+    user: {
+      description: 'Cross-platform per-user message persistence. Requires an `identity` resolver. Replaces the legacy `transcripts` + `identity` top-level fields.',
+      type: 'UserHistoryConfig | undefined',
+    },
+    thread: {
+      description: 'Per-thread message history backfill. Used by adapters that set `persistThreadHistory: true` (e.g. Telegram, WhatsApp). Replaces the legacy `threadHistory` / `messageHistory` fields.',
+      type: '{ maxMessages?: number; ttlMs?: number } | undefined',
+    },
+  }}
+/>
+
+### UserHistoryConfig
+
+Same fields as the deprecated `TranscriptsConfig`, plus an optional `identity` resolver (preferred over the deprecated top-level `ChatConfig.identity`):
+
+<TypeTable
+  type={{
+    identity: {
+      description: 'Resolves a stable cross-platform user key from each inbound message. Return `null` to skip persistence for that event. May also be set via the deprecated top-level `ChatConfig.identity`.',
+      type: '(context: IdentityContext) => string | null | Promise<string | null>',
+    },
+    retention: {
+      description: 'List TTL, refreshed on every append. Accepts milliseconds or a duration string ("45s", "30m", "6h", "7d"). Omit for no expiry.',
+      type: 'number | DurationString | undefined',
+    },
+    maxPerUser: {
+      description: 'Hard cap per user key. Older entries are evicted on append.',
+      type: 'number',
+      default: '200',
+    },
+    storeFormatted: {
+      description: 'Persist the mdast `formatted` field alongside `text`. Off by default to keep storage small.',
+      type: 'boolean',
+      default: 'false',
+    },
+  }}
+/>
+
+#### IdentityContext
+
+<TypeTable
+  type={{
+    adapter: {
+      description: 'Adapter name (e.g. "slack", "discord").',
+      type: 'string',
+    },
+    author: {
+      description: 'Message author info.',
+      type: 'Author',
+    },
+    message: {
+      description: 'The inbound message.',
+      type: 'Message',
+    },
+  }}
+/>
+
+---
+
+## bot.history.user
+
+Cross-platform per-user message store. Access via `bot.history.user`. Throws when accessed if `history.user` (or the legacy `transcripts` + `identity`) was not configured on the `Chat` instance.
+
+`UserHistoryApi` is identical in shape to the deprecated `TranscriptsApi`.
+
+### append
+
+Persist a `Message` (typically the inbound user message) or an `AppendInput` (typically a bot reply).
+
+```typescript
+append(
+  thread: Postable,
+  message: Message | AppendInput,
+  options?: AppendOptions,
+): Promise<HistoryEntry | null>;
+```
+
+When `message` is a `Message`, `userKey` is read from the instance (set automatically by the SDK from the `identity` resolver). If it's `undefined` (resolver returned `null`), the call is a no-op and returns `null`. When `message` is an `AppendInput`, `options.userKey` is required.
+
+#### AppendInput
+
+<TypeTable
+  type={{
+    role: {
+      description: 'Role tag for the entry.',
+      type: '"user" | "assistant" | "system"',
+    },
+    text: {
+      description: 'Plain-text body.',
+      type: 'string',
+    },
+    formatted: {
+      description: 'Optional mdast AST. Only stored when `history.user.storeFormatted` is true.',
+      type: 'FormattedContent | undefined',
+    },
+    platformMessageId: {
+      description: 'Platform-native message ID, when known.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+#### AppendOptions
+
+<TypeTable
+  type={{
+    userKey: {
+      description: 'Required when appending an `AppendInput` (assistant or system role); ignored when appending a `Message`.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+### list
+
+Returns entries in chronological order (oldest first). When `limit` is set, returns the newest `N` entries — still chronologically ordered.
+
+```typescript
+list(query: ListQuery): Promise<HistoryEntry[]>;
+```
+
+#### ListQuery
+
+<TypeTable
+  type={{
+    userKey: {
+      description: 'Cross-platform user key.',
+      type: 'string',
+    },
+    limit: {
+      description: 'Maximum entries returned.',
+      type: 'number',
+      default: '50',
+    },
+    platforms: {
+      description: 'Filter to a subset of adapter names.',
+      type: 'string[] | undefined',
+    },
+    threadId: {
+      description: 'Filter to a single thread.',
+      type: 'string | undefined',
+    },
+    roles: {
+      description: 'Filter to specific roles.',
+      type: '("user" | "assistant" | "system")[] | undefined',
+    },
+  }}
+/>
+
+### count
+
+```typescript
+count(query: { userKey: string }): Promise<number>;
+```
+
+Returns the total number of entries stored under the user key.
+
+### delete
+
+```typescript
+delete(target: { userKey: string }): Promise<{ deleted: number }>;
+```
+
+Wipes every entry stored under the user key. Returns the count that was removed.
+
+---
+
+## bot.history.thread
+
+Per-thread message history. Always available — delegates to the adapter's `fetchMessages` when the adapter can be resolved from the thread ID, and falls back to the SDK-maintained `ThreadHistoryCache` for adapters that lack server-side history APIs (Telegram, WhatsApp).
+
+### list
+
+```typescript
+list(threadId: string, options?: FetchOptions): Promise<FetchResult>;
+```
+
+Fetches messages from a thread. Delegates to `adapter.fetchMessages` when the adapter is registered; falls back to the SDK-side cache otherwise.
+
+#### FetchOptions
+
+<TypeTable
+  type={{
+    limit: {
+      description: 'Maximum number of messages to return.',
+      type: 'number | undefined',
+    },
+    cursor: {
+      description: 'Pagination cursor returned by a prior call.',
+      type: 'string | undefined',
+    },
+    direction: {
+      description: '"backward" (newest first, default) or "forward" (oldest first).',
+      type: '"backward" | "forward" | undefined',
+    },
+  }}
+/>
+
+#### FetchResult
+
+<TypeTable
+  type={{
+    messages: {
+      description: 'Normalized messages for the requested page.',
+      type: 'Message[]',
+    },
+    nextCursor: {
+      description: 'Cursor for the next page. `undefined` when no more results.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+### collect
+
+Async generator that pages through all messages in a thread (oldest first). Stops when there are no more pages or the optional `limit` is reached.
+
+```typescript
+collect(threadId: string, options?: { limit?: number }): AsyncIterable<Message>;
+```
+
+```typescript title="lib/bot.ts" lineNumbers
+for await (const msg of bot.history.thread.collect(thread.id, { limit: 50 })) {
+  console.log(msg.text);
+}
+```
+
+### append
+
+```typescript
+append(threadId: string, message: Message): Promise<void>;
+```
+
+Atomically appends a message to the SDK-side thread cache. Called automatically by the SDK on adapters where `persistThreadHistory` is `true`. You can call this manually to warm the cache, but under normal circumstances you won't need to.
+
+---
+
+## bot.history.channel
+
+Channel-level history. Always available — delegates all operations to the appropriate adapter resolved from the channel ID prefix. Individual methods throw when the adapter does not implement the underlying capability.
+
+### listMessages
+
+```typescript
+listMessages(channelId: string, options?: FetchOptions): Promise<FetchResult>;
+```
+
+Fetches top-level messages in a channel (not thread replies). Delegates to `adapter.fetchChannelMessages`, or falls back to `adapter.fetchMessages` on adapters that unify channel and thread addressing (e.g. Telegram, Discord).
+
+### listThreads
+
+```typescript
+listThreads(channelId: string, options?: ListThreadsOptions): Promise<ListThreadsResult>;
+```
+
+Lists threads in a channel. Delegates to `adapter.listThreads`. Throws if the adapter does not implement `listThreads`.
+
+### listThreadsWithMessages
+
+```typescript
+listThreadsWithMessages(
+  channelId: string,
+  options?: { cursor?: string; messagesPerThread?: number; maxThreads?: number },
+): Promise<{ threads: Array<{ threadId: string; messages: Message[] }>; nextCursor?: string }>;
+```
+
+Convenience helper: lists up to `maxThreads` (default 5) threads, then fetches `messagesPerThread` messages for each in parallel.
+
+#### ListThreadsOptions
+
+<TypeTable
+  type={{
+    limit: {
+      description: 'Maximum number of threads to return.',
+      type: 'number | undefined',
+    },
+    cursor: {
+      description: 'Pagination cursor.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+#### ListThreadsResult
+
+<TypeTable
+  type={{
+    threads: {
+      description: 'Thread summaries.',
+      type: 'ThreadSummary[]',
+    },
+    nextCursor: {
+      description: 'Cursor for the next page. `undefined` when no more results.',
+      type: 'string | undefined',
+    },
+  }}
+/>
+
+---
+
+## HistoryEntry
+
+Returned by `bot.history.user.append` and `bot.history.user.list`. Exported as `HistoryEntry` (canonical) and `TranscriptEntry` (deprecated alias — both available from `chat`).
+
+<TypeTable
+  type={{
+    id: {
+      description: 'UUID assigned by the SDK at append time.',
+      type: 'string',
+    },
+    userKey: {
+      description: 'Cross-platform user key from the identity resolver.',
+      type: 'string',
+    },
+    role: {
+      description: 'Role tag.',
+      type: '"user" | "assistant" | "system"',
+    },
+    text: {
+      description: 'Plain-text body — canonical for prompt building.',
+      type: 'string',
+    },
+    formatted: {
+      description: 'mdast AST. Only present when `history.user.storeFormatted` is true.',
+      type: 'FormattedContent | undefined',
+    },
+    platform: {
+      description: 'Originating adapter name.',
+      type: 'string',
+    },
+    threadId: {
+      description: 'Originating thread ID.',
+      type: 'string',
+    },
+    platformMessageId: {
+      description: 'Platform-native message ID, when known.',
+      type: 'string | undefined',
+    },
+    timestamp: {
+      description: 'Milliseconds since epoch, set at append time on the SDK side.',
+      type: 'number',
+    },
+  }}
+/>
+
+## Storage
+
+| Scope | Storage key pattern | Notes |
+|-------|---------------------|-------|
+| `bot.history.user` | `transcripts:user:{userKey}` | Backed by `StateAdapter.appendToList` |
+| `bot.history.thread` (cache) | `msg-history:{threadId}` | Only populated when `persistThreadHistory: true` |
+
+Appends are atomic — concurrent inbound messages on the same key don't race.
+
+## Deprecated aliases
+
+| Old | New |
+|-----|-----|
+| `bot.transcripts` | `bot.history.user` |
+| `ChatConfig.transcripts` + `ChatConfig.identity` | `ChatConfig.history.user` (with `history.user.identity`, or keep top-level `identity` during migration) |
+| `TranscriptEntry` | `HistoryEntry` (also exported as `UserHistoryEntry`) |
+| `TranscriptsConfig` | `UserHistoryConfig` |
+| `ChatConfig.threadHistory` / `ChatConfig.messageHistory` | `ChatConfig.history.thread` |
+
+All deprecated names continue to work and will not be removed in the current major version. See [Migrating from `bot.transcripts`](/docs/history#migrating-from-bottranscripts).

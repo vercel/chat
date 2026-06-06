@@ -31,6 +31,15 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 | [`Markdown`](/docs/api/markdown) | AST builder functions — `root`, `paragraph`, `text`, `strong`, etc. |
 | [`Modals`](/docs/api/modals) | Modal form components — `Modal`, `TextInput`, `Select`, etc. |
 
+## History
+
+| Export | Description |
+|--------|-------------|
+| [`bot.history.user`](/docs/api/history#bothhistoryuser) | Cross-platform per-user message store — append, list, count, delete |
+| [`bot.history.thread`](/docs/api/history#bothistorythread) | Per-thread message reads — platform API with SDK cache fallback |
+| [`bot.history.channel`](/docs/api/history#bothistorychannel) | Per-channel reads — `listMessages`, `listThreads`, and related adapter APIs |
+| [`Transcripts`](/docs/api/transcripts) | Deprecated alias — use `bot.history.user` instead |
+
 ## AI utilities
 
 `toAiMessages`, `createChatTools`, and the supporting types live in the [`chat/ai`](/docs/ai) subpath — see the [AI section](/docs/ai) for the full reference.

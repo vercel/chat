@@ -7,6 +7,7 @@ prerequisites:
 related:
   - /docs/handling-events
   - /docs/posting-messages
+  - /docs/history
 ---
 
 ## Threads
@@ -104,6 +105,15 @@ for await (const msg of thread.allMessages) {
   console.log(msg.text);
 }
 ```
+
+For adapters that lack server-side history APIs (Telegram, WhatsApp), the SDK maintains a per-thread cache in your state adapter. Access it via `bot.history.thread`:
+
+```typescript title="lib/bot.ts" lineNumbers
+// Platform API first, SDK cache fallback when the adapter returns nothing
+const { messages } = await bot.history.thread.list(thread.id, { limit: 20 });
+```
+
+To persist a cross-platform per-user transcript (for LLM context, audit, or GDPR), see the [History guide](/docs/history).
 
 ### Thread state
 
@@ -250,6 +260,61 @@ await channel.post("Hello channel!");
 const info = await channel.fetchMetadata();
 console.log(info.name, info.memberCount);
 ```
+
+### Channel history
+
+Channel-level history reads from the platform adapter — it is not stored in your state adapter by default. Use `bot.history.channel` for promise-based pagination, or the `Channel` iterators above for async iteration.
+
+**List threads, then pull messages per thread** — the typical drill-down for channel digests or moderation:
+
+```typescript title="lib/bot.ts" lineNumbers
+const channelId = "slack:C123ABC";
+
+// Step 1: list recent threads (ThreadSummary: id, rootMessage, replyCount, …)
+const { threads, nextCursor } = await bot.history.channel.listThreads(channelId, {
+  limit: 20,
+});
+
+for (const summary of threads) {
+  // Step 2: fetch messages in each thread
+  const { messages } = await bot.history.thread.list(summary.id, {
+    limit: 50,
+    direction: "forward",
+  });
+
+  console.log(summary.rootMessage.text, summary.replyCount, messages.length);
+}
+
+// Paginate with nextCursor from listThreads when you need more threads
+```
+
+The object-oriented equivalent uses the same underlying APIs:
+
+```typescript title="lib/bot.ts" lineNumbers
+const channel = bot.channel("slack:C123ABC");
+
+for await (const summary of channel.threads()) {
+  const thread = bot.thread(summary.id);
+
+  for await (const msg of thread.allMessages) {
+    console.log(msg.text);
+  }
+}
+```
+
+**Top-level channel messages** (not thread replies):
+
+```typescript title="lib/bot.ts" lineNumbers
+const { messages } = await bot.history.channel.listMessages(channelId, {
+  limit: 20,
+});
+```
+
+For a one-shot helper that lists threads and prefetches messages for each, see [`bot.history.channel.listThreadsWithMessages`](/docs/api/history#listthreadswithmessages) in the API reference.
+
+<Callout type="info">
+  `listThreads` requires adapter support (Slack, Discord, Teams, Google Chat, GitHub). On threadless platforms (WhatsApp, Telegram), `listThreads` throws and `channel.threads()` yields nothing. See the [adapter feature matrix](/docs/adapters) and the [History guide](/docs/history#channel-history) for platform details.
+</Callout>
 
 ## Thread ID format
 

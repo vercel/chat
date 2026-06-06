@@ -1,10 +1,14 @@
 ---
-title: Transcripts
+title: Transcripts (deprecated)
 description: Cross-platform per-user transcript persistence — configuration, methods, and entry shape.
 type: reference
 ---
 
-`bot.transcripts` provides per-user message persistence keyed by a stable cross-platform identifier. See the [Conversation history](/docs/conversation-history) guide for usage patterns.
+<Callout type="warn">
+  `bot.transcripts` and the `transcripts` config key are deprecated. Use [`bot.history.user`](/docs/api/history#bothhistoryuser) and the `history.user` config key instead — the API surface is identical. `bot.transcripts` will continue to work in the current major version.
+</Callout>
+
+`bot.transcripts` provides per-user message persistence keyed by a stable cross-platform identifier. See the [History guide](/docs/history) for setup, usage patterns, and migration steps.
 
 ```typescript
 import { Chat } from "chat";
@@ -12,9 +16,9 @@ import { Chat } from "chat";
 
 ## Configuration
 
-`transcripts` and `identity` are configured on `ChatConfig`. Both must be set together — passing `transcripts` without `identity` throws at construction.
+`history.user` (or the deprecated `transcripts`) requires an identity resolver — set `history.user.identity` or the deprecated top-level `identity` field. Passing `history.user` without either throws at construction.
 
-### ChatConfig.transcripts
+### ChatConfig.transcripts (deprecated → history.user)
 
 <TypeTable
   type={{
@@ -64,7 +68,7 @@ Called once per inbound message during dispatch. The result is attached to the `
 
 ## Methods
 
-Access via `bot.transcripts`. Throws if `transcripts` was not configured on the `Chat` instance.
+Access via `bot.history.user` (preferred) or `bot.transcripts` (deprecated alias). Throws if neither `history.user` nor `transcripts` was configured on the `Chat` instance.
 
 ### append
 
@@ -218,3 +222,8 @@ Backed by `StateAdapter.appendToList` / `getList` / `delete`. Every built-in sta
 Entries are stored under `transcripts:user:{userKey}` as a capped list. `appendToList` is atomic, so concurrent inbound messages don't race.
 
 The `retention` value is applied as the list TTL and refreshed on every append. With `retention: "30d"`, a user who hasn't talked to the bot in 30 days has their transcript expire automatically.
+
+## See also
+
+- [History API reference](/docs/api/history) — the current API (`bot.history.user`, `bot.history.thread`, `bot.history.channel`)
+- [History guide](/docs/history) — setup, patterns, and migration
