@@ -356,8 +356,18 @@ function formParams(
   return fields instanceof URLSearchParams ? fields : encodeTwilioForm(fields);
 }
 
+export function encodeBase64Utf8(value: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf8").toString("base64");
+  }
+  if (typeof globalThis.btoa === "function") {
+    return globalThis.btoa(value);
+  }
+  throw new Error("Base64 encoding is not supported in this runtime");
+}
+
 function twilioAuthorization(accountSid: string, authToken: string): string {
-  return `Basic ${btoa(`${accountSid}:${authToken}`)}`;
+  return `Basic ${encodeBase64Utf8(`${accountSid}:${authToken}`)}`;
 }
 
 function arrayValue(value: readonly string[] | string | undefined): string[] {

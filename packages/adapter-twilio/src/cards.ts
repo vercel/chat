@@ -23,7 +23,7 @@ export type TwilioRcsContentResult =
   | { text: string; type: "text" };
 
 export interface TwilioContentBody {
-  friendly_name: string;
+  friendly_name?: string;
   language: string;
   types: Record<string, unknown>;
   variables?: Record<string, string>;
@@ -110,7 +110,6 @@ function buildQuickReplyContent(
   return {
     type: "content",
     contentBody: {
-      friendly_name: `chat_qr_${Date.now()}`,
       language: "en",
       types: {
         "twilio/quick-reply": {
@@ -148,7 +147,6 @@ function buildCardContent(
   return {
     type: "content",
     contentBody: {
-      friendly_name: `chat_card_${Date.now()}`,
       language: "en",
       types: {
         "twilio/card": cardType,
@@ -174,7 +172,6 @@ function buildCtaContent(
   return {
     type: "content",
     contentBody: {
-      friendly_name: `chat_cta_${Date.now()}`,
       language: "en",
       types: {
         "twilio/call-to-action": {

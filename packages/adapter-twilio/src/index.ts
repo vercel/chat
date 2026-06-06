@@ -28,7 +28,7 @@ import {
   type TwilioApiOptions,
   type TwilioMessageResource,
 } from "./api";
-import { createTwilioContent } from "./api/content";
+import { getOrCreateTwilioContent } from "./api/content";
 import {
   cardToTwilioRcs,
   cardToTwilioText,
@@ -208,7 +208,7 @@ export class TwilioAdapter
       const rcsResult = cardToTwilioRcs(card);
       if (rcsResult.type === "content") {
         try {
-          const content = await createTwilioContent({
+          const content = await getOrCreateTwilioContent({
             ...this.apiOptions(),
             contentApiUrl: this.contentApiUrl,
             contentBody: rcsResult.contentBody,

@@ -21,7 +21,11 @@ export function parseChannelMetadata(
   }
   try {
     const parsed = JSON.parse(raw) as TwilioChannelMetadata;
-    return typeof parsed === "object" && parsed !== null ? parsed : undefined;
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? parsed
+      : undefined;
   } catch {
     return undefined;
   }
