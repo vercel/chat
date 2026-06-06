@@ -34,6 +34,14 @@ describe("TwilioAdapter", () => {
     );
   });
 
+  it("opens dms with the configured rcs sender id", async () => {
+    const adapter = createTwilioAdapter({ rcsSenderId: "brand_agent" });
+
+    await expect(adapter.openDM("+15550000002")).resolves.toBe(
+      "twilio:rcs%3Abrand_agent:%2B15550000002"
+    );
+  });
+
   it("routes incoming message webhooks to chat processing", async () => {
     const chat = mockChat();
     const adapter = createTwilioAdapter({
@@ -405,6 +413,102 @@ describe("TwilioAdapter", () => {
     const messageCall = fetch.mock.calls[1];
     const body = messageCall?.[1]?.body as URLSearchParams;
     expect(body.get("ContentSid")).toBe("HX123");
+  });
+
+  it("posts RCS cards when replying to inbound RCS on a phone-number To", async () => {
+    let callIndex = 0;
+    const fetch = vi.fn(async () => {
+      callIndex++;
+      if (callIndex === 1) {
+        return Response.json({ sid: "HX123" });
+      }
+      return Response.json({
+        body: null,
+        direction: "outbound-api",
+        from: "MG123",
+        messaging_service_sid: "MG123",
+        sid: "SM456",
+        to: "+15550000002",
+      });
+    });
+
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      messagingServiceSid: "MG123",
+    });
+
+    const threadId = "twilio:MG123:%2B15550000002";
+    const cardMessage = {
+      card: {
+        children: [
+          {
+            children: [{ id: "yes", label: "Yes", type: "button" as const }],
+            type: "actions" as const,
+          },
+        ],
+        title: "Confirm?",
+        type: "card" as const,
+      },
+    };
+
+    const result = await adapter.postMessage(threadId, cardMessage);
+
+    expect(result.id).toBe("SM456");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("content.twilio.com");
+    const messageBody = fetch.mock.calls[1]?.[1]?.body as URLSearchParams;
+    expect(messageBody.get("ContentSid")).toBe("HX123");
+    expect(messageBody.get("MessagingServiceSid")).toBe("MG123");
+  });
+
+  it("routes inbound RCS webhooks to messaging-service thread ids", async () => {
+    const chat = mockChat();
+    const adapter = createTwilioAdapter({
+      messagingServiceSid: "MG123",
+      webhookVerifier: () => true,
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      formRequest({
+        Body: "hello",
+        ChannelMetadata: JSON.stringify({ type: "rcs" }),
+        From: "+15550000002",
+        MessageSid: "SM123",
+        MessagingServiceSid: "MG123",
+        NumMedia: "0",
+        To: "+15550000001",
+      })
+    );
+
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, threadId] = chat.processMessage.mock.calls[0] ?? [];
+    expect(threadId).toBe("twilio:MG123:%2B15550000002");
+  });
+
+  it("uses configured messaging service when inbound RCS metadata lacks MG", async () => {
+    const chat = mockChat();
+    const adapter = createTwilioAdapter({
+      messagingServiceSid: "MG123",
+      webhookVerifier: () => true,
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      formRequest({
+        Body: "hello",
+        ChannelMetadata: JSON.stringify({ type: "rcs" }),
+        From: "+15550000002",
+        MessageSid: "SM124",
+        NumMedia: "0",
+        To: "+15550000001",
+      })
+    );
+
+    const [, threadId] = chat.processMessage.mock.calls[0] ?? [];
+    expect(threadId).toBe("twilio:MG123:%2B15550000002");
   });
 
   it("reuses ContentSid cache for identical RCS cards", async () => {

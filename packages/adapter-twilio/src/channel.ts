@@ -68,3 +68,38 @@ export function inferTwilioChannel(payload: {
 export function isRcsCapableSender(sender: string): boolean {
   return sender.startsWith("MG") || isRcsAddress(sender);
 }
+
+export function normalizeRcsSenderId(senderId: string): string {
+  return senderId.startsWith(RCS_PREFIX)
+    ? senderId
+    : `${RCS_PREFIX}${senderId}`;
+}
+
+export function resolveInboundThreadSender(options: {
+  channelMetadata?: TwilioChannelMetadata;
+  messagingServiceSid?: string;
+  messagingServiceSidConfig?: string;
+  rcsSenderIdConfig?: string;
+  to: string;
+}): string {
+  if (options.messagingServiceSid?.startsWith("MG")) {
+    return options.messagingServiceSid;
+  }
+  if (isRcsCapableSender(options.to)) {
+    return options.to;
+  }
+  if (
+    inferTwilioChannel({
+      channelMetadata: options.channelMetadata,
+      to: options.to,
+    }) === "rcs"
+  ) {
+    if (options.messagingServiceSidConfig) {
+      return options.messagingServiceSidConfig;
+    }
+    if (options.rcsSenderIdConfig) {
+      return normalizeRcsSenderId(options.rcsSenderIdConfig);
+    }
+  }
+  return options.to;
+}

@@ -34,7 +34,11 @@ import {
   cardToTwilioText,
   decodeTwilioCallbackData,
 } from "./cards";
-import { isRcsCapableSender } from "./channel";
+import {
+  isRcsCapableSender,
+  normalizeRcsSenderId,
+  resolveInboundThreadSender,
+} from "./channel";
 import {
   TWILIO_MESSAGE_LIMIT,
   truncateTwilioText,
@@ -141,7 +145,7 @@ export class TwilioAdapter
     if (payload.kind === "text") {
       const threadId = this.encodeThreadId({
         recipient: payload.from,
-        sender: payload.to,
+        sender: this.inboundThreadSender(payload),
       });
       const message = this.parseTwilioTextPayload(payload, threadId);
       this.chat.processMessage(this, threadId, message, options);
@@ -172,7 +176,7 @@ export class TwilioAdapter
 
     const threadId = this.encodeThreadId({
       recipient: payload.from,
-      sender: payload.to,
+      sender: this.inboundThreadSender(payload),
     });
 
     const { actionId, value } = decodeTwilioCallbackData(payload.buttonPayload);
@@ -301,7 +305,10 @@ export class TwilioAdapter
       }
       return this.parseTwilioTextPayload(
         raw,
-        this.encodeThreadId({ recipient: raw.from, sender: raw.to })
+        this.encodeThreadId({
+          recipient: raw.from,
+          sender: this.inboundThreadSender(raw),
+        })
       );
     }
     return this.parseTwilioResource(raw, undefined);
@@ -545,14 +552,31 @@ export class TwilioAdapter
   }
 
   protected defaultSender(): string {
-    const sender = this.phoneNumber ?? this.messagingServiceSid;
+    const sender =
+      this.messagingServiceSid ??
+      (this.rcsSenderId ? normalizeRcsSenderId(this.rcsSenderId) : undefined) ??
+      this.phoneNumber;
     if (!sender) {
       throw new ValidationError(
         "twilio",
-        "phoneNumber or messagingServiceSid is required"
+        "phoneNumber, messagingServiceSid, or rcsSenderId is required"
       );
     }
     return sender;
+  }
+
+  protected inboundThreadSender(payload: {
+    channelMetadata?: import("./channel").TwilioChannelMetadata;
+    messagingServiceSid?: string;
+    to: string;
+  }): string {
+    return resolveInboundThreadSender({
+      channelMetadata: payload.channelMetadata,
+      messagingServiceSid: payload.messagingServiceSid,
+      messagingServiceSidConfig: this.messagingServiceSid,
+      rcsSenderIdConfig: this.rcsSenderId,
+      to: payload.to,
+    });
   }
 
   protected author(userId: string, isMe: boolean): Message["author"] {
@@ -602,6 +626,8 @@ export {
   inferTwilioChannel,
   isRcsAddress,
   isRcsCapableSender,
+  normalizeRcsSenderId,
+  resolveInboundThreadSender,
 } from "./channel";
 export { TwilioFormatConverter } from "./markdown";
 export type {

@@ -10,6 +10,7 @@ export function parseTwilioWebhookBody(
   const to = value(params, "To");
   const messageSid =
     value(params, "MessageSid") ?? value(params, "SmsMessageSid");
+  const messagingServiceSid = value(params, "MessagingServiceSid");
   const channelMetadata = parseChannelMetadata(
     value(params, "ChannelMetadata")
   );
@@ -38,6 +39,7 @@ export function parseTwilioWebhookBody(
       from,
       kind: "action",
       messageSid,
+      messagingServiceSid,
       raw: params,
       to,
     };
@@ -66,6 +68,7 @@ export function parseTwilioWebhookBody(
       longitude: value(params, "Longitude"),
       media: mediaPayloads(params),
       messageSid,
+      messagingServiceSid,
       raw: params,
       to,
     };

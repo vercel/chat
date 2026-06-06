@@ -208,6 +208,23 @@ describe("Twilio webhook parsing", () => {
     });
   });
 
+  it("parses MessagingServiceSid on inbound payloads", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        Body: "hello",
+        From: "+15550000002",
+        MessageSid: "SM123",
+        MessagingServiceSid: "MG123",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload.kind).toBe("text");
+    if (payload.kind === "text") {
+      expect(payload.messagingServiceSid).toBe("MG123");
+    }
+  });
+
   it("parses ChannelMetadata JSON", () => {
     const metadata = JSON.stringify({ type: "rcs" });
     const payload = parseTwilioWebhookBody(

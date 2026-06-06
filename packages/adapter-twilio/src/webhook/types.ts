@@ -40,6 +40,7 @@ export interface TwilioTextPayload {
   longitude?: string;
   media: TwilioMediaPayload[];
   messageSid?: string;
+  messagingServiceSid?: string;
   raw: URLSearchParams;
   to: string;
 }
@@ -51,6 +52,7 @@ export interface TwilioActionPayload {
   channelMetadata?: import("../channel").TwilioChannelMetadata;
   from: string;
   messageSid?: string;
+  messagingServiceSid?: string;
   raw: URLSearchParams;
   to: string;
 }
