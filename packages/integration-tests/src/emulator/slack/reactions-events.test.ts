@@ -34,10 +34,10 @@ import {
 
 describe("Slack emulator: inbound reaction_added flow", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
-  let forwarder: SlackWebhookForwarder;
-  let tracker: ReturnType<typeof createWaitUntilTracker>;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
+  let forwarder: SlackWebhookForwarder | undefined;
+  let tracker!: ReturnType<typeof createWaitUntilTracker>;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -64,22 +64,33 @@ describe("Slack emulator: inbound reaction_added flow", () => {
     tracker = createWaitUntilTracker();
     await chat.initialize();
 
+    const activeChat = chat;
     forwarder = await startSlackWebhookForwarder({
       signingSecret: emulator.signingSecret,
       teamId: emulator.teamId,
       webhooks: emulator.webhooks,
       onWebhook: (request) =>
-        chat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
+        activeChat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
     });
   });
 
   afterEach(async () => {
-    await forwarder.close();
-    await chat.shutdown();
+    if (forwarder) {
+      await forwarder.close();
+      forwarder = undefined;
+    }
+    if (chat) {
+      await chat.shutdown();
+      chat = undefined;
+    }
     emulator.reset();
   });
 
   async function deliverMention(threadTs: string) {
+    if (!chat) {
+      throw new Error("chat not initialized");
+    }
+
     const event = createSlackEvent({
       type: "app_mention",
       text: `<@${EMULATOR_BOT_USER_ID}> ping`,
@@ -100,6 +111,10 @@ describe("Slack emulator: inbound reaction_added flow", () => {
   }
 
   it("delivers reaction_added to onReaction and allows a threaded reply", async () => {
+    if (!chat) {
+      throw new Error("chat not initialized");
+    }
+
     const captured = vi.fn<(event: ReactionEvent) => void>();
     chat.onReaction(async (event) => {
       captured(event);

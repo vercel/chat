@@ -29,9 +29,9 @@ import {
 
 describe("Slack emulator: modal views round-trip", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
-  let tracker: ReturnType<typeof createWaitUntilTracker>;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
+  let tracker!: ReturnType<typeof createWaitUntilTracker>;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -62,6 +62,7 @@ describe("Slack emulator: modal views round-trip", () => {
   afterEach(async () => {
     if (chat) {
       await chat.shutdown();
+      chat = undefined;
     }
     emulator.reset();
   });
@@ -110,6 +111,10 @@ describe("Slack emulator: modal views round-trip", () => {
   });
 
   it("delivers view_submission to onModalSubmit", async () => {
+    if (!chat) {
+      throw new Error("chat not initialized");
+    }
+
     const captured = vi.fn<(event: ModalSubmitEvent) => void>();
     chat.onModalSubmit("feedback_form", (event) => {
       captured(event);

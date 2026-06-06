@@ -323,6 +323,7 @@ function createSlackBlockActionsPayload(options: SlackBlockActionsOptions) {
 export interface SlackViewSubmissionOptions {
   apiAppId?: string;
   callbackId: string;
+  /** Defaults to `""` so payloads match Slack's always-present string field. */
   privateMetadata?: string;
   stateValues?: Record<
     string,
@@ -342,7 +343,7 @@ function createSlackViewSubmissionPayload(options: SlackViewSubmissionOptions) {
     userName = "testuser",
     teamId,
     apiAppId = "A_TEST",
-    privateMetadata,
+    privateMetadata = "",
     stateValues = {},
   } = options;
 

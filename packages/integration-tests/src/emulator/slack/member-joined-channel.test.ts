@@ -35,10 +35,10 @@ const UNJOINED_CHANNEL_NAME = "unjoined-channel";
 
 describe("Slack emulator: member_joined_channel flow", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
-  let forwarder: SlackWebhookForwarder;
-  let tracker: ReturnType<typeof createWaitUntilTracker>;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
+  let forwarder: SlackWebhookForwarder | undefined;
+  let tracker!: ReturnType<typeof createWaitUntilTracker>;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -70,26 +70,33 @@ describe("Slack emulator: member_joined_channel flow", () => {
     tracker = createWaitUntilTracker();
     await chat.initialize();
 
+    const activeChat = chat;
     forwarder = await startSlackWebhookForwarder({
       signingSecret: emulator.signingSecret,
       teamId: emulator.teamId,
       webhooks: emulator.webhooks,
       onWebhook: (request) =>
-        chat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
+        activeChat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
     });
   });
 
   afterEach(async () => {
     if (forwarder) {
       await forwarder.close();
+      forwarder = undefined;
     }
     if (chat) {
       await chat.shutdown();
+      chat = undefined;
     }
     emulator.reset();
   });
 
   it("delivers member_joined_channel when the bot joins via conversations.join", async () => {
+    if (!chat) {
+      throw new Error("chat not initialized");
+    }
+
     const captured = vi.fn<(event: MemberJoinedChannelEvent) => void>();
     chat.onMemberJoinedChannel((event) => {
       captured(event);

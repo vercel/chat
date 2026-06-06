@@ -22,8 +22,8 @@ import {
 
 describe("Slack emulator: fetchMessages round-trip", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -36,11 +36,12 @@ describe("Slack emulator: fetchMessages round-trip", () => {
   afterEach(async () => {
     if (chat) {
       await chat.shutdown();
+      chat = undefined;
     }
     emulator.reset();
   });
 
-  async function setupChat() {
+  async function setupChat(): Promise<Chat<{ slack: SlackAdapter }>> {
     adapter = createSlackAdapter({
       apiUrl: emulator.apiUrl,
       botToken: EMULATOR_BOT_TOKEN,
@@ -48,13 +49,15 @@ describe("Slack emulator: fetchMessages round-trip", () => {
       userName: EMULATOR_BOT_NAME,
       logger: silentLogger,
     });
-    chat = new Chat({
+    const instance = new Chat({
       userName: EMULATOR_BOT_NAME,
       adapters: { slack: adapter },
       state: createMemoryState(),
       logger: silentLogger,
     });
-    await chat.initialize();
+    chat = instance;
+    await instance.initialize();
+    return instance;
   }
 
   it("returns channel history seeded via the emulator store", async () => {
@@ -79,10 +82,10 @@ describe("Slack emulator: fetchMessages round-trip", () => {
   });
 
   it("returns threaded replies via conversations.replies", async () => {
-    await setupChat();
+    const activeChat = await setupChat();
     const tracker = createWaitUntilTracker();
 
-    chat.onNewMention(async (thread) => {
+    activeChat.onNewMention(async (thread) => {
       await thread.post("bot reply one");
       await thread.post("bot reply two");
     });
@@ -98,7 +101,7 @@ describe("Slack emulator: fetchMessages round-trip", () => {
       teamId: emulator.teamId,
     });
     const req = createSlackWebhookRequest(event, emulator.signingSecret);
-    await chat.webhooks.slack(req, { waitUntil: tracker.waitUntil });
+    await activeChat.webhooks.slack(req, { waitUntil: tracker.waitUntil });
     await tracker.waitForAll();
 
     const threadId = adapter.encodeThreadId({

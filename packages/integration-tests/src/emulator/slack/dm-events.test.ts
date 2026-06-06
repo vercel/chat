@@ -31,12 +31,12 @@ import {
 
 describe("Slack emulator: DM inbound flow", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
-  let forwarder: SlackWebhookForwarder;
-  let tracker: ReturnType<typeof createWaitUntilTracker>;
-  let dmChannelId: string;
-  let dmThreadId: string;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
+  let forwarder: SlackWebhookForwarder | undefined;
+  let tracker!: ReturnType<typeof createWaitUntilTracker>;
+  let dmChannelId!: string;
+  let dmThreadId!: string;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -66,21 +66,24 @@ describe("Slack emulator: DM inbound flow", () => {
     dmThreadId = await adapter.openDM(emulator.humanUserId);
     dmChannelId = adapter.decodeThreadId(dmThreadId).channel;
 
+    const activeChat = chat;
     forwarder = await startSlackWebhookForwarder({
       signingSecret: emulator.signingSecret,
       teamId: emulator.teamId,
       webhooks: emulator.webhooks,
       onWebhook: (request) =>
-        chat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
+        activeChat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
     });
   });
 
   afterEach(async () => {
     if (forwarder) {
       await forwarder.close();
+      forwarder = undefined;
     }
     if (chat) {
       await chat.shutdown();
+      chat = undefined;
     }
     emulator.reset();
   });
@@ -91,6 +94,10 @@ describe("Slack emulator: DM inbound flow", () => {
   });
 
   it("delivers a human DM to onDirectMessage and posts a reply", async () => {
+    if (!chat) {
+      throw new Error("chat not initialized");
+    }
+
     const captured = vi.fn<(thread: Thread, message: Message) => void>();
     chat.onDirectMessage(async (thread, message) => {
       captured(thread, message);

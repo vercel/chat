@@ -21,9 +21,9 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 
 describe("Slack emulator: scheduled messages", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }>;
-  let adapter: SlackAdapter;
-  let tracker: ReturnType<typeof createWaitUntilTracker>;
+  let chat: Chat<{ slack: SlackAdapter }> | undefined;
+  let adapter!: SlackAdapter;
+  let tracker!: ReturnType<typeof createWaitUntilTracker>;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -36,11 +36,12 @@ describe("Slack emulator: scheduled messages", () => {
   afterEach(async () => {
     if (chat) {
       await chat.shutdown();
+      chat = undefined;
     }
     emulator.reset();
   });
 
-  async function setupChat() {
+  async function setupChat(): Promise<Chat<{ slack: SlackAdapter }>> {
     adapter = createSlackAdapter({
       apiUrl: emulator.apiUrl,
       botToken: EMULATOR_BOT_TOKEN,
@@ -48,20 +49,22 @@ describe("Slack emulator: scheduled messages", () => {
       userName: EMULATOR_BOT_NAME,
       logger: silentLogger,
     });
-    chat = new Chat({
+    const instance = new Chat({
       userName: EMULATOR_BOT_NAME,
       adapters: { slack: adapter },
       state: createMemoryState(),
       logger: silentLogger,
     });
+    chat = instance;
     tracker = createWaitUntilTracker();
-    await chat.initialize();
+    await instance.initialize();
+    return instance;
   }
 
   it("schedules a message in the emulator store and can cancel it", async () => {
-    await setupChat();
+    const activeChat = await setupChat();
 
-    chat.onNewMention(async (thread) => {
+    activeChat.onNewMention(async (thread) => {
       const postAt = new Date(Date.now() + ONE_HOUR_MS);
       const scheduled = await thread.schedule("scheduled hello", { postAt });
       expect(scheduled.scheduledMessageId).toBeTruthy();
@@ -91,7 +94,7 @@ describe("Slack emulator: scheduled messages", () => {
       teamId: emulator.teamId,
     });
     const req = createSlackWebhookRequest(event, emulator.signingSecret);
-    await chat.webhooks.slack(req, { waitUntil: tracker.waitUntil });
+    await activeChat.webhooks.slack(req, { waitUntil: tracker.waitUntil });
     await tracker.waitForAll();
   });
 });

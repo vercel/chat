@@ -613,10 +613,6 @@ export async function addReactionAsHuman(
 }
 
 /**
- * Wait until at least one webhook delivery has been recorded, with a small
- * polling loop to absorb async dispatch timing.
- */
-/**
  * Obtain a single-use trigger id for `views.open` / `views.push`.
  */
 export async function generateViewTriggerId(
@@ -761,6 +757,10 @@ export async function listBookmarksViaApi(
   return json.bookmarks ?? [];
 }
 
+/**
+ * Wait until at least one webhook delivery has been recorded, with a small
+ * polling loop to absorb async dispatch timing.
+ */
 export async function waitForDelivery(
   emulator: SlackEmulatorHandle,
   predicate: (
