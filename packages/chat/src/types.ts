@@ -95,15 +95,13 @@ export interface ChatConfig<
    */
   history?: HistoryConfig;
   /**
-   * @deprecated Pass `identity` inside `history.user.identity` instead.
-   * Kept for backward compatibility — still read when `transcripts` is set
-   * without a `history.user` block.
+   * @deprecated Prefer {@link UserHistoryConfig.identity} on `history.user`.
+   * Still read when user history is enabled — the resolver may be provided
+   * here or via `history.user.identity` (preferred); one of the two is required.
    *
    * Resolves a stable cross-platform user key from inbound messages.
-   *
-   * Required when `transcripts` or `history.user` is configured. Called once per inbound
-   * message during dispatch; the result is attached to the Message
-   * instance as `message.userKey` for handlers to use.
+   * Called once per inbound message during dispatch; the result is attached
+   * to the Message instance as `message.userKey` for handlers to use.
    */
   identity?: IdentityResolver;
   /**
@@ -2436,8 +2434,9 @@ export type MemberJoinedChannelHandler = (
 export interface UserHistoryConfig {
   /**
    * Resolves a stable cross-platform user key from inbound messages.
-   * Required when `history.user` is set unless the deprecated top-level
-   * {@link ChatConfig.identity} is also provided.
+   * Preferred location for the identity resolver when using `history.user`.
+   * If omitted, {@link ChatConfig.identity} is used as a migration fallback.
+   * One of the two must be set when user history is enabled.
    */
   identity?: IdentityResolver;
   /** Hard cap; older entries evicted on append. Default 200. */
@@ -2470,7 +2469,8 @@ export interface HistoryConfig {
   /**
    * Cross-platform per-user message persistence.
    * Replaces the top-level `transcripts` config field.
-   * The identity resolver is still provided via {@link ChatConfig.identity}.
+   * Requires an identity resolver via {@link UserHistoryConfig.identity}
+   * (preferred) or the deprecated top-level {@link ChatConfig.identity}.
    */
   user?: UserHistoryConfig;
 }
@@ -2515,8 +2515,9 @@ export interface ThreadHistoryApi {
 export interface ChannelHistoryApi {
   /**
    * Fetch top-level messages in a channel (not thread replies).
-   * Delegates to `adapter.fetchChannelMessages` (or `fetchMessages` as fallback).
-   * @throws if the adapter does not support channel message fetching
+   * Delegates to `adapter.fetchChannelMessages` when available, otherwise
+   * `adapter.fetchMessages`.
+   * @throws if the adapter for the channel ID is not registered
    */
   listMessages(channelId: string, options?: FetchOptions): Promise<FetchResult>;
   /**
@@ -2603,6 +2604,9 @@ export interface IdentityContext {
  */
 export type TranscriptRole = "user" | "assistant" | "system";
 
+/**
+ * @deprecated Use {@link HistoryEntry} instead.
+ */
 export interface TranscriptEntry {
   /** mdast AST. Only present when `transcripts.storeFormatted` is true. */
   formatted?: FormattedContent;
@@ -2634,8 +2638,8 @@ export interface TranscriptEntry {
  */
 export type HistoryEntry = TranscriptEntry;
 
-/** @deprecated Use {@link HistoryEntry} or {@link UserHistoryEntry}. */
-export type UserHistoryEntry = TranscriptEntry;
+/** User-scoped history entry alias — identical to {@link HistoryEntry}. */
+export type UserHistoryEntry = HistoryEntry;
 
 /** Duration shorthand: e.g. `"7d"`, `"30m"`, `"2h"`, `"45s"`. */
 export type DurationString = `${number}${"s" | "m" | "h" | "d"}`;

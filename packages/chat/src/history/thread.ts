@@ -71,12 +71,20 @@ export class ThreadHistoryApiImpl implements ThreadHistoryApi {
     const limit = options?.limit;
     let collected = 0;
 
+    if (limit === 0) {
+      return;
+    }
+
     if (adapter) {
       let cursor: string | undefined;
       let yieldedAny = false;
       do {
+        const remaining = limit !== undefined ? limit - collected : undefined;
+        if (remaining !== undefined && remaining <= 0) {
+          return;
+        }
         const fetchLimit =
-          limit !== undefined ? Math.min(100, limit - collected) : 100;
+          remaining !== undefined ? Math.max(1, Math.min(100, remaining)) : 100;
         const result: FetchResult = await adapter.fetchMessages(threadId, {
           direction: "forward",
           cursor,

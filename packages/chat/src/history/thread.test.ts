@@ -1,6 +1,4 @@
-const NO_THREAD_HISTORY_CACHE_RE = /no ThreadHistoryCache/;
-
-import { beforeEach, describe, expect, it, type Mock, type vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock } from "vitest";
 
 import {
   createMockAdapter,
@@ -10,6 +8,8 @@ import {
 import { ThreadHistoryCache } from "../thread-history";
 import type { Adapter } from "../types";
 import { ThreadHistoryApiImpl } from "./thread";
+
+const NO_THREAD_HISTORY_CACHE_RE = /no ThreadHistoryCache/;
 
 describe("ThreadHistoryApiImpl", () => {
   let mockAdapter: Adapter;
@@ -59,7 +59,7 @@ describe("ThreadHistoryApiImpl", () => {
   it("collect yields adapter messages when available", async () => {
     const m1 = createTestMessage("m1", "one");
     const m2 = createTestMessage("m2", "two");
-    (mockAdapter.fetchMessages as ReturnType<typeof vi.fn>)
+    (mockAdapter.fetchMessages as Mock)
       .mockResolvedValueOnce({ messages: [m1], nextCursor: "c2" })
       .mockResolvedValueOnce({ messages: [m2] });
 
@@ -94,6 +94,16 @@ describe("ThreadHistoryApiImpl", () => {
     const stored = await cache.getMessages("slack:C123:1234.5678");
     expect(stored).toHaveLength(1);
     expect(stored[0]?.text).toBe("stored");
+  });
+
+  it("collect returns immediately when limit is 0", async () => {
+    const collected: string[] = [];
+    for await (const msg of api.collect("slack:C123:1234.5678", { limit: 0 })) {
+      collected.push(msg.text);
+    }
+
+    expect(collected).toEqual([]);
+    expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
   });
 
   it("append throws when no cache was provided", async () => {

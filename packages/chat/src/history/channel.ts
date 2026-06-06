@@ -41,7 +41,7 @@ export class ChannelHistoryApiImpl implements ChannelHistoryApi {
    * `adapter.fetchMessages` for adapters that unify channel and thread
    * addressing (e.g. Discord, Telegram).
    *
-   * @throws if the resolved adapter does not support either method
+   * @throws if the adapter for the channel ID is not registered
    */
   async listMessages(
     channelId: string,

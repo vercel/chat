@@ -1,10 +1,10 @@
-const LIST_THREADS_UNSUPPORTED_RE = /does not implement listThreads/;
-
-import { beforeEach, describe, expect, it, type Mock, type vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock } from "vitest";
 
 import { createMockAdapter, createTestMessage } from "../mock-adapter";
 import type { Adapter } from "../types";
 import { ChannelHistoryApiImpl } from "./channel";
+
+const LIST_THREADS_UNSUPPORTED_RE = /does not implement listThreads/;
 
 describe("ChannelHistoryApiImpl", () => {
   let mockAdapter: Adapter;
@@ -90,7 +90,7 @@ describe("ChannelHistoryApiImpl", () => {
         { id: "slack:C123:3333.4444", rootMessage: root },
       ],
     });
-    (mockAdapter.fetchMessages as ReturnType<typeof vi.fn>).mockImplementation(
+    (mockAdapter.fetchMessages as Mock).mockImplementation(
       async (threadId: string) => ({
         messages: [createTestMessage(`${threadId}-r`, `reply for ${threadId}`)],
       })
