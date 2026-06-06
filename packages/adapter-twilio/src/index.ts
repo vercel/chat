@@ -28,7 +28,13 @@ import {
   type TwilioApiOptions,
   type TwilioMessageResource,
 } from "./api";
-import { cardToTwilioText } from "./cards";
+import { createTwilioContent } from "./api/content";
+import {
+  cardToTwilioRcs,
+  cardToTwilioText,
+  decodeTwilioCallbackData,
+} from "./cards";
+import { isRcsCapableSender } from "./channel";
 import {
   TWILIO_MESSAGE_LIMIT,
   truncateTwilioText,
@@ -66,11 +72,13 @@ export class TwilioAdapter
   protected readonly accountSid?: TwilioAdapterConfig["accountSid"];
   protected readonly apiUrl?: string;
   protected readonly authToken?: TwilioAdapterConfig["authToken"];
+  protected readonly contentApiUrl?: string;
   protected readonly fetch?: TwilioAdapterConfig["fetch"];
   protected readonly formatConverter = new TwilioFormatConverter();
   protected readonly logger: Logger;
   protected readonly messagingServiceSid?: string;
   protected readonly phoneNumber?: string;
+  protected readonly rcsSenderId?: string;
   protected readonly statusCallbackUrl?: string;
   protected readonly webhookUrl?: TwilioAdapterConfig["webhookUrl"];
   protected readonly webhookVerifier?: TwilioAdapterConfig["webhookVerifier"];
@@ -79,11 +87,13 @@ export class TwilioAdapter
     this.accountSid = config.accountSid;
     this.apiUrl = config.apiUrl;
     this.authToken = config.authToken;
+    this.contentApiUrl = config.contentApiUrl;
     this.fetch = config.fetch;
     this.logger = config.logger ?? new ConsoleLogger("info").child("twilio");
     this.messagingServiceSid =
       config.messagingServiceSid ?? process.env.TWILIO_MESSAGING_SERVICE_SID;
     this.phoneNumber = config.phoneNumber ?? process.env.TWILIO_PHONE_NUMBER;
+    this.rcsSenderId = config.rcsSenderId ?? process.env.TWILIO_RCS_SENDER_ID;
     this.statusCallbackUrl = config.statusCallbackUrl;
     this.userName = config.userName ?? "bot";
     this.webhookUrl = config.webhookUrl;
@@ -119,17 +129,72 @@ export class TwilioAdapter
       throw error;
     }
 
-    if (payload.kind !== "text" || !this.chat) {
+    if (!this.chat) {
       return twimlResponse();
+    }
+
+    if (payload.kind === "action") {
+      this.handleButtonAction(payload, options);
+      return twimlResponse();
+    }
+
+    if (payload.kind === "text") {
+      const threadId = this.encodeThreadId({
+        recipient: payload.from,
+        sender: payload.to,
+      });
+      const message = this.parseTwilioTextPayload(payload, threadId);
+      this.chat.processMessage(this, threadId, message, options);
+      return twimlResponse();
+    }
+
+    if (payload.kind === "status") {
+      if (payload.eventType) {
+        this.logger.debug("Twilio status event", {
+          eventType: payload.eventType,
+          messageSid: payload.messageSid,
+          channelPrefix: payload.channelPrefix,
+        });
+      }
+      return twimlResponse();
+    }
+
+    return twimlResponse();
+  }
+
+  protected handleButtonAction(
+    payload: TwilioWebhookPayload & { kind: "action" },
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      return;
     }
 
     const threadId = this.encodeThreadId({
       recipient: payload.from,
       sender: payload.to,
     });
-    const message = this.parseTwilioTextPayload(payload, threadId);
-    this.chat.processMessage(this, threadId, message, options);
-    return twimlResponse();
+
+    const { actionId, value } = decodeTwilioCallbackData(payload.buttonPayload);
+
+    this.chat.processAction(
+      {
+        adapter: this,
+        actionId,
+        value: value ?? payload.buttonText,
+        messageId: payload.messageSid ?? `action:${Date.now()}`,
+        threadId,
+        user: {
+          userId: payload.from,
+          userName: payload.from,
+          fullName: payload.from,
+          isBot: false,
+          isMe: false,
+        },
+        raw: payload,
+      },
+      options
+    );
   }
 
   async postMessage(
@@ -137,6 +202,37 @@ export class TwilioAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<TwilioRawMessage>> {
     const thread = this.decodeThreadId(threadId);
+    const card = extractCard(message);
+
+    if (card && isRcsCapableSender(thread.sender)) {
+      const rcsResult = cardToTwilioRcs(card);
+      if (rcsResult.type === "content") {
+        try {
+          const content = await createTwilioContent({
+            ...this.apiOptions(),
+            contentApiUrl: this.contentApiUrl,
+            contentBody: rcsResult.contentBody,
+          });
+          const raw = await sendTwilioMessage({
+            ...this.apiOptions(),
+            contentSid: content.sid,
+            statusCallbackUrl: this.statusCallbackUrl,
+            to: thread.recipient,
+            ...senderFields(thread.sender),
+          });
+          return {
+            id: raw.sid,
+            raw,
+            threadId: this.threadIdForResource(raw, thread),
+          };
+        } catch (error) {
+          this.logger.warn("RCS content send failed, falling back to text", {
+            error: String(error),
+          });
+        }
+      }
+    }
+
     const body = this.renderPostableText(message);
     const mediaUrl = this.mediaUrls(message);
     if (!body && mediaUrl.length === 0) {
@@ -194,6 +290,12 @@ export class TwilioAdapter
 
   parseMessage(raw: TwilioRawMessage): Message<TwilioRawMessage> {
     if (isTwilioWebhookPayload(raw)) {
+      if (raw.kind === "action") {
+        throw new ValidationError(
+          "twilio",
+          "Cannot parse action webhook as message"
+        );
+      }
       if (raw.kind !== "text") {
         throw new ValidationError("twilio", "Cannot parse unsupported webhook");
       }
@@ -313,8 +415,28 @@ export class TwilioAdapter
     raw: TwilioWebhookPayload & { kind: "text" },
     threadId: string
   ): Message<TwilioRawMessage> {
+    const attachments = raw.media.map((media) => this.twilioAttachment(media));
+
+    if (raw.latitude && raw.longitude) {
+      const locationMeta: Record<string, string> = {
+        latitude: raw.latitude,
+        longitude: raw.longitude,
+      };
+      if (raw.address) {
+        locationMeta.address = raw.address;
+      }
+      if (raw.label) {
+        locationMeta.label = raw.label;
+      }
+      attachments.push({
+        fetchMetadata: locationMeta,
+        type: "file",
+        url: `geo:${raw.latitude},${raw.longitude}`,
+      });
+    }
+
     return new Message({
-      attachments: raw.media.map((media) => this.twilioAttachment(media)),
+      attachments,
       author: this.author(raw.from, false),
       formatted: this.formatConverter.toAst(raw.body),
       id: raw.messageSid ?? `twilio:${Date.now()}`,
@@ -468,7 +590,19 @@ function dateFromTwilio(value: string | null | undefined): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-export { cardToTwilioText } from "./cards";
+export type { TwilioContentBody, TwilioRcsContentResult } from "./cards";
+export {
+  cardToTwilioRcs,
+  cardToTwilioText,
+  decodeTwilioCallbackData,
+  encodeTwilioCallbackData,
+} from "./cards";
+export type { TwilioChannel, TwilioChannelMetadata } from "./channel";
+export {
+  inferTwilioChannel,
+  isRcsAddress,
+  isRcsCapableSender,
+} from "./channel";
 export { TwilioFormatConverter } from "./markdown";
 export type {
   TwilioAdapterConfig,

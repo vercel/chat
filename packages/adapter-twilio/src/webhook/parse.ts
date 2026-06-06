@@ -1,3 +1,4 @@
+import { parseChannelMetadata } from "../channel";
 import type { TwilioMediaPayload, TwilioWebhookPayload } from "./types";
 
 export function parseTwilioWebhookBody(
@@ -9,10 +10,15 @@ export function parseTwilioWebhookBody(
   const to = value(params, "To");
   const messageSid =
     value(params, "MessageSid") ?? value(params, "SmsMessageSid");
+  const channelMetadata = parseChannelMetadata(
+    value(params, "ChannelMetadata")
+  );
 
   if (status && !body) {
     return {
       accountSid: value(params, "AccountSid"),
+      channelPrefix: value(params, "ChannelPrefix"),
+      eventType: value(params, "EventType"),
       from,
       kind: "status",
       messageSid,
@@ -22,16 +28,42 @@ export function parseTwilioWebhookBody(
     };
   }
 
+  const buttonPayload = value(params, "ButtonPayload");
+  if (from && to && buttonPayload) {
+    return {
+      accountSid: value(params, "AccountSid"),
+      buttonPayload,
+      buttonText: value(params, "ButtonText"),
+      channelMetadata,
+      from,
+      kind: "action",
+      messageSid,
+      raw: params,
+      to,
+    };
+  }
+
+  const hasLocation =
+    value(params, "Latitude") !== undefined &&
+    value(params, "Longitude") !== undefined;
+
   if (
     from &&
     to &&
-    (body !== undefined || Number(value(params, "NumMedia") ?? 0) > 0)
+    (body !== undefined ||
+      Number(value(params, "NumMedia") ?? 0) > 0 ||
+      hasLocation)
   ) {
     return {
       accountSid: value(params, "AccountSid"),
+      address: value(params, "Address"),
       body: body ?? "",
+      channelMetadata,
       from,
       kind: "text",
+      label: value(params, "Label"),
+      latitude: value(params, "Latitude"),
+      longitude: value(params, "Longitude"),
       media: mediaPayloads(params),
       messageSid,
       raw: params,

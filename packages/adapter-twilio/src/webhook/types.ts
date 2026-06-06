@@ -31,9 +31,25 @@ export interface TwilioVerifiedRequest {
 
 export interface TwilioTextPayload {
   accountSid?: string;
+  address?: string;
   body: string;
+  channelMetadata?: import("../channel").TwilioChannelMetadata;
   from: string;
+  label?: string;
+  latitude?: string;
+  longitude?: string;
   media: TwilioMediaPayload[];
+  messageSid?: string;
+  raw: URLSearchParams;
+  to: string;
+}
+
+export interface TwilioActionPayload {
+  accountSid?: string;
+  buttonPayload: string;
+  buttonText?: string;
+  channelMetadata?: import("../channel").TwilioChannelMetadata;
+  from: string;
   messageSid?: string;
   raw: URLSearchParams;
   to: string;
@@ -41,6 +57,8 @@ export interface TwilioTextPayload {
 
 export interface TwilioStatusPayload {
   accountSid?: string;
+  channelPrefix?: string;
+  eventType?: string;
   from?: string;
   messageSid?: string;
   messageStatus: string;
@@ -59,6 +77,7 @@ export interface TwilioMediaPayload {
 }
 
 export type TwilioWebhookPayload =
+  | ({ kind: "action" } & TwilioActionPayload)
   | ({ kind: "status" } & TwilioStatusPayload)
   | ({ kind: "text" } & TwilioTextPayload)
   | TwilioUnsupportedPayload;
