@@ -1,3 +1,5 @@
+[![Telegram adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/telegram/og)](https://chat-sdk.dev/adapters/official/telegram)
+
 # @chat-adapter/telegram
 
 > npm package: [`@chat-adapter/telegram`](https://www.npmjs.com/package/@chat-adapter/telegram)

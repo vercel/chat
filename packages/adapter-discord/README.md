@@ -1,3 +1,5 @@
+[![Discord adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/discord/og)](https://chat-sdk.dev/adapters/official/discord)
+
 # @chat-adapter/discord
 
 > npm package: [`@chat-adapter/discord`](https://www.npmjs.com/package/@chat-adapter/discord)

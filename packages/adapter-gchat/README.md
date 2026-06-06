@@ -1,3 +1,5 @@
+[![Google Chat adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/google-chat/og)](https://chat-sdk.dev/adapters/official/google-chat)
+
 # @chat-adapter/gchat
 
 > npm package: [`@chat-adapter/gchat`](https://www.npmjs.com/package/@chat-adapter/gchat)

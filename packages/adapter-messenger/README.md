@@ -1,3 +1,5 @@
+[![Facebook Messenger adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/messenger/og)](https://chat-sdk.dev/adapters/official/messenger)
+
 # @chat-adapter/messenger
 
 > npm package: [`@chat-adapter/messenger`](https://www.npmjs.com/package/@chat-adapter/messenger)

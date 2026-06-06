@@ -1,3 +1,5 @@
+[![Linear adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/linear/og)](https://chat-sdk.dev/adapters/official/linear)
+
 # @chat-adapter/linear
 
 > npm package: [`@chat-adapter/linear`](https://www.npmjs.com/package/@chat-adapter/linear)

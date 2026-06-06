@@ -1,3 +1,5 @@
+[![WhatsApp Business Cloud adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/whatsapp/og)](https://chat-sdk.dev/adapters/official/whatsapp)
+
 # @chat-adapter/whatsapp
 
 > npm package: [`@chat-adapter/whatsapp`](https://www.npmjs.com/package/@chat-adapter/whatsapp)

@@ -1,3 +1,5 @@
+[![GitHub adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/github/og)](https://chat-sdk.dev/adapters/official/github)
+
 # @chat-adapter/github
 
 > npm package: [`@chat-adapter/github`](https://www.npmjs.com/package/@chat-adapter/github)

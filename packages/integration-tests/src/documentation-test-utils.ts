@@ -33,6 +33,21 @@ export const SHARED_STATE_ADAPTER_KEYWORDS = [
 
 export const PRODUCTION_STATE_ADAPTER_KEYWORDS = ["queues"] as const;
 
+export const getOfficialPlatformAdapterSlug = (
+  dirName: string
+): string | undefined => {
+  if (!dirName.startsWith("adapter-") || dirName === "adapter-shared") {
+    return undefined;
+  }
+
+  return dirName === "adapter-gchat"
+    ? "google-chat"
+    : dirName.slice("adapter-".length);
+};
+
+export const getOfficialPlatformOgImageUrl = (slug: string): string =>
+  `${CHAT_SDK_HOMEPAGE}/en/adapters/official/${slug}/og`;
+
 export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "chat") {
     return `${CHAT_SDK_HOMEPAGE}/docs`;
@@ -49,10 +64,12 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
     return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
   }
   if (dirName.startsWith("adapter-")) {
-    const slug =
-      dirName === "adapter-gchat"
-        ? "google-chat"
-        : dirName.slice("adapter-".length);
+    const slug = getOfficialPlatformAdapterSlug(dirName);
+    if (!slug) {
+      throw new Error(
+        `No homepage convention for package "${name}" (${dirName})`
+      );
+    }
     return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
   }
   throw new Error(`No homepage convention for package "${name}" (${dirName})`);

@@ -1,3 +1,5 @@
+[![Microsoft Teams adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/teams/og)](https://chat-sdk.dev/adapters/official/teams)
+
 # @chat-adapter/teams
 
 > npm package: [`@chat-adapter/teams`](https://www.npmjs.com/package/@chat-adapter/teams)

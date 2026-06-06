@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
@@ -12,6 +12,7 @@ const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/;
 const FIELD_LINE = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(.*)$/;
 const NEWLINE = /\r?\n/;
 const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
+const OG_IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
 
 interface Frontmatter {
   fields: Record<string, string>;
@@ -191,6 +192,65 @@ describe("Official adapter MDX", () => {
       });
     });
   }
+});
+
+describe("Official platform adapter OG images", () => {
+  const OFFICIAL_PLATFORM_OG_DIR = join(OFFICIAL_DIR, "og");
+  const OG_IMAGE_EXTENSIONS = ["png", "jpg", "webp"] as const;
+
+  const hasOgImage = (slug: string): boolean =>
+    OG_IMAGE_EXTENSIONS.some((ext) =>
+      existsSync(join(OFFICIAL_PLATFORM_OG_DIR, `${slug}.${ext}`))
+    );
+
+  const platformAdapters = loadAdapterMdx(OFFICIAL_DIR, "official").filter(
+    (adapter) => adapter.frontmatter.fields.type === "platform"
+  );
+
+  it("contains the expected platform adapters", () => {
+    expect(platformAdapters.map((adapter) => adapter.slug).sort()).toEqual(
+      [
+        "discord",
+        "github",
+        "google-chat",
+        "linear",
+        "messenger",
+        "slack",
+        "teams",
+        "telegram",
+        "twilio",
+        "web",
+        "whatsapp",
+      ].sort()
+    );
+  });
+
+  for (const adapter of platformAdapters) {
+    it(`${adapter.slug} has a custom OG image`, () => {
+      expect(
+        hasOgImage(adapter.slug),
+        `${adapter.slug}: expected OG image at content/adapters/official/og/${adapter.slug}.{png,jpg,webp}`
+      ).toBe(true);
+    });
+  }
+
+  it("does not include OG images for unknown platform slugs", () => {
+    if (!existsSync(OFFICIAL_PLATFORM_OG_DIR)) {
+      return;
+    }
+
+    const platformSlugs = new Set(
+      platformAdapters.map((adapter) => adapter.slug)
+    );
+
+    for (const fileName of readdirSync(OFFICIAL_PLATFORM_OG_DIR)) {
+      const slug = fileName.replace(OG_IMAGE_EXTENSION, "");
+      expect(
+        platformSlugs.has(slug),
+        `Unexpected OG image "${fileName}" — no matching platform adapter`
+      ).toBe(true);
+    }
+  });
 });
 
 describe("adapters.json registry", () => {

@@ -1,3 +1,5 @@
+[![Slack adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/slack/og)](https://chat-sdk.dev/adapters/official/slack)
+
 # @chat-adapter/slack
 
 > npm package: [`@chat-adapter/slack`](https://www.npmjs.com/package/@chat-adapter/slack)

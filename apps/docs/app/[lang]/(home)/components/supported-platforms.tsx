@@ -9,6 +9,7 @@ import {
   slack,
   teams,
   telegram,
+  twilio,
   whatsapp,
 } from "@/lib/logos";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ const platforms: {
   { icon: gchat, name: "Google Chat", slug: "google-chat" },
   { icon: discord, name: "Discord", slug: "discord" },
   { icon: whatsapp, name: "WhatsApp", slug: "whatsapp" },
+  { icon: twilio, name: "Twilio", slug: "twilio" },
   { icon: messenger, name: "Messenger", slug: "messenger" },
   { icon: github, name: "GitHub", slug: "github" },
   { icon: linear, name: "Linear", slug: "linear" },

@@ -1,3 +1,5 @@
+[![Web adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/web/og)](https://chat-sdk.dev/adapters/official/web)
+
 # @chat-adapter/web
 
 > npm package: [`@chat-adapter/web`](https://www.npmjs.com/package/@chat-adapter/web)

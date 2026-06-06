@@ -1,3 +1,5 @@
+[![Twilio adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/twilio/og)](https://chat-sdk.dev/adapters/official/twilio)
+
 # @chat-adapter/twilio
 
 > npm package: [`@chat-adapter/twilio`](https://www.npmjs.com/package/@chat-adapter/twilio)
