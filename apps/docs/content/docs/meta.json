@@ -15,6 +15,7 @@
     "---Adapters---",
     "adapters",
     "slack-primitives",
+    "teams-primitives",
     "state",
     "---Messaging---",
     "streaming",
