@@ -178,25 +178,25 @@ describe("Slack emulator: chat.postMessage round-trip", () => {
     expect(replies).toHaveLength(0);
   });
 
-  it("sends markdown via the markdown_text channel", async () => {
+  it("sends an ephemeral message via chat.postEphemeral", async () => {
     await setupChat();
 
     chat.onNewMention(async (thread) => {
-      await thread.post({ markdown: "**bold** and _italic_" });
+      await thread.postEphemeral(emulator.humanUserId, "only you see this", {
+        fallbackToDM: false,
+      });
     });
 
     const threadTs = "1700000000.000005";
     await deliverMention(threadTs);
 
-    // The emulator only stores `text`, but Slack allows posts that have a
-    // markdown_text body and an empty plain text. Verify the post landed at
-    // all (any new message in the channel) so the round-trip succeeded.
-    const replies = emulator.slackStore.messages
+    const ephemeral = emulator.slackStore.ephemeralMessages
       .all()
       .filter(
         (m) =>
-          m.channel_id === emulator.channelId && m.user === EMULATOR_BOT_USER_ID
+          m.channel_id === emulator.channelId &&
+          m.target_user === emulator.humanUserId
       );
-    expect(replies.length).toBeGreaterThan(0);
+    expect(ephemeral.map((m) => m.text)).toEqual(["only you see this"]);
   });
 });

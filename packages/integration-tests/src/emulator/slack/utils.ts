@@ -179,6 +179,13 @@ const BOT_TOKEN_SCOPES = [
   "chat:write",
   "channels:read",
   "channels:history",
+  "channels:join",
+  "bookmarks:read",
+  "bookmarks:write",
+  "files:write",
+  "im:read",
+  "im:history",
+  "im:write",
   "users:read",
   "reactions:read",
   "reactions:write",
@@ -576,9 +583,184 @@ export async function postAsHuman(
 }
 
 /**
+ * Add a reaction as the seeded human user. Dispatches `reaction_added` when
+ * the emulator webhook forwarder is registered.
+ */
+export async function addReactionAsHuman(
+  emulator: SlackEmulatorHandle,
+  options: {
+    channel: string;
+    name: string;
+    timestamp: string;
+  }
+): Promise<void> {
+  const response = await fetch(`${emulator.apiUrl}reactions.add`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${emulator.humanUserToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel: options.channel,
+      name: options.name,
+      timestamp: options.timestamp,
+    }),
+  });
+  const json = (await response.json()) as { error?: string; ok: boolean };
+  if (!json.ok) {
+    throw new Error(`emulator reactions.add failed: ${JSON.stringify(json)}`);
+  }
+}
+
+/**
  * Wait until at least one webhook delivery has been recorded, with a small
  * polling loop to absorb async dispatch timing.
  */
+/**
+ * Obtain a single-use trigger id for `views.open` / `views.push`.
+ */
+export async function generateViewTriggerId(
+  emulator: SlackEmulatorHandle,
+  options: { userId?: string; viewId?: string } = {}
+): Promise<{ expiresAt: number; triggerId: string }> {
+  const response = await fetch(`${emulator.apiUrl}views.generateTriggerId`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${emulator.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      user_id: options.userId ?? emulator.humanUserId,
+      ...(options.viewId ? { view_id: options.viewId } : {}),
+    }),
+  });
+  const json = (await response.json()) as {
+    error?: string;
+    expires_at?: number;
+    ok: boolean;
+    trigger_id?: string;
+  };
+  if (!(json.ok && json.trigger_id)) {
+    throw new Error(
+      `emulator views.generateTriggerId failed: ${JSON.stringify(json)}`
+    );
+  }
+  return {
+    triggerId: json.trigger_id,
+    expiresAt: json.expires_at ?? 0,
+  };
+}
+
+/**
+ * Join a channel as the seeded bot user via `conversations.join`.
+ * Dispatches `member_joined_channel` when the webhook forwarder is active.
+ */
+export async function joinChannelAsBot(
+  emulator: SlackEmulatorHandle,
+  channelId: string
+): Promise<void> {
+  const response = await fetch(`${emulator.apiUrl}conversations.join`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${emulator.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel: channelId }),
+  });
+  const json = (await response.json()) as { error?: string; ok: boolean };
+  if (!json.ok) {
+    throw new Error(
+      `emulator conversations.join failed: ${JSON.stringify(json)}`
+    );
+  }
+}
+
+/**
+ * Seed a public channel that only contains the human user (bot not yet joined).
+ */
+export function seedChannelWithoutBot(
+  emulator: SlackEmulatorHandle,
+  options: { channelId: string; name: string }
+): void {
+  const now = Math.floor(Date.now() / 1000);
+  emulator.slackStore.channels.insert({
+    channel_id: options.channelId,
+    team_id: emulator.teamId,
+    name: options.name,
+    is_channel: true,
+    is_private: false,
+    is_archived: false,
+    topic: {
+      value: "",
+      creator: emulator.humanUserId,
+      last_set: now,
+    },
+    purpose: {
+      value: "",
+      creator: emulator.humanUserId,
+      last_set: now,
+    },
+    members: [emulator.humanUserId],
+    creator: emulator.humanUserId,
+    num_members: 1,
+  });
+}
+
+export async function addBookmarkViaApi(
+  emulator: SlackEmulatorHandle,
+  options: {
+    channelId: string;
+    link: string;
+    title: string;
+  }
+): Promise<{ bookmarkId: string }> {
+  const response = await fetch(`${emulator.apiUrl}bookmarks.add`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${emulator.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel_id: options.channelId,
+      type: "link",
+      title: options.title,
+      link: options.link,
+    }),
+  });
+  const json = (await response.json()) as {
+    bookmark?: { id?: string };
+    error?: string;
+    ok: boolean;
+  };
+  if (!(json.ok && json.bookmark?.id)) {
+    throw new Error(`emulator bookmarks.add failed: ${JSON.stringify(json)}`);
+  }
+  return { bookmarkId: json.bookmark.id };
+}
+
+export async function listBookmarksViaApi(
+  emulator: SlackEmulatorHandle,
+  channelId: string
+): Promise<Array<{ id: string; link: string; title: string }>> {
+  const response = await fetch(`${emulator.apiUrl}bookmarks.list`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${emulator.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel_id: channelId }),
+  });
+  const json = (await response.json()) as {
+    bookmarks?: Array<{ id: string; link: string; title: string }>;
+    error?: string;
+    ok: boolean;
+  };
+  if (!json.ok) {
+    throw new Error(`emulator bookmarks.list failed: ${JSON.stringify(json)}`);
+  }
+  return json.bookmarks ?? [];
+}
+
 export async function waitForDelivery(
   emulator: SlackEmulatorHandle,
   predicate: (

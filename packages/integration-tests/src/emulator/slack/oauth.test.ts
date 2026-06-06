@@ -23,6 +23,7 @@ import {
 } from "./utils";
 
 const BOT_TOKEN_PATTERN = /^xoxb-/;
+const BOT_USER_ID_PATTERN = /^U[A-Z0-9]+$/;
 const INVALID_CODE_PATTERN = /invalid_code/;
 const INVALID_CLIENT_ID_PATTERN = /invalid_client_id/;
 
@@ -114,7 +115,12 @@ describe("Slack emulator: OAuth v2 install flow", () => {
 
     expect(result.teamId).toBe(emulator.teamId);
     expect(result.installation.botToken).toMatch(BOT_TOKEN_PATTERN);
-    expect(result.installation.botUserId).toBe(emulator.humanUserId);
+    expect(result.installation.botUserId).toMatch(BOT_USER_ID_PATTERN);
+    const botUser = emulator.slackStore.users.findOneBy(
+      "user_id",
+      result.installation.botUserId
+    );
+    expect(botUser?.is_bot).toBe(true);
     expect(result.installation.teamName).toBe(emulator.teamName);
 
     // The installation is observable via the adapter's getInstallation helper,

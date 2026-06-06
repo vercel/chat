@@ -710,14 +710,14 @@ importers:
         version: 0.37.120
     devDependencies:
       '@emulators/core':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@emulators/github':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@emulators/slack':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@hono/node-server':
         specifier: ^2.0.2
         version: 2.0.2(hono@4.12.18)
@@ -1233,14 +1233,14 @@ packages:
   '@emnapi/wasi-threads@1.1.0':
     resolution: {integrity: sha512-WI0DdZ8xFSbgMjR1sFsKABJ/C5OnRrjT06JXbZKexJGrDuPTzZdDYfFlsgcCXCyf+suG5QU2e/y1Wo2V/OapLQ==}
 
-  '@emulators/core@0.5.0':
-    resolution: {integrity: sha512-GCWKlCJCso4ZlVtnfLHY+k2M+SOhtE8NyZ+fkb51N2ZBhniH046tw46vJXCRQE9YjYGoaSrrpzAatcpov35wnQ==}
+  '@emulators/core@0.6.0':
+    resolution: {integrity: sha512-HFGyF4yA3NoUCYq/5lg7YNXx5Cfaz8oMUz5gfJ/8X+tFdZbi2oKAmQoAzfXV9kiAUWvXlkiahZ1EZDpxeC36gA==}
 
-  '@emulators/github@0.5.0':
-    resolution: {integrity: sha512-LgaEoFJca2gs1p19y3KbAyjhoWdM082jaV7P8CXOv8oS6SKtBDZlfrDi8Uv1ChkOFaQ0r+fv/JfltQSSjc8gjA==}
+  '@emulators/github@0.6.0':
+    resolution: {integrity: sha512-12mpVv8gUrYcAAfohFDLlPWA4y2OoZVWgPbLCabULL9P6D6dzRi4Ik/JyZ1Kc3ryLwUSWmCm6VqVjY1YvVnOvQ==}
 
-  '@emulators/slack@0.5.0':
-    resolution: {integrity: sha512-PqacsHNQDKfgl1vA5e4waeGIoI0uhOr40+nos8cKX0S6YGEXF8vbrMriINlbC6I3GLwSlfO23P1gt6L3AIfHDg==}
+  '@emulators/slack@0.6.0':
+    resolution: {integrity: sha512-zXrrYFdwFczRO4+BdZmmuWWtwJkI62B7BEy0+E7ddpXOTditaGKzM3Aso8xm/YbRsypkdLfZ/q48RjIfSkxf5Q==}
 
   '@esbuild/aix-ppc64@0.27.2':
     resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
@@ -8865,20 +8865,17 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@emulators/core@0.5.0':
+  '@emulators/core@0.6.0':
     dependencies:
-      hono: 4.12.18
       jose: 6.2.3
 
-  '@emulators/github@0.5.0':
+  '@emulators/github@0.6.0':
     dependencies:
-      '@emulators/core': 0.5.0
-      hono: 4.12.18
+      '@emulators/core': 0.6.0
 
-  '@emulators/slack@0.5.0':
+  '@emulators/slack@0.6.0':
     dependencies:
-      '@emulators/core': 0.5.0
-      hono: 4.12.18
+      '@emulators/core': 0.6.0
 
   '@esbuild/aix-ppc64@0.27.2':
     optional: true
