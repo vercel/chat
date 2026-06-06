@@ -104,13 +104,19 @@ export function parseTeamsInputResponse(
     return null;
   }
   const requestId = action.actionId.slice(TEAMS_INPUT_ACTION_PREFIX.length);
-  const value =
+  const inputActionId = `${TEAMS_INPUT_ACTION_PREFIX}${requestId}`;
+  const optionId =
     typeof action.value === "string"
       ? action.value
+      : readStringValue(action.value, inputActionId);
+  const freeformValue =
+    typeof action.value === "string"
+      ? undefined
       : readStringValue(action.value, TEAMS_FREEFORM_ACTION_ID);
 
   return {
-    ...(value ? { optionId: value, value } : {}),
+    ...(optionId ? { optionId, value: optionId } : {}),
+    ...(freeformValue ? { value: freeformValue } : {}),
     requestId,
   };
 }

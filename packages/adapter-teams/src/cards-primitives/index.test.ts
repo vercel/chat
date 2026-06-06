@@ -82,4 +82,60 @@ describe("Teams card primitives", () => {
       })
     ).toEqual({ optionId: "approve", requestId: "deploy", value: "approve" });
   });
+
+  it.each([
+    "radio",
+    "select",
+  ] as const)("parses %s input values submitted under the action id", (display) => {
+    const card = inputRequestToTeamsAdaptiveCard({
+      display,
+      options: [{ id: "approve", label: "Approve" }],
+      prompt: "Approve?",
+      requestId: "deploy",
+    });
+
+    expect(card.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "input:deploy",
+          style: display === "radio" ? "expanded" : "compact",
+          type: "Input.ChoiceSet",
+        }),
+      ])
+    );
+    expect(
+      parseTeamsInputResponse({
+        actionId: "input:deploy",
+        value: { "input:deploy": "approve" },
+      })
+    ).toEqual({
+      optionId: "approve",
+      requestId: "deploy",
+      value: "approve",
+    });
+  });
+
+  it("parses freeform text submitted under the freeform input id", () => {
+    const card = inputRequestToTeamsAdaptiveCard({
+      allowFreeform: true,
+      options: [{ id: "approve", label: "Approve" }],
+      prompt: "Approve or explain?",
+      requestId: "deploy",
+    });
+
+    expect(card.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "input-freeform",
+          type: "Input.Text",
+        }),
+      ])
+    );
+    expect(
+      parseTeamsInputResponse({
+        actionId: "input:deploy",
+        value: { "input-freeform": "Needs more testing" },
+      })
+    ).toEqual({ requestId: "deploy", value: "Needs more testing" });
+  });
 });

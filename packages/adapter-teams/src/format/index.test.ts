@@ -35,6 +35,14 @@ describe("Teams format primitives", () => {
     expect(markdownToTeamsHtml("**Ship** [now](https://example.com)")).toBe(
       '<strong>Ship</strong> <a href="https://example.com">now</a>'
     );
+    expect(markdownToTeamsHtml("[email](mailto:ada@example.com)")).toBe(
+      '<a href="mailto:ada@example.com">email</a>'
+    );
+  });
+
+  it("renders unsafe Markdown links as plain text", () => {
+    expect(markdownToTeamsHtml("[bad](javascript:alert)")).toBe("bad");
+    expect(markdownToTeamsHtml("[relative](/internal)")).toBe("relative");
   });
 
   it("converts common emoji placeholders", () => {

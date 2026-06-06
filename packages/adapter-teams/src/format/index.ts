@@ -1,4 +1,5 @@
 const HTML_ESCAPE_PATTERN = /[&<>"]/g;
+const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g;
 const TEAMS_MENTION_PATTERN = /<at\b[^>]*>(.*?)<\/at>/gis;
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -14,6 +15,7 @@ const EMOJI_PLACEHOLDERS: Record<string, string> = {
   ":white_check_mark:": "✅",
   ":x:": "❌",
 };
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 export function escapeTeamsText(text: string): string {
   return text.replace(
@@ -64,7 +66,9 @@ export function markdownToTeamsHtml(markdown: string): string {
     .replace(/_(.*?)_/g, "<em>$1</em>")
     .replace(/~~(.*?)~~/g, "<s>$1</s>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    .replace(MARKDOWN_LINK_PATTERN, (_match, label: string, href: string) =>
+      safeLinkHref(href) ? `<a href="${href}">${label}</a>` : label
+    )
     .replace(/\n/g, "<br>");
 }
 
@@ -78,4 +82,12 @@ export function convertTeamsEmojiPlaceholders(text: string): string {
 
 function stripTags(text: string): string {
   return text.replace(/<[^>]+>/g, "");
+}
+
+function safeLinkHref(href: string): boolean {
+  try {
+    return SAFE_LINK_PROTOCOLS.has(new URL(href).protocol);
+  } catch {
+    return false;
+  }
 }
