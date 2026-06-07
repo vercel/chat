@@ -12,7 +12,7 @@ export async function downloadGoogleChatMedia(
   const fetchImpl = options.fetch ?? fetch;
   const accessToken = await resolveGoogleChatAccessToken(options);
   const apiUrl = options.apiUrl ?? "https://chat.googleapis.com/v1";
-  const url = `${apiUrl.replace(TRAILING_SLASH_PATTERN, "")}/media/${encodeURIComponent(resourceName)}?alt=media`;
+  const url = `${apiUrl.replace(TRAILING_SLASH_PATTERN, "")}/media/${encodeGoogleChatResourceName(resourceName)}?alt=media`;
   const response = await fetchImpl(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -24,4 +24,8 @@ export async function downloadGoogleChatMedia(
   }
 
   return response.arrayBuffer();
+}
+
+function encodeGoogleChatResourceName(resourceName: string): string {
+  return resourceName.split("/").map(encodeURIComponent).join("/");
 }

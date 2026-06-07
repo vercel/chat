@@ -181,6 +181,8 @@ await createGoogleChatMessage(
 
 Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/gchat/cards` when you are building a Google Chat-only runtime and want Card v2 output directly.
 
+Button `actionId` values become the Card v2 `action.function` handler names. If a button does not have an `actionId`, pass `defaultFunction` to `cardToGoogleChatCard`; it should be a handler/function identifier, not a webhook URL.
+
 ## Inputs
 
 The cards subpath can also create simple input-request cards and parse submitted form inputs.

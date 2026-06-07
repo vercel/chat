@@ -13,6 +13,8 @@ export class GoogleChatThreadIdError extends Error {
   }
 }
 
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 /**
  * Encode platform-specific data into a Chat SDK thread ID.
  * Format: `gchat:{spaceName}:{base64url(threadName)}:{dm}`.
@@ -41,7 +43,7 @@ export function decodeThreadId(threadId: string): GoogleChatThreadId {
   }
 
   const threadName = parts[2]
-    ? Buffer.from(parts[2], "base64url").toString("utf-8")
+    ? decodeThreadNamePart(parts[2], threadId)
     : undefined;
 
   return { spaceName, threadName, isDM };
@@ -50,4 +52,17 @@ export function decodeThreadId(threadId: string): GoogleChatThreadId {
 /** Check whether a Google Chat thread ID marks a direct message conversation. */
 export function isDMThread(threadId: string): boolean {
   return threadId.endsWith(":dm");
+}
+
+function decodeThreadNamePart(encoded: string, threadId: string): string {
+  if (!BASE64URL_PATTERN.test(encoded)) {
+    throw new GoogleChatThreadIdError(threadId);
+  }
+
+  const decoded = Buffer.from(encoded, "base64url").toString("utf-8");
+  if (Buffer.from(decoded).toString("base64url") !== encoded) {
+    throw new GoogleChatThreadIdError(threadId);
+  }
+
+  return decoded;
 }

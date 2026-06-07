@@ -37,4 +37,13 @@ describe("Google Chat thread-id primitives", () => {
   it("throws a local error for invalid IDs", () => {
     expect(() => decodeThreadId("slack:C:T")).toThrow(GoogleChatThreadIdError);
   });
+
+  it("throws for malformed base64url thread names", () => {
+    expect(() => decodeThreadId("gchat:spaces/AAAA:not-valid$")).toThrow(
+      GoogleChatThreadIdError
+    );
+    expect(() => decodeThreadId("gchat:spaces/AAAA:abc")).toThrow(
+      GoogleChatThreadIdError
+    );
+  });
 });

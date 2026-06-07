@@ -70,6 +70,29 @@ describe("Google Chat card primitives", () => {
     ).toBe("Title\nBody");
   });
 
+  it("uses defaultFunction as a handler name only when actionId is missing", () => {
+    const card = cardToGoogleChatCard(
+      {
+        children: [
+          {
+            children: [
+              { label: "Fallback", type: "button" },
+              { actionId: "approve", label: "Approve", type: "button" },
+            ],
+            type: "actions",
+          },
+        ],
+      },
+      { defaultFunction: "handleCardAction" }
+    );
+
+    expect(
+      card.card.sections[0]?.widgets[0]?.buttonList?.buttons.map(
+        (button) => button.onClick.action?.function
+      )
+    ).toEqual(["handleCardAction", "approve"]);
+  });
+
   it("builds and parses select input requests", () => {
     const card = inputRequestToGoogleChatCard({
       options: [{ label: "Yes", value: "yes" }],

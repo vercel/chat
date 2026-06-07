@@ -33,7 +33,8 @@ export const GOOGLE_CHAT_FREEFORM_INPUT_ID = "input-freeform";
 
 export interface GoogleChatCardOptions {
   cardId?: string;
-  endpointUrl?: string;
+  /** Default Card v2 action.function value when a button has no actionId. */
+  defaultFunction?: string;
 }
 
 export interface GoogleChatInputResponse {
@@ -46,7 +47,7 @@ export function cardToGoogleChatCard(
   options: GoogleChatCardOptions = {}
 ): GoogleChatCard {
   const widgets = card.children.flatMap((child) =>
-    elementToWidgets(child, options.endpointUrl)
+    elementToWidgets(child, options.defaultFunction)
   );
   const sections =
     widgets.length > 0
@@ -166,14 +167,14 @@ export function parseGoogleChatInputResponse(
 
 function elementToWidgets(
   element: GoogleChatCardElement,
-  endpointUrl?: string
+  defaultFunction?: string
 ): GoogleChatWidget[] {
   switch (element.type) {
     case "text":
       return [{ textParagraph: { text: element.text } }];
     case "section":
       return element.children.flatMap((child) =>
-        elementToWidgets(child, endpointUrl)
+        elementToWidgets(child, defaultFunction)
       );
     case "actions": {
       const buttons = element.children.filter(
@@ -192,7 +193,7 @@ function elementToWidgets(
         {
           buttonList: {
             buttons: buttons.map((button) =>
-              buttonToGoogleChatButton(button, endpointUrl)
+              buttonToGoogleChatButton(button, defaultFunction)
             ),
           },
         },
@@ -221,7 +222,7 @@ function elementToWidgets(
       return [
         {
           buttonList: {
-            buttons: [buttonToGoogleChatButton(element, endpointUrl)],
+            buttons: [buttonToGoogleChatButton(element, defaultFunction)],
           },
         },
       ];
@@ -271,7 +272,7 @@ function isGoogleChatEvent(
 
 function buttonToGoogleChatButton(
   button: Extract<GoogleChatCardElement, { type: "button" }>,
-  endpointUrl?: string
+  defaultFunction?: string
 ): GoogleChatButton {
   if (button.url) {
     return {
@@ -283,7 +284,7 @@ function buttonToGoogleChatButton(
   return {
     onClick: {
       action: {
-        function: endpointUrl ?? button.actionId ?? button.label,
+        function: button.actionId ?? defaultFunction ?? button.label,
         parameters: [
           ...(button.actionId
             ? [{ key: "actionId", value: button.actionId }]

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createGoogleChatMessage,
   deleteGoogleChatReaction,
+  downloadGoogleChatMedia,
   findGoogleChatDirectMessage,
   GoogleChatApiError,
   listGoogleChatMessages,
@@ -86,5 +87,22 @@ describe("Google Chat API primitives", () => {
         parent: "spaces/AAAA",
       })
     ).rejects.toBeInstanceOf(GoogleChatApiError);
+  });
+
+  it("preserves slashes when downloading media resource names", async () => {
+    const fetchMock = vi.fn(async () => new Response("file"));
+
+    await downloadGoogleChatMedia(
+      "spaces/AAAA/messages/msg 1/attachments/file/name",
+      {
+        accessToken: "token",
+        fetch: fetchMock as typeof fetch,
+      }
+    );
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain(
+      "/media/spaces/AAAA/messages/msg%201/attachments/file/name?alt=media"
+    );
   });
 });

@@ -23,15 +23,24 @@ describe("Google Chat format primitives", () => {
 
   it("neutralizes unsafe links", () => {
     expect(formatGoogleChatLink("javascript:alert(1)", "bad")).toBe("bad");
-    expect(markdownToGoogleChat("[bad](javascript:alert(1))")).toBe("bad)");
+    expect(markdownToGoogleChat("[bad](javascript:alert(1))")).toBe("bad");
+  });
+
+  it("converts markdown links with balanced and escaped URL parentheses", () => {
+    expect(
+      markdownToGoogleChat("[docs](https://example.com/path(foo)/bar)")
+    ).toBe("<https://example.com/path(foo)/bar|docs>");
+    expect(
+      markdownToGoogleChat("[docs](https://example.com/path\\(foo\\)/bar)")
+    ).toBe("<https://example.com/path(foo)/bar|docs>");
   });
 
   it("converts a markdown subset to Google Chat format", () => {
     expect(
       markdownToGoogleChat(
-        "**bold** _italic_ ~~strike~~ [site](https://example.com)"
+        "**bold** __also bold__ _italic_ ~~strike~~ [site](https://example.com)"
       )
-    ).toBe("*bold* _italic_ ~strike~ <https://example.com|site>");
+    ).toBe("*bold* *also bold* _italic_ ~strike~ <https://example.com|site>");
   });
 
   it("converts Google Chat format to markdown", () => {
