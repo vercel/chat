@@ -13,6 +13,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./cards": {
+      "types": "./dist/cards.d.ts",
+      "import": "./dist/cards.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
+    "./thread-id": {
+      "types": "./dist/thread-id.d.ts",
+      "import": "./dist/thread-id.js"
+    },
+    "./webhook": {
+      "types": "./dist/webhook.d.ts",
+      "import": "./dist/webhook.js"
+    },
+    "./workspace-events": {
+      "types": "./dist/workspace-events.d.ts",
+      "import": "./dist/workspace-events.js"
     }
   },
   "files": [
