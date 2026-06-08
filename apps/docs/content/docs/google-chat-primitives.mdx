@@ -1,0 +1,262 @@
+---
+title: Google Chat Low-Level APIs
+description: Use Google Chat webhook, REST API, format, Card v2, thread ID, and Workspace Events helpers without the full Chat runtime.
+type: guide
+prerequisites:
+  - /adapters/official/google-chat
+related:
+  - /docs/handling-events
+  - /docs/cards
+  - /docs/conversation-history
+---
+
+The Google Chat adapter is the right default for most bots. It handles auth, webhook verification, message parsing, subscriptions, state, and routing through `Chat`.
+
+Use the low-level Google Chat subpaths when your app already owns routing, state, sessions, or workflow execution and only needs Google Chat-specific primitives.
+
+| Subpath | Use for |
+|---------|---------|
+| `@chat-adapter/gchat/webhook` | Direct webhook parsing, Pub/Sub push decoding, payload classification, continuation data, and form input extraction |
+| `@chat-adapter/gchat/api` | Fetch-based Google Chat REST calls with caller-supplied access tokens |
+| `@chat-adapter/gchat/format` | Google Chat text escaping, mentions, links, and Markdown-ish conversions |
+| `@chat-adapter/gchat/cards` | Runtime-free Card v2 builders and input response parsing |
+| `@chat-adapter/gchat/thread-id` | Google Chat thread ID encode/decode helpers without adapter runtime dependencies |
+| `@chat-adapter/gchat/workspace-events` | Workspace Events subscription helpers and Pub/Sub notification decoding |
+
+<Callout type="info">
+  These subpaths are for custom runtimes. If you want Chat SDK to handle webhook routing, state, subscriptions, and platform normalization, use `createGoogleChatAdapter` from `@chat-adapter/gchat`.
+</Callout>
+
+## Webhooks
+
+`readGoogleChatWebhook` combines JSON body reading, optional bearer-token verification, and payload classification. The verifier is injectable so custom runtimes can use their existing Google auth stack.
+
+```typescript title="app/api/gchat/route.ts" lineNumbers
+import { createGoogleChatMessage } from "@chat-adapter/gchat/api";
+import { readGoogleChatWebhook } from "@chat-adapter/gchat/webhook";
+
+export async function POST(request: Request) {
+  const payload = await readGoogleChatWebhook(request, {
+    googleChatProjectNumber: process.env.GOOGLE_CHAT_PROJECT_NUMBER,
+    pubsubAudience: process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE,
+    tokenVerifier: async (token, audience) => {
+      // Verify the Google-issued JWT with your auth library of choice.
+      return token.length > 0 && audience.length > 0;
+    },
+  });
+
+  if (payload.kind === "message") {
+    await createGoogleChatMessage(
+      { text: `received: ${payload.message.text}` },
+      {
+        accessToken: process.env.GOOGLE_CHAT_ACCESS_TOKEN!,
+        parent: payload.continuation!.spaceName,
+        messageReplyOption: "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD",
+      }
+    );
+  }
+
+  return Response.json({});
+}
+```
+
+If your framework already parsed the body, call `parseGoogleChatWebhookBody(body)`.
+
+`parseGoogleChatWebhookBody` returns typed payloads:
+
+| Kind | Google Chat surface |
+|------|---------------------|
+| `message` | Direct Google Chat message events |
+| `card_clicked` | Card v2 button, select, and form submissions |
+| `added_to_space` | Bot added to a space or DM |
+| `removed_from_space` | Bot removed from a space |
+| `workspace_message` | Workspace Events message notifications from Pub/Sub |
+| `workspace_reaction` | Workspace Events reaction notifications from Pub/Sub |
+| `unsupported` | Valid Google Chat or Pub/Sub payloads not normalized by this helper yet |
+
+Message-like payloads include `continuation`, which contains provider-native reply context:
+
+```typescript
+type GoogleChatContinuation = {
+  isDM?: boolean;
+  messageName?: string;
+  spaceName: string;
+  threadName?: string;
+  transport: "direct" | "pubsub";
+};
+```
+
+This is not a Chat SDK `Thread`. It is the durable Google Chat data you need to reply later with `@chat-adapter/gchat/api`.
+
+## Chat REST API
+
+The API subpath uses `fetch` and a caller-supplied access token. This keeps the primitive lightweight and lets your runtime choose service-account auth, Application Default Credentials, delegation, or another token source.
+
+```typescript
+import {
+  createGoogleChatMessage,
+  listGoogleChatMessages,
+} from "@chat-adapter/gchat/api";
+
+const message = await createGoogleChatMessage(
+  { text: "Hello from a custom runtime" },
+  {
+    accessToken: () => getGoogleChatAccessToken(),
+    parent: "spaces/AAAA",
+    messageReplyOption: "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD",
+  }
+);
+
+const history = await listGoogleChatMessages({
+  accessToken: () => getDelegatedAccessToken(),
+  parent: "spaces/AAAA",
+  filter: 'thread.name = "spaces/AAAA/threads/thread-1"',
+});
+```
+
+Helpers are available for messages, reactions, spaces, members, direct messages, and authenticated media download.
+
+Use the full `createGoogleChatAdapter` path when you want Chat SDK to create Google auth clients from service-account JSON, ADC, or delegated credentials automatically.
+
+## Formatting
+
+Google Chat renders a constrained text format: `*bold*`, `_italic_`, `~strike~`, backticks, user mentions such as `<users/123>`, and custom links using `<url|label>`.
+
+```typescript
+import {
+  formatGoogleChatLink,
+  formatGoogleChatMention,
+  googleChatToMarkdown,
+  markdownToGoogleChat,
+} from "@chat-adapter/gchat/format";
+
+const text = markdownToGoogleChat(
+  `${formatGoogleChatMention("users/123")} approved **deploy v2.4.1**`
+);
+const link = formatGoogleChatLink("https://chat-sdk.dev", "Chat SDK");
+const markdown = googleChatToMarkdown("*hello* <https://chat-sdk.dev|docs>");
+```
+
+Link helpers allow only `http:`, `https:`, and `mailto:` URLs. Unsafe schemes render as plain text.
+
+Use the full `GoogleChatFormatConverter` from `@chat-adapter/gchat` when you need mdast conversion inside Chat SDK.
+
+## Cards
+
+The cards subpath accepts plain objects instead of Chat SDK JSX, then emits Google Chat Card v2 payloads.
+
+```typescript title="cards.ts" lineNumbers
+import {
+  cardToGoogleChatCard,
+  cardToGoogleChatFallbackText,
+} from "@chat-adapter/gchat/cards";
+import { createGoogleChatMessage } from "@chat-adapter/gchat/api";
+
+const card = {
+  title: "Deployment",
+  children: [
+    { type: "text", text: "Ship v2.4.1?" },
+    {
+      type: "actions",
+      children: [
+        { type: "button", label: "Approve", actionId: "approve" },
+        { type: "button", label: "Deny", actionId: "deny" },
+      ],
+    },
+  ],
+} as const;
+
+await createGoogleChatMessage(
+  {
+    cardsV2: [cardToGoogleChatCard(card)],
+    text: cardToGoogleChatFallbackText(card),
+  },
+  {
+    accessToken: () => getGoogleChatAccessToken(),
+    parent: payload.continuation!.spaceName,
+    messageReplyOption: "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD",
+  }
+);
+```
+
+Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/gchat/cards` when you are building a Google Chat-only runtime and want Card v2 output directly.
+
+Button `actionId` values become the Card v2 `action.function` handler names. If a button does not have an `actionId`, pass `defaultFunction` to `cardToGoogleChatCard`; it should be a handler/function identifier, not a webhook URL.
+
+## Inputs
+
+The cards subpath can also create simple input-request cards and parse submitted form inputs.
+
+```typescript
+import {
+  inputRequestToGoogleChatCard,
+  parseGoogleChatInputResponse,
+} from "@chat-adapter/gchat/cards";
+
+const inputCard = inputRequestToGoogleChatCard({
+  requestId: "deploy-env",
+  prompt: "Choose an environment",
+  options: [
+    { label: "Preview", value: "preview" },
+    { label: "Production", value: "production" },
+  ],
+});
+
+const response = parseGoogleChatInputResponse(event);
+```
+
+## Thread IDs
+
+Google Chat space and thread resource names contain `/`, so the thread-id subpath encodes them for Chat SDK-compatible storage without importing `@chat-adapter/shared`.
+
+```typescript
+import { decodeThreadId, encodeThreadId } from "@chat-adapter/gchat/thread-id";
+
+const threadId = encodeThreadId({
+  spaceName: "spaces/AAAA",
+  threadName: "spaces/AAAA/threads/thread-1",
+});
+const continuation = decodeThreadId(threadId);
+```
+
+Use these helpers when persisting Google Chat continuation data outside the full adapter.
+
+## Workspace Events
+
+Workspace Events let a custom runtime subscribe to all messages or reaction events in a space through Pub/Sub. This subpath exposes the existing subscription helpers plus the Pub/Sub decoder.
+
+```typescript
+import {
+  createSpaceSubscription,
+  decodePubSubMessage,
+} from "@chat-adapter/gchat/workspace-events";
+
+await createSpaceSubscription(
+  {
+    pubsubTopic: "projects/my-project/topics/chat-events",
+    spaceName: "spaces/AAAA",
+  },
+  {
+    credentials: {
+      client_email: process.env.GOOGLE_CLIENT_EMAIL!,
+      private_key: process.env.GOOGLE_PRIVATE_KEY!,
+    },
+    impersonateUser: "admin@example.com",
+  }
+);
+
+const notification = decodePubSubMessage(await request.json());
+```
+
+Workspace Events reads and subscription management require the same Google Workspace permissions as the full adapter. For a first pass, this subpath remains a low-level Google helper and may import Google's Workspace Events SDK.
+
+## Import Boundaries
+
+The low-level Google Chat subpaths are designed to avoid the full runtime import graph:
+
+- no `chat` import
+- no `@chat-adapter/shared` import
+- no `@googleapis/chat` import
+- no full adapter import
+
+`@chat-adapter/gchat/workspace-events` is the exception for Google Workspace Events SDK usage. The package still installs the full Google Chat adapter dependencies. The subpaths keep your source and bundle imports clean, but they are not a package-size split.

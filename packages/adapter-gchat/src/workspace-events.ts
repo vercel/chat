@@ -16,7 +16,18 @@ import {
   auth as googleAuth,
   workspaceevents,
 } from "@googleapis/workspaceevents";
-import type { GoogleChatMessage } from "./index";
+import type {
+  GoogleChatMessage,
+  GoogleChatReaction,
+  PubSubPushMessage,
+  WorkspaceEventNotification,
+} from "./webhook/types";
+
+export type {
+  GoogleChatReaction,
+  PubSubPushMessage,
+  WorkspaceEventNotification,
+} from "./webhook/types";
 
 /** Options for creating a space subscription */
 export interface CreateSpaceSubscriptionOptions {
@@ -34,55 +45,6 @@ export interface SpaceSubscriptionResult {
   expireTime: string;
   /** The subscription resource name */
   name: string;
-}
-
-/** Pub/Sub push message wrapper (what Google sends to your endpoint) */
-export interface PubSubPushMessage {
-  message: {
-    /** Base64 encoded event data */
-    data: string;
-    messageId: string;
-    publishTime: string;
-    attributes?: Record<string, string>;
-  };
-  subscription: string;
-}
-
-/** Google Chat reaction data */
-export interface GoogleChatReaction {
-  /** The emoji */
-  emoji?: {
-    unicode?: string;
-  };
-  /** Reaction resource name */
-  name: string;
-  /** The user who added/removed the reaction */
-  user?: {
-    name: string;
-    displayName?: string;
-    type?: string;
-  };
-}
-
-/** Decoded Workspace Events notification payload */
-export interface WorkspaceEventNotification {
-  /** When the event occurred */
-  eventTime: string;
-  /** Event type (e.g., "google.workspace.chat.message.v1.created") */
-  eventType: string;
-  /** Present for message.created events */
-  message?: GoogleChatMessage;
-  /** Present for reaction.created/deleted events */
-  reaction?: GoogleChatReaction;
-  /** Space info */
-  space?: {
-    name: string;
-    type: string;
-  };
-  /** The subscription that triggered this event */
-  subscription: string;
-  /** The resource being watched (e.g., "//chat.googleapis.com/spaces/AAAA") */
-  targetResource: string;
 }
 
 /** Service account credentials for authentication */

@@ -32,15 +32,21 @@ packages/adapter-gchat/
 ├── src/
 │   ├── index.ts             # GoogleChatAdapter + createGoogleChatAdapter
 │   ├── index.test.ts
+│   ├── api/                 # @chat-adapter/gchat/api fetch-based REST helpers
 │   ├── cards.ts             # PostableMessage / Card → Card v2
 │   ├── cards.test.ts
+│   ├── cards-primitives/    # @chat-adapter/gchat/cards plain-object Card v2 helpers
+│   ├── format/              # @chat-adapter/gchat/format runtime-free text helpers
 │   ├── markdown.ts          # GoogleChatFormatConverter (mdast ↔ Chat formatting)
 │   ├── markdown.test.ts
+│   ├── thread-id/           # @chat-adapter/gchat/thread-id runtime-free thread IDs
 │   ├── thread-utils.ts      # space/thread parsing + base64url helpers
 │   ├── thread-utils.test.ts
 │   ├── user-info.ts         # users.get caching + display-name resolution
 │   ├── user-info.test.ts
+│   ├── webhook/             # @chat-adapter/gchat/webhook event parsing/types
 │   ├── workspace-events.ts  # Workspace Events API push handler
+│   ├── workspace-events.boundary.test.ts
 │   └── workspace-events.test.ts
 ├── sample-messages.md       # captured Chat API event payloads
 ├── package.json
@@ -88,6 +94,18 @@ The package's main exports (see `src/index.ts`):
 - Helpers: `cardToCardV2`, `cardToFallbackText`,
   `GoogleChatFormatConverter`, `decodeThreadId`, `encodeThreadId`,
   `isDM`.
+- Low-level primitive subpaths:
+  - `@chat-adapter/gchat/webhook` — JWT-verifier plumbing, direct event parsing, Pub/Sub decoding, continuation data, and form input helpers.
+  - `@chat-adapter/gchat/api` — fetch-based Google Chat REST helpers for messages, reactions, spaces, DMs, members, and media.
+  - `@chat-adapter/gchat/format` — runtime-free Google Chat text/link/mention helpers.
+  - `@chat-adapter/gchat/cards` — plain-object Card v2 and input helpers.
+  - `@chat-adapter/gchat/thread-id` — runtime-free thread ID encode/decode helpers.
+  - `@chat-adapter/gchat/workspace-events` — Workspace Events subscription helpers and Pub/Sub decoding.
+
+Primitive subpaths must not import `chat`, `@chat-adapter/shared`,
+`@googleapis/chat`, or `../index`. The `workspace-events` subpath is
+allowed to use `@googleapis/workspaceevents`, but it must not import the
+main adapter entry.
 
 ## Thread ID format
 

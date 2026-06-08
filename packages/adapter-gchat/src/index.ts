@@ -61,12 +61,33 @@ import {
   isDMThread,
 } from "./thread-utils";
 import { UserInfoCache } from "./user-info";
+import type {
+  GoogleChatEvent,
+  GoogleChatFormInputs,
+  GoogleChatMessage,
+  GoogleChatSpace,
+} from "./webhook/types";
+
+export type {
+  GoogleChatEvent,
+  GoogleChatFormInput,
+  GoogleChatFormInputs,
+  GoogleChatMessage,
+  GoogleChatReaction,
+  GoogleChatSpace,
+  GoogleChatUser,
+  PubSubPushMessage,
+  WorkspaceEventNotification,
+} from "./webhook/types";
+
+import type {
+  PubSubPushMessage,
+  WorkspaceEventNotification,
+} from "./webhook/types";
 import {
   createSpaceSubscription,
   decodePubSubMessage,
   listSpaceSubscriptions,
-  type PubSubPushMessage,
-  type WorkspaceEventNotification,
   type WorkspaceEventsAuthOptions,
 } from "./workspace-events";
 
@@ -80,113 +101,6 @@ const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 
 // Re-export GoogleChatThreadId from thread-utils
 export type { GoogleChatThreadId } from "./thread-utils";
-
-/** Google Chat message structure */
-export interface GoogleChatMessage {
-  annotations?: Array<{
-    type: string;
-    startIndex?: number;
-    length?: number;
-    userMention?: {
-      user: { name: string; displayName?: string; type: string };
-      type: string;
-    };
-  }>;
-  argumentText?: string;
-  attachment?: Array<{
-    name: string;
-    contentName: string;
-    contentType: string;
-    downloadUri?: string;
-    attachmentDataRef?: { resourceName?: string | null } | null;
-  }>;
-  createTime: string;
-  formattedText?: string;
-  name: string;
-  sender: {
-    avatarUrl?: string;
-    name: string;
-    displayName: string;
-    type: string;
-    email?: string;
-  };
-  space?: {
-    name: string;
-    type: string;
-    displayName?: string;
-  };
-  text: string;
-  thread?: {
-    name: string;
-  };
-}
-
-/** Google Chat space structure */
-export interface GoogleChatSpace {
-  displayName?: string;
-  name: string;
-  /** Whether this is a single-user DM with the bot */
-  singleUserBotDm?: boolean;
-  spaceThreadingState?: string;
-  /** Space type in newer API format: "SPACE", "GROUP_CHAT", "DIRECT_MESSAGE" */
-  spaceType?: string;
-  type: string;
-}
-
-/** Google Chat user structure */
-export interface GoogleChatUser {
-  displayName: string;
-  email?: string;
-  name: string;
-  type: string;
-}
-
-interface GoogleChatFormInput {
-  stringInputs?: {
-    value?: string[];
-  };
-}
-
-type GoogleChatFormInputs = Record<string, GoogleChatFormInput>;
-
-/**
- * Google Workspace Add-ons event format.
- * This is the format used when configuring the app via Google Cloud Console.
- */
-export interface GoogleChatEvent {
-  chat?: {
-    user?: GoogleChatUser;
-    eventTime?: string;
-    messagePayload?: {
-      space: GoogleChatSpace;
-      message: GoogleChatMessage;
-    };
-    /** Present when the bot is added to a space */
-    addedToSpacePayload?: {
-      space: GoogleChatSpace;
-    };
-    /** Present when the bot is removed from a space */
-    removedFromSpacePayload?: {
-      space: GoogleChatSpace;
-    };
-    /** Present when a card button is clicked */
-    buttonClickedPayload?: {
-      space: GoogleChatSpace;
-      message: GoogleChatMessage;
-      user: GoogleChatUser;
-    };
-  };
-  commonEventObject?: {
-    formInputs?: GoogleChatFormInputs;
-    userLocale?: string;
-    hostApp?: string;
-    platform?: string;
-    /** The function name invoked (for card clicks) */
-    invokedFunction?: string;
-    /** Parameters passed to the function */
-    parameters?: Record<string, string>;
-  };
-}
 
 /** Cached subscription info */
 interface SpaceSubscriptionInfo {
@@ -2684,8 +2598,6 @@ export {
   decodePubSubMessage,
   deleteSpaceSubscription,
   listSpaceSubscriptions,
-  type PubSubPushMessage,
   type SpaceSubscriptionResult,
-  type WorkspaceEventNotification,
   type WorkspaceEventsAuthOptions,
 } from "./workspace-events";
