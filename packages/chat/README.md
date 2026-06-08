@@ -44,7 +44,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state) for all options.
+> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state-adapters) for all options.
 
 ## Configuration
 

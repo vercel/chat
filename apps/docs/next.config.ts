@@ -70,6 +70,11 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/docs/state",
+        destination: "/docs/state-adapters",
+        permanent: true,
+      },
+      {
         source: "/docs/state/:slug+",
         destination: "/adapters",
         permanent: true,
