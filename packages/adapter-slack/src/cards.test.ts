@@ -208,6 +208,24 @@ describe("cardToBlockKit", () => {
     expect(elements[0].style).toBe("primary");
   });
 
+  it("uses custom link button action ids", () => {
+    const card = Card({
+      children: [
+        Actions([
+          LinkButton({
+            id: "agent_slack_auth_signin",
+            url: "https://vercel.com/oauth/authorize",
+            label: "Sign in",
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{ action_id: string }>;
+    expect(elements[0].action_id).toBe("agent_slack_auth_signin");
+  });
+
   it("converts fields", () => {
     const card = Card({
       children: [

@@ -57,6 +57,7 @@ export interface SlackButtonElement {
 }
 
 export interface SlackLinkButtonElement {
+  id?: string;
   label: string;
   style?: SlackButtonStyle;
   type: "link-button";
