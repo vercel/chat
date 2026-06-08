@@ -274,7 +274,7 @@ function convertLinkButtonToElement(
       text: convertEmoji(button.label),
       emoji: true,
     },
-    action_id: `link-${button.url.slice(0, 200)}`,
+    action_id: button.id ?? `link-${button.url.slice(0, 200)}`,
     url: button.url,
   };
 
