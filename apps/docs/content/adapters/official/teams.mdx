@@ -237,6 +237,8 @@ az ad app permission add \
 az ad app permission admin-consent --id <appId>
 ```
 
+If your app already owns routing, state, sessions, or workflow execution, use the [low-level Teams APIs](/docs/teams-primitives) instead of the full adapter runtime.
+
 ### Receiving all messages
 
 By default, Teams bots only receive messages when directly @-mentioned. The RSC permissions above also enable receiving all messages in channels and group chats as a side effect.
