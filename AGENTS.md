@@ -71,6 +71,10 @@ Messages use **mdast** as the canonical format. Each adapter's `FormatConverter`
 - `fromAst(ast)` — mdast → platform
 - `renderPostable(message)` — `PostableMessage` → platform string
 
+### Adapter catalog
+
+`packages/chat/src/adapters/index.ts` powers the zero-dependency `chat/adapters` subpath. Keep this static catalog in sync when adding or changing official and vendor-official adapters. Catalog entries should match `apps/docs/adapters.json`, include package metadata and peer dependencies, and describe env vars, credential modes, secrets, and constructor-only config. For official adapters, exclude workspace dependencies, `chat`, and `@chat-adapter/shared` from peer deps; for vendor-official adapters, mirror the MDX install instructions. Do not import adapter packages or platform SDKs from this module.
+
 ## Testing
 
 `packages/chat/src/mock-adapter.ts` exports test utilities:

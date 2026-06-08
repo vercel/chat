@@ -14,6 +14,7 @@ When Chat SDK is installed in a user project, inspect the published files that s
 ```
 node_modules/chat/docs/                    # bundled docs
 node_modules/chat/dist/index.d.ts          # core API types
+node_modules/chat/dist/adapters/index.d.ts # static adapter catalog types
 node_modules/chat/dist/jsx-runtime.d.ts    # JSX runtime types
 node_modules/chat/docs/contributing/       # adapter-authoring docs
 node_modules/chat/resources/guides/        # framework/platform guides (markdown)
@@ -35,7 +36,7 @@ Read these before writing code:
 - `node_modules/chat/docs/slash-commands.mdx` — slash command routing
 - `node_modules/chat/docs/direct-messages.mdx` — DM behavior and `openDM()`
 - `node_modules/chat/docs/files.mdx` — attachments/uploads
-- `node_modules/chat/docs/state.mdx` — persistence, locking, dedupe
+- `node_modules/chat/docs/state-adapters.mdx` — persistence, locking, dedupe
 - `node_modules/chat/docs/adapters.mdx` — cross-platform feature matrix
 - `node_modules/chat/docs/api/chat.mdx` — exact `Chat` API
 - `node_modules/chat/docs/api/thread.mdx` — exact `Thread` API
@@ -43,6 +44,16 @@ Read these before writing code:
 - `node_modules/chat/docs/api/modals.mdx` — modal element and event details
 
 For the specific adapter or state package you are using, inspect that installed package's `dist/index.d.ts` export surface in `node_modules`.
+
+## Adapter catalog subpath
+
+Chat SDK exposes a zero-dependency static catalog at `chat/adapters`. Agents can import `ADAPTERS`, `ADAPTER_NAMES`, `getAdapter`, `isAdapterSlug`, `listEnvVars`, `getSecretEnvVars`, and metadata types like `CatalogAdapter` and `AdapterSlug` from this subpath without importing any adapter implementation package.
+
+Use it for:
+- Listing official and vendor-official adapter slugs, names, npm packages, groups, and platform vs state types.
+- Building setup or onboarding flows that need package names, peer dependencies, and install guidance before any adapter is installed.
+- Discovering required, optional, and credential-mode environment variables for an adapter, including which variables are secrets.
+- Keeping vendor-official adapter docs and metadata aligned with the catalog when adding or updating a listed adapter.
 
 ## Available resources
 
