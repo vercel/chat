@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { ADAPTERS } from "chat/adapters";
 import { describe, expect, it } from "vitest";
 import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
 
@@ -12,7 +13,10 @@ const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/;
 const FIELD_LINE = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(.*)$/;
 const NEWLINE = /\r?\n/;
 const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
+const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
 const OG_IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
+const PACKAGE_INSTALL_PATTERN = /<PackageInstall package="([^"]+)" \/>/g;
+const PACKAGE_INSTALL_PACKAGE_SEPARATOR = /\s+/;
 
 interface Frontmatter {
   fields: Record<string, string>;
@@ -74,6 +78,27 @@ const loadAdapterMdx = (dir: string, group: string): AdapterFile[] => {
       frontmatter,
     };
   });
+};
+
+const packageInstallDeps = (adapter: AdapterFile): string[] => {
+  const packageNames = new Set<string>();
+  for (const match of adapter.body.matchAll(PACKAGE_INSTALL_PATTERN)) {
+    for (const packageName of match[1].split(
+      PACKAGE_INSTALL_PACKAGE_SEPARATOR
+    )) {
+      if (packageName) {
+        packageNames.add(packageName);
+      }
+    }
+  }
+  packageNames.delete(adapter.frontmatter.fields.packageName);
+  packageNames.delete("chat");
+  for (const packageName of packageNames) {
+    if (CHAT_STATE_ADAPTER_PACKAGE.test(packageName)) {
+      packageNames.delete(packageName);
+    }
+  }
+  return [...packageNames].sort();
 };
 
 describe("Adapter MDX frontmatter", () => {
@@ -144,6 +169,17 @@ describe("Vendor-Official adapter MDX", () => {
 
       it("renders the FeatureSupport matrix", () => {
         expect(adapter.body).toContain("<FeatureSupport />");
+      });
+
+      it("keeps catalog peerDeps aligned with PackageInstall extras", () => {
+        const catalogEntry = ADAPTERS[adapter.slug as keyof typeof ADAPTERS];
+        expect(
+          catalogEntry,
+          `${adapter.fileName}: missing chat/adapters catalog entry`
+        ).toBeDefined();
+        expect([...(catalogEntry?.peerDeps ?? [])].sort()).toEqual(
+          packageInstallDeps(adapter)
+        );
       });
     });
   }
@@ -257,6 +293,8 @@ describe("adapters.json registry", () => {
   const registry = JSON.parse(
     readFileSync(join(DOCS_CONTENT_DIR, "..", "adapters.json"), "utf-8")
   ) as Array<{
+    description: string;
+    name: string;
     slug: string;
     type: "platform" | "state";
     packageName: string;
@@ -267,6 +305,17 @@ describe("adapters.json registry", () => {
 
   const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
   const communityAdapters = loadAdapterMdx(COMMUNITY_DIR, "community");
+
+  it("matches the chat/adapters catalog", () => {
+    const catalogSlugs = Object.keys(ADAPTERS).sort();
+    const expectedSlugs = registry
+      .filter((entry) => !entry.community || entry.vendorOfficial)
+      .map((entry) => entry.slug)
+      .sort();
+
+    expect(catalogSlugs).toHaveLength(expectedSlugs.length);
+    expect(catalogSlugs).toEqual(expectedSlugs);
+  });
 
   for (const adapter of [...vendorAdapters, ...communityAdapters]) {
     describe(adapter.fileName, () => {
