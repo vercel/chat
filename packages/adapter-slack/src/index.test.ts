@@ -2845,6 +2845,41 @@ describe("direct WebClient access via adapter.client", () => {
     ).toBe("https://slack-gov.com/api/");
   });
 
+  it("forwards webClientOptions from createSlackAdapter to the bound WebClient", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      webClientOptions: { slackApiUrl: "https://from-options.example/api/" },
+      logger: mockLogger,
+    });
+
+    expect(
+      (
+        adapter.client as unknown as {
+          axios: { defaults: { baseURL: string } };
+        }
+      ).axios.defaults.baseURL
+    ).toBe("https://from-options.example/api/");
+  });
+
+  it("lets apiUrl take precedence over webClientOptions.slackApiUrl", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      apiUrl: "https://slack-gov.com/api/",
+      webClientOptions: { slackApiUrl: "https://override.example/api/" },
+      logger: mockLogger,
+    });
+
+    expect(
+      (
+        adapter.client as unknown as {
+          axios: { defaults: { baseURL: string } };
+        }
+      ).axios.defaults.baseURL
+    ).toBe("https://slack-gov.com/api/");
+  });
+
   it("throws when no token is available (multi-workspace, outside context)", () => {
     const adapter = createSlackAdapter({
       clientId: "test-client-id",
