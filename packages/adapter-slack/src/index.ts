@@ -10,7 +10,11 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
+import {
+  type ChatStopStreamArguments,
+  type ChatStreamer,
+  WebClient,
+} from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -73,6 +77,16 @@ import {
   type SlackModalResponse,
   selectOptionToSlackOption,
 } from "./modals";
+import {
+  Fence,
+  STREAM_BUFFER_SIZE,
+  STREAM_CHUNK_LIMIT,
+  STREAM_FENCE_RESERVE,
+  STREAM_SEGMENT_LIMIT,
+  splitTask,
+  splitText,
+  truncateText,
+} from "./stream";
 import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
@@ -3981,26 +3995,120 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
-    const streamer = this._client.chatStream({
-      channel,
-      thread_ts: threadTs,
-      recipient_user_id: options.recipientUserId,
-      recipient_team_id: options.recipientTeamId,
-      ...(options.taskDisplayMode && {
-        task_display_mode: options.taskDisplayMode,
+    interface Segment {
+      hasContent: boolean;
+      length: number;
+      stopped: boolean;
+      streamer: ChatStreamer;
+    }
+    type StopResult = Awaited<ReturnType<ChatStreamer["stop"]>>;
+
+    const createSegment = (): Segment => ({
+      hasContent: false,
+      length: 0,
+      stopped: false,
+      streamer: this._client.chatStream({
+        channel,
+        thread_ts: threadTs,
+        recipient_user_id: options.recipientUserId,
+        recipient_team_id: options.recipientTeamId,
+        ...(options.taskDisplayMode && {
+          task_display_mode: options.taskDisplayMode,
+        }),
+        buffer_size: STREAM_BUFFER_SIZE,
       }),
     });
 
+    let current = createSegment();
+    let structured: Segment | undefined;
+    let lastResult: StopResult | undefined;
     let lastAppended = "";
+    const taskParts = new Map<string, number>();
+    const fence = new Fence();
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
     });
+
+    const stopSegment = async (
+      segment: Segment,
+      blocks?: ChatStopStreamArguments["blocks"],
+      force = false
+    ): Promise<StopResult | undefined> => {
+      if (segment.stopped || !(segment.hasContent || force)) {
+        return undefined;
+      }
+      const result = await segment.streamer.stop({
+        token,
+        ...(blocks ? { blocks } : {}),
+      });
+      segment.stopped = true;
+      return result;
+    };
+
+    const rotateSegment = async (
+      closing?: string,
+      opening?: string
+    ): Promise<void> => {
+      if (closing) {
+        await current.streamer.append({ markdown_text: closing, token });
+        current.hasContent = true;
+        current.length += closing.length;
+      }
+      if (current !== structured) {
+        await stopSegment(current);
+      }
+      current = createSegment();
+      if (opening) {
+        await current.streamer.append({ markdown_text: opening, token });
+        current.hasContent = true;
+        current.length += opening.length;
+      }
+    };
 
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
       if (delta.length === 0) {
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+
+      let remaining = delta;
+      while (remaining.length > 0) {
+        if (current.length === STREAM_SEGMENT_LIMIT) {
+          await rotateSegment();
+        }
+
+        const available = STREAM_SEGMENT_LIMIT - current.length;
+        const first = remaining.codePointAt(0);
+        const width = first !== undefined && first > 0xffff ? 2 : 1;
+        if (available < width) {
+          await rotateSegment(fence.closing, fence.opening);
+          continue;
+        }
+        if (
+          remaining.length > available &&
+          available <= STREAM_FENCE_RESERVE + width
+        ) {
+          await rotateSegment(fence.closing, fence.opening);
+          continue;
+        }
+        const limit =
+          remaining.length > available
+            ? Math.max(width, available - STREAM_FENCE_RESERVE)
+            : available;
+        const [text] = splitText(remaining, limit);
+        if (!text) {
+          break;
+        }
+
+        await current.streamer.append({ markdown_text: text, token });
+        current.hasContent = true;
+        current.length += text.length;
+        fence.push(text);
+        remaining = remaining.slice(text.length);
+
+        if (remaining.length > 0) {
+          await rotateSegment(fence.closing, fence.opening);
+        }
+      }
     };
 
     /**
@@ -4014,7 +4122,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * Text streaming continues unaffected.
      */
     let structuredChunksSupported = true;
-    const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
+    const sendStructuredChunk = async (
+      chunk: Exclude<StreamChunk, { type: "markdown_text" }>
+    ): Promise<void> => {
       if (!structuredChunksSupported) {
         return;
       }
@@ -4026,8 +4136,29 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
 
       try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
+        structured ??= current;
+        const chunks =
+          chunk.type === "task_update"
+            ? splitTask(chunk, taskParts.get(chunk.id) ?? 0)
+            : [
+                {
+                  ...chunk,
+                  title: truncateText(chunk.title, STREAM_CHUNK_LIMIT),
+                },
+              ];
+
+        if (chunk.type === "task_update") {
+          taskParts.set(chunk.id, chunks.length);
+        }
+
+        for (const normalized of chunks) {
+          await structured.streamer.append({
+            chunks: [normalized],
+            token,
+            // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+          } as any);
+          structured.hasContent = true;
+        }
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
@@ -4050,39 +4181,77 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
     };
 
-    for await (const chunk of textStream) {
-      if (typeof chunk === "string") {
-        await pushTextAndFlush(chunk);
-      } else if (chunk.type === "markdown_text") {
-        await pushTextAndFlush(chunk.text);
-      } else {
-        // Structured chunk (task_update, plan_update) — send directly to Slack
-        await sendStructuredChunk(chunk);
+    try {
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") {
+          await pushTextAndFlush(chunk);
+        } else if (chunk.type === "markdown_text") {
+          await pushTextAndFlush(chunk.text);
+        } else {
+          // Structured chunk (task_update, plan_update) — send directly to Slack
+          await sendStructuredChunk(chunk);
+        }
       }
+
+      // Flush any remaining buffered content (e.g. held table rows at end of stream).
+      renderer.finish();
+      const finalCommittable = renderer.getCommittableText();
+      const finalDelta = finalCommittable.slice(lastAppended.length);
+      await flushMarkdownDelta(finalDelta);
+      fence.finish();
+      if (fence.closing) {
+        await current.streamer.append({
+          markdown_text: fence.closing,
+          token,
+        });
+        current.hasContent = true;
+        current.length += fence.closing.length;
+      }
+
+      if (structured && structured !== current) {
+        await stopSegment(structured);
+      }
+      lastResult = await stopSegment(
+        current,
+        options?.stopBlocks as ChatStopStreamArguments["blocks"],
+        true
+      );
+    } catch (error) {
+      const segments = new Set([structured, current]);
+      fence.finish();
+      for (const segment of segments) {
+        if (!segment?.hasContent) {
+          continue;
+        }
+        try {
+          if (segment === current && fence.closing) {
+            await segment.streamer.append({
+              markdown_text: fence.closing,
+              token,
+            });
+            segment.length += fence.closing.length;
+          }
+          await stopSegment(segment);
+        } catch (stopError) {
+          this.logger.warn("Slack: failed to stop partial stream", {
+            error: stopError,
+          });
+        }
+      }
+      throw error;
     }
 
-    // Flush any remaining buffered content (e.g. held table rows at end of stream).
-    renderer.finish();
-    const finalCommittable = renderer.getCommittableText();
-    const finalDelta = finalCommittable.slice(lastAppended.length);
-    await flushMarkdownDelta(finalDelta);
-
-    const result = await streamer.stop({
-      token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
-        : {}),
-    });
-    const messageTs = (result.message?.ts ?? result.ts) as string;
+    if (!lastResult) {
+      throw new NetworkError("slack", "Slack stream returned no result");
+    }
+    const messageTs = (lastResult.message?.ts ?? lastResult.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
 
     return {
       id: messageTs,
       threadId,
-      raw: result,
+      raw: lastResult,
     };
   }
 

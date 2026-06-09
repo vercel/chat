@@ -10,6 +10,7 @@ import type {
   ChatInstance,
   Logger,
   StateAdapter,
+  StreamChunk,
 } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SlackInstallation } from "./index";
@@ -7767,6 +7768,333 @@ describe("stream with empty threadTs", () => {
       2,
       expect.objectContaining({ token: "xoxb-test-token" })
     );
+  });
+
+  it("rotates oversized streams without corrupting unicode", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const segments: Array<{
+      markdown: string;
+      stop: ReturnType<typeof vi.fn>;
+    }> = [];
+    const chatStream = vi.fn().mockImplementation(() => {
+      const index = segments.length;
+      const segment = {
+        markdown: "",
+        stop: vi.fn().mockResolvedValue({
+          ok: true,
+          ts: `1234567890.${String(index).padStart(6, "0")}`,
+        }),
+      };
+      segments.push(segment);
+      return {
+        append: vi.fn().mockImplementation(async (payload) => {
+          segment.markdown += payload.markdown_text ?? "";
+          return { ok: true };
+        }),
+        stop: segment.stop,
+      };
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    const text = `${"a".repeat(11_999)}😀${"b".repeat(12_001)}`;
+    async function* longStream() {
+      yield "x".repeat(255);
+      yield { text, type: "markdown_text" as const };
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      longStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+        stopBlocks: [{ type: "divider" }],
+      }
+    );
+
+    expect(chatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ buffer_size: 256 })
+    );
+    expect(segments.length).toBeGreaterThan(1);
+    expect(segments.map((segment) => segment.markdown).join("")).toBe(
+      `${"x".repeat(255)}${text}`
+    );
+    for (const segment of segments) {
+      expect(segment.markdown.length).toBeLessThanOrEqual(11_500);
+      const firstCode = segment.markdown.charCodeAt(0);
+      const lastCode = segment.markdown.charCodeAt(segment.markdown.length - 1);
+      expect(firstCode < 0xdc00 || firstCode > 0xdfff).toBe(true);
+      expect(lastCode < 0xd800 || lastCode > 0xdbff).toBe(true);
+    }
+    for (const segment of segments.slice(0, -1)) {
+      expect(segment.stop).toHaveBeenCalledWith({
+        token: "xoxb-test-token",
+      });
+    }
+    expect(segments.at(-1)?.stop).toHaveBeenCalledWith({
+      blocks: [{ type: "divider" }],
+      token: "xoxb-test-token",
+    });
+    expect(result.id).toBe(
+      `1234567890.${String(segments.length - 1).padStart(6, "0")}`
+    );
+  });
+
+  it("balances fenced code across continuation streams", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const segments: Array<{
+      markdown: string;
+      stop: ReturnType<typeof vi.fn>;
+    }> = [];
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockImplementation(() => {
+        const segment = {
+          markdown: "",
+          stop: vi.fn().mockResolvedValue({
+            ok: true,
+            ts: `1234567890.${String(segments.length).padStart(6, "0")}`,
+          }),
+        };
+        segments.push(segment);
+        return {
+          append: vi.fn().mockImplementation(async (payload) => {
+            segment.markdown += payload.markdown_text ?? "";
+            return { ok: true };
+          }),
+          stop: segment.stop,
+        };
+      })
+    );
+
+    async function* codeStream() {
+      yield "```typescript\n";
+      for (let index = 0; index < 900; index++) {
+        yield `const value${index} = true;\n`;
+      }
+      yield "```\n";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", codeStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(segments.length).toBeGreaterThan(1);
+    for (const segment of segments) {
+      const fences = segment.markdown
+        .split("\n")
+        .filter((line) => line.trimStart().startsWith("```"));
+      expect(fences.length % 2).toBe(0);
+      expect(segment.markdown.length).toBeLessThanOrEqual(11_500);
+    }
+    expect(segments[0]?.markdown.endsWith("\n```")).toBe(true);
+    expect(segments[1]?.markdown.startsWith("```typescript\n")).toBe(true);
+    for (const segment of segments) {
+      expect(segment.markdown).not.toContain("\nc\n```");
+      expect(segment.markdown).not.toContain("```typescript\nonst ");
+    }
+  });
+
+  it("splits oversized task content into continuation cards", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const chunks: StreamChunk[] = [];
+    const append = vi.fn().mockImplementation(async (payload) => {
+      chunks.push(...(payload.chunks ?? []));
+      return { ok: true };
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({
+        append,
+        stop: vi.fn().mockResolvedValue({
+          ok: true,
+          ts: "1234567890.111111",
+        }),
+      })
+    );
+
+    const details = "searched the workspace for matching records ".repeat(20);
+    const output = "found a relevant result with supporting context ".repeat(
+      18
+    );
+    async function* taskStream() {
+      yield {
+        id: "research",
+        status: "in_progress" as const,
+        title: "Researching workspace context",
+        type: "task_update" as const,
+      };
+      yield {
+        details,
+        id: "research",
+        output,
+        status: "complete" as const,
+        title: "Research complete",
+        type: "task_update" as const,
+      };
+      yield {
+        title: "Plan ".repeat(80),
+        type: "plan_update" as const,
+      };
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", taskStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    const completed = chunks.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: "task_update" }> =>
+        chunk.type === "task_update" && chunk.status === "complete"
+    );
+    expect(completed.length).toBeGreaterThan(1);
+    expect(completed.map((chunk) => chunk.details ?? "").join("")).toBe(
+      details
+    );
+    expect(completed.map((chunk) => chunk.output ?? "").join("")).toBe(output);
+    expect(new Set(completed.map((chunk) => chunk.id)).size).toBe(
+      completed.length
+    );
+    for (const chunk of completed) {
+      expect(chunk.title.length).toBeLessThanOrEqual(256);
+      expect(chunk.details?.length ?? 0).toBeLessThanOrEqual(256);
+      expect(chunk.output?.length ?? 0).toBeLessThanOrEqual(256);
+    }
+
+    const plan = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: "plan_update" }> =>
+        chunk.type === "plan_update"
+    );
+    expect(plan?.title.length).toBe(256);
+    expect(plan?.title.endsWith("...")).toBe(true);
+  });
+
+  it("updates tasks on their original stream after text rotates", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const segments: Array<{
+      chunks: StreamChunk[];
+      markdown: string;
+      stop: ReturnType<typeof vi.fn>;
+    }> = [];
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockImplementation(() => {
+        const index = segments.length;
+        const segment = {
+          chunks: [] as StreamChunk[],
+          markdown: "",
+          stop: vi.fn().mockResolvedValue({
+            ok: true,
+            ts: `1234567890.${String(index).padStart(6, "0")}`,
+          }),
+        };
+        segments.push(segment);
+        return {
+          append: vi.fn().mockImplementation(async (payload) => {
+            segment.chunks.push(...(payload.chunks ?? []));
+            segment.markdown += payload.markdown_text ?? "";
+            return { ok: true };
+          }),
+          stop: segment.stop,
+        };
+      })
+    );
+
+    async function* mixedStream() {
+      yield {
+        id: "research",
+        status: "in_progress" as const,
+        title: "Researching",
+        type: "task_update" as const,
+      };
+      yield "text ".repeat(5000);
+      yield {
+        id: "research",
+        status: "complete" as const,
+        title: "Research complete",
+        type: "task_update" as const,
+      };
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", mixedStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(segments.length).toBeGreaterThan(1);
+    const taskSegments = segments.filter((segment) =>
+      segment.chunks.some((chunk) => chunk.type === "task_update")
+    );
+    expect(taskSegments).toHaveLength(1);
+    expect(
+      taskSegments[0]?.chunks
+        .filter((chunk) => chunk.type === "task_update")
+        .map((chunk) => chunk.status)
+    ).toEqual(["in_progress", "complete"]);
+    for (const segment of segments) {
+      expect(segment.stop).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("stops a partial stream when its source fails", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({
+        append: vi.fn().mockResolvedValue({ ok: true }),
+        stop,
+      })
+    );
+
+    const sourceError = new Error("stream failed");
+    async function* failingStream() {
+      yield {
+        id: "research",
+        status: "in_progress" as const,
+        title: "Researching",
+        type: "task_update" as const,
+      };
+      throw sourceError;
+    }
+
+    await expect(
+      adapter.stream("slack:C123:1234567890.000000", failingStream(), {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      })
+    ).rejects.toBe(sourceError);
+    expect(stop).toHaveBeenCalledWith({
+      token: "xoxb-test-token",
+    });
   });
 });
 
