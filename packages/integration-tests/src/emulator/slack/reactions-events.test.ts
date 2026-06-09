@@ -4,9 +4,7 @@
  * `onReaction` handlers run with a live Thread.
  */
 
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
-import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type ReactionEvent } from "chat";
+import type { ReactionEvent } from "chat";
 import {
   afterAll,
   afterEach,
@@ -17,27 +15,20 @@ import {
   it,
   vi,
 } from "vitest";
-import { createSlackEvent, createSlackWebhookRequest } from "../../slack-utils";
-import { createWaitUntilTracker } from "../../test-scenarios";
 import {
   addReactionAsHuman,
+  createEmulatorChatHarness,
   createSlackEmulator,
-  EMULATOR_BOT_NAME,
-  EMULATOR_BOT_TOKEN,
+  deliverMention,
   EMULATOR_BOT_USER_ID,
+  type EmulatorChatHarness,
   type SlackEmulatorHandle,
-  type SlackWebhookForwarder,
-  silentLogger,
-  startSlackWebhookForwarder,
   waitForDelivery,
 } from "./utils";
 
 describe("Slack emulator: inbound reaction_added flow", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }> | undefined;
-  let adapter!: SlackAdapter;
-  let forwarder: SlackWebhookForwarder | undefined;
-  let tracker!: ReturnType<typeof createWaitUntilTracker>;
+  let harness: EmulatorChatHarness;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -48,85 +39,28 @@ describe("Slack emulator: inbound reaction_added flow", () => {
   });
 
   beforeEach(async () => {
-    adapter = createSlackAdapter({
-      apiUrl: emulator.apiUrl,
-      botToken: EMULATOR_BOT_TOKEN,
-      signingSecret: emulator.signingSecret,
-      userName: EMULATOR_BOT_NAME,
-      logger: silentLogger,
-    });
-    chat = new Chat({
-      userName: EMULATOR_BOT_NAME,
-      adapters: { slack: adapter },
-      state: createMemoryState(),
-      logger: silentLogger,
-    });
-    tracker = createWaitUntilTracker();
-    await chat.initialize();
-
-    const activeChat = chat;
-    forwarder = await startSlackWebhookForwarder({
-      signingSecret: emulator.signingSecret,
-      teamId: emulator.teamId,
-      webhooks: emulator.webhooks,
-      onWebhook: (request) =>
-        activeChat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
+    harness = await createEmulatorChatHarness(emulator, {
+      withForwarder: true,
     });
   });
 
   afterEach(async () => {
-    if (forwarder) {
-      await forwarder.close();
-      forwarder = undefined;
-    }
-    if (chat) {
-      await chat.shutdown();
-      chat = undefined;
-    }
-    emulator.reset();
+    await harness.teardown();
   });
 
-  async function deliverMention(threadTs: string) {
-    if (!chat) {
-      throw new Error("chat not initialized");
-    }
-
-    const event = createSlackEvent({
-      type: "app_mention",
-      text: `<@${EMULATOR_BOT_USER_ID}> ping`,
-      userId: emulator.humanUserId,
-      messageTs: threadTs,
-      threadTs,
-      channel: emulator.channelId,
-      teamId: emulator.teamId,
-    });
-    const req = createSlackWebhookRequest(event, emulator.signingSecret);
-    const res = await chat.webhooks.slack(req, {
-      waitUntil: tracker.waitUntil,
-    });
-    if (res.status !== 200) {
-      throw new Error(`webhook handler returned ${res.status}`);
-    }
-    await tracker.waitForAll();
-  }
-
   it("delivers reaction_added to onReaction and allows a threaded reply", async () => {
-    if (!chat) {
-      throw new Error("chat not initialized");
-    }
-
     const captured = vi.fn<(event: ReactionEvent) => void>();
-    chat.onReaction(async (event) => {
+    harness.chat.onReaction(async (event) => {
       captured(event);
       await event.thread?.post(`Thanks for the ${event.emoji}!`);
     });
 
-    chat.onNewMention(async (thread) => {
+    harness.chat.onNewMention(async (thread) => {
       await thread.post("react to me");
     });
 
     const threadTs = "1700000000.200001";
-    await deliverMention(threadTs);
+    await deliverMention(emulator, harness, threadTs);
 
     const botMessage = emulator.slackStore.messages
       .all()
@@ -149,11 +83,11 @@ describe("Slack emulator: inbound reaction_added flow", () => {
       emulator,
       (d) => d.event === "reaction_added" && d.success
     );
-    await tracker.waitForAll();
+    await harness.tracker.waitForAll();
 
     expect(captured).toHaveBeenCalledTimes(1);
     expect(captured.mock.calls[0]?.[0]).toMatchObject({
-      adapter,
+      adapter: harness.adapter,
       rawEmoji: "tada",
       user: expect.objectContaining({ userId: emulator.humanUserId }),
     });

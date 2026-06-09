@@ -3,9 +3,7 @@
  * the emulator webhook bridge.
  */
 
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
-import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type Message, type Thread } from "chat";
+import type { Message, Thread } from "chat";
 import {
   afterAll,
   afterEach,
@@ -16,25 +14,18 @@ import {
   it,
   vi,
 } from "vitest";
-import { createWaitUntilTracker } from "../../test-scenarios";
 import {
+  createEmulatorChatHarness,
   createSlackEmulator,
-  EMULATOR_BOT_NAME,
-  EMULATOR_BOT_TOKEN,
+  type EmulatorChatHarness,
   postAsHuman,
   type SlackEmulatorHandle,
-  type SlackWebhookForwarder,
-  silentLogger,
-  startSlackWebhookForwarder,
   waitForDelivery,
 } from "./utils";
 
 describe("Slack emulator: DM inbound flow", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }> | undefined;
-  let adapter!: SlackAdapter;
-  let forwarder: SlackWebhookForwarder | undefined;
-  let tracker!: ReturnType<typeof createWaitUntilTracker>;
+  let harness: EmulatorChatHarness;
   let dmChannelId!: string;
   let dmThreadId!: string;
 
@@ -47,59 +38,25 @@ describe("Slack emulator: DM inbound flow", () => {
   });
 
   beforeEach(async () => {
-    adapter = createSlackAdapter({
-      apiUrl: emulator.apiUrl,
-      botToken: EMULATOR_BOT_TOKEN,
-      signingSecret: emulator.signingSecret,
-      userName: EMULATOR_BOT_NAME,
-      logger: silentLogger,
+    harness = await createEmulatorChatHarness(emulator, {
+      withForwarder: true,
     });
-    chat = new Chat({
-      userName: EMULATOR_BOT_NAME,
-      adapters: { slack: adapter },
-      state: createMemoryState(),
-      logger: silentLogger,
-    });
-    tracker = createWaitUntilTracker();
-    await chat.initialize();
-
-    dmThreadId = await adapter.openDM(emulator.humanUserId);
-    dmChannelId = adapter.decodeThreadId(dmThreadId).channel;
-
-    const activeChat = chat;
-    forwarder = await startSlackWebhookForwarder({
-      signingSecret: emulator.signingSecret,
-      teamId: emulator.teamId,
-      webhooks: emulator.webhooks,
-      onWebhook: (request) =>
-        activeChat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
-    });
+    dmThreadId = await harness.adapter.openDM(emulator.humanUserId);
+    dmChannelId = harness.adapter.decodeThreadId(dmThreadId).channel;
   });
 
   afterEach(async () => {
-    if (forwarder) {
-      await forwarder.close();
-      forwarder = undefined;
-    }
-    if (chat) {
-      await chat.shutdown();
-      chat = undefined;
-    }
-    emulator.reset();
+    await harness.teardown();
   });
 
   it("opens a DM channel via conversations.open", () => {
     expect(dmChannelId.startsWith("D")).toBe(true);
-    expect(adapter.isDM(dmThreadId)).toBe(true);
+    expect(harness.adapter.isDM(dmThreadId)).toBe(true);
   });
 
   it("delivers a human DM to onDirectMessage and posts a reply", async () => {
-    if (!chat) {
-      throw new Error("chat not initialized");
-    }
-
     const captured = vi.fn<(thread: Thread, message: Message) => void>();
-    chat.onDirectMessage(async (thread, message) => {
+    harness.chat.onDirectMessage(async (thread, message) => {
       captured(thread, message);
       await thread.post("DM reply from bot");
     });
@@ -110,11 +67,11 @@ describe("Slack emulator: DM inbound flow", () => {
     });
 
     await waitForDelivery(emulator, (d) => d.event === "message" && d.success);
-    await tracker.waitForAll();
+    await harness.tracker.waitForAll();
 
     expect(captured).toHaveBeenCalledTimes(1);
     const [thread, message] = captured.mock.calls[0] ?? [];
-    expect(adapter.decodeThreadId(thread.id).channel).toBe(dmChannelId);
+    expect(harness.adapter.decodeThreadId(thread.id).channel).toBe(dmChannelId);
     expect(message.text).toBe("hello in dm");
 
     const replies = emulator.slackStore.messages
