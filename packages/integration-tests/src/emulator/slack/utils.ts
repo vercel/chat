@@ -18,11 +18,15 @@
 import { createHmac } from "node:crypto";
 import { createServer as createNodeServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
+import { createMemoryState } from "@chat-adapter/state-memory";
 import type { Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { createServer as createCoreServer } from "@emulators/core";
 import { getSlackStore, type SlackStore, slackPlugin } from "@emulators/slack";
 import { serve } from "@hono/node-server";
-import type { Logger } from "chat";
+import { Chat, type Logger } from "chat";
+import { createSlackEvent, createSlackWebhookRequest } from "../../slack-utils";
+import { createWaitUntilTracker } from "../../test-scenarios";
 
 /**
  * Silent logger shared across emulator-backed tests so we don't spam test
@@ -120,15 +124,22 @@ export interface SlackEmulatorHandle {
 export async function createSlackEmulator(): Promise<SlackEmulatorHandle> {
   const seed = DEFAULT_SEED;
 
+  // Reserve the listening port up front so the emulator can be created with a
+  // `baseUrl` that matches where it actually binds. The emulator bakes this
+  // baseUrl into self-built URLs (file upload URLs, permalinks), so passing the
+  // real origin here means tests can fetch those URLs directly without
+  // rewriting the host.
+  const port = await allocateEphemeralPort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const apiUrl = `${baseUrl}/api/`;
+
   const { app, store, webhooks, tokenMap } = createCoreServer(slackPlugin, {
-    port: 0,
+    port,
+    baseUrl,
     tokens: buildTokenSeedEntries(seed),
   });
 
-  const httpServer = await listen(app.fetch);
-  const port = (httpServer.address() as AddressInfo).port;
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const apiUrl = `${baseUrl}/api/`;
+  const httpServer = await listen(app.fetch, port);
 
   // Slack plugin's seed() installs a default team/channel/admin user that we
   // don't use; replace with our own deterministic ids so tests can refer to
@@ -167,11 +178,31 @@ export async function createSlackEmulator(): Promise<SlackEmulatorHandle> {
   };
 }
 
-function listen(fetch: (req: Request) => Response | Promise<Response>) {
+function listen(
+  fetch: (req: Request) => Response | Promise<Response>,
+  port: number
+) {
   return new Promise<Server>((resolve) => {
-    const server = serve({ fetch, port: 0, hostname: "127.0.0.1" }, () => {
+    const server = serve({ fetch, port, hostname: "127.0.0.1" }, () => {
       resolve(server as unknown as Server);
     }) as unknown as Server;
+  });
+}
+
+/**
+ * Bind an ephemeral port (port 0 → OS-assigned), read the assigned port, then
+ * release it so the emulator server can claim it. There is a small window
+ * between release and re-bind, but concurrent `listen(0)` calls receive
+ * distinct ports from the OS so this is safe for in-process tests.
+ */
+function allocateEphemeralPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createNodeServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close((err) => (err ? reject(err) : resolve(port)));
+    });
   });
 }
 
@@ -292,7 +323,6 @@ export function addEmulatorWorkspace(
 
 function applySeed(store: Store, seed: EmulatorSeed) {
   const ss = getSlackStore(store);
-  const now = Math.floor(Date.now() / 1000);
 
   ss.teams.insert({
     team_id: seed.team.id,
@@ -351,18 +381,11 @@ function applySeed(store: Store, seed: EmulatorSeed) {
     ...seed.humans.map((h) => h.userId),
   ];
   for (const ch of seed.channels) {
-    ss.channels.insert({
-      channel_id: ch.id,
-      team_id: seed.team.id,
+    insertChannel(ss, {
+      channelId: ch.id,
       name: ch.name,
-      is_channel: true,
-      is_private: false,
-      is_archived: false,
-      topic: { value: "", creator: memberIds[0] ?? "", last_set: now },
-      purpose: { value: "", creator: memberIds[0] ?? "", last_set: now },
       members: memberIds,
-      creator: memberIds[0] ?? "",
-      num_members: memberIds.length,
+      teamId: seed.team.id,
     });
   }
 
@@ -374,6 +397,37 @@ function applySeed(store: Store, seed: EmulatorSeed) {
   });
 
   store.setData("slack.signing_secret", EMULATOR_SIGNING_SECRET);
+}
+
+/**
+ * Insert a public channel into the Slack store. Shared by `applySeed` (initial
+ * boot + reset) and `seedChannelWithoutBot` so the channel record shape lives
+ * in one place. The first member is treated as the creator.
+ */
+function insertChannel(
+  ss: SlackStore,
+  options: {
+    channelId: string;
+    members: string[];
+    name: string;
+    teamId: string;
+  }
+): void {
+  const now = Math.floor(Date.now() / 1000);
+  const creator = options.members[0] ?? "";
+  ss.channels.insert({
+    channel_id: options.channelId,
+    team_id: options.teamId,
+    name: options.name,
+    is_channel: true,
+    is_private: false,
+    is_archived: false,
+    topic: { value: "", creator, last_set: now },
+    purpose: { value: "", creator, last_set: now },
+    members: options.members,
+    creator,
+    num_members: options.members.length,
+  });
 }
 
 /**
@@ -544,6 +598,34 @@ function signSlackBody(
 }
 
 /**
+ * POST to an emulator Slack Web API method with bearer auth, parse the JSON
+ * envelope, and throw if the call was not `ok`. Centralizes the auth header,
+ * content-type, and error-envelope handling shared by every emulator helper.
+ * Defaults to the bot token; pass `token` to act as another user.
+ */
+async function callEmulatorApi<T extends { error?: string; ok: boolean }>(
+  emulator: SlackEmulatorHandle,
+  method: string,
+  body: Record<string, unknown>,
+  options: { token?: string } = {}
+): Promise<T> {
+  const token = options.token ?? emulator.botToken;
+  const response = await fetch(`${emulator.apiUrl}${method}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await response.json()) as T;
+  if (!json.ok) {
+    throw new Error(`emulator ${method} failed: ${JSON.stringify(json)}`);
+  }
+  return json;
+}
+
+/**
  * Convenience: post a message to a channel via the emulator using the human
  * user token, mirroring an end-user posting in Slack. Returns the inserted
  * message's `ts` so tests can correlate replies/threads.
@@ -557,28 +639,16 @@ export async function postAsHuman(
   }
 ): Promise<{ channel: string; ts: string }> {
   const channel = options.channel ?? emulator.channelId;
-  const response = await fetch(`${emulator.apiUrl}chat.postMessage`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      authorization: `Bearer ${emulator.humanUserToken}`,
-    },
-    body: JSON.stringify({
-      channel,
-      text: options.text,
-      thread_ts: options.threadTs,
-    }),
-  });
-  const json = (await response.json()) as {
+  const json = await callEmulatorApi<{
     channel: string;
     ok: boolean;
     ts: string;
-  };
-  if (!json.ok) {
-    throw new Error(
-      `emulator chat.postMessage failed: ${JSON.stringify(json)}`
-    );
-  }
+  }>(
+    emulator,
+    "chat.postMessage",
+    { channel, text: options.text, thread_ts: options.threadTs },
+    { token: emulator.humanUserToken }
+  );
   return { channel: json.channel, ts: json.ts };
 }
 
@@ -594,57 +664,34 @@ export async function addReactionAsHuman(
     timestamp: string;
   }
 ): Promise<void> {
-  const response = await fetch(`${emulator.apiUrl}reactions.add`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${emulator.humanUserToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({
+  await callEmulatorApi(
+    emulator,
+    "reactions.add",
+    {
       channel: options.channel,
       name: options.name,
       timestamp: options.timestamp,
-    }),
-  });
-  const json = (await response.json()) as { error?: string; ok: boolean };
-  if (!json.ok) {
-    throw new Error(`emulator reactions.add failed: ${JSON.stringify(json)}`);
-  }
+    },
+    { token: emulator.humanUserToken }
+  );
 }
 
 /**
  * Obtain a single-use trigger id for `views.open` / `views.push`.
  */
 export async function generateViewTriggerId(
-  emulator: SlackEmulatorHandle,
-  options: { userId?: string; viewId?: string } = {}
-): Promise<{ expiresAt: number; triggerId: string }> {
-  const response = await fetch(`${emulator.apiUrl}views.generateTriggerId`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${emulator.botToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({
-      user_id: options.userId ?? emulator.humanUserId,
-      ...(options.viewId ? { view_id: options.viewId } : {}),
-    }),
-  });
-  const json = (await response.json()) as {
-    error?: string;
-    expires_at?: number;
+  emulator: SlackEmulatorHandle
+): Promise<string> {
+  const json = await callEmulatorApi<{
     ok: boolean;
     trigger_id?: string;
-  };
-  if (!(json.ok && json.trigger_id)) {
+  }>(emulator, "views.generateTriggerId", { user_id: emulator.humanUserId });
+  if (!json.trigger_id) {
     throw new Error(
-      `emulator views.generateTriggerId failed: ${JSON.stringify(json)}`
+      `emulator views.generateTriggerId returned no trigger_id: ${JSON.stringify(json)}`
     );
   }
-  return {
-    triggerId: json.trigger_id,
-    expiresAt: json.expires_at ?? 0,
-  };
+  return json.trigger_id;
 }
 
 /**
@@ -655,20 +702,7 @@ export async function joinChannelAsBot(
   emulator: SlackEmulatorHandle,
   channelId: string
 ): Promise<void> {
-  const response = await fetch(`${emulator.apiUrl}conversations.join`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${emulator.botToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({ channel: channelId }),
-  });
-  const json = (await response.json()) as { error?: string; ok: boolean };
-  if (!json.ok) {
-    throw new Error(
-      `emulator conversations.join failed: ${JSON.stringify(json)}`
-    );
-  }
+  await callEmulatorApi(emulator, "conversations.join", { channel: channelId });
 }
 
 /**
@@ -678,27 +712,11 @@ export function seedChannelWithoutBot(
   emulator: SlackEmulatorHandle,
   options: { channelId: string; name: string }
 ): void {
-  const now = Math.floor(Date.now() / 1000);
-  emulator.slackStore.channels.insert({
-    channel_id: options.channelId,
-    team_id: emulator.teamId,
+  insertChannel(emulator.slackStore, {
+    channelId: options.channelId,
     name: options.name,
-    is_channel: true,
-    is_private: false,
-    is_archived: false,
-    topic: {
-      value: "",
-      creator: emulator.humanUserId,
-      last_set: now,
-    },
-    purpose: {
-      value: "",
-      creator: emulator.humanUserId,
-      last_set: now,
-    },
     members: [emulator.humanUserId],
-    creator: emulator.humanUserId,
-    num_members: 1,
+    teamId: emulator.teamId,
   });
 }
 
@@ -710,26 +728,19 @@ export async function addBookmarkViaApi(
     title: string;
   }
 ): Promise<{ bookmarkId: string }> {
-  const response = await fetch(`${emulator.apiUrl}bookmarks.add`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${emulator.botToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({
-      channel_id: options.channelId,
-      type: "link",
-      title: options.title,
-      link: options.link,
-    }),
-  });
-  const json = (await response.json()) as {
+  const json = await callEmulatorApi<{
     bookmark?: { id?: string };
-    error?: string;
     ok: boolean;
-  };
-  if (!(json.ok && json.bookmark?.id)) {
-    throw new Error(`emulator bookmarks.add failed: ${JSON.stringify(json)}`);
+  }>(emulator, "bookmarks.add", {
+    channel_id: options.channelId,
+    type: "link",
+    title: options.title,
+    link: options.link,
+  });
+  if (!json.bookmark?.id) {
+    throw new Error(
+      `emulator bookmarks.add returned no bookmark id: ${JSON.stringify(json)}`
+    );
   }
   return { bookmarkId: json.bookmark.id };
 }
@@ -738,23 +749,100 @@ export async function listBookmarksViaApi(
   emulator: SlackEmulatorHandle,
   channelId: string
 ): Promise<Array<{ id: string; link: string; title: string }>> {
-  const response = await fetch(`${emulator.apiUrl}bookmarks.list`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${emulator.botToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify({ channel_id: channelId }),
-  });
-  const json = (await response.json()) as {
+  const json = await callEmulatorApi<{
     bookmarks?: Array<{ id: string; link: string; title: string }>;
-    error?: string;
     ok: boolean;
-  };
-  if (!json.ok) {
-    throw new Error(`emulator bookmarks.list failed: ${JSON.stringify(json)}`);
-  }
+  }>(emulator, "bookmarks.list", { channel_id: channelId });
   return json.bookmarks ?? [];
+}
+
+export interface EmulatorChatHarness {
+  adapter: SlackAdapter;
+  chat: Chat<{ slack: SlackAdapter }>;
+  /** Present only when `withForwarder` was requested. */
+  forwarder?: SlackWebhookForwarder;
+  /** Close the forwarder (if any), shut down the chat, and reset the emulator. */
+  teardown: () => Promise<void>;
+  tracker: ReturnType<typeof createWaitUntilTracker>;
+}
+
+/**
+ * Boot a `Chat` wired to the emulator with the silent logger, in-memory state,
+ * and a shared waitUntil tracker — the setup every emulator-backed test repeats.
+ * With `withForwarder: true` it also starts the inbound webhook forwarder so
+ * emulator-dispatched events (reactions, joins, DMs) reach
+ * `chat.webhooks.slack(...)`. Call the returned `teardown` from `afterEach`.
+ */
+export async function createEmulatorChatHarness(
+  emulator: SlackEmulatorHandle,
+  options: { withForwarder?: boolean } = {}
+): Promise<EmulatorChatHarness> {
+  const adapter = createSlackAdapter({
+    apiUrl: emulator.apiUrl,
+    botToken: EMULATOR_BOT_TOKEN,
+    signingSecret: emulator.signingSecret,
+    userName: EMULATOR_BOT_NAME,
+    logger: silentLogger,
+  });
+  const chat = new Chat({
+    userName: EMULATOR_BOT_NAME,
+    adapters: { slack: adapter },
+    state: createMemoryState(),
+    logger: silentLogger,
+  });
+  const tracker = createWaitUntilTracker();
+  await chat.initialize();
+
+  let forwarder: SlackWebhookForwarder | undefined;
+  if (options.withForwarder) {
+    forwarder = await startSlackWebhookForwarder({
+      signingSecret: emulator.signingSecret,
+      teamId: emulator.teamId,
+      webhooks: emulator.webhooks,
+      onWebhook: (request) =>
+        chat.webhooks.slack(request, { waitUntil: tracker.waitUntil }),
+    });
+  }
+
+  const teardown = async () => {
+    if (forwarder) {
+      await forwarder.close();
+    }
+    await chat.shutdown();
+    emulator.reset();
+  };
+
+  return { adapter, chat, tracker, forwarder, teardown };
+}
+
+/**
+ * Deliver an `app_mention` of the bot into the seeded channel via a signed
+ * webhook request, assert the handler returned 200, and drain the tracker so
+ * all `waitUntil`-tracked handler work has settled before returning.
+ */
+export async function deliverMention(
+  emulator: SlackEmulatorHandle,
+  harness: Pick<EmulatorChatHarness, "chat" | "tracker">,
+  threadTs: string,
+  text = "ping"
+): Promise<void> {
+  const event = createSlackEvent({
+    type: "app_mention",
+    text: `<@${EMULATOR_BOT_USER_ID}> ${text}`,
+    userId: emulator.humanUserId,
+    messageTs: threadTs,
+    threadTs,
+    channel: emulator.channelId,
+    teamId: emulator.teamId,
+  });
+  const req = createSlackWebhookRequest(event, emulator.signingSecret);
+  const res = await harness.chat.webhooks.slack(req, {
+    waitUntil: harness.tracker.waitUntil,
+  });
+  if (res.status !== 200) {
+    throw new Error(`webhook handler returned ${res.status}`);
+  }
+  await harness.tracker.waitForAll();
 }
 
 /**
