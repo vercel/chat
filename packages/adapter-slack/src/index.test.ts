@@ -8108,6 +8108,100 @@ describe("stream with empty threadTs", () => {
     }
   });
 
+  it("continues task cards across stream messages after fifty cards", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const segments: Array<{
+      chunks: StreamChunk[];
+      stop: ReturnType<typeof vi.fn>;
+    }> = [];
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockImplementation(() => {
+        const index = segments.length;
+        const segment = {
+          chunks: [] as StreamChunk[],
+          stop: vi.fn().mockResolvedValue({
+            ok: true,
+            ts: `1234567890.${String(index).padStart(6, "0")}`,
+          }),
+        };
+        segments.push(segment);
+        return {
+          append: vi.fn().mockImplementation(async (payload) => {
+            segment.chunks.push(...(payload.chunks ?? []));
+            return { ok: true };
+          }),
+          stop: segment.stop,
+        };
+      })
+    );
+
+    async function* taskStream() {
+      yield {
+        title: "Migration plan",
+        type: "plan_update" as const,
+      };
+      for (let index = 0; index < 60; index++) {
+        yield {
+          id: `task-${index}`,
+          status: "in_progress" as const,
+          title: `Task ${index}`,
+          type: "task_update" as const,
+        };
+      }
+      for (let index = 0; index < 60; index++) {
+        yield {
+          id: `task-${index}`,
+          status: "complete" as const,
+          title: `Task ${index}`,
+          type: "task_update" as const,
+        };
+      }
+      yield {
+        title: "Migration complete",
+        type: "plan_update" as const,
+      };
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      taskStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(segments).toHaveLength(2);
+    const owners = new Map<string, number>();
+    for (const [index, segment] of segments.entries()) {
+      const tasks = segment.chunks.filter(
+        (chunk): chunk is Extract<StreamChunk, { type: "task_update" }> =>
+          chunk.type === "task_update"
+      );
+      expect(new Set(tasks.map((chunk) => chunk.id)).size).toBeLessThanOrEqual(
+        50
+      );
+      for (const task of tasks) {
+        expect(owners.get(task.id) ?? index).toBe(index);
+        owners.set(task.id, index);
+      }
+      expect(
+        segment.chunks
+          .filter((chunk) => chunk.type === "plan_update")
+          .map((chunk) => chunk.title)
+      ).toEqual(["Migration plan", "Migration complete"]);
+      expect(segment.stop).toHaveBeenCalledOnce();
+    }
+    expect(owners.size).toBe(60);
+    expect(result.id).toBe("1234567890.000001");
+  });
+
   it("stops a partial stream when its source fails", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",

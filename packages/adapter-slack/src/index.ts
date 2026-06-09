@@ -83,6 +83,7 @@ import {
   STREAM_CHUNK_LIMIT,
   STREAM_FENCE_RESERVE,
   STREAM_SEGMENT_LIMIT,
+  STREAM_TASK_LIMIT,
   splitTask,
   splitText,
   truncateText,
@@ -3996,6 +3997,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     const token = await this.getToken();
     interface Segment {
+      cards: number;
       hasContent: boolean;
       length: number;
       stopped: boolean;
@@ -4004,6 +4006,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     type StopResult = Awaited<ReturnType<ChatStreamer["stop"]>>;
 
     const createSegment = (): Segment => ({
+      cards: 0,
       hasContent: false,
       length: 0,
       stopped: false,
@@ -4020,10 +4023,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     let current = createSegment();
-    let structured: Segment | undefined;
+    const structured = new Set<Segment>();
     let lastResult: StopResult | undefined;
     let lastAppended = "";
+    let plan: Extract<StreamChunk, { type: "plan_update" }> | undefined;
     const taskParts = new Map<string, number>();
+    const taskSegments = new Map<string, Segment>();
     const fence = new Fence();
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
@@ -4054,7 +4059,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         current.hasContent = true;
         current.length += closing.length;
       }
-      if (current !== structured) {
+      if (!structured.has(current)) {
         await stopSegment(current);
       }
       current = createSegment();
@@ -4122,6 +4127,44 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * Text streaming continues unaffected.
      */
     let structuredChunksSupported = true;
+    const appendStructuredChunk = async (
+      segment: Segment,
+      chunk: Exclude<StreamChunk, { type: "markdown_text" }>
+    ): Promise<void> => {
+      await segment.streamer.append({
+        chunks: [chunk],
+        token,
+        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+      } as any);
+      segment.hasContent = true;
+    };
+
+    const createStructuredSegment = async (): Promise<Segment> => {
+      current = createSegment();
+      structured.add(current);
+      if (plan) {
+        await appendStructuredChunk(current, plan);
+      }
+      return current;
+    };
+
+    const getTaskSegment = async (id: string): Promise<Segment> => {
+      const existing = taskSegments.get(id);
+      if (existing) {
+        return existing;
+      }
+
+      if (current.cards >= STREAM_TASK_LIMIT) {
+        await createStructuredSegment();
+      } else {
+        structured.add(current);
+      }
+
+      current.cards += 1;
+      taskSegments.set(id, current);
+      return current;
+    };
+
     const sendStructuredChunk = async (
       chunk: Exclude<StreamChunk, { type: "markdown_text" }>
     ): Promise<void> => {
@@ -4136,28 +4179,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
 
       try {
-        structured ??= current;
-        const chunks =
-          chunk.type === "task_update"
-            ? splitTask(chunk, taskParts.get(chunk.id) ?? 0)
-            : [
-                {
-                  ...chunk,
-                  title: truncateText(chunk.title, STREAM_CHUNK_LIMIT),
-                },
-              ];
-
-        if (chunk.type === "task_update") {
-          taskParts.set(chunk.id, chunks.length);
+        if (chunk.type === "plan_update") {
+          plan = {
+            ...chunk,
+            title: truncateText(chunk.title, STREAM_CHUNK_LIMIT),
+          };
+          if (structured.size === 0) {
+            structured.add(current);
+          }
+          for (const segment of structured) {
+            await appendStructuredChunk(segment, plan);
+          }
+          return;
         }
 
+        const chunks = splitTask(chunk, taskParts.get(chunk.id) ?? 0);
+        taskParts.set(chunk.id, chunks.length);
+
         for (const normalized of chunks) {
-          await structured.streamer.append({
-            chunks: [normalized],
-            token,
-            // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-          } as any);
-          structured.hasContent = true;
+          const segment = await getTaskSegment(normalized.id);
+          await appendStructuredChunk(segment, normalized);
         }
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
@@ -4208,8 +4249,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         current.length += fence.closing.length;
       }
 
-      if (structured && structured !== current) {
-        await stopSegment(structured);
+      for (const segment of structured) {
+        if (segment !== current) {
+          await stopSegment(segment);
+        }
       }
       lastResult = await stopSegment(
         current,
@@ -4217,10 +4260,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         true
       );
     } catch (error) {
-      const segments = new Set([structured, current]);
+      const segments = new Set([...structured, current]);
       fence.finish();
       for (const segment of segments) {
-        if (!segment?.hasContent) {
+        if (!segment.hasContent) {
           continue;
         }
         try {

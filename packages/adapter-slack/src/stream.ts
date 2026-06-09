@@ -3,6 +3,7 @@ import type { StreamChunk } from "chat";
 export const STREAM_BUFFER_SIZE = 256;
 export const STREAM_SEGMENT_LIMIT = 11_500;
 export const STREAM_CHUNK_LIMIT = 256;
+export const STREAM_TASK_LIMIT = 50;
 export const STREAM_FENCE_RESERVE = 64;
 
 type TaskChunk = Extract<StreamChunk, { type: "task_update" }>;
