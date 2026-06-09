@@ -377,7 +377,7 @@ function createSlackViewSubmissionPayload(options: SlackViewSubmissionOptions) {
 /**
  * Create a signed Slack interactivity webhook request (form-urlencoded).
  */
-export function createSlackInteractiveRequest(
+function createSlackInteractiveRequest(
   payload: Record<string, unknown>,
   signingSecret = SLACK_SIGNING_SECRET
 ): Request {
