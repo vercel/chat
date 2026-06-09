@@ -507,19 +507,25 @@ export class GitHubAdapter
     options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
-    this.logger.debug("GitHub webhook raw body", {
-      body: body.substring(0, 500),
-    });
+    const signature = request.headers.get("x-hub-signature-256");
+    const eventType = request.headers.get("x-github-event");
+    const webhookMetadata = {
+      bodyBytes: Buffer.byteLength(body, "utf8"),
+      contentType: request.headers.get("content-type"),
+      eventType,
+      signaturePresent: signature !== null,
+    };
 
     // Verify request signature
-    const signature = request.headers.get("x-hub-signature-256");
     if (!this.verifySignature(body, signature)) {
+      this.logger.debug(
+        "GitHub webhook signature verification failed",
+        webhookMetadata
+      );
       return new Response("Invalid signature", { status: 401 });
     }
 
-    // Get event type from header
-    const eventType = request.headers.get("x-github-event");
-    this.logger.debug("GitHub webhook event type", { eventType });
+    this.logger.debug("GitHub webhook request verified", webhookMetadata);
 
     // Handle ping event (webhook verification)
     if (eventType === "ping") {
@@ -535,8 +541,8 @@ export class GitHubAdapter
       payload = JSON.parse(body);
     } catch {
       this.logger.error("GitHub webhook invalid JSON", {
-        contentType: request.headers.get("content-type"),
-        bodyPreview: body.substring(0, 200),
+        ...webhookMetadata,
+        jsonParseStatus: "error",
       });
       return new Response(
         "Invalid JSON. Make sure webhook Content-Type is set to application/json",
