@@ -3,9 +3,7 @@
  * view_submission interactivity against the emulator store.
  */
 
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
-import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, Modal, type ModalSubmitEvent, TextInput } from "chat";
+import { Modal, type ModalSubmitEvent, TextInput } from "chat";
 import {
   afterAll,
   afterEach,
@@ -17,21 +15,17 @@ import {
   vi,
 } from "vitest";
 import { createSlackViewSubmissionRequest } from "../../slack-utils";
-import { createWaitUntilTracker } from "../../test-scenarios";
 import {
+  createEmulatorChatHarness,
   createSlackEmulator,
-  EMULATOR_BOT_NAME,
-  EMULATOR_BOT_TOKEN,
+  type EmulatorChatHarness,
   generateViewTriggerId,
   type SlackEmulatorHandle,
-  silentLogger,
 } from "./utils";
 
 describe("Slack emulator: modal views round-trip", () => {
   let emulator: SlackEmulatorHandle;
-  let chat: Chat<{ slack: SlackAdapter }> | undefined;
-  let adapter!: SlackAdapter;
-  let tracker!: ReturnType<typeof createWaitUntilTracker>;
+  let harness: EmulatorChatHarness;
 
   beforeAll(async () => {
     emulator = await createSlackEmulator();
@@ -42,33 +36,15 @@ describe("Slack emulator: modal views round-trip", () => {
   });
 
   beforeEach(async () => {
-    adapter = createSlackAdapter({
-      apiUrl: emulator.apiUrl,
-      botToken: EMULATOR_BOT_TOKEN,
-      signingSecret: emulator.signingSecret,
-      userName: EMULATOR_BOT_NAME,
-      logger: silentLogger,
-    });
-    chat = new Chat({
-      userName: EMULATOR_BOT_NAME,
-      adapters: { slack: adapter },
-      state: createMemoryState(),
-      logger: silentLogger,
-    });
-    tracker = createWaitUntilTracker();
-    await chat.initialize();
+    harness = await createEmulatorChatHarness(emulator);
   });
 
   afterEach(async () => {
-    if (chat) {
-      await chat.shutdown();
-      chat = undefined;
-    }
-    emulator.reset();
+    await harness.teardown();
   });
 
   it("opens and updates a modal via views.open and views.update", async () => {
-    const { triggerId } = await generateViewTriggerId(emulator);
+    const triggerId = await generateViewTriggerId(emulator);
     const modal = Modal({
       title: "Feedback",
       callbackId: "feedback_form",
@@ -81,7 +57,7 @@ describe("Slack emulator: modal views round-trip", () => {
       ],
     });
 
-    const opened = await adapter.openModal(triggerId, modal);
+    const opened = await harness.adapter.openModal(triggerId, modal);
     const stored = emulator.slackStore.views.findOneBy(
       "view_id",
       opened.viewId
@@ -89,7 +65,7 @@ describe("Slack emulator: modal views round-trip", () => {
     expect(stored?.callback_id).toBe("feedback_form");
     expect(stored?.type).toBe("modal");
 
-    await adapter.updateModal(
+    await harness.adapter.updateModal(
       opened.viewId,
       Modal({
         title: "Updated feedback",
@@ -111,17 +87,13 @@ describe("Slack emulator: modal views round-trip", () => {
   });
 
   it("delivers view_submission to onModalSubmit", async () => {
-    if (!chat) {
-      throw new Error("chat not initialized");
-    }
-
     const captured = vi.fn<(event: ModalSubmitEvent) => void>();
-    chat.onModalSubmit("feedback_form", (event) => {
+    harness.chat.onModalSubmit("feedback_form", (event) => {
       captured(event);
     });
 
-    const { triggerId } = await generateViewTriggerId(emulator);
-    const { viewId } = await adapter.openModal(
+    const triggerId = await generateViewTriggerId(emulator);
+    const { viewId } = await harness.adapter.openModal(
       triggerId,
       Modal({
         title: "Feedback",
@@ -145,10 +117,10 @@ describe("Slack emulator: modal views round-trip", () => {
       emulator.signingSecret
     );
 
-    const res = await chat.webhooks.slack(req, {
-      waitUntil: tracker.waitUntil,
+    const res = await harness.chat.webhooks.slack(req, {
+      waitUntil: harness.tracker.waitUntil,
     });
-    await tracker.waitForAll();
+    await harness.tracker.waitForAll();
 
     expect(res.status).toBe(200);
     expect(captured).toHaveBeenCalledTimes(1);

@@ -11,16 +11,6 @@ import {
   type SlackEmulatorHandle,
 } from "./utils";
 
-function resolveFetchUrl(input: RequestInfo | URL): string {
-  if (typeof input === "string") {
-    return input;
-  }
-  if (input instanceof URL) {
-    return input.href;
-  }
-  return input.url;
-}
-
 describe("Slack emulator: external file upload", () => {
   let emulator: SlackEmulatorHandle;
 
@@ -38,20 +28,9 @@ describe("Slack emulator: external file upload", () => {
 
   it("uploads a file and shares it to a channel", async () => {
     const content = "hello from emulator upload test";
-    // The emulator builds upload URLs from its configured baseUrl, which is
-    // `http://localhost:0` when the server binds to port 0. Rewrite upload
-    // requests to the actual listening origin from createSlackEmulator().
-    const fetchWithUploadHostFix: typeof fetch = (input, init) => {
-      const url = resolveFetchUrl(input);
-      if (url.includes("/upload/v1/")) {
-        const fileId = url.split("/upload/v1/").pop()?.split("?")[0];
-        if (fileId) {
-          return fetch(`${emulator.baseUrl}/upload/v1/${fileId}`, init);
-        }
-      }
-      return fetch(input, init);
-    };
-
+    // The emulator builds upload URLs from its configured baseUrl, which
+    // createSlackEmulator now sets to the real listening origin, so the upload
+    // requests reach the server directly without any host rewriting.
     const { fileIds } = await uploadSlackFiles(
       [
         {
@@ -65,7 +44,6 @@ describe("Slack emulator: external file upload", () => {
         token: EMULATOR_BOT_TOKEN,
         channelId: emulator.channelId,
         initialComment: "Uploaded via external flow",
-        fetch: fetchWithUploadHostFix,
       }
     );
 
