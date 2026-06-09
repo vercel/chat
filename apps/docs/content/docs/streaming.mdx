@@ -152,6 +152,10 @@ await thread.post(stream);
 | `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress updates (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
 | `plan_update` | `title` | Plan title updates on supported platforms |
 
+Slack limits native streamed text fields to 12,000 characters and task or plan chunks to 256 characters. Chat SDK handles these limits automatically. Long text continues in ordered replies, long task details and output continue in additional task cards, and task or plan titles are shortened to fit.
+
+When Slack creates continuation replies, `thread.post()` returns the final reply. Stop blocks are attached to that final reply.
+
 ### Streaming with options
 
 Wrap a stream in a `StreamingPlan` to pass platform-specific options through `thread.post()` without dropping down to `adapter.stream()` directly:
