@@ -115,11 +115,15 @@ describe("Slack emulator: OAuth v2 install flow", () => {
 
     expect(result.teamId).toBe(emulator.teamId);
     expect(result.installation.botToken).toMatch(BOT_TOKEN_PATTERN);
+    // The install mints a dedicated bot user id (Slack-style `U` + hex), which
+    // must be a real bot in the store and must not be the installing human.
     expect(result.installation.botUserId).toMatch(BOT_USER_ID_PATTERN);
+    expect(result.installation.botUserId).not.toBe(emulator.humanUserId);
     const botUser = emulator.slackStore.users.findOneBy(
       "user_id",
       result.installation.botUserId
     );
+    expect(botUser).toBeDefined();
     expect(botUser?.is_bot).toBe(true);
     expect(result.installation.teamName).toBe(emulator.teamName);
 
