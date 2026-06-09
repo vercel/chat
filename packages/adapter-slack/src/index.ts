@@ -4073,7 +4073,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       let remaining = delta;
       while (remaining.length > 0) {
         if (current.length === STREAM_SEGMENT_LIMIT) {
-          await rotateSegment();
+          await rotateSegment(fence.closing, fence.opening);
         }
 
         const available = STREAM_SEGMENT_LIMIT - current.length;

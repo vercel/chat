@@ -7905,6 +7905,58 @@ describe("stream with empty threadTs", () => {
     }
   });
 
+  it("balances fenced code when a segment fills exactly", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const segments: Array<{
+      markdown: string;
+      stop: ReturnType<typeof vi.fn>;
+    }> = [];
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockImplementation(() => {
+        const segment = {
+          markdown: "",
+          stop: vi.fn().mockResolvedValue({
+            ok: true,
+            ts: `1234567890.${String(segments.length).padStart(6, "0")}`,
+          }),
+        };
+        segments.push(segment);
+        return {
+          append: vi.fn().mockImplementation(async (payload) => {
+            segment.markdown += payload.markdown_text ?? "";
+            return { ok: true };
+          }),
+          stop: segment.stop,
+        };
+      })
+    );
+
+    const opening = "```typescript\n";
+    async function* codeStream() {
+      yield `${opening}${"a".repeat(11_500 - opening.length)}`;
+      yield "\nconst next = true;\n```\n";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", codeStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]?.markdown.endsWith("\n```")).toBe(true);
+    expect(segments[1]?.markdown.startsWith(opening)).toBe(true);
+    expect(segments[1]?.markdown.endsWith("```\n")).toBe(true);
+    for (const segment of segments) {
+      expect(segment.markdown.length).toBeLessThanOrEqual(12_000);
+    }
+  });
+
   it("splits oversized task content into continuation cards", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
