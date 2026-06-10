@@ -55,10 +55,12 @@ describe("generateBotTs", () => {
     expect(result).toContain("Replace with a verified sender address.");
   });
 
-  it("passes a url to createIoRedisState, which has no zero-arg form", () => {
+  it("passes required url and logger options to createIoRedisState", () => {
     const result = generateBotTs(makeConfig(["slack"], "ioredis"));
+    expect(result).toContain('import { Chat, ConsoleLogger } from "chat";');
     expect(result).toContain("state: createIoRedisState({");
     expect(result).toContain('url: process.env.REDIS_URL ?? "",');
+    expect(result).toContain("logger: new ConsoleLogger(),");
   });
 
   it("generates web adapter support", () => {
