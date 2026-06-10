@@ -21,7 +21,7 @@ const platforms: {
 }[] = [
   { icon: slack, name: "Slack", slug: "slack" },
   { icon: teams, name: "Teams", slug: "teams" },
-  { icon: gchat, name: "Google Chat", slug: "google-chat" },
+  { icon: gchat, name: "Google Chat", slug: "gchat" },
   { icon: discord, name: "Discord", slug: "discord" },
   { icon: whatsapp, name: "WhatsApp", slug: "whatsapp" },
   { icon: twilio, name: "Twilio", slug: "twilio" },

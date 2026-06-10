@@ -1,4 +1,4 @@
-[![Google Chat adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/google-chat/og)](https://chat-sdk.dev/adapters/official/google-chat)
+[![Google Chat adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/gchat/og)](https://chat-sdk.dev/adapters/official/gchat)
 
 # @chat-adapter/gchat
 
@@ -9,7 +9,7 @@
 
 Google Chat adapter for [Chat SDK](https://chat-sdk.dev). Configure with service account authentication and optional Pub/Sub.
 
-Documentation: [chat-sdk.dev/adapters/official/google-chat](https://chat-sdk.dev/adapters/official/google-chat) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
+Documentation: [chat-sdk.dev/adapters/official/gchat](https://chat-sdk.dev/adapters/official/gchat) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 

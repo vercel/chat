@@ -31,7 +31,12 @@ const config: NextConfig = {
       },
       {
         source: "/adapters/gchat",
-        destination: "/adapters/official/google-chat",
+        destination: "/adapters/official/gchat",
+        permanent: true,
+      },
+      {
+        source: "/adapters/official/google-chat",
+        destination: "/adapters/official/gchat",
         permanent: true,
       },
       {

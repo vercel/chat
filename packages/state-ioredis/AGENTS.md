@@ -28,7 +28,7 @@ smaller dependency footprint.
 ```
 packages/state-ioredis/
 ├── src/
-│   ├── index.ts             # IORedisStateAdapter + createIORedisState
+│   ├── index.ts             # IORedisStateAdapter + createIoRedisState
 │   └── index.test.ts        # full StateAdapter contract suite
 ├── package.json
 ├── tsconfig.json
@@ -66,7 +66,7 @@ when `REDIS_URL` is exported.
 
 Main exports from `src/index.ts`:
 
-- `createIORedisState(config?)` — primary factory. Auto-detects
+- `createIoRedisState(config?)` — primary factory. Auto-detects
   `REDIS_URL`.
 - `IORedisStateAdapter` class — implements the Chat SDK
   `StateAdapter` interface. Public methods: subscriptions, locks,
@@ -77,9 +77,9 @@ Main exports from `src/index.ts`:
 
 ```typescript
 import Redis from "ioredis";
-import { createIORedisState } from "@chat-adapter/state-ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
 
-createIORedisState({
+createIoRedisState({
   url: process.env.REDIS_URL,
   client: existingIoredisInstance,
   keyPrefix: "chat-sdk",
@@ -97,7 +97,7 @@ const cluster = new Cluster([
   { host: "node-b", port: 6379 },
 ]);
 
-createIORedisState({ client: cluster });
+createIoRedisState({ client: cluster });
 ```
 
 For sentinel:
@@ -110,7 +110,7 @@ const client = new Redis({
   name: "mymaster",
 });
 
-createIORedisState({ client });
+createIoRedisState({ client });
 ```
 
 ## Internal key layout

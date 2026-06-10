@@ -248,7 +248,7 @@ describe("Official platform adapter OG images", () => {
       [
         "discord",
         "github",
-        "google-chat",
+        "gchat",
         "linear",
         "messenger",
         "slack",

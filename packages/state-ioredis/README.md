@@ -19,12 +19,12 @@ pnpm add @chat-adapter/state-ioredis
 
 ```typescript
 import { Chat } from "chat";
-import { createIORedisState } from "@chat-adapter/state-ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
 
 const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
-  state: createIORedisState({
+  state: createIoRedisState({
     url: process.env.REDIS_URL!,
   }),
 });
@@ -37,7 +37,7 @@ import Redis from "ioredis";
 
 const client = new Redis("redis://localhost:6379");
 
-const state = createIORedisState({ client });
+const state = createIoRedisState({ client });
 ```
 
 ## Configuration

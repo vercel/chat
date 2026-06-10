@@ -21,11 +21,11 @@
   },
   {
     "name": "Google Chat",
-    "slug": "google-chat",
+    "slug": "gchat",
     "type": "platform",
     "description": "Integrate with Google Chat spaces for team collaboration and automated workflows.",
     "packageName": "@chat-adapter/gchat",
-    "icon": "google-chat",
+    "icon": "gchat",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gchat"
   },
