@@ -1,0 +1,159 @@
+import {
+  ADAPTER_NAMES,
+  type CatalogAdapter,
+  getAdapter,
+  listEnvVars,
+} from "chat/adapters";
+import { describe, expect, it } from "vitest";
+import type { ProjectConfig } from "../types.js";
+import { generateBotTs } from "./bot.js";
+import { generateEnvExample } from "./env-example.js";
+import { generateNextConfig } from "./next-config.js";
+import { generatePackageJson } from "./package-json.js";
+import { generateReadme } from "./readme.js";
+import { generateAuthStub, generateWebRoute, needsWebRoute } from "./routes.js";
+
+const adapter = (slug: string): CatalogAdapter => {
+  const found = getAdapter(slug);
+  if (!found) {
+    throw new Error(`Missing test adapter: ${slug}`);
+  }
+  return found;
+};
+
+const makeConfig = (
+  platformSlugs: readonly string[],
+  stateSlug = "memory"
+): ProjectConfig => ({
+  description: "A generated bot",
+  name: "test-bot",
+  packageManager: "pnpm",
+  platformAdapters: platformSlugs.map(adapter),
+  shouldInstall: false,
+  shouldInitializeGit: true,
+  stateAdapter: adapter(stateSlug),
+});
+
+describe("generateBotTs", () => {
+  it("generates zero-arg adapter calls", () => {
+    const result = generateBotTs(makeConfig(["slack"]));
+    expect(result).toContain(
+      'import { createSlackAdapter } from "@chat-adapter/slack";'
+    );
+    expect(result).toContain("slack: createSlackAdapter(),");
+    expect(result).toContain("state: createMemoryState(),");
+  });
+
+  it("generates empty-object calls", () => {
+    const result = generateBotTs(makeConfig(["agentphone"]));
+    expect(result).toContain("agentphone: createAgentPhoneAdapter({}),");
+  });
+
+  it("generates object calls with placeholders", () => {
+    const result = generateBotTs(makeConfig(["resend"]));
+    expect(result).toContain('fromAddress: "bot@example.com",');
+    expect(result).toContain("Replace with a verified sender address.");
+  });
+
+  it("generates web adapter support", () => {
+    const result = generateBotTs(makeConfig(["web"]));
+    expect(result).toContain('import { getUser } from "./auth-stub";');
+    expect(result).toContain("web: createWebAdapter({");
+    expect(result).toContain("getUser,");
+    expect(result).toContain("bot.onDirectMessage(");
+  });
+
+  it("generates every catalog adapter", () => {
+    for (const slug of ADAPTER_NAMES) {
+      const catalogAdapter = adapter(slug);
+      const config =
+        catalogAdapter.type === "state"
+          ? makeConfig(["slack"], slug)
+          : makeConfig([slug]);
+      const result = generateBotTs(config);
+      expect(result).toContain(catalogAdapter.factoryExport);
+    }
+  });
+});
+
+describe("generateEnvExample", () => {
+  it("includes env vars for selected adapters", () => {
+    const result = generateEnvExample(makeConfig(["slack"], "redis"));
+    expect(result).toContain("BOT_USERNAME=test-bot");
+    expect(result).toContain("SLACK_SIGNING_SECRET=");
+    expect(result).toContain("REDIS_URL=");
+  });
+
+  it("contains every selected adapter env key", () => {
+    for (const slug of ADAPTER_NAMES) {
+      const catalogAdapter = adapter(slug);
+      const config =
+        catalogAdapter.type === "state"
+          ? makeConfig(["slack"], slug)
+          : makeConfig([slug]);
+      const result = generateEnvExample(config);
+      for (const envVar of listEnvVars(slug)) {
+        expect(result).toContain(`${envVar.key}=`);
+      }
+    }
+  });
+});
+
+describe("generatePackageJson", () => {
+  it("adds selected adapter dependencies", () => {
+    const result = generatePackageJson(
+      {
+        dependencies: { next: "latest" },
+        devDependencies: { typescript: "latest" },
+      },
+      makeConfig(["discord"], "redis")
+    );
+    expect(result.dependencies?.["@chat-adapter/discord"]).toBe("latest");
+    expect(result.dependencies?.["discord.js"]).toBe("latest");
+    expect(result.dependencies?.["@chat-adapter/state-redis"]).toBe("latest");
+    expect(result.dependencies?.chat).toBe("latest");
+  });
+
+  it("removes empty descriptions", () => {
+    const result = generatePackageJson(
+      { description: "template", dependencies: {} },
+      { ...makeConfig([]), description: "" }
+    );
+    expect(result.description).toBeUndefined();
+  });
+
+  it("handles templates without dependency objects", () => {
+    const result = generatePackageJson({}, makeConfig([]));
+    expect(result.dependencies?.chat).toBe("latest");
+    expect(result.devDependencies).toBeUndefined();
+  });
+});
+
+describe("generateNextConfig", () => {
+  it("adds transpile packages and server externals", () => {
+    const result = generateNextConfig(makeConfig(["discord"]));
+    expect(result).toContain("transpilePackages");
+    expect(result).toContain('"@chat-adapter/discord"');
+    expect(result).toContain("serverExternalPackages");
+    expect(result).toContain('"discord.js"');
+  });
+});
+
+describe("route and README generators", () => {
+  it("detects when the web route is needed", () => {
+    expect(needsWebRoute(makeConfig(["web"]))).toBe(true);
+    expect(needsWebRoute(makeConfig(["slack"]))).toBe(false);
+  });
+
+  it("generates web route and auth stub", () => {
+    expect(generateWebRoute()).toContain("bot.webhooks.web");
+    expect(generateAuthStub()).toContain("getUser");
+  });
+
+  it("generates selected endpoint documentation", () => {
+    const result = generateReadme(makeConfig(["slack", "web"]));
+    expect(result).toContain("/api/webhooks/slack");
+    expect(result).toContain("/api/chat");
+    expect(result).toContain("pnpm run dev");
+  });
+});
