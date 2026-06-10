@@ -67,6 +67,16 @@ describe("scaffold", () => {
     expect(fs.existsSync(path.join(projectDir, "next-env.d.ts"))).toBe(true);
   });
 
+  it("renames the template gitignore to .gitignore", async () => {
+    await scaffold(makeConfig(), { force: false, quiet: true, yes: true });
+    const projectDir = path.join(tmpDir, "test-project");
+    expect(fs.existsSync(path.join(projectDir, ".gitignore"))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, "gitignore"))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(projectDir, ".gitignore"), "utf-8")
+    ).toContain("node_modules");
+  });
+
   it("initializes git by default", async () => {
     await scaffold(makeConfig(), { force: false, quiet: false, yes: true });
 

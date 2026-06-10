@@ -33,4 +33,22 @@ describe("templateDir", () => {
   it("finds the package template", () => {
     expect(fs.existsSync(templateDir())).toBe(true);
   });
+
+  // npm-packlist silently drops files named .gitignore from published
+  // tarballs, so the template must ship them under the rename-on-copy name.
+  it("contains no file named .gitignore at any depth", () => {
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name));
+        } else if (entry.name === ".gitignore") {
+          found.push(path.join(dir, entry.name));
+        }
+      }
+    };
+    walk(templateDir());
+    expect(found).toEqual([]);
+    expect(fs.existsSync(path.join(templateDir(), "gitignore"))).toBe(true);
+  });
 });

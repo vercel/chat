@@ -2,7 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Recursively copy a directory.
+ * Template files stored under a different name because npm excludes the real
+ * name from published tarballs (npm-packlist always drops nested .gitignore
+ * files, even when listed in "files").
+ */
+const COPY_RENAMES: Record<string, string> = {
+  gitignore: ".gitignore",
+};
+
+/**
+ * Recursively copy a directory, applying {@link COPY_RENAMES} to file names.
  *
  * @param source - Source directory.
  * @param destination - Destination directory.
@@ -11,7 +20,10 @@ export function copyDir(source: string, destination: string): void {
   fs.mkdirSync(destination, { recursive: true });
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
     const sourcePath = path.join(source, entry.name);
-    const destinationPath = path.join(destination, entry.name);
+    const destinationPath = path.join(
+      destination,
+      COPY_RENAMES[entry.name] ?? entry.name
+    );
     if (entry.isDirectory()) {
       copyDir(sourcePath, destinationPath);
       continue;
