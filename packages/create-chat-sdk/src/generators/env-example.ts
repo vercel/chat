@@ -4,6 +4,7 @@ import type {
   EnvGroup,
   EnvVar,
 } from "chat/adapters";
+import { getCliScaffoldSpec } from "../catalog/index.js";
 import type { ProjectConfig } from "../types.js";
 
 const envLine = (envVar: EnvVar): string[] => {
@@ -47,8 +48,29 @@ const envSpecLines = (envSpec: AdapterEnvSpec): string[] => {
   return lines;
 };
 
+/**
+ * Env vars the generated `src/lib/bot.ts` reads for this adapter beyond the
+ * ones the adapter package documents itself (e.g. REDIS_URL passed explicitly
+ * to createIoRedisState, which has no env auto-detection).
+ */
+const scaffoldEnvLines = (
+  adapter: CatalogAdapter,
+  existing: readonly string[]
+): string[] => {
+  const { invocation } = getCliScaffoldSpec(adapter.slug);
+  if (invocation.kind !== "object") {
+    return [];
+  }
+  return invocation.properties
+    .flatMap((property) =>
+      property.value.kind === "env" ? [`${property.value.name}=`] : []
+    )
+    .filter((line) => !existing.includes(line));
+};
+
 const adapterSection = (adapter: CatalogAdapter): string[] => {
   const lines = envSpecLines(adapter.env);
+  lines.push(...scaffoldEnvLines(adapter, lines));
   if (lines.length === 0) {
     return [];
   }

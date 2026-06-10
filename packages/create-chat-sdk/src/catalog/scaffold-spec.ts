@@ -112,7 +112,12 @@ export const CLI_SCAFFOLD_SPEC = {
     },
   },
   ioredis: {
-    invocation: { kind: "zero-arg" },
+    // createIoRedisState has a required options argument with no REDIS_URL
+    // auto-detection.
+    invocation: {
+      kind: "object",
+      properties: [{ key: "url", value: env("REDIS_URL") }],
+    },
     stateHint: "production - ioredis driver",
   },
   kapso: {

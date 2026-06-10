@@ -55,6 +55,12 @@ describe("generateBotTs", () => {
     expect(result).toContain("Replace with a verified sender address.");
   });
 
+  it("passes a url to createIoRedisState, which has no zero-arg form", () => {
+    const result = generateBotTs(makeConfig(["slack"], "ioredis"));
+    expect(result).toContain("state: createIoRedisState({");
+    expect(result).toContain('url: process.env.REDIS_URL ?? "",');
+  });
+
   it("generates web adapter support", () => {
     const result = generateBotTs(makeConfig(["web"]));
     expect(result).toContain('import { getUser } from "./auth-stub";');
@@ -81,6 +87,11 @@ describe("generateEnvExample", () => {
     const result = generateEnvExample(makeConfig(["slack"], "redis"));
     expect(result).toContain("BOT_USERNAME=test-bot");
     expect(result).toContain("SLACK_SIGNING_SECRET=");
+    expect(result).toContain("REDIS_URL=");
+  });
+
+  it("includes env vars read only by the generated bot.ts", () => {
+    const result = generateEnvExample(makeConfig(["slack"], "ioredis"));
     expect(result).toContain("REDIS_URL=");
   });
 
