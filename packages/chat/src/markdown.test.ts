@@ -52,6 +52,9 @@ import {
   walkAst,
 } from "./markdown";
 
+const BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
+const LIST_ITEMS_WITH_WHITESPACE_REGEX = /one\s+two/;
+
 // ============================================================================
 // parseMarkdown Tests
 // ============================================================================
@@ -217,6 +220,24 @@ describe("toPlainText", () => {
     expect(result).toBe("link text");
   });
 
+  it("preserves soft line breaks as whitespace", () => {
+    const ast = parseMarkdown("@test-bot\nhi there");
+    const result = toPlainText(ast);
+    expect(result).toMatch(BOT_MENTION_WITH_WHITESPACE_REGEX);
+  });
+
+  it("preserves paragraph boundaries as whitespace", () => {
+    const ast = parseMarkdown("@test-bot\n\nhi there");
+    const result = toPlainText(ast);
+    expect(result).toMatch(BOT_MENTION_WITH_WHITESPACE_REGEX);
+  });
+
+  it("separates list items with whitespace", () => {
+    const ast = parseMarkdown("- one\n- two");
+    const result = toPlainText(ast);
+    expect(result).toMatch(LIST_ITEMS_WITH_WHITESPACE_REGEX);
+  });
+
   it("handles empty AST", () => {
     const ast = root([]);
     const result = toPlainText(ast);
@@ -238,6 +259,16 @@ describe("markdownToPlainText", () => {
     const result = markdownToPlainText("# Heading\n\nParagraph with `code`.");
     expect(result).toContain("Heading");
     expect(result).toContain("Paragraph with code");
+  });
+
+  it("preserves whitespace after a newline-separated mention", () => {
+    const result = markdownToPlainText("@test-bot\nhi there");
+    expect(result).toMatch(BOT_MENTION_WITH_WHITESPACE_REGEX);
+  });
+
+  it("preserves whitespace after a paragraph-separated mention", () => {
+    const result = markdownToPlainText("@test-bot\n\nhi there");
+    expect(result).toMatch(BOT_MENTION_WITH_WHITESPACE_REGEX);
   });
 });
 

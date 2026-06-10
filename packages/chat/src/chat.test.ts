@@ -220,6 +220,70 @@ describe("Chat", () => {
     expect(mockState.releaseLock).toHaveBeenCalled();
   });
 
+  it("should call onNewMention for newline-separated GitHub bot mentions", async () => {
+    const githubAdapter = {
+      ...createMockAdapter("github"),
+      userName: "test-bot",
+    };
+    const state = createMockState();
+    const githubChat = new Chat({
+      userName: "fallback-bot",
+      adapters: { github: githubAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await githubChat.webhooks.github(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    githubChat.onNewMention(handler);
+
+    const message = createTestMessage("msg-1", "@test-bot\nhi there");
+
+    await githubChat.handleIncomingMessage(
+      githubAdapter,
+      "github:acme/app:42",
+      message
+    );
+
+    expect(handler).toHaveBeenCalled();
+    const [, receivedMessage] = handler.mock.calls[0];
+    expect(receivedMessage.isMention).toBe(true);
+  });
+
+  it("should not call onNewMention for concatenated GitHub bot mention text", async () => {
+    const githubAdapter = {
+      ...createMockAdapter("github"),
+      userName: "test-bot",
+    };
+    const state = createMockState();
+    const githubChat = new Chat({
+      userName: "fallback-bot",
+      adapters: { github: githubAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await githubChat.webhooks.github(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    githubChat.onNewMention(handler);
+
+    const message = createTestMessage("msg-1", "@test-bothi there");
+
+    await githubChat.handleIncomingMessage(
+      githubAdapter,
+      "github:acme/app:42",
+      message
+    );
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("should call onSubscribedMessage handler for subscribed threads", async () => {
     const mentionHandler = vi.fn().mockResolvedValue(undefined);
     const subscribedHandler = vi.fn().mockResolvedValue(undefined);
