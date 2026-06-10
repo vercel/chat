@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/discord](https://chat-sdk.dev/ada
 pnpm add @chat-adapter/discord
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Discord bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter discord memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from environment variables:

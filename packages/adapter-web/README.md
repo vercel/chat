@@ -27,6 +27,16 @@ Then install the framework package that matches your UI:
 | Vue / Nuxt | `@ai-sdk/vue` | `@chat-adapter/web/vue` |
 | Svelte / SvelteKit | `@ai-sdk/svelte` | `@chat-adapter/web/svelte` |
 
+## Scaffold with the CLI
+
+To scaffold a new browser chat bot with the Web adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter web memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Quick start
 
 ### Server

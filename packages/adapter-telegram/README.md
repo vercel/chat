@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/telegram](https://chat-sdk.dev/ad
 pnpm add @chat-adapter/telegram
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Telegram bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter telegram memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_API_BASE_URL` from environment variables:

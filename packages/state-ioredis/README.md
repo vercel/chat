@@ -15,6 +15,16 @@ Documentation: [chat-sdk.dev/adapters/official/ioredis](https://chat-sdk.dev/ada
 pnpm add @chat-adapter/state-ioredis
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Slack bot that uses ioredis for state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack ioredis
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 ```typescript

@@ -15,6 +15,16 @@ Documentation: [chat-sdk.dev/docs](https://chat-sdk.dev/docs) · Guides: [vercel
 npm install chat
 ```
 
+## CLI
+
+Scaffold a minimal Next.js bot app with `create-chat-sdk`:
+
+```bash
+npx create-chat-sdk@latest my-bot
+```
+
+The CLI generates your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog. See the [CLI docs](https://chat-sdk.dev/docs/create-chat-sdk) for options and non-interactive usage.
+
 ## Usage
 
 ```typescript

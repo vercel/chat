@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/gchat](https://chat-sdk.dev/adapt
 pnpm add @chat-adapter/gchat
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Google Chat bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter gchat memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects credentials from `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC` environment variables:

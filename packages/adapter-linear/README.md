@@ -19,6 +19,16 @@ Documentation: [chat-sdk.dev/adapters/official/linear](https://chat-sdk.dev/adap
 pnpm add @chat-adapter/linear
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Linear bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter linear memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects credentials from `LINEAR_API_KEY`, `LINEAR_ACCESS_TOKEN`, `LINEAR_CLIENT_CREDENTIALS_CLIENT_ID`/`LINEAR_CLIENT_CREDENTIALS_CLIENT_SECRET`, or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`, plus `LINEAR_WEBHOOK_SECRET` and `LINEAR_BOT_USERNAME`:
