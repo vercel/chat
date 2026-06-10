@@ -67,11 +67,14 @@ export function createProgram(): Command {
       parsePackageManager
     )
     .option("-y, --yes", "skip prompts and accept defaults")
+    .option(
+      "--interactive",
+      "always prompt, even when a coding agent environment is detected"
+    )
     .option("-f, --force", "overwrite generated files in an existing directory")
     .option("-s, --skip-install", "skip dependency installation")
     .option("--no-git", "skip git repository initialization")
     .option("-q, --quiet", "suppress non-essential output")
-    .option("--no-color", "disable color output (respects NO_COLOR)")
     .addHelpText(
       "after",
       [
@@ -94,15 +97,21 @@ export function createProgram(): Command {
           description?: string;
           force?: boolean;
           git?: boolean;
+          interactive?: boolean;
           pm?: PackageManager;
           quiet?: boolean;
           skipInstall?: boolean;
           yes?: boolean;
         }
       ) => {
-        const agentResult = await determineAgent();
+        const detectionApplies = opts.yes !== true && opts.interactive !== true;
+        const agentResult = detectionApplies ? await determineAgent() : null;
+        const detectedAgent = agentResult?.isAgent
+          ? agentResult.agent.name
+          : undefined;
         await runCli({
           description: opts.description,
+          detectedAgent,
           force: opts.force ?? false,
           initializeGit: opts.git !== false,
           install: opts.skipInstall ? false : undefined,
@@ -110,7 +119,7 @@ export function createProgram(): Command {
           packageManager: opts.pm,
           quiet: opts.quiet ?? false,
           selectedAdapters: opts.adapter,
-          yes: opts.yes === true || agentResult.isAgent,
+          yes: opts.yes === true || detectedAgent !== undefined,
         });
       }
     );

@@ -1,4 +1,4 @@
-import { intro, note, outro } from "@clack/prompts";
+import { intro, log, note, outro } from "@clack/prompts";
 import pc from "picocolors";
 import { runPrompts } from "../prompts/flow.js";
 import { scaffold } from "../scaffold/run.js";
@@ -6,6 +6,10 @@ import type { PackageManager } from "../types.js";
 
 interface RunCliOptions {
   description?: string;
+  /**
+   * Coding agent name when detection (not an explicit flag) enabled yes mode.
+   */
+  detectedAgent?: string;
   force: boolean;
   initializeGit: boolean;
   install?: boolean;
@@ -25,6 +29,11 @@ export async function runCli(options: RunCliOptions): Promise<void> {
   if (!options.quiet) {
     console.log();
     intro(pc.bgCyan(pc.black(" create-chat-sdk ")));
+    if (options.detectedAgent) {
+      log.info(
+        `Coding agent detected (${options.detectedAgent}) — using non-interactive defaults. Pass --interactive to use prompts.`
+      );
+    }
   }
 
   try {
@@ -75,8 +84,10 @@ export async function runCli(options: RunCliOptions): Promise<void> {
       );
     }
   } catch (error) {
-    if (!options.quiet) {
-      const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (options.quiet) {
+      console.error(message);
+    } else {
       outro(pc.red(message));
     }
     process.exitCode = 1;

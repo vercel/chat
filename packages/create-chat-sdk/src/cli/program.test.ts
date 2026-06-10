@@ -67,6 +67,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: "desc",
+      detectedAgent: undefined,
       force: false,
       initializeGit: true,
       install: false,
@@ -84,6 +85,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: undefined,
       force: false,
       initializeGit: true,
       install: false,
@@ -101,6 +103,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: undefined,
       force: false,
       initializeGit: false,
       install: undefined,
@@ -118,6 +121,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: undefined,
       force: true,
       initializeGit: true,
       install: undefined,
@@ -139,6 +143,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: "cursor",
       force: false,
       initializeGit: true,
       install: undefined,
@@ -150,12 +155,39 @@ describe("createProgram", () => {
     });
   });
 
+  it("stays interactive with --interactive even when an agent is detected", async () => {
+    // No detection mock needed: --interactive must skip detection entirely.
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "my-bot",
+      "--interactive",
+    ]);
+
+    expect(determineAgent).not.toHaveBeenCalled();
+    expect(runCli).toHaveBeenCalledWith(
+      expect.objectContaining({ detectedAgent: undefined, yes: false })
+    );
+  });
+
+  it("skips agent detection when --yes already decides the mode", async () => {
+    const program = createProgram();
+    await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-y"]);
+
+    expect(determineAgent).not.toHaveBeenCalled();
+    expect(runCli).toHaveBeenCalledWith(
+      expect.objectContaining({ detectedAgent: undefined, yes: true })
+    );
+  });
+
   it("keeps explicit yes behavior outside agents", async () => {
     const program = createProgram();
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--yes"]);
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: undefined,
       force: false,
       initializeGit: true,
       install: undefined,
@@ -173,6 +205,7 @@ describe("createProgram", () => {
 
     expect(runCli).toHaveBeenCalledWith({
       description: undefined,
+      detectedAgent: undefined,
       force: false,
       initializeGit: true,
       install: undefined,

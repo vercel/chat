@@ -3,6 +3,7 @@ import type { ProjectConfig } from "../types.js";
 
 vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),
+  log: { info: vi.fn() },
   note: vi.fn(),
   outro: vi.fn(),
 }));
@@ -15,7 +16,7 @@ vi.mock("../scaffold/run.js", () => ({
   scaffold: vi.fn(),
 }));
 
-import { intro, note, outro } from "@clack/prompts";
+import { intro, log, note, outro } from "@clack/prompts";
 import { runPrompts } from "../prompts/flow.js";
 import { scaffold } from "../scaffold/run.js";
 import { runCli } from "./run.js";
@@ -77,6 +78,26 @@ describe("runCli", () => {
     expect(outro).toHaveBeenCalledWith(expect.stringContaining("Done!"));
     expect(outro).toHaveBeenCalledWith(
       expect.stringContaining("Use the Chat SDK skill for agent guidance.")
+    );
+  });
+
+  it("announces detected coding agents", async () => {
+    vi.mocked(runPrompts).mockResolvedValueOnce(config);
+    vi.mocked(scaffold).mockResolvedValueOnce(true);
+
+    await runCli({
+      detectedAgent: "cursor",
+      force: false,
+      initializeGit: true,
+      quiet: false,
+      yes: true,
+    });
+
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining("Coding agent detected (cursor)")
+    );
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining("--interactive")
     );
   });
 
@@ -167,8 +188,11 @@ describe("runCli", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("sets exitCode on errors in quiet mode", async () => {
+  it("still reports errors to stderr in quiet mode", async () => {
     vi.mocked(runPrompts).mockRejectedValueOnce(new Error("bad"));
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     await runCli({
       force: false,
@@ -178,7 +202,9 @@ describe("runCli", () => {
     });
 
     expect(outro).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith("bad");
     expect(process.exitCode).toBe(1);
+    errorSpy.mockRestore();
   });
 
   it("suppresses output in quiet mode", async () => {
