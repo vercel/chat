@@ -103,6 +103,10 @@ export interface CatalogAdapter {
    */
   env: AdapterEnvSpec;
   /**
+   * Named factory export from {@link CatalogAdapter.packageName}.
+   */
+  factoryExport: string;
+  /**
    * Catalog group used by the docs adapter listing.
    */
   group: "official" | "vendor-official";
@@ -186,6 +190,7 @@ export const ADAPTERS = {
         env("AGENTPHONE_AGENT_ID", "Agent ID used to send messages."),
       ],
     },
+    factoryExport: "createAgentPhoneAdapter",
     group: "vendor-official",
     name: "AgentPhone",
     packageName: "@agentphone/chat-sdk-adapter",
@@ -210,6 +215,7 @@ export const ADAPTERS = {
         env("DISCORD_APPLICATION_ID", "Discord application ID."),
       ],
     },
+    factoryExport: "createDiscordAdapter",
     group: "official",
     name: "Discord",
     packageName: "@chat-adapter/discord",
@@ -244,6 +250,7 @@ export const ADAPTERS = {
       ],
       required: [secretEnv("GITHUB_WEBHOOK_SECRET", "Webhook signing secret.")],
     },
+    factoryExport: "createGitHubAdapter",
     group: "official",
     name: "GitHub",
     packageName: "@chat-adapter/github",
@@ -251,7 +258,7 @@ export const ADAPTERS = {
     slug: "github",
     type: "platform",
   },
-  "google-chat": {
+  gchat: {
     description:
       "Integrate with Google Chat spaces for team collaboration and automated workflows.",
     env: {
@@ -296,11 +303,12 @@ export const ADAPTERS = {
         urlEnv("GOOGLE_CHAT_API_URL", "Override the Google Chat API URL."),
       ],
     },
+    factoryExport: "createGoogleChatAdapter",
     group: "official",
     name: "Google Chat",
     packageName: "@chat-adapter/gchat",
     peerDeps: ["@googleapis/chat", "@googleapis/workspaceevents"],
-    slug: "google-chat",
+    slug: "gchat",
     type: "platform",
   },
   imessage: {
@@ -330,6 +338,7 @@ export const ADAPTERS = {
         },
       ],
     },
+    factoryExport: "createiMessageAdapter",
     group: "vendor-official",
     name: "Photon iMessage",
     packageName: "chat-adapter-imessage",
@@ -344,6 +353,7 @@ export const ADAPTERS = {
       config: ["url or client", "keyPrefix"],
       notes: "Either a Redis URL or an existing ioredis client is required.",
     },
+    factoryExport: "createIoRedisState",
     group: "official",
     name: "ioredis",
     packageName: "@chat-adapter/state-ioredis",
@@ -384,6 +394,7 @@ export const ADAPTERS = {
         ),
       ],
     },
+    factoryExport: "createKapsoAdapter",
     group: "vendor-official",
     name: "Kapso WhatsApp",
     packageName: "@kapso/chat-adapter",
@@ -401,6 +412,7 @@ export const ADAPTERS = {
         secretEnv("LARK_APP_SECRET", "Lark app secret."),
       ],
     },
+    factoryExport: "createLarkAdapter",
     group: "vendor-official",
     name: "Lark / Feishu",
     packageName: "@larksuite/vercel-chat-adapter",
@@ -461,6 +473,7 @@ export const ADAPTERS = {
       ],
       required: [secretEnv("LINEAR_WEBHOOK_SECRET", "Webhook signing secret.")],
     },
+    factoryExport: "createLinearAdapter",
     group: "official",
     name: "Linear",
     packageName: "@chat-adapter/linear",
@@ -481,6 +494,7 @@ export const ADAPTERS = {
         ),
       ],
     },
+    factoryExport: "createLiveblocksAdapter",
     group: "vendor-official",
     name: "Liveblocks",
     packageName: "@liveblocks/chat-sdk-adapter",
@@ -533,6 +547,7 @@ export const ADAPTERS = {
         env("MATRIX_SDK_LOG_LEVEL", "Matrix SDK log level."),
       ],
     },
+    factoryExport: "createMatrixAdapter",
     group: "vendor-official",
     name: "Beeper Matrix",
     packageName: "@beeper/chat-adapter-matrix",
@@ -547,6 +562,7 @@ export const ADAPTERS = {
       notes:
         "No environment variables are required. State is kept in the current process.",
     },
+    factoryExport: "createMemoryState",
     group: "official",
     name: "Memory",
     packageName: "@chat-adapter/state-memory",
@@ -571,6 +587,7 @@ export const ADAPTERS = {
         secretEnv("FACEBOOK_VERIFY_TOKEN", "Webhook verification token."),
       ],
     },
+    factoryExport: "createMessengerAdapter",
     group: "official",
     name: "Messenger",
     packageName: "@chat-adapter/messenger",
@@ -594,6 +611,7 @@ export const ADAPTERS = {
         },
       ],
     },
+    factoryExport: "createPostgresState",
     group: "official",
     name: "PostgreSQL",
     packageName: "@chat-adapter/state-pg",
@@ -617,6 +635,7 @@ export const ADAPTERS = {
         },
       ],
     },
+    factoryExport: "createRedisState",
     group: "official",
     name: "Redis",
     packageName: "@chat-adapter/state-redis",
@@ -634,6 +653,7 @@ export const ADAPTERS = {
         secretEnv("RESEND_WEBHOOK_SECRET", "Resend webhook signing secret."),
       ],
     },
+    factoryExport: "createResendAdapter",
     group: "vendor-official",
     name: "Resend",
     packageName: "@resend/chat-sdk-adapter",
@@ -662,6 +682,7 @@ export const ADAPTERS = {
         env("SENDBLUE_FROM_NUMBER", "Sendblue sender number in E.164 format."),
       ],
     },
+    factoryExport: "createSendblueAdapter",
     group: "vendor-official",
     name: "Sendblue",
     packageName: "chat-adapter-sendblue",
@@ -709,6 +730,7 @@ export const ADAPTERS = {
         ),
       ],
     },
+    factoryExport: "createSlackAdapter",
     group: "official",
     name: "Slack",
     packageName: "@chat-adapter/slack",
@@ -740,6 +762,7 @@ export const ADAPTERS = {
         ),
       ],
     },
+    factoryExport: "createTeamsAdapter",
     group: "official",
     name: "Microsoft Teams",
     packageName: "@chat-adapter/teams",
@@ -766,6 +789,7 @@ export const ADAPTERS = {
       ],
       required: [secretEnv("TELEGRAM_BOT_TOKEN", "Telegram bot token.")],
     },
+    factoryExport: "createTelegramAdapter",
     group: "official",
     name: "Telegram",
     packageName: "@chat-adapter/telegram",
@@ -795,6 +819,7 @@ export const ADAPTERS = {
         ),
       ],
     },
+    factoryExport: "createTwilioAdapter",
     group: "official",
     name: "Twilio",
     packageName: "@chat-adapter/twilio",
@@ -828,6 +853,7 @@ export const ADAPTERS = {
         secretEnv("VELT_WEBHOOK_SECRET", "Velt webhook signing secret."),
       ],
     },
+    factoryExport: "createVeltAdapter",
     group: "vendor-official",
     name: "Velt",
     packageName: "@veltdev/chat-sdk-adapter",
@@ -843,6 +869,7 @@ export const ADAPTERS = {
       notes:
         "The Web adapter delegates browser request authentication to the getUser config function.",
     },
+    factoryExport: "createWebAdapter",
     group: "official",
     name: "Web",
     packageName: "@chat-adapter/web",
@@ -868,6 +895,7 @@ export const ADAPTERS = {
         secretEnv("WHATSAPP_VERIFY_TOKEN", "Webhook verification token."),
       ],
     },
+    factoryExport: "createWhatsAppAdapter",
     group: "official",
     name: "WhatsApp Business Cloud",
     packageName: "@chat-adapter/whatsapp",
@@ -889,6 +917,7 @@ export const ADAPTERS = {
       ],
       required: [secretEnv("ZERNIO_API_KEY", "Zernio API key.")],
     },
+    factoryExport: "createZernioAdapter",
     group: "vendor-official",
     name: "Zernio",
     packageName: "@zernio/chat-sdk-adapter",
@@ -907,6 +936,26 @@ export type AdapterSlug = keyof typeof ADAPTERS;
  * All cataloged adapter slugs, sorted alphabetically.
  */
 export const ADAPTER_NAMES = Object.keys(ADAPTERS).sort() as AdapterSlug[];
+
+/**
+ * Return every cataloged platform adapter sorted by slug.
+ *
+ * @returns Catalog entries whose {@link CatalogAdapter.type} is `"platform"`.
+ */
+export const listPlatformAdapters = (): readonly CatalogAdapter[] =>
+  ADAPTER_NAMES.map((slug) => ADAPTERS[slug]).filter(
+    (adapter) => adapter.type === "platform"
+  );
+
+/**
+ * Return every cataloged state adapter sorted by slug.
+ *
+ * @returns Catalog entries whose {@link CatalogAdapter.type} is `"state"`.
+ */
+export const listStateAdapters = (): readonly CatalogAdapter[] =>
+  ADAPTER_NAMES.map((slug) => ADAPTERS[slug]).filter(
+    (adapter) => adapter.type === "state"
+  );
 
 /**
  * Check whether a string is a known adapter slug.
