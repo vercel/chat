@@ -238,6 +238,14 @@ describe("toPlainText", () => {
     expect(result).toMatch(LIST_ITEMS_WITH_WHITESPACE_REGEX);
   });
 
+  it("separates table cells and rows with structural whitespace", () => {
+    const ast = parseMarkdown(
+      "| Name | Role |\n| --- | --- |\n| **Ada** Lovelace | Engineer |"
+    );
+    const result = toPlainText(ast);
+    expect(result).toBe("Name\tRole\nAda Lovelace\tEngineer");
+  });
+
   it("handles empty AST", () => {
     const ast = root([]);
     const result = toPlainText(ast);
