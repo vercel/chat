@@ -135,6 +135,23 @@ function readFormData(callIndex: number): FormData {
   return body as FormData;
 }
 
+interface TelegramMediaGroupItem {
+  caption?: string;
+  height?: number;
+  media: string;
+  parse_mode?: string;
+  type: string;
+  width?: number;
+}
+
+function readMediaGroup(callIndex: number): TelegramMediaGroupItem[] {
+  const media = readFormData(callIndex).get("media");
+  if (typeof media !== "string") {
+    throw new Error("Expected media group payload to be a string");
+  }
+  return JSON.parse(media) as TelegramMediaGroupItem[];
+}
+
 function createAbortError(): Error {
   const fallback = new Error("Aborted");
   fallback.name = "AbortError";
@@ -1708,7 +1725,181 @@ describe("TelegramAdapter", () => {
     });
   });
 
-  it("rejects multiple Telegram attachments in one message", async () => {
+  it("posts multiple files as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 21,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-1",
+              file_unique_id: "doc-unique-1",
+              file_name: "one.txt",
+            },
+          }),
+          sampleMessage({
+            message_id: 22,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-2",
+              file_unique_id: "doc-unique-2",
+              file_name: "two.txt",
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:-100123:42", {
+      markdown: "attached **files**",
+      files: [
+        {
+          data: Buffer.from("one"),
+          filename: "one.txt",
+          mimeType: "text/plain",
+        },
+        {
+          data: Buffer.from("two"),
+          filename: "two.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:22");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(formData.get("chat_id")).toBe("-100123");
+    expect(formData.get("message_thread_id")).toBe("42");
+    expect(media).toEqual([
+      { media: "attach://media0", type: "document" },
+      {
+        caption: "attached *files*",
+        media: "attach://media1",
+        parse_mode: "MarkdownV2",
+        type: "document",
+      },
+    ]);
+    expect(formData.get("media0")).toBeInstanceOf(Blob);
+    expect((formData.get("media0") as { name?: string }).name).toBe("one.txt");
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe("two.txt");
+  });
+
+  it("posts mixed image and video attachments as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 31,
+            media_group_id: "group-2",
+            photo: [
+              {
+                file_id: "photo-1",
+                file_unique_id: "p1",
+                width: 100,
+                height: 100,
+              },
+            ],
+          }),
+          sampleMessage({
+            message_id: 32,
+            media_group_id: "group-2",
+            video: {
+              file_id: "video-1",
+              file_unique_id: "v1",
+              width: 1280,
+              height: 720,
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:123", {
+      markdown: "visual **album**",
+      attachments: [
+        {
+          mimeType: "image/png",
+          name: "image.png",
+          type: "image",
+          url: "https://cdn.example.com/image.png",
+        },
+        {
+          data: Buffer.from("video"),
+          height: 720,
+          mimeType: "video/mp4",
+          name: "video.mp4",
+          type: "video",
+          width: 1280,
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:32");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(media).toEqual([
+      {
+        media: "https://cdn.example.com/image.png",
+        type: "photo",
+      },
+      {
+        caption: "visual *album*",
+        height: 720,
+        media: "attach://media1",
+        parse_mode: "MarkdownV2",
+        type: "video",
+        width: 1280,
+      },
+    ]);
+    expect(formData.get("media0")).toBeNull();
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe(
+      "video.mp4"
+    );
+  });
+
+  it("rejects incompatible Telegram media group attachment types", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
         id: 999,
@@ -1732,10 +1923,41 @@ describe("TelegramAdapter", () => {
         raw: "attachments",
         attachments: [
           { data: Buffer.from("one"), type: "image" },
-          { data: Buffer.from("two"), type: "image" },
+          { data: Buffer.from("two"), type: "file" },
         ],
       })
-    ).rejects.toThrow("single attachment upload");
+    ).rejects.toThrow("documents and audio files must be grouped only");
+    expect(mockFetch.mock.calls).toHaveLength(1);
+  });
+
+  it("rejects Telegram media groups with more than 10 files", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.postMessage("telegram:123", {
+        raw: "files",
+        files: Array.from({ length: 11 }, (_, index) => ({
+          data: Buffer.from(String(index)),
+          filename: `${index}.txt`,
+        })),
+      })
+    ).rejects.toThrow("Telegram media groups support 2-10 files");
     expect(mockFetch.mock.calls).toHaveLength(1);
   });
 
