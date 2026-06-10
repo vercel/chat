@@ -77,8 +77,7 @@ describe("CLI adapter matrix", () => {
 
 describe("CLI agent mode", () => {
   it("runs non-interactively when an agent environment is detected", async () => {
-    const previousAiAgent = process.env.AI_AGENT;
-    process.env.AI_AGENT = "cursor";
+    vi.stubEnv("AI_AGENT", "cursor");
     process.exitCode = undefined;
     try {
       const program = createProgram();
@@ -93,11 +92,7 @@ describe("CLI agent mode", () => {
         "--quiet",
       ]);
     } finally {
-      if (previousAiAgent === undefined) {
-        process.env.AI_AGENT = undefined;
-      } else {
-        process.env.AI_AGENT = previousAiAgent;
-      }
+      vi.unstubAllEnvs();
     }
 
     expect(process.exitCode).toBeUndefined();
