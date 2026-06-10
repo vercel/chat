@@ -320,14 +320,15 @@ function plainTextNode(node: Content | Root): string {
       return childPlainText(node, "\n");
     case "listItem":
     case "blockquote":
-    case "tableRow":
       return childPlainText(node, "\n");
+    case "tableRow":
+      return childPlainText(node, "\t");
     case "break":
       return "\n";
     case "thematicBreak":
       return "";
     case "tableCell":
-      return childPlainText(node, "\t");
+      return childPlainText(node, "");
     default:
       return childPlainText(node, "");
   }
