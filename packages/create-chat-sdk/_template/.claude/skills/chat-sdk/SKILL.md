@@ -18,14 +18,17 @@ npm create chat-sdk@latest my-bot
 Non-interactive example:
 
 ```bash
-npm create chat-sdk@latest my-bot --adapter slack redis -d "My bot" --pm pnpm -y
+npm create chat-sdk@latest -- my-bot --adapter slack redis -d "My bot" --pm pnpm -y
 ```
+
+With npm, the `--` separator is required — npm consumes the flags itself instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
 
 Key flags:
 - `--adapter <values...>` — platform or state adapters from `chat/adapters`
 - `-d, --description <text>` — project description
 - `--pm <manager>` — package manager (`npm`, `yarn`, `pnpm`, `bun`)
 - `-y, --yes` — skip prompts and accept defaults
+- `--interactive` — always prompt, even when a coding agent environment is detected
 - `-f, --force` — overwrite generated files in an existing directory
 - `-s, --skip-install` — skip dependency installation
 - `--no-git` — skip git repository initialization

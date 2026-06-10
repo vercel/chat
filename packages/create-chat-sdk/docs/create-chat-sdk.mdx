@@ -39,7 +39,7 @@ bunx create-chat-sdk@latest my-bot
 </CodeBlockTabs>
 
 <Callout type="info">
-  `create-chat-sdk` automatically detects when it is being run by Cursor, Claude Code, or another coding agent. In agent environments, it runs non-interactively and uses `my-bot` when no project name is provided.
+  `create-chat-sdk` automatically detects when it is being run by Cursor, Claude Code, or another coding agent. In agent environments, it announces the detection, runs non-interactively, and uses `my-bot` when no project name is provided. Pass `--interactive` to force prompts.
 </Callout>
 
 ## Non-interactive usage
@@ -47,8 +47,12 @@ bunx create-chat-sdk@latest my-bot
 Pass platform and state adapters with `--adapter`:
 
 ```bash
-npm create chat-sdk@latest my-bot --adapter slack redis -y
+npm create chat-sdk@latest -- my-bot --adapter slack redis -y
 ```
+
+<Callout type="warn">
+  With npm, the `--` separator is required — npm consumes flags before it (`-y` is npm's own `--yes`) instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
+</Callout>
 
 The CLI accepts any official and vendor-official adapter.
 
@@ -96,11 +100,13 @@ When the [Web adapter](/adapters/official/web) is selected, the CLI also creates
 | `--adapter <values...>` | Platform or state adapters to include. |
 | `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
 | `-y, --yes` | Skip prompts and accept defaults. |
+| `--interactive` | Always prompt, even when a coding agent environment is detected. |
 | `-f, --force` | Overwrite generated files in an existing directory. |
 | `-s, --skip-install` | Skip dependency installation. |
 | `--no-git` | Skip git repository initialization. |
 | `-q, --quiet` | Suppress non-essential output. |
-| `--no-color` | Disable color output, respects [NO_COLOR standard](https://no-color.org/). |
+
+Color output follows the [NO_COLOR standard](https://no-color.org/) — set `NO_COLOR=1` to disable colors.
 
 ## Customize your bot
 

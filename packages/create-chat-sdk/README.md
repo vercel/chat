@@ -28,12 +28,14 @@ bunx create-chat-sdk@latest my-bot
 Pass platform and state adapters with `--adapter`:
 
 ```bash
-npm create chat-sdk@latest my-bot --adapter slack redis -y
+npm create chat-sdk@latest -- my-bot --adapter slack redis -y
 ```
+
+With npm, the `--` separator is required — npm consumes flags before it instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
 
 Adapter values come from the `chat/adapters` catalog. Official and vendor-official adapters are offered in separate prompt groups. Community adapters are not scaffolded.
 
-When the CLI detects a coding agent environment, it automatically runs in non-interactive mode and accepts defaults. If no project name is provided, the default name is `my-bot`.
+When the CLI detects a coding agent environment, it announces the detection and automatically runs in non-interactive mode, accepting defaults. If no project name is provided, the default name is `my-bot`. Pass `--interactive` to force prompts.
 
 ## Options
 
@@ -48,13 +50,16 @@ Options:
   --adapter <values...>     platform or state adapters to include
   --pm <manager>            package manager to use (npm, yarn, pnpm, bun)
   -y, --yes                 skip prompts and accept defaults
+  --interactive             always prompt, even when a coding agent
+                            environment is detected
   -f, --force               overwrite generated files in an existing directory
   -s, --skip-install        skip dependency installation
   --no-git                  skip git repository initialization
   -q, --quiet               suppress non-essential output
-  --no-color                disable color output (respects NO_COLOR)
   -h, --help                display help for command
 ```
+
+Color output follows the [NO_COLOR standard](https://no-color.org/) — set `NO_COLOR=1` to disable colors.
 
 ## Generated project
 
