@@ -57,6 +57,7 @@ const state = createIoRedisState({ client });
 | `url` | Yes* | Redis connection URL |
 | `client` | No | Existing `ioredis` client instance |
 | `keyPrefix` | No | Prefix for all keys (default: `"chat-sdk"`) |
+| `logger` | No | Logger for error reporting (default: console logger) |
 
 *Either `url` or `client` is required.
 
