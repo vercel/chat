@@ -54,5 +54,29 @@
       "!apps/docs/source.config.ts",
       "!apps/docs/proxy.ts"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["examples/nuxt-chat/**/*.vue"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off",
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["examples/nuxt-chat/**"],
+      "javascript": {
+        "globals": [
+          "defineNuxtConfig",
+          "defineEventHandler",
+          "createError",
+          "getRouterParam"
+        ]
+      }
+    }
+  ]
 }
