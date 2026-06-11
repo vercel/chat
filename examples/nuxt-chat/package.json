@@ -18,6 +18,7 @@
     "@chat-adapter/web": "workspace:*",
     "ai": "^6.0.182",
     "chat": "workspace:*",
+    "h3": "2.0.1-rc.22",
     "nuxt": "~4.3.1",
     "vue": "^3.5.13"
   },
