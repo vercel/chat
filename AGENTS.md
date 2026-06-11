@@ -43,6 +43,7 @@ pnpm monorepo, Turborepo orchestrated. All packages are ESM (`"type": "module"`)
 - `packages/integration-tests` — integration tests against real platform APIs
 - `apps/docs` — fumadocs-based docs site (chat-sdk.dev)
 - `examples/nextjs-chat` — example Next.js app
+- `examples/nuxt-chat` — example Nuxt app
 
 ### Core concepts
 
