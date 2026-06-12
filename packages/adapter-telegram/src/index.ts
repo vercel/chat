@@ -589,6 +589,20 @@ export class TelegramAdapter
       messageThreadId: telegramMessage.message_thread_id,
     });
 
+    if (
+      telegramMessage.chat.type === "private" &&
+      !telegramMessage.from?.is_bot
+    ) {
+      const typingTask = this.startTyping(threadId).catch((error) => {
+        this.logger.warn("Failed to send Telegram typing action", {
+          error: String(error),
+          threadId,
+        });
+      });
+
+      options?.waitUntil?.(typingTask);
+    }
+
     const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
     this.cacheMessage(parsedMessage);
 

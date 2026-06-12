@@ -345,6 +345,61 @@ describe("TelegramAdapter", () => {
     expect(threadId).toBe("telegram:-100123");
     expect(parsedMessage.text).toBe("hello @mybot");
     expect(parsedMessage.isMention).toBe(true);
+    expect(
+      mockFetch.mock.calls.some(([input]) =>
+        String(input).includes("/sendChatAction")
+      )
+    ).toBe(false);
+  });
+
+  it("starts typing before processing private message updates", async () => {
+    const events: string[] = [];
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementationOnce((input) => {
+        expect(String(input)).toContain("/sendChatAction");
+        events.push("typing");
+        return Promise.resolve(telegramOk(true));
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    processMessage.mockImplementation(() => {
+      events.push("processMessage");
+    });
+
+    await adapter.initialize(chat);
+
+    const waitUntil = vi.fn();
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: "hello" }),
+        }),
+      }),
+      { waitUntil }
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["typing", "processMessage"]);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
   it("routes bot command messages to slash command handlers", async () => {
@@ -646,6 +701,7 @@ describe("TelegramAdapter", () => {
           },
         ])
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockImplementationOnce((_input, init) => {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -683,15 +739,17 @@ describe("TelegramAdapter", () => {
       () =>
         (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length > 0
     );
-    await waitForCondition(() => mockFetch.mock.calls.length >= 4);
+    await waitForCondition(() => mockFetch.mock.calls.length >= 5);
     await adapter.stopPolling();
 
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/deleteWebhook");
-    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/getUpdates");
-    expect(String(mockFetch.mock.calls[3]?.[0])).toContain("/getUpdates");
+    const pollCalls = mockFetch.mock.calls.filter(([input]) =>
+      String(input).includes("/getUpdates")
+    );
+    expect(pollCalls).toHaveLength(2);
 
     const firstPollBody = JSON.parse(
-      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+      String((pollCalls[0]?.[1] as RequestInit).body)
     ) as {
       allowed_updates?: string[];
       limit?: number;
@@ -699,7 +757,7 @@ describe("TelegramAdapter", () => {
       timeout?: number;
     };
     const secondPollBody = JSON.parse(
-      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+      String((pollCalls[1]?.[1] as RequestInit).body)
     ) as {
       offset?: number;
     };
@@ -796,6 +854,7 @@ describe("TelegramAdapter", () => {
           },
         ])
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockImplementationOnce((_input, init) => {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -832,12 +891,14 @@ describe("TelegramAdapter", () => {
       () =>
         (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length > 0
     );
-    await waitForCondition(() => mockFetch.mock.calls.length >= 4);
+    await waitForCondition(() => mockFetch.mock.calls.length >= 5);
     await adapter.stopPolling();
 
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/getWebhookInfo");
-    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/getUpdates");
-    expect(String(mockFetch.mock.calls[3]?.[0])).toContain("/getUpdates");
+    const pollCalls = mockFetch.mock.calls.filter(([input]) =>
+      String(input).includes("/getUpdates")
+    );
+    expect(pollCalls).toHaveLength(2);
     expect(adapter.isPolling).toBe(false);
   });
 
