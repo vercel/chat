@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/messenger",
-  "version": "4.30.0",
+  "version": "4.31.0",
   "description": "Facebook Messenger adapter for Chat SDK — Send API webhooks, templates, and quick replies",
   "type": "module",
   "engines": {

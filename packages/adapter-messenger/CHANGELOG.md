@@ -1,5 +1,14 @@
 # @chat-adapter/messenger
 
+## 4.31.0
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Patch Changes
