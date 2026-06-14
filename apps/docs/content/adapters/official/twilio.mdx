@@ -1,11 +1,11 @@
 ---
 title: Twilio
-description: Twilio SMS and MMS adapter for Chat SDK.
+description: Twilio SMS, MMS, and RCS adapter for Chat SDK.
 packageName: "@chat-adapter/twilio"
 slug: twilio
 type: platform
 logo: twilio
-tagline: Build SMS and MMS bots with Twilio Messaging webhooks and the Messages API.
+tagline: Build SMS, MMS, and RCS bots with Twilio Messaging webhooks and the Messages API.
 beta: true
 features:
   postMessage: yes
@@ -20,15 +20,21 @@ features:
   scheduledMessages: no
   cardFormat:
     status: partial
-    label: Plain text fallback
-  buttons: no
-  linkButtons: no
+    label: RCS rich cards + SMS text fallback
+  buttons:
+    status: partial
+    label: RCS quick-replies
+  linkButtons:
+    status: partial
+    label: RCS call-to-action
   selectMenus: no
   tables:
     status: partial
     label: ASCII
   fields: yes
-  imagesInCards: no
+  imagesInCards:
+    status: partial
+    label: RCS only
   modals: no
   slashCommands: no
   mentions: no
@@ -113,6 +119,16 @@ https://your-domain.com/api/webhooks/twilio
       description:
         "Default Messaging Service SID for `openDM`. Auto-detected from `TWILIO_MESSAGING_SERVICE_SID`.",
     },
+    rcsSenderId: {
+      type: "string",
+      description:
+        "Direct RCS sender address (e.g. `rcs:MyBrand`) for `openDM` when targeting RCS. Auto-detected from `TWILIO_RCS_SENDER_ID`.",
+    },
+    contentApiUrl: {
+      type: "string",
+      description:
+        "Override the Twilio Content API base URL (testing only).",
+    },
     webhookUrl: {
       type: "string | ((request: Request) => string | Promise<string>)",
       description:
@@ -152,6 +168,56 @@ createTwilioAdapter({
   webhookUrl: "https://your-domain.com/api/webhooks/twilio",
 });
 ```
+
+## RCS setup
+
+<Callout type="info">
+RCS uses the same webhook URL and adapter as SMS/MMS — no separate endpoint is needed.
+</Callout>
+
+To enable RCS rich messaging:
+
+1. **Register an RCS Sender** in the Twilio Console under Messaging → RCS Senders. Carrier approval typically takes 4–6 weeks.
+2. **Add the RCS Sender and an SMS phone number** to a Messaging Service so Twilio can auto-fallback to SMS when RCS is unavailable.
+3. **Set `TWILIO_MESSAGING_SERVICE_SID`** to the Messaging Service SID (starts with `MG`).
+4. Point the Messaging Service webhook to the same URL as your SMS webhook — the adapter handles both channels.
+
+When an RCS-capable sender is detected (`MG…` Messaging Service or `rcs:` address), the adapter automatically:
+
+- Sends cards as Twilio Content API templates (rich cards with buttons) over RCS
+- Includes an SMS text fallback in every template so non-RCS recipients get a usable message
+- Routes inbound button taps (`ButtonPayload`) to `onAction` handlers
+
+### Handling button taps
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction(async (action) => {
+  if (action.actionId === "approve") {
+    await action.thread.post(`Approved: ${action.value}`);
+  }
+});
+```
+
+### Sending rich cards
+
+```typescript title="send-card.ts" lineNumbers
+import { Card, Button, CardText } from "chat";
+
+await thread.post({
+  card: Card({
+    title: "Deploy v1.2.3",
+    children: [
+      CardText("Ready to deploy to production?"),
+      Actions([
+        Button({ id: "approve", label: "Approve", value: "v1.2.3" }),
+        Button({ id: "reject", label: "Reject" }),
+      ]),
+    ],
+  }),
+});
+```
+
+Over RCS, this renders as a rich card with tappable buttons. Over SMS, it falls back to plain text.
 
 ## Media
 
@@ -232,8 +298,10 @@ For live calls, `updateTwilioCall()` in `@chat-adapter/twilio/api` can post repl
 ### Notes
 
 - Twilio does not support message edits, reactions, modals, or typing indicators for SMS.
-- Cards render as plain text fallback. Buttons and select menus are not interactive over SMS.
+- Cards render as rich RCS content when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
+- RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers (no delivery API exists today).
 - `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.
+- Content template creation adds one extra API call per card send. This is acceptable for bot replies; high-volume use cases should consider pre-creating templates.
 
 ## Feature support
 

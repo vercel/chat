@@ -1,0 +1,43 @@
+# message log
+
+## SMS inbound text
+
+```
+AccountSid=AC000000000000000000000000000&Body=Hello+bot&From=%2B15551234567&MessageSid=SM00000000000000000000000000000&NumMedia=0&To=%2B15559876543
+```
+
+## RCS inbound text with ChannelMetadata
+
+```
+AccountSid=AC000000000000000000000000000&Body=Hello+from+RCS&ChannelMetadata=%7B%22type%22%3A%22rcs%22%7D&From=%2B15551234567&MessageSid=SM11111111111111111111111111111&NumMedia=0&To=%2B15559876543
+```
+
+## RCS button tap (ButtonPayload)
+
+```
+AccountSid=AC000000000000000000000000000&ButtonPayload=chat%3A%7B%22a%22%3A%22approve%22%2C%22v%22%3A%22prod%22%7D&ButtonText=Approve&ChannelMetadata=%7B%22type%22%3A%22rcs%22%7D&From=%2B15551234567&MessageSid=SM22222222222222222222222222222&To=%2B15559876543
+```
+
+## RCS location share
+
+```
+AccountSid=AC000000000000000000000000000&Address=1600+Amphitheatre+Parkway%2C+Mountain+View%2C+CA&Body=&ChannelMetadata=%7B%22type%22%3A%22rcs%22%7D&From=%2B15551234567&Label=Google+HQ&Latitude=37.4220936&Longitude=-122.0840897&MessageSid=SM33333333333333333333333333333&NumMedia=0&To=%2B15559876543
+```
+
+## Status callback with ChannelPrefix=rcs
+
+```
+AccountSid=AC000000000000000000000000000&ChannelPrefix=rcs&From=%2B15559876543&MessageSid=SM44444444444444444444444444444&MessageStatus=delivered&To=%2B15551234567
+```
+
+## Status callback with EventType=READ
+
+```
+AccountSid=AC000000000000000000000000000&ChannelPrefix=rcs&EventType=READ&From=%2B15559876543&MessageSid=SM55555555555555555555555555555&MessageStatus=read&To=%2B15551234567
+```
+
+## MMS inbound with media
+
+```
+AccountSid=AC000000000000000000000000000&Body=Check+this+photo&From=%2B15551234567&MediaContentType0=image%2Fjpeg&MediaUrl0=https%3A%2F%2Fapi.twilio.com%2F2010-04-01%2FAccounts%2FAC000000000000000000000000000%2FMessages%2FSM66666666666666666666666666666%2FMedia%2FME00000000000000000000000000000&MessageSid=SM66666666666666666666666666666&NumMedia=1&To=%2B15559876543
+```

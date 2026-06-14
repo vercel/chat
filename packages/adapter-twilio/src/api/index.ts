@@ -67,6 +67,9 @@ export interface TwilioCallResource {
 
 export interface SendTwilioMessageOptions extends TwilioApiOptions {
   body?: string;
+  contentSid?: string;
+  contentVariables?: Record<string, string> | string;
+  fallbackFrom?: string;
   from?: string;
   mediaUrl?: readonly string[] | string;
   messagingServiceSid?: string;
@@ -193,14 +196,23 @@ export async function sendTwilioMessage(
     "TWILIO_ACCOUNT_SID"
   );
   const mediaUrls = arrayValue(options.mediaUrl);
-  if (!options.body && mediaUrls.length === 0) {
-    throw new TypeError("body or mediaUrl is required");
+  if (!(options.body || mediaUrls.length > 0 || options.contentSid)) {
+    throw new TypeError("body, mediaUrl, or contentSid is required");
   }
   if (!(options.from || options.messagingServiceSid)) {
     throw new TypeError("from or messagingServiceSid is required");
   }
+  let contentVariables: string | undefined;
+  if (typeof options.contentVariables === "string") {
+    contentVariables = options.contentVariables;
+  } else if (options.contentVariables) {
+    contentVariables = JSON.stringify(options.contentVariables);
+  }
   const body = encodeTwilioForm({
     Body: options.body,
+    ContentSid: options.contentSid,
+    ContentVariables: contentVariables,
+    FallbackFrom: options.fallbackFrom,
     From: options.from,
     MediaUrl: mediaUrls,
     MessagingServiceSid: options.messagingServiceSid,
@@ -344,8 +356,18 @@ function formParams(
   return fields instanceof URLSearchParams ? fields : encodeTwilioForm(fields);
 }
 
+export function encodeBase64Utf8(value: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf8").toString("base64");
+  }
+  if (typeof globalThis.btoa === "function") {
+    return globalThis.btoa(value);
+  }
+  throw new Error("Base64 encoding is not supported in this runtime");
+}
+
 function twilioAuthorization(accountSid: string, authToken: string): string {
-  return `Basic ${btoa(`${accountSid}:${authToken}`)}`;
+  return `Basic ${encodeBase64Utf8(`${accountSid}:${authToken}`)}`;
 }
 
 function arrayValue(value: readonly string[] | string | undefined): string[] {

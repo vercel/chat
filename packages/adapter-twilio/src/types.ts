@@ -19,10 +19,12 @@ export interface TwilioAdapterConfig {
   accountSid?: TwilioCredential;
   apiUrl?: string;
   authToken?: TwilioCredential;
+  contentApiUrl?: string;
   fetch?: TwilioFetch;
   logger?: Logger;
   messagingServiceSid?: string;
   phoneNumber?: string;
+  rcsSenderId?: string;
   statusCallbackUrl?: string;
   userName?: string;
   webhookUrl?: TwilioWebhookUrl;
