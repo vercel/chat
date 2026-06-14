@@ -2880,6 +2880,31 @@ describe("direct WebClient access via adapter.client", () => {
     });
   });
 
+  it("isolates custom headers between token-bound WebClients", async () => {
+    const headers = { "X-Test": "value" };
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      webClientOptions: { headers },
+      logger: mockLogger,
+    });
+
+    const authorizations: Array<string | undefined> = [];
+    for (const token of ["xoxb-first", "xoxb-second"]) {
+      await adapter.withBotToken(token, () => {
+        authorizations.push(
+          (
+            adapter.webClient as unknown as {
+              axios: { defaults: { headers: { Authorization?: string } } };
+            }
+          ).axios.defaults.headers.Authorization
+        );
+      });
+    }
+
+    expect(authorizations).toEqual(["Bearer xoxb-first", "Bearer xoxb-second"]);
+    expect(headers).toEqual({ "X-Test": "value" });
+  });
+
   it("throws when no token is available (multi-workspace, outside context)", () => {
     const adapter = createSlackAdapter({
       clientId: "test-client-id",

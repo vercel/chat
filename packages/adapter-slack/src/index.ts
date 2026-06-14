@@ -576,6 +576,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (!client) {
       client = new WebClient(token, {
         ...this.webClientOptions,
+        ...(this.webClientOptions?.headers
+          ? { headers: { ...this.webClientOptions.headers } }
+          : {}),
         ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
       });
       this.tokenClientCache.set(token, client);
@@ -622,6 +625,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
       ...this.webClientOptions,
+      ...(this.webClientOptions?.headers
+        ? { headers: { ...this.webClientOptions.headers } }
+        : {}),
       ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
