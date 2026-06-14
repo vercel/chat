@@ -40,9 +40,7 @@ export const getOfficialPlatformAdapterSlug = (
     return undefined;
   }
 
-  return dirName === "adapter-gchat"
-    ? "google-chat"
-    : dirName.slice("adapter-".length);
+  return dirName.slice("adapter-".length);
 };
 
 export const getOfficialPlatformOgImageUrl = (slug: string): string =>
@@ -57,6 +55,9 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
   }
   if (name === "@chat-adapter/shared") {
     return `${CHAT_SDK_HOMEPAGE}/docs/contributing/building`;
+  }
+  if (name === "create-chat-sdk") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
   }
   if (dirName.startsWith("state-")) {
     const slug =

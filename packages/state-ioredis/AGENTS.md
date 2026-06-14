@@ -28,7 +28,7 @@ smaller dependency footprint.
 ```
 packages/state-ioredis/
 ├── src/
-│   ├── index.ts             # IORedisStateAdapter + createIORedisState
+│   ├── index.ts             # IoRedisStateAdapter + createIoRedisState
 │   └── index.test.ts        # full StateAdapter contract suite
 ├── package.json
 ├── tsconfig.json
@@ -66,25 +66,29 @@ when `REDIS_URL` is exported.
 
 Main exports from `src/index.ts`:
 
-- `createIORedisState(config?)` — primary factory. Auto-detects
-  `REDIS_URL`.
-- `IORedisStateAdapter` class — implements the Chat SDK
+- `createIoRedisState(options)` — primary factory. Requires either a
+  `url` or an existing `client`; there is no `REDIS_URL`
+  auto-detection (unlike `createRedisState`).
+- `IoRedisStateAdapter` class — implements the Chat SDK
   `StateAdapter` interface. Public methods: subscriptions, locks,
   cache, lists, queues, plus `disconnect()`.
-- `IORedisStateAdapterConfig` — configuration type.
+- `IoRedisStateAdapterOptions` — options type, a union of the
+  url-based and client-based variants.
 
 ## Configuration
 
 ```typescript
-import Redis from "ioredis";
-import { createIORedisState } from "@chat-adapter/state-ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
 
-createIORedisState({
-  url: process.env.REDIS_URL,
-  client: existingIoredisInstance,
+// With a connection URL
+createIoRedisState({
+  url: process.env.REDIS_URL!,
   keyPrefix: "chat-sdk",
-  logger: customLogger,
+  logger: customLogger, // optional, defaults to a console logger
 });
+
+// Or with an existing ioredis client
+createIoRedisState({ client: existingIoredisInstance });
 ```
 
 For cluster:
@@ -97,7 +101,7 @@ const cluster = new Cluster([
   { host: "node-b", port: 6379 },
 ]);
 
-createIORedisState({ client: cluster });
+createIoRedisState({ client: cluster });
 ```
 
 For sentinel:
@@ -110,7 +114,7 @@ const client = new Redis({
   name: "mymaster",
 });
 
-createIORedisState({ client });
+createIoRedisState({ client });
 ```
 
 ## Internal key layout

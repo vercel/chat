@@ -1,0 +1,135 @@
+---
+title: CLI
+description: Scaffold a Chat SDK bot app with a single command.
+---
+
+`create-chat-sdk` creates a minimal Next.js app for Chat SDK bots.
+
+The CLI will generate your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog.
+
+## Quick start
+
+<CodeBlockTabs defaultValue="npm">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="npm">npm</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="pnpm">pnpm</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="yarn">yarn</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="bun">bun</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+  <CodeBlockTab value="npm">
+```bash
+npm create chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="pnpm">
+```bash
+pnpm create chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="yarn">
+```bash
+yarn create chat-sdk my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="bun">
+```bash
+bunx create-chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+<Callout type="info">
+  `create-chat-sdk` automatically detects when it is being run by Cursor, Claude Code, or another coding agent. In agent environments, it announces the detection, runs non-interactively, and uses `my-bot` when no project name is provided. Pass `--interactive` to force prompts.
+</Callout>
+
+## Non-interactive usage
+
+Pass platform and state adapters with `--adapter`:
+
+```bash
+npm create chat-sdk@latest -- my-bot --adapter slack redis -y
+```
+
+<Callout type="warn">
+  With npm, the `--` separator is required — npm consumes flags before it (`-y` is npm's own `--yes`) instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
+</Callout>
+
+The CLI accepts any official and vendor-official adapter.
+
+<AdapterSlugList />
+
+Examples:
+
+```bash
+create-chat-sdk slack-bot --adapter slack memory -y --skip-install
+create-chat-sdk gchat-bot --adapter gchat redis -y --pm pnpm
+create-chat-sdk email-bot --adapter resend postgres -y --no-git
+create-chat-sdk my-bot --adapter slack memory -y --force
+```
+
+## What gets generated
+
+The scaffolded app is webhook-only. It does not include pages, layouts, or a client UI.
+
+```txt
+src/
+  lib/bot.ts                              Bot configuration and handlers
+  app/api/webhooks/[platform]/route.ts    Dynamic platform webhook route
+  app/api/chat/route.ts                   Web adapter route, only when selected
+.env.example                              Required environment variables
+next.config.ts                            Next.js server config
+package.json                              Adapter dependencies
+```
+
+Webhook endpoints use the selected adapter slug:
+
+```txt
+/api/webhooks/slack
+/api/webhooks/gchat
+/api/webhooks/discord
+```
+
+When the [Web adapter](/adapters/official/web) is selected, the CLI also creates `/api/chat` for browser chat requests and a small `getUser` auth stub. Replace the stub with your app's real authentication logic so each web conversation can be associated with the correct user.
+
+## Reference
+
+| Option | Description |
+| --- | --- |
+| `[name]` | Name of the project. |
+| `-d, --description <text>` | Project description. |
+| `--adapter <values...>` | Platform or state adapters to include. |
+| `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
+| `-y, --yes` | Skip prompts and accept defaults. |
+| `--interactive` | Always prompt, even when a coding agent environment is detected. |
+| `-f, --force` | Overwrite generated files in an existing directory. |
+| `-s, --skip-install` | Skip dependency installation. |
+| `--no-git` | Skip git repository initialization. |
+| `-q, --quiet` | Suppress non-essential output. |
+
+Color output follows the [NO_COLOR standard](https://no-color.org/) — set `NO_COLOR=1` to disable colors.
+
+## Customize your bot
+
+Most bot behavior lives in `src/lib/bot.ts`. Start there when you want to:
+
+- Add or change handlers like `onNewMention`, `onSubscribedMessage`, `onNewMessage`, reactions, actions, or slash commands.
+- Adjust adapter configuration, for example passing explicit credentials or platform-specific options instead of relying only on environment variables.
+- If you selected the memory state adapter, switch to Redis, ioredis, or PostgreSQL before deploying to production.
+
+The generated file includes starter handlers for mentions and subscribed thread replies.
+
+## Next steps
+
+After scaffolding:
+
+```bash
+cd my-bot
+cp .env.example .env.local
+npm run dev
+```
+
+Fill in the generated environment variables, expose your local server, and configure each selected platform to call its `/api/webhooks/{adapter}` endpoint.
+
+## Resources
+
+See guides, templates, and examples on the [resources](/resources) page.

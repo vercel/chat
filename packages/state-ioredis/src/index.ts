@@ -1,11 +1,12 @@
 import type { Lock, Logger, QueueEntry, StateAdapter } from "chat";
+import { ConsoleLogger } from "chat";
 import Redis from "ioredis";
 
 export interface IoRedisStateAdapterUrlOptions {
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /** Logger instance for error reporting (default: console logger) */
+  logger?: Logger;
   /** Redis connection URL (e.g., redis://localhost:6379) */
   url: string;
 }
@@ -15,8 +16,8 @@ export interface IoRedisStateAdapterClientOptions {
   client: Redis;
   /** Key prefix for all Redis keys (default: "chat-sdk") */
   keyPrefix?: string;
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /** Logger instance for error reporting (default: console logger) */
+  logger?: Logger;
 }
 
 export type IoRedisStateAdapterOptions =
@@ -62,7 +63,7 @@ export class IoRedisStateAdapter implements StateAdapter {
       this.ownsClient = true;
     }
     this.keyPrefix = options.keyPrefix || "chat-sdk";
-    this.logger = options.logger;
+    this.logger = options.logger ?? new ConsoleLogger("info").child("ioredis");
 
     // Handle connection errors
     this.client.on("error", (err) => {

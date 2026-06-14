@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/slack](https://chat-sdk.dev/adapt
 pnpm add @chat-adapter/slack
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Slack bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Single-workspace mode
 
 For bots deployed to a single Slack workspace. The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from environment variables:
