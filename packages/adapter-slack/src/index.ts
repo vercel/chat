@@ -10,11 +10,7 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import {
-  type ChatStopStreamArguments,
-  WebClient,
-  type WebClientOptions,
-} from "@slack/web-api";
+import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -459,7 +455,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
-  protected readonly webClientOptions: WebClientOptions | undefined;
+  protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)

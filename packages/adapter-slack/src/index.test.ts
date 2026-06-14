@@ -2845,39 +2845,39 @@ describe("direct WebClient access via adapter.client", () => {
     ).toBe("https://slack-gov.com/api/");
   });
 
-  it("forwards webClientOptions from createSlackAdapter to the bound WebClient", () => {
+  it("forwards webClientOptions to the internal WebClient", () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-static-token",
       signingSecret: secret,
-      webClientOptions: { slackApiUrl: "https://from-options.example/api/" },
+      webClientOptions: { timeout: 15_000 },
       logger: mockLogger,
     });
 
     expect(
       (
-        adapter.client as unknown as {
-          axios: { defaults: { baseURL: string } };
+        adapter as unknown as {
+          _client: { axios: { defaults: { timeout: number } } };
         }
-      ).axios.defaults.baseURL
-    ).toBe("https://from-options.example/api/");
+      )._client.axios.defaults.timeout
+    ).toBe(15_000);
   });
 
-  it("lets apiUrl take precedence over webClientOptions.slackApiUrl", () => {
+  it("forwards webClientOptions to token-bound WebClients", async () => {
     const adapter = createSlackAdapter({
-      botToken: "xoxb-static-token",
       signingSecret: secret,
-      apiUrl: "https://slack-gov.com/api/",
-      webClientOptions: { slackApiUrl: "https://override.example/api/" },
+      webClientOptions: { timeout: 15_000 },
       logger: mockLogger,
     });
 
-    expect(
-      (
-        adapter.client as unknown as {
-          axios: { defaults: { baseURL: string } };
-        }
-      ).axios.defaults.baseURL
-    ).toBe("https://slack-gov.com/api/");
+    await adapter.withBotToken("xoxb-context-token", () => {
+      expect(
+        (
+          adapter.webClient as unknown as {
+            axios: { defaults: { timeout: number } };
+          }
+        ).axios.defaults.timeout
+      ).toBe(15_000);
+    });
   });
 
   it("throws when no token is available (multi-workspace, outside context)", () => {

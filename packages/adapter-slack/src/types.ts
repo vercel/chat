@@ -74,7 +74,7 @@ export interface SlackAdapterConfig {
   /** Override bot username (optional) */
   userName?: string;
   /**
-   * Options forwarded to the underlying `@slack/web-api` `WebClient`(s) — both the
+   * Options forwarded to the underlying `@slack/web-api` `WebClient` instances, both the
    * default client and the per-token clients used for multi-workspace requests.
    *
    * Use this to tune Web API behavior the adapter does not otherwise expose, most
@@ -82,7 +82,9 @@ export interface SlackAdapterConfig {
    * (429) requests with `retryPolicies.tenRetriesInAboutThirtyMinutes`, so a single
    * `chat.update`/`chat.postMessage` can block for ~30 minutes under sustained rate
    * limiting. Callers that stream frequent edits (where a hung call can stall a whole
-   * turn) will typically want a bounded policy and/or a per-request timeout:
+   * turn) will typically want a bounded policy and/or a timeout. `timeout` applies to
+   * each HTTP request attempt, not the total retry period. Set
+   * `rejectRateLimitedCalls` to reject 429 responses without waiting for `Retry-After`.
    *
    * ```ts
    * import { retryPolicies } from "@slack/web-api";
@@ -92,9 +94,9 @@ export interface SlackAdapterConfig {
    * });
    * ```
    *
-   * `apiUrl` (above) takes precedence over `webClientOptions.slackApiUrl` when both are set.
+   * Use `apiUrl` to override the Slack Web API base URL.
    */
-  webClientOptions?: WebClientOptions;
+  webClientOptions?: Omit<WebClientOptions, "slackApiUrl">;
   /**
    * Custom webhook verifier. Used in place of `signingSecret`.
    * Receives the incoming `Request` and the raw body text already
