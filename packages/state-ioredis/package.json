@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/state-ioredis",
-  "version": "4.30.0",
+  "version": "4.31.0",
   "description": "ioredis state adapter for Chat SDK — production state with Redis Cluster and Sentinel support via ioredis",
   "type": "module",
   "engines": {
