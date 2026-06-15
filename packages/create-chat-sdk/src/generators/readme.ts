@@ -1,11 +1,19 @@
 import type { ProjectConfig } from "../types.js";
 
+const hasAdapter = (config: ProjectConfig, slug: string): boolean =>
+  config.platformAdapters.some((adapter) => adapter.slug === slug);
+
 const webhookLines = (config: ProjectConfig): string[] => {
   const lines = config.platformAdapters.map(
     (adapter) => `- ${adapter.name}: \`/api/webhooks/${adapter.slug}\``
   );
-  if (config.platformAdapters.some((adapter) => adapter.slug === "web")) {
+  if (hasAdapter(config, "web")) {
     lines.push("- Web chat API: `/api/chat`");
+  }
+  if (hasAdapter(config, "discord")) {
+    lines.push(
+      "- Discord Gateway (cron): `/api/discord/gateway` — keeps the Gateway connection alive so message and reaction events reach the bot. Scheduled in `vercel.json` and authenticated with `CRON_SECRET`."
+    );
   }
   return lines.length > 0 ? lines : ["- No platform webhooks selected yet."];
 };

@@ -6,6 +6,19 @@ import type {
 } from "chat/adapters";
 import { getCliScaffoldSpec } from "../catalog/index.js";
 import type { ProjectConfig } from "../types.js";
+import { needsDiscordGateway } from "./routes.js";
+
+const discordGatewayLines = (config: ProjectConfig): string[] => {
+  if (!needsDiscordGateway(config)) {
+    return [];
+  }
+  return [
+    "# Discord Gateway (serverless cron)",
+    "# Secret used to authenticate Vercel cron requests to the Gateway route.",
+    "CRON_SECRET=",
+    "",
+  ];
+};
 
 const envLine = (envVar: EnvVar): string[] => {
   const labels = [envVar.description];
@@ -92,6 +105,7 @@ export function generateEnvExample(config: ProjectConfig): string {
       ...adapterSection(adapter),
       "",
     ]),
+    ...discordGatewayLines(config),
     ...adapterSection(config.stateAdapter),
   ].filter((line, index, lines) => !(line === "" && lines[index - 1] === ""));
 

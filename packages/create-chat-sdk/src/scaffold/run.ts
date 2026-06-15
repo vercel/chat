@@ -9,13 +9,18 @@ import { generatePackageJson } from "../generators/package-json.js";
 import { generateReadme } from "../generators/readme.js";
 import {
   generateAuthStub,
+  generateDiscordGatewayRoute,
+  generateVercelJson,
   generateWebRoute,
+  needsDiscordGateway,
+  needsVercelJson,
   needsWebRoute,
 } from "../generators/routes.js";
 import type { ProjectConfig, ScaffoldOptions } from "../types.js";
 import {
   copyDir,
   readProjectJson,
+  removeProjectFile,
   writeProjectFile,
   writeProjectJson,
 } from "./fs.js";
@@ -59,6 +64,9 @@ export async function scaffold(
     writeProjectFile(projectDir, "README.md", generateReadme(config));
     writeProjectFile(projectDir, "src/lib/bot.ts", generateBotTs(config));
 
+    // Conditional files are written when their adapter is selected and removed
+    // otherwise, so a `--force` re-run with a different selection does not leave
+    // stale routes behind.
     if (needsWebRoute(config)) {
       writeProjectFile(
         projectDir,
@@ -66,6 +74,25 @@ export async function scaffold(
         generateWebRoute()
       );
       writeProjectFile(projectDir, "src/lib/auth-stub.ts", generateAuthStub());
+    } else {
+      removeProjectFile(projectDir, "src/app/api/chat/route.ts");
+      removeProjectFile(projectDir, "src/lib/auth-stub.ts");
+    }
+
+    if (needsDiscordGateway(config)) {
+      writeProjectFile(
+        projectDir,
+        "src/app/api/discord/gateway/route.ts",
+        generateDiscordGatewayRoute()
+      );
+    } else {
+      removeProjectFile(projectDir, "src/app/api/discord/gateway/route.ts");
+    }
+
+    if (needsVercelJson(config)) {
+      writeProjectFile(projectDir, "vercel.json", generateVercelJson(config));
+    } else {
+      removeProjectFile(projectDir, "vercel.json");
     }
 
     const packageJson = readProjectJson<Record<string, unknown>>(
@@ -118,6 +145,13 @@ export async function scaffold(
     log.warning(
       `Run "${config.packageManager} install" manually in the project directory.`
     );
+    // The generated files are still usable, so interactive runs stay successful
+    // and only print the manual follow-up command. Non-interactive runs (-y,
+    // quiet, CI, coding agents) must fail loudly so automation can detect that
+    // the project is missing its dependencies.
+    if (options.yes || options.quiet) {
+      process.exitCode = 1;
+    }
   }
 
   return true;

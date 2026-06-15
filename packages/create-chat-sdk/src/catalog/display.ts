@@ -1,5 +1,6 @@
 import type { CatalogAdapter } from "chat/adapters";
 import { listPlatformAdapters } from "chat/adapters";
+import { isCliCompatibleAdapter } from "./compatibility.js";
 
 type PlatformAdapterGroup = CatalogAdapter["group"];
 
@@ -21,7 +22,8 @@ export function listCliPlatformAdapters(
   group: PlatformAdapterGroup
 ): CatalogAdapter[] {
   const adapters = listPlatformAdapters().filter(
-    (adapter) => adapter.group === group
+    (adapter) =>
+      adapter.group === group && isCliCompatibleAdapter(adapter.slug)
   );
 
   if (group === "vendor-official") {

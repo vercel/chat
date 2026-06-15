@@ -311,41 +311,6 @@ export const ADAPTERS = {
     slug: "gchat",
     type: "platform",
   },
-  imessage: {
-    description:
-      "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
-    env: {
-      credentialModes: [
-        {
-          label: "Local mode",
-          vars: [
-            env(
-              "IMESSAGE_LOCAL",
-              'Set to "true" or omit for local macOS mode.'
-            ),
-          ],
-        },
-        {
-          label: "Remote mode",
-          vars: [
-            env("IMESSAGE_LOCAL", 'Set to "false" for remote mode.'),
-            urlEnv(
-              "IMESSAGE_SERVER_URL",
-              "Remote iMessage server URL from Photon."
-            ),
-            secretEnv("IMESSAGE_API_KEY", "Remote server API key."),
-          ],
-        },
-      ],
-    },
-    factoryExport: "createiMessageAdapter",
-    group: "vendor-official",
-    name: "Photon iMessage",
-    packageName: "chat-adapter-imessage",
-    peerDeps: [],
-    slug: "imessage",
-    type: "platform",
-  },
   ioredis: {
     description:
       "Redis state adapter using ioredis with cluster and sentinel support.",

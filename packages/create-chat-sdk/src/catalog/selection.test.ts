@@ -30,6 +30,11 @@ describe("resolveAdapterValue", () => {
       "Unknown adapter value: not-real"
     );
   });
+
+  it("rejects adapters incompatible with the webhook-only scaffold", () => {
+    expect(() => resolveAdapterValue("matrix")).toThrow("not supported");
+    expect(() => resolveAdapterValue("lark")).toThrow("not supported");
+  });
 });
 
 describe("resolveAdapterSelection", () => {

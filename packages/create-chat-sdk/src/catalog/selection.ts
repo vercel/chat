@@ -8,6 +8,7 @@ import {
 } from "chat/adapters";
 import { AdapterSelectionError } from "../errors.js";
 import type { AdapterSelection } from "../types.js";
+import { cliIncompatibilityReason } from "./compatibility.js";
 
 const DEFAULT_STATE_SLUG = "memory" satisfies AdapterSlug;
 
@@ -32,6 +33,12 @@ export const defaultStateAdapter = (): CatalogAdapter =>
  */
 export function resolveAdapterValue(value: string): AdapterSlug {
   if (isAdapterSlug(value)) {
+    const reason = cliIncompatibilityReason(value);
+    if (reason) {
+      throw new AdapterSelectionError(
+        `The ${value} adapter is not supported by create-chat-sdk because ${reason}.`
+      );
+    }
     return value;
   }
 

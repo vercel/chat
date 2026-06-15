@@ -47,6 +47,7 @@ let tmpDir: string;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.exitCode = undefined;
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "create-chat-sdk-test-"));
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
 });
@@ -170,6 +171,111 @@ describe("scaffold", () => {
     );
   });
 
+  it("writes the Discord Gateway route and vercel.json crons", async () => {
+    await scaffold(
+      makeConfig({
+        platformAdapters: [
+          {
+            description: "Discord",
+            env: {},
+            factoryExport: "createDiscordAdapter",
+            group: "official",
+            name: "Discord",
+            packageName: "@chat-adapter/discord",
+            peerDeps: [],
+            slug: "discord",
+            type: "platform",
+          },
+        ],
+      }),
+      { force: false, quiet: true, yes: true }
+    );
+    const projectDir = path.join(tmpDir, "test-project");
+    expect(
+      fs.existsSync(
+        path.join(projectDir, "src/app/api/discord/gateway/route.ts")
+      )
+    ).toBe(true);
+    const vercelJson = JSON.parse(
+      fs.readFileSync(path.join(projectDir, "vercel.json"), "utf-8")
+    );
+    expect(vercelJson.crons).toEqual([
+      { path: "/api/discord/gateway", schedule: "*/9 * * * *" },
+    ]);
+  });
+
+  it("removes stale conditional files on a --force re-run", async () => {
+    const webConfig = makeConfig({
+      platformAdapters: [
+        {
+          description: "Web",
+          env: {},
+          factoryExport: "createWebAdapter",
+          group: "official",
+          name: "Web",
+          packageName: "@chat-adapter/web",
+          peerDeps: [],
+          slug: "web",
+          type: "platform",
+        },
+      ],
+    });
+    await scaffold(webConfig, { force: false, quiet: true, yes: true });
+    const projectDir = path.join(tmpDir, "test-project");
+    expect(
+      fs.existsSync(path.join(projectDir, "src/app/api/chat/route.ts"))
+    ).toBe(true);
+
+    await scaffold(makeConfig({ platformAdapters: [] }), {
+      force: true,
+      quiet: true,
+      yes: true,
+    });
+    expect(
+      fs.existsSync(path.join(projectDir, "src/app/api/chat/route.ts"))
+    ).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, "src/lib/auth-stub.ts"))).toBe(
+      false
+    );
+    expect(fs.existsSync(path.join(projectDir, "src/app/api/chat"))).toBe(false);
+  });
+
+  it("removes a stale vercel.json and Discord gateway on a --force re-run", async () => {
+    const discordConfig = makeConfig({
+      platformAdapters: [
+        {
+          description: "Discord",
+          env: {},
+          factoryExport: "createDiscordAdapter",
+          group: "official",
+          name: "Discord",
+          packageName: "@chat-adapter/discord",
+          peerDeps: [],
+          slug: "discord",
+          type: "platform",
+        },
+      ],
+    });
+    await scaffold(discordConfig, { force: false, quiet: true, yes: true });
+    const projectDir = path.join(tmpDir, "test-project");
+    expect(fs.existsSync(path.join(projectDir, "vercel.json"))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(projectDir, "src/app/api/discord/gateway/route.ts")
+      )
+    ).toBe(true);
+
+    await scaffold(makeConfig({ platformAdapters: [] }), {
+      force: true,
+      quiet: true,
+      yes: true,
+    });
+    expect(fs.existsSync(path.join(projectDir, "vercel.json"))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, "src/app/api/discord"))).toBe(
+      false
+    );
+  });
+
   it("installs dependencies and handles install failures", async () => {
     await scaffold(makeConfig({ shouldInstall: true }), {
       force: false,
@@ -193,6 +299,32 @@ describe("scaffold", () => {
     expect(log.warning).toHaveBeenCalledWith(
       'Run "npm install" manually in the project directory.'
     );
+  });
+
+  it("exits non-zero when install fails in non-interactive mode", async () => {
+    vi.mocked(execa).mockRejectedValueOnce(new Error("install failed"));
+    await scaffold(
+      makeConfig({
+        name: "ni-install-fails",
+        shouldInstall: true,
+        shouldInitializeGit: false,
+      }),
+      { force: false, quiet: true, yes: true }
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("stays successful when install fails in interactive mode", async () => {
+    vi.mocked(execa).mockRejectedValueOnce(new Error("install failed"));
+    await scaffold(
+      makeConfig({
+        name: "i-install-fails",
+        shouldInstall: true,
+        shouldInitializeGit: false,
+      }),
+      { force: false, quiet: false, yes: false }
+    );
+    expect(process.exitCode).toBeUndefined();
   });
 
   it("installs dependencies in quiet mode", async () => {

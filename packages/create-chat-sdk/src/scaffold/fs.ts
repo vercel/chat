@@ -60,6 +60,36 @@ export function writeProjectFile(
 }
 
 /**
+ * Remove a project file if it exists, then prune parent directories that became
+ * empty, stopping at the project root.
+ *
+ * Used to clear conditionally generated files (for example the Web adapter
+ * routes) when a `--force` re-run no longer selects the adapter that produced
+ * them.
+ *
+ * @param projectDir - Project root.
+ * @param filePath - Project-relative file path.
+ */
+export function removeProjectFile(projectDir: string, filePath: string): void {
+  const root = path.resolve(projectDir);
+  const fullPath = path.join(root, filePath);
+  if (!fs.existsSync(fullPath)) {
+    return;
+  }
+  fs.rmSync(fullPath);
+
+  let dir = path.dirname(fullPath);
+  while (
+    path.resolve(dir) !== root &&
+    fs.existsSync(dir) &&
+    fs.readdirSync(dir).length === 0
+  ) {
+    fs.rmdirSync(dir);
+    dir = path.dirname(dir);
+  }
+}
+
+/**
  * Read and parse a JSON project file.
  *
  * @param projectDir - Project root.
