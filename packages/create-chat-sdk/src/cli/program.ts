@@ -62,6 +62,10 @@ export function createProgram(): Command {
       "platform or state adapters to include (skips interactive adapter prompts)"
     )
     .option(
+      "--all",
+      "list every adapter (official and vendor-official) in the interactive prompt"
+    )
+    .option(
       "--pm <manager>",
       "package manager to use (npm, yarn, pnpm, bun)",
       parsePackageManager
@@ -94,6 +98,7 @@ export function createProgram(): Command {
         name: string | undefined,
         opts: {
           adapter?: string[];
+          all?: boolean;
           description?: string;
           force?: boolean;
           git?: boolean;
@@ -110,6 +115,7 @@ export function createProgram(): Command {
           ? agentResult.agent.name
           : undefined;
         await runCli({
+          all: opts.all === true,
           description: opts.description,
           detectedAgent,
           force: opts.force ?? false,

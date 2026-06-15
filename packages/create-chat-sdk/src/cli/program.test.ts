@@ -66,6 +66,7 @@ describe("createProgram", () => {
     ]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: "desc",
       detectedAgent: undefined,
       force: false,
@@ -79,11 +80,19 @@ describe("createProgram", () => {
     });
   });
 
+  it("passes --all to runCli", async () => {
+    const program = createProgram();
+    await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--all"]);
+
+    expect(runCli).toHaveBeenCalledWith(expect.objectContaining({ all: true }));
+  });
+
   it("supports the short skip-install option", async () => {
     const program = createProgram();
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-s"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -102,6 +111,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--no-git"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -120,6 +130,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-f"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: true,
@@ -142,6 +153,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: "cursor",
       force: false,
@@ -186,6 +198,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--yes"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -204,6 +217,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,

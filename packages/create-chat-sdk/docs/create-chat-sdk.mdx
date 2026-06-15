@@ -54,7 +54,9 @@ npm create chat-sdk@latest -- my-bot --adapter slack redis -y
   With npm, the `--` separator is required — npm consumes flags before it (`-y` is npm's own `--yes`) instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
 </Callout>
 
-The CLI accepts any official or vendor-official adapter that runs on the generated webhook-only serverless runtime. Adapters that require a long-running process — Matrix and Lark — are not available through the CLI; add them to an existing project manually instead.
+The interactive prompt lists official adapters by default. Pass `--all` to also include vendor-official adapters, grouped under **Official** and **Vendor-official** headings. Either way, you can install any supported adapter directly with `--adapter`.
+
+Adapters that require a long-running process — Matrix and Lark — cannot run on the webhook-only serverless runtime and are not available through the CLI; add them to an existing project manually instead.
 
 <AdapterSlugList />
 
@@ -102,6 +104,7 @@ When the [Discord adapter](/adapters/official/discord) is selected, the CLI also
 | `[name]` | Name of the project. |
 | `-d, --description <text>` | Project description. |
 | `--adapter <values...>` | Platform or state adapters to include. |
+| `--all` | List every adapter (official and vendor-official) in the interactive prompt. |
 | `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
 | `-y, --yes` | Skip prompts and accept defaults. |
 | `--interactive` | Always prompt, even when a coding agent environment is detected. |

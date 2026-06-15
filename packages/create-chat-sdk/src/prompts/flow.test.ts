@@ -7,11 +7,19 @@ vi.mock("@clack/prompts", () => ({
   groupMultiselect: vi.fn(),
   isCancel: vi.fn((value: unknown) => value === CANCEL),
   log: { info: vi.fn(), warning: vi.fn() },
+  multiselect: vi.fn(),
   select: vi.fn(),
   text: vi.fn(),
 }));
 
-import { confirm, groupMultiselect, log, select, text } from "@clack/prompts";
+import {
+  confirm,
+  groupMultiselect,
+  log,
+  multiselect,
+  select,
+  text,
+} from "@clack/prompts";
 import { runPrompts } from "./flow.js";
 
 beforeEach(() => {
@@ -20,16 +28,18 @@ beforeEach(() => {
 });
 
 describe("runPrompts", () => {
-  it("returns config from interactive prompts", async () => {
+  it("returns config from interactive prompts with a flat official list", async () => {
     vi.mocked(text)
       .mockResolvedValueOnce("my-bot")
       .mockResolvedValueOnce("desc");
-    vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
     vi.mocked(select).mockResolvedValueOnce("redis");
     vi.mocked(confirm).mockResolvedValueOnce(true);
 
     const result = await runPrompts({ quiet: false, yes: false });
 
+    expect(multiselect).toHaveBeenCalled();
+    expect(groupMultiselect).not.toHaveBeenCalled();
     expect(result?.name).toBe("my-bot");
     expect(result?.description).toBe("desc");
     expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([
@@ -38,6 +48,21 @@ describe("runPrompts", () => {
     expect(result?.shouldInitializeGit).toBe(true);
     expect(result?.stateAdapter.slug).toBe("redis");
     expect(result?.shouldInstall).toBe(true);
+  });
+
+  it("groups every adapter under headings when --all is passed", async () => {
+    vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
+    vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(select).mockResolvedValueOnce("memory");
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    const result = await runPrompts({ all: true, quiet: false, yes: false });
+
+    expect(groupMultiselect).toHaveBeenCalled();
+    expect(multiselect).not.toHaveBeenCalled();
+    expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([
+      "slack",
+    ]);
   });
 
   it("uses flagged adapters and logs the resolved selection", async () => {
@@ -122,16 +147,16 @@ describe("runPrompts", () => {
     expect(await runPrompts({ quiet: false, yes: false })).toBeNull();
 
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(groupMultiselect).mockResolvedValueOnce(CANCEL as never);
+    vi.mocked(multiselect).mockResolvedValueOnce(CANCEL as never);
     expect(await runPrompts({ quiet: false, yes: false })).toBeNull();
 
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(groupMultiselect).mockResolvedValueOnce([]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
     vi.mocked(select).mockResolvedValueOnce(CANCEL as never);
     expect(await runPrompts({ quiet: false, yes: false })).toBeNull();
 
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(groupMultiselect).mockResolvedValueOnce([]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
     vi.mocked(select).mockResolvedValueOnce("memory");
     vi.mocked(confirm).mockResolvedValueOnce(CANCEL as never);
     expect(await runPrompts({ quiet: false, yes: false })).toBeNull();

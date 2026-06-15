@@ -60,6 +60,7 @@ describe("runCli", () => {
 
     expect(intro).toHaveBeenCalled();
     expect(runPrompts).toHaveBeenCalledWith({
+      all: undefined,
       description: undefined,
       initializeGit: true,
       install: undefined,

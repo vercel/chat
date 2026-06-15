@@ -3,6 +3,7 @@ import {
   groupMultiselect,
   isCancel,
   log,
+  multiselect,
   select,
   text,
 } from "@clack/prompts";
@@ -23,6 +24,11 @@ import { detectPackageManager, validatePackageName } from "./validate.js";
  * config's `shouldInitializeGit` field.
  */
 interface PromptInputs {
+  /**
+   * Show every adapter grouped by Official and Vendor-official headings. When
+   * omitted, the interactive prompt lists only official adapters as a flat list.
+   */
+  all?: boolean;
   description?: string;
   initializeGit?: boolean;
   install?: boolean;
@@ -94,22 +100,29 @@ export async function runPrompts(
   } else if (inputs.yes) {
     platformValues = [];
   } else {
-    const groups = Object.fromEntries(
-      ["official", "vendor-official"].map((group) => [
-        groupLabel(group as "official" | "vendor-official"),
-        listCliPlatformAdapters(group as "official" | "vendor-official").map(
-          (adapter) => ({
+    const message = "Select at least one platform adapter:";
+    const selected = inputs.all
+      ? await groupMultiselect({
+          message,
+          options: Object.fromEntries(
+            (["official", "vendor-official"] as const).map((group) => [
+              groupLabel(group),
+              listCliPlatformAdapters(group).map((adapter) => ({
+                label: adapter.name,
+                value: adapter.slug,
+              })),
+            ])
+          ),
+          required: true,
+        })
+      : await multiselect({
+          message,
+          options: listCliPlatformAdapters("official").map((adapter) => ({
             label: adapter.name,
             value: adapter.slug,
-          })
-        ),
-      ])
-    );
-    const selected = await groupMultiselect({
-      message: "Select at least one platform adapter:",
-      options: groups,
-      required: true,
-    });
+          })),
+          required: true,
+        });
     if (isCancel(selected)) {
       return null;
     }
