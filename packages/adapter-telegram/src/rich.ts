@@ -11,6 +11,9 @@ import type {
 } from "./types";
 
 export const TELEGRAM_RICH_MESSAGE_LIMIT = 32_768;
+const MARKDOWN_PUNCTUATION = /[!-/:-@[-`{-~]/g;
+const LINE_BREAKS = /[\r\n]/g;
+const BACKTICKS = /`+/g;
 
 export function truncateRichMarkdown(markdown: string): string {
   const characters = Array.from(markdown);
@@ -32,9 +35,44 @@ export function truncateRichMarkdown(markdown: string): string {
   return "...";
 }
 
+function escapeText(value: string): string {
+  return value.replace(MARKDOWN_PUNCTUATION, "\\$&");
+}
+
+function inlineCode(value: string): string {
+  if (!value) {
+    return "";
+  }
+  const runs = value.match(BACKTICKS) ?? [];
+  const size = Math.max(1, ...runs.map((run) => run.length + 1));
+  const marker = "`".repeat(size);
+  const hasBoundarySpace =
+    value.startsWith(" ") && value.endsWith(" ") && value.trim().length > 0;
+  const padding =
+    value.startsWith("`") || value.endsWith("`") || hasBoundarySpace ? " " : "";
+  return `${marker}${padding}${value}${padding}${marker}`;
+}
+
+function codeBlock(value: string, language?: string): string {
+  const runs = value.match(BACKTICKS) ?? [];
+  const size = Math.max(3, ...runs.map((run) => run.length + 1));
+  const marker = "`".repeat(size);
+  const info = language?.replace(LINE_BREAKS, " ").replaceAll("`", "") ?? "";
+  return `${marker}${info}\n${value}\n${marker}`;
+}
+
+function linkDestination(value: string): string {
+  return `<${value
+    .replaceAll("\\", "%5C")
+    .replaceAll("<", "%3C")
+    .replaceAll(">", "%3E")
+    .replaceAll("\r", "%0D")
+    .replaceAll("\n", "%0A")}>`;
+}
+
 function text(markdown: TelegramRichText): string {
   if (typeof markdown === "string") {
-    return markdown;
+    return escapeText(markdown);
   }
   if (Array.isArray(markdown)) {
     return markdown.map(text).join("");
@@ -58,7 +96,7 @@ function text(markdown: TelegramRichText): string {
     case "marked":
       return `==${text(markdown.text)}==`;
     case "code":
-      return `\`${text(markdown.text)}\``;
+      return inlineCode(plain(markdown.text));
     case "date_time":
     case "text_mention":
       return text(markdown.text);
@@ -73,11 +111,15 @@ function text(markdown: TelegramRichText): string {
     case "mathematical_expression":
       return `$${markdown.expression}$`;
     case "url":
-      return `[${text(markdown.text)}](${markdown.url})`;
+      return `[${text(markdown.text)}](${linkDestination(markdown.url)})`;
     case "email_address":
-      return `[${text(markdown.text)}](mailto:${markdown.email_address})`;
+      return `[${text(markdown.text)}](${linkDestination(
+        `mailto:${markdown.email_address}`
+      )})`;
     case "phone_number":
-      return `[${text(markdown.text)}](tel:${markdown.phone_number})`;
+      return `[${text(markdown.text)}](${linkDestination(
+        `tel:${markdown.phone_number}`
+      )})`;
     case "anchor":
       return "";
     case "anchor_link":
@@ -149,7 +191,7 @@ function plainCaption(value?: TelegramRichCaption): string {
 }
 
 function cell(value: TelegramRichCell): string {
-  return value.text ? text(value.text).replaceAll("|", "\\|") : "";
+  return value.text ? text(value.text) : "";
 }
 
 function item(value: TelegramRichItem): string {
@@ -202,7 +244,7 @@ function block(value: TelegramRichBlock): string {
     case "heading":
       return `${"#".repeat(Math.min(6, Math.max(1, value.size)))} ${text(value.text)}`;
     case "pre":
-      return `\`\`\`${value.language ?? ""}\n${text(value.text)}\n\`\`\``;
+      return codeBlock(plain(value.text), value.language);
     case "divider":
       return "---";
     case "mathematical_expression":

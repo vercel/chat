@@ -154,12 +154,19 @@ export interface TelegramLocation {
   proximity_alert_radius?: number;
 }
 
+export interface TelegramVideoQuality extends TelegramFile {
+  codec: string;
+  height: number;
+  width: number;
+}
+
 export interface TelegramVideo extends TelegramFile {
   cover?: TelegramPhotoSize[];
   duration: number;
   file_name?: string;
   height: number;
   mime_type?: string;
+  qualities?: TelegramVideoQuality[];
   start_timestamp?: number;
   thumbnail?: TelegramPhotoSize;
   width: number;
@@ -440,12 +447,7 @@ export interface TelegramMessage {
   sender_chat?: TelegramChat;
   sticker?: TelegramFile & { emoji?: string };
   text?: string;
-  video?: TelegramFile & {
-    width?: number;
-    height?: number;
-    mime_type?: string;
-    file_name?: string;
-  };
+  video?: TelegramVideo;
   video_note?: TelegramFile & { length?: number; duration?: number };
   voice?: TelegramFile & { duration?: number; mime_type?: string };
 }

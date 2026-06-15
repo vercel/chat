@@ -2779,6 +2779,7 @@ export type {
   TelegramUpdate,
   TelegramUser,
   TelegramVideo,
+  TelegramVideoQuality,
   TelegramVoice,
   TelegramWebhookInfo,
 } from "./types";

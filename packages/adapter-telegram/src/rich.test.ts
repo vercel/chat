@@ -1,3 +1,4 @@
+import { parseMarkdown, toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import {
   richMessageToMarkdown,
@@ -5,7 +6,7 @@ import {
   TELEGRAM_RICH_MESSAGE_LIMIT,
   truncateRichMarkdown,
 } from "./rich";
-import type { TelegramRichMessage } from "./types";
+import type { TelegramMessage, TelegramRichMessage } from "./types";
 
 describe("Telegram rich messages", () => {
   it("normalizes structured rich blocks to markdown", () => {
@@ -69,7 +70,7 @@ describe("Telegram rich messages", () => {
     expect(richMessageToMarkdown(message)).toBe(
       [
         "## Summary",
-        "Read [the guide](https://example.com) and **continue**",
+        "Read [the guide](<https://example.com>) and **continue**",
         "| Name | Status |\n| --- | --- |\n| Build | Ready |",
       ].join("\n\n")
     );
@@ -98,7 +99,103 @@ describe("Telegram rich messages", () => {
       ],
     };
 
-    expect(richMessageToMarkdown(message)).toBe("@chat_sdk #release");
+    expect(richMessageToText(message)).toBe("@chat_sdk #release");
+    expect(toPlainText(parseMarkdown(richMessageToMarkdown(message)))).toBe(
+      "@chat_sdk #release"
+    );
+  });
+
+  it("escapes literal rich text without changing displayed content", () => {
+    const message: TelegramRichMessage = {
+      blocks: [
+        {
+          type: "paragraph",
+          text: [
+            {
+              type: "code",
+              text: " a ` b ",
+            },
+            {
+              type: "code",
+              text: "",
+            },
+            " ",
+            {
+              type: "url",
+              text: "label ] x",
+              url: "https://example.com/a_(b)",
+            },
+            "\n# literal\n- item\n~~plain~~",
+          ],
+        },
+        {
+          type: "pre",
+          language: "type`script",
+          text: "const fence = ```;",
+        },
+      ],
+    };
+
+    const markdown = richMessageToMarkdown(message);
+    const formatted = parseMarkdown(markdown);
+
+    expect(formatted.children[0]).toMatchObject({
+      children: expect.arrayContaining([
+        expect.objectContaining({
+          type: "inlineCode",
+          value: " a ` b ",
+        }),
+        expect.objectContaining({
+          children: expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              value: "label ] x",
+            }),
+          ]),
+          type: "link",
+          url: "https://example.com/a_(b)",
+        }),
+        expect.objectContaining({
+          type: "text",
+          value: "\n# literal\n- item\n~~plain~~",
+        }),
+      ]),
+      type: "paragraph",
+    });
+    expect(formatted.children[1]).toMatchObject({
+      lang: "typescript",
+      type: "code",
+      value: "const fence = ```;",
+    });
+  });
+
+  it("includes current Telegram video quality fields", () => {
+    const message: TelegramMessage = {
+      chat: {
+        id: 1,
+        type: "private",
+      },
+      date: 1,
+      message_id: 1,
+      video: {
+        duration: 10,
+        file_id: "video",
+        file_unique_id: "video-unique",
+        height: 720,
+        qualities: [
+          {
+            codec: "h264",
+            file_id: "video-h264",
+            file_unique_id: "video-h264-unique",
+            height: 720,
+            width: 1280,
+          },
+        ],
+        width: 1280,
+      },
+    };
+
+    expect(message.video?.qualities?.[0]?.codec).toBe("h264");
   });
 
   it("normalizes rich formatting to plain text", () => {
