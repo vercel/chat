@@ -108,9 +108,6 @@ const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN =
   /can't parse (?:caption )?entities/i;
-const TELEGRAM_RICH_FALLBACK_PATTERN =
-  /can't parse|method.*not found|rich message|unsupported/i;
-const TELEGRAM_RICH_UNAVAILABLE_PATTERN = /method.*not found|unsupported/i;
 const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
@@ -2349,20 +2346,33 @@ export class TelegramAdapter
     error: unknown,
     method: string
   ): boolean {
+    const message =
+      error instanceof ValidationError ? error.message.toLowerCase() : "";
+    const missingMethod =
+      message.includes("method") && message.includes("not found");
+    const unsupportedRich =
+      message.includes("rich message") && message.includes("unsupported");
+
     return (
       (method.startsWith("sendRichMessage") &&
         error instanceof ResourceNotFoundError) ||
       (error instanceof ValidationError &&
-        TELEGRAM_RICH_FALLBACK_PATTERN.test(error.message))
+        (message.includes("can't parse") || missingMethod || unsupportedRich))
     );
   }
 
   protected rememberRichMessageFailure(error: unknown, method: string): void {
+    const message =
+      error instanceof ValidationError ? error.message.toLowerCase() : "";
+    const missingMethod =
+      message.includes("method") && message.includes("not found");
+    const unsupportedRich =
+      message.includes("rich message") && message.includes("unsupported");
+
     if (
       (method.startsWith("sendRichMessage") &&
         error instanceof ResourceNotFoundError) ||
-      (error instanceof ValidationError &&
-        TELEGRAM_RICH_UNAVAILABLE_PATTERN.test(error.message))
+      (error instanceof ValidationError && (missingMethod || unsupportedRich))
     ) {
       this.richMessagesAvailable = false;
     }

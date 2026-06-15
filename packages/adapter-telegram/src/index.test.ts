@@ -2151,6 +2151,36 @@ describe("TelegramAdapter", () => {
     ).rejects.toThrow("Bad Request: chat not found");
   });
 
+  it("does not treat unrelated unsupported errors as rich message failures", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramError(400, 400, "Bad Request: message thread is unsupported")
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.postMessage("telegram:123", {
+        markdown: "**hello**",
+      })
+    ).rejects.toThrow("Bad Request: message thread is unsupported");
+  });
+
   it("falls back from rich edits to plain text when Telegram can't parse markdown", async () => {
     mockFetch
       .mockResolvedValueOnce(
