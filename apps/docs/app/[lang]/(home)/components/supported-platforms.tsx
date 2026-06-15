@@ -12,7 +12,6 @@ import {
   twilio,
   whatsapp,
 } from "@/lib/logos";
-import { cn } from "@/lib/utils";
 
 const platforms: {
   icon: (props: ComponentProps<"svg">) => React.JSX.Element;
@@ -44,19 +43,22 @@ const features = [
     title: "Type-safe by default.",
     description: "Strict types for adapters, handlers, and JSX cards.",
   },
-];
+] as const;
 
 export const SupportedPlatforms = () => (
-  <div style={{ fontFamily: "var(--font-sans)" }}>
-    <div className="flex flex-col items-center gap-8 px-4 py-20 text-center">
-      <h2 className="text-balance font-semibold text-[32px] leading-[1.1] tracking-tight md:text-[40px]">
+  <>
+    <section
+      className="flex flex-col items-center gap-8 px-4 py-20 text-center"
+      data-home-grid
+    >
+      <h3 className="text-heading-32 md:text-heading-40">
         The Platform-Agnostic Chat Toolkit
-      </h2>
-      <p className="max-w-3xl text-balance text-[18px] text-muted-foreground leading-[1.4] md:text-[20px]">
+      </h3>
+      <p className="mx-auto max-w-3xl px-4 text-copy-16 text-gray-900 md:text-copy-18 lg:text-copy-20">
         The open-source chat toolkit designed to help developers build chat bots
         that run on Slack, Teams, Google Chat, Discord, WhatsApp, and more.
       </p>
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+      <div className="mx-auto mt-2 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         {platforms.map((platform) => (
           <Link
             aria-label={platform.name}
@@ -68,24 +70,18 @@ export const SupportedPlatforms = () => (
           </Link>
         ))}
       </div>
-    </div>
-    <div className="grid border-t sm:grid-cols-3">
-      {features.map((feature, i) => (
-        <div
-          className={cn(
-            "px-6 py-8 sm:px-10 sm:py-10",
-            i > 0 && "border-t sm:border-t-0 sm:border-l"
-          )}
-          key={feature.title}
-        >
-          <p className="font-semibold text-[16px] leading-snug tracking-tight sm:text-[20px]">
+    </section>
+    <div className="home-grid home-grid-features" data-home-grid>
+      {features.map((feature) => (
+        <div className="home-grid-cell" key={feature.title}>
+          <span className="block text-heading-16 sm:text-heading-20">
             {feature.title}
-          </p>
-          <p className="text-[16px] text-muted-foreground leading-snug tracking-tight sm:text-[20px]">
+          </span>
+          <span className="block font-medium! text-gray-900 text-heading-16 sm:text-heading-20">
             {feature.description}
-          </p>
+          </span>
         </div>
       ))}
     </div>
-  </div>
+  </>
 );
