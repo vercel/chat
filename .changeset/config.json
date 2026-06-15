@@ -12,6 +12,7 @@
   },
   "ignore": [
     "example-nextjs-chat",
+    "example-nuxt-chat",
     "example-telegram-chat",
     "@chat-adapter/integration-tests"
   ]
