@@ -38,6 +38,7 @@ import {
   markdownToPlainText,
   NotImplementedError,
   StreamingMarkdownRenderer,
+  stringifyMarkdown,
   toPlainText,
 } from "chat";
 import {
@@ -53,6 +54,11 @@ import {
   toBotApiParseMode,
   truncateForTelegram,
 } from "./markdown";
+import {
+  richMessageToMarkdown,
+  richMessageToText,
+  truncateRichMarkdown,
+} from "./rich";
 import type {
   TelegramAdapterConfig,
   TelegramAdapterMode,
@@ -102,6 +108,9 @@ const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN =
   /can't parse (?:caption )?entities/i;
+const TELEGRAM_RICH_FALLBACK_PATTERN =
+  /can't parse|method.*not found|rich message|unsupported/i;
+const TELEGRAM_RICH_UNAVAILABLE_PATTERN = /method.*not found|unsupported/i;
 const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
@@ -242,6 +251,7 @@ export class TelegramAdapter
   private pollingTask: Promise<void> | null = null;
   private pollingActive = false;
   private nextDraftId = Math.max(1, Date.now() % 2_147_483_647);
+  private richMessagesAvailable = true;
 
   get botUserId(): string | undefined {
     return this._botUserId;
@@ -848,6 +858,12 @@ export class TelegramAdapter
       );
     }
 
+    const rich = this.resolveRichMessage(
+      message,
+      card,
+      files.length,
+      attachments.length
+    );
     let rawMessage: TelegramMessage;
 
     if (files.length === 1) {
@@ -884,23 +900,34 @@ export class TelegramAdapter
         throw new ValidationError("telegram", "Message text cannot be empty");
       }
 
-      rawMessage = await this.withTelegramMarkdownFallback(
-        parseMode,
-        (resolvedParseMode, resolvedText) =>
-          this.telegramFetch<TelegramMessage>("sendMessage", {
-            chat_id: parsedThread.chatId,
-            message_thread_id: parsedThread.messageThreadId,
-            text: resolvedText,
-            reply_markup: replyMarkup,
-            parse_mode: toBotApiParseMode(resolvedParseMode),
-          }),
-        {
-          initialText: text,
-          fallbackText: plainText,
-          method: "sendMessage",
-          threadId,
-        }
-      );
+      const sendRegular = () =>
+        this.sendRegularMessage(
+          parsedThread,
+          text,
+          plainText,
+          parseMode,
+          replyMarkup,
+          threadId
+        );
+
+      rawMessage = rich
+        ? await this.withTelegramRichFallback(
+            () =>
+              this.telegramFetch<TelegramMessage>("sendRichMessage", {
+                chat_id: parsedThread.chatId,
+                message_thread_id: parsedThread.messageThreadId,
+                rich_message: {
+                  markdown: rich.markdown,
+                },
+                reply_markup: replyMarkup,
+              }),
+            sendRegular,
+            {
+              method: "sendRichMessage",
+              threadId,
+            }
+          )
+        : await sendRegular();
     }
 
     const resultingThreadId = this.encodeThreadId({
@@ -911,7 +938,13 @@ export class TelegramAdapter
 
     const parsedMessage = this.parseTelegramMessage(
       rawMessage,
-      resultingThreadId
+      resultingThreadId,
+      rich
+        ? {
+            formatted: rich.formatted,
+            text: rich.text,
+          }
+        : undefined
     );
     this.cacheMessage(parsedMessage);
 
@@ -964,29 +997,51 @@ export class TelegramAdapter
       TELEGRAM_MESSAGE_LIMIT,
       parseMode
     );
+    const rich = this.resolveRichMessage(message, card, 0, 0);
 
     if (!text.trim()) {
       throw new ValidationError("telegram", "Message text cannot be empty");
     }
 
-    const result = await this.withTelegramMarkdownFallback(
-      parseMode,
-      (resolvedParseMode, resolvedText) =>
-        this.telegramFetch<TelegramMessage | true>("editMessageText", {
-          chat_id: chatId,
-          message_id: telegramMessageId,
-          text: resolvedText,
-          reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
-          parse_mode: toBotApiParseMode(resolvedParseMode),
-        }),
-      {
-        initialText: text,
-        fallbackText: plainText,
-        messageId,
-        method: "editMessageText",
-        threadId,
-      }
-    );
+    const editRegular = () =>
+      this.withTelegramMarkdownFallback(
+        parseMode,
+        (resolvedParseMode, resolvedText) =>
+          this.telegramFetch<TelegramMessage | true>("editMessageText", {
+            chat_id: chatId,
+            message_id: telegramMessageId,
+            text: resolvedText,
+            reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
+            parse_mode: toBotApiParseMode(resolvedParseMode),
+          }),
+        {
+          initialText: text,
+          fallbackText: plainText,
+          messageId,
+          method: "editMessageText",
+          threadId,
+        }
+      );
+
+    const result = rich
+      ? await this.withTelegramRichFallback(
+          () =>
+            this.telegramFetch<TelegramMessage | true>("editMessageText", {
+              chat_id: chatId,
+              message_id: telegramMessageId,
+              rich_message: {
+                markdown: rich.markdown,
+              },
+              reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
+            }),
+          editRegular,
+          {
+            messageId,
+            method: "editMessageText",
+            threadId,
+          }
+        )
+      : await editRegular();
 
     if (result === true) {
       const existing = this.findCachedMessage(compositeId);
@@ -999,8 +1054,8 @@ export class TelegramAdapter
 
       const updated = new Message<TelegramRawMessage>({
         ...existing,
-        text,
-        formatted: this.formatConverter.toAst(text),
+        text: rich?.text ?? text,
+        formatted: rich?.formatted ?? this.formatConverter.toAst(text),
         metadata: {
           ...existing.metadata,
           edited: true,
@@ -1022,7 +1077,16 @@ export class TelegramAdapter
       messageThreadId: result.message_thread_id ?? parsedThread.messageThreadId,
     });
 
-    const parsedMessage = this.parseTelegramMessage(result, resultingThreadId);
+    const parsedMessage = this.parseTelegramMessage(
+      result,
+      resultingThreadId,
+      rich
+        ? {
+            formatted: rich.formatted,
+            text: rich.text,
+          }
+        : undefined
+    );
     this.cacheMessage(parsedMessage);
 
     return {
@@ -1113,6 +1177,7 @@ export class TelegramAdapter
     let lastFlushAt = 0;
     let draftStreamingEnabled = true;
     let streamUsesMarkdown = true;
+    let streamUsesRich = this.richMessagesAvailable;
 
     const renderMarkdownForTelegram = (text: string): string =>
       convertEmojiPlaceholders(
@@ -1140,6 +1205,41 @@ export class TelegramAdapter
     ): Promise<void> => {
       if (!draftStreamingEnabled || text === lastDraftText) {
         return;
+      }
+
+      if (streamUsesRich) {
+        try {
+          await this.telegramFetch<boolean>("sendRichMessageDraft", {
+            chat_id: parsedThread.chatId,
+            message_thread_id: parsedThread.messageThreadId,
+            draft_id: draftId,
+            rich_message: {
+              markdown: text,
+            },
+          });
+          lastDraftText = text;
+          lastFlushAt = Date.now();
+          return;
+        } catch (error) {
+          if (!this.canFallbackFromRichMessage(error, "sendRichMessageDraft")) {
+            draftStreamingEnabled = false;
+            this.logger.warn("Telegram rich draft streaming update failed", {
+              error: String(error),
+              threadId,
+            });
+            return;
+          }
+
+          this.rememberRichMessageFailure(error, "sendRichMessageDraft");
+          this.logger.warn(
+            "Telegram rich draft failed; retrying with a regular draft",
+            {
+              error: String(error),
+              threadId,
+            }
+          );
+          streamUsesRich = false;
+        }
       }
 
       try {
@@ -1199,13 +1299,14 @@ export class TelegramAdapter
         return;
       }
 
-      const draftText = streamUsesMarkdown
-        ? renderMarkdownText(renderer.render())
-        : renderPlainText(accumulated);
+      let draftText = renderPlainText(accumulated);
+      if (streamUsesRich) {
+        draftText = truncateRichMarkdown(renderer.render());
+      } else if (streamUsesMarkdown) {
+        draftText = renderMarkdownText(renderer.render());
+      }
       await sendDraft(draftText, streamUsesMarkdown);
     };
-
-    await sendDraft("", false);
 
     for await (const chunk of textStream) {
       let text: string | null = null;
@@ -1227,8 +1328,6 @@ export class TelegramAdapter
       }
     }
 
-    await flushDraft();
-
     if (!accumulated.trim()) {
       throw new ValidationError(
         "telegram",
@@ -1236,14 +1335,69 @@ export class TelegramAdapter
       );
     }
 
-    const finalPostable: AdapterPostableMessage = streamUsesMarkdown
-      ? { markdown: accumulated }
-      : this.resolveTelegramFallbackText(
-          accumulated,
-          markdownToPlainText(accumulated)
-        );
+    const finalMarkdown = renderer.finish();
+    await flushDraft();
 
-    return this.postMessage(threadId, finalPostable);
+    if (streamUsesRich) {
+      const markdown = truncateRichMarkdown(finalMarkdown);
+      try {
+        const raw = await this.telegramFetch<TelegramMessage>(
+          "sendRichMessage",
+          {
+            chat_id: parsedThread.chatId,
+            message_thread_id: parsedThread.messageThreadId,
+            rich_message: {
+              markdown,
+            },
+          }
+        );
+        const resultingThreadId = this.encodeThreadId({
+          chatId: String(raw.chat.id),
+          messageThreadId:
+            raw.message_thread_id ?? parsedThread.messageThreadId,
+        });
+        const formatted = this.formatConverter.toAst(accumulated);
+        const message = this.parseTelegramMessage(raw, resultingThreadId, {
+          formatted,
+          text: toPlainText(formatted),
+        });
+        this.cacheMessage(message);
+        return {
+          id: message.id,
+          threadId: message.threadId,
+          raw,
+        };
+      } catch (error) {
+        if (!this.canFallbackFromRichMessage(error, "sendRichMessage")) {
+          throw error;
+        }
+        this.rememberRichMessageFailure(error, "sendRichMessage");
+      }
+    }
+
+    const regularText = streamUsesMarkdown
+      ? renderMarkdownText(finalMarkdown)
+      : renderPlainText(accumulated);
+    const plainText = renderPlainText(accumulated);
+    const raw = await this.sendRegularMessage(
+      parsedThread,
+      regularText,
+      plainText,
+      streamUsesMarkdown ? "MarkdownV2" : "plain",
+      undefined,
+      threadId
+    );
+    const resultingThreadId = this.encodeThreadId({
+      chatId: String(raw.chat.id),
+      messageThreadId: raw.message_thread_id ?? parsedThread.messageThreadId,
+    });
+    const message = this.parseTelegramMessage(raw, resultingThreadId);
+    this.cacheMessage(message);
+    return {
+      id: message.id,
+      threadId: message.threadId,
+      raw,
+    };
   }
 
   async fetchMessages(
@@ -1412,11 +1566,24 @@ export class TelegramAdapter
 
   protected parseTelegramMessage(
     raw: TelegramMessage,
-    threadId: string
+    threadId: string,
+    content?: {
+      formatted: FormattedContent;
+      text: string;
+    }
   ): Message<TelegramRawMessage> {
-    const plainText = raw.text ?? raw.caption ?? "";
+    const richMarkdown = raw.rich_message
+      ? richMessageToMarkdown(raw.rich_message)
+      : "";
+    const plainText =
+      content?.text ??
+      raw.text ??
+      raw.caption ??
+      (raw.rich_message ? richMessageToText(raw.rich_message) : "");
     const entities = raw.entities ?? raw.caption_entities ?? [];
-    const text = applyTelegramEntities(plainText, entities);
+    const text = content?.text
+      ? content.text
+      : applyTelegramEntities(plainText, entities);
     let author: TelegramMessageAuthor;
 
     if (raw.from) {
@@ -1439,7 +1606,8 @@ export class TelegramAdapter
       id: this.encodeMessageId(String(raw.chat.id), raw.message_id),
       threadId,
       text,
-      formatted: this.formatConverter.toAst(text),
+      formatted:
+        content?.formatted ?? this.formatConverter.toAst(richMarkdown || text),
       raw,
       author,
       metadata: {
@@ -2073,6 +2241,51 @@ export class TelegramAdapter
     return "MarkdownV2";
   }
 
+  protected resolveRichMessage(
+    message: AdapterPostableMessage,
+    card: ReturnType<typeof extractCard>,
+    fileCount: number,
+    attachmentCount: number
+  ): {
+    formatted: FormattedContent;
+    markdown: string;
+    text: string;
+  } | null {
+    if (
+      !this.richMessagesAvailable ||
+      card ||
+      fileCount > 0 ||
+      attachmentCount > 0 ||
+      typeof message === "string" ||
+      "raw" in message
+    ) {
+      return null;
+    }
+
+    if ("markdown" in message) {
+      const formatted = this.formatConverter.toAst(message.markdown);
+      return {
+        formatted,
+        markdown: truncateRichMarkdown(
+          convertEmojiPlaceholders(message.markdown, "gchat")
+        ),
+        text: toPlainText(formatted),
+      };
+    }
+
+    if ("ast" in message) {
+      return {
+        formatted: message.ast,
+        markdown: truncateRichMarkdown(
+          convertEmojiPlaceholders(stringifyMarkdown(message.ast), "gchat")
+        ),
+        text: toPlainText(message.ast),
+      };
+    }
+
+    return null;
+  }
+
   protected renderPlainTextMessage(
     message: AdapterPostableMessage,
     card: ReturnType<typeof extractCard>
@@ -2103,6 +2316,56 @@ export class TelegramAdapter
     fallbackText: string
   ): string {
     return fallbackText.trim() ? fallbackText : originalText;
+  }
+
+  protected async sendRegularMessage(
+    thread: TelegramThreadId,
+    text: string,
+    plainText: string,
+    parseMode: TelegramParseMode,
+    replyMarkup: TelegramInlineKeyboardMarkup | undefined,
+    threadId: string
+  ): Promise<TelegramMessage> {
+    return this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramMessage>("sendMessage", {
+          chat_id: thread.chatId,
+          message_thread_id: thread.messageThreadId,
+          text: resolvedText,
+          reply_markup: replyMarkup,
+          parse_mode: toBotApiParseMode(resolvedParseMode),
+        }),
+      {
+        initialText: text,
+        fallbackText: plainText,
+        method: "sendMessage",
+        threadId,
+      }
+    );
+  }
+
+  protected canFallbackFromRichMessage(
+    error: unknown,
+    method: string
+  ): boolean {
+    return (
+      (method.startsWith("sendRichMessage") &&
+        error instanceof ResourceNotFoundError) ||
+      (error instanceof ValidationError &&
+        TELEGRAM_RICH_FALLBACK_PATTERN.test(error.message))
+    );
+  }
+
+  protected rememberRichMessageFailure(error: unknown, method: string): void {
+    if (
+      (method.startsWith("sendRichMessage") &&
+        error instanceof ResourceNotFoundError) ||
+      (error instanceof ValidationError &&
+        TELEGRAM_RICH_UNAVAILABLE_PATTERN.test(error.message))
+    ) {
+      this.richMessagesAvailable = false;
+    }
   }
 
   protected toTelegramReaction(
@@ -2427,6 +2690,34 @@ export class TelegramAdapter
       TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN.test(error.message)
     );
   }
+
+  protected async withTelegramRichFallback<TResult>(
+    operation: () => Promise<TResult>,
+    fallback: () => Promise<TResult>,
+    context: {
+      method: string;
+      messageId?: string;
+      threadId?: string;
+    }
+  ): Promise<TResult> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!this.canFallbackFromRichMessage(error, context.method)) {
+        throw error;
+      }
+
+      this.rememberRichMessageFailure(error, context.method);
+      this.logger.warn(
+        "Telegram rich message failed; retrying with a regular message",
+        {
+          error: String(error),
+          ...context,
+        }
+      );
+      return fallback();
+    }
+  }
 }
 
 export function createTelegramAdapter(
@@ -2446,6 +2737,12 @@ export type {
   TelegramMessageReactionUpdated,
   TelegramRawMessage,
   TelegramReactionType,
+  TelegramRichBlock,
+  TelegramRichCaption,
+  TelegramRichCell,
+  TelegramRichItem,
+  TelegramRichMessage,
+  TelegramRichText,
   TelegramThreadId,
   TelegramUpdate,
   TelegramUser,

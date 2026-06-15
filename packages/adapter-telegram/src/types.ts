@@ -128,6 +128,249 @@ export interface TelegramPhotoSize extends TelegramFile {
 }
 
 /**
+ * Rich formatted text received from Telegram.
+ * @see https://core.telegram.org/bots/api#richtext
+ */
+export type TelegramRichText =
+  | string
+  | TelegramRichText[]
+  | {
+      type:
+        | "bold"
+        | "italic"
+        | "underline"
+        | "strikethrough"
+        | "spoiler"
+        | "subscript"
+        | "superscript"
+        | "marked"
+        | "code";
+      text: TelegramRichText;
+    }
+  | {
+      type: "date_time";
+      text: TelegramRichText;
+      unix_time: number;
+      date_time_format: string;
+    }
+  | {
+      type: "text_mention";
+      text: TelegramRichText;
+      user: TelegramUser;
+    }
+  | {
+      type: "custom_emoji";
+      alternative_text: string;
+      custom_emoji_id: string;
+    }
+  | {
+      type: "mathematical_expression";
+      expression: string;
+    }
+  | {
+      type: "url";
+      text: TelegramRichText;
+      url: string;
+    }
+  | {
+      type: "email_address";
+      email_address: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "phone_number";
+      phone_number: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "bank_card_number";
+      bank_card_number: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "mention";
+      text: TelegramRichText;
+      username: string;
+    }
+  | {
+      type: "hashtag";
+      hashtag: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "cashtag";
+      cashtag: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "bot_command";
+      bot_command: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "anchor";
+      name: string;
+    }
+  | {
+      type: "anchor_link";
+      anchor_name: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "reference";
+      name: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "reference_link";
+      reference_name: string;
+      text: TelegramRichText;
+    };
+
+/**
+ * Caption attached to a rich message block.
+ * @see https://core.telegram.org/bots/api#richblockcaption
+ */
+export interface TelegramRichCaption {
+  credit?: TelegramRichText;
+  text: TelegramRichText;
+}
+
+/**
+ * Cell in a rich message table.
+ * @see https://core.telegram.org/bots/api#richblocktablecell
+ */
+export interface TelegramRichCell {
+  align: "left" | "center" | "right";
+  colspan?: number;
+  is_header?: true;
+  rowspan?: number;
+  text?: TelegramRichText;
+  valign: "top" | "middle" | "bottom";
+}
+
+/**
+ * Item in a rich message list.
+ * @see https://core.telegram.org/bots/api#richblocklistitem
+ */
+export interface TelegramRichItem {
+  blocks: TelegramRichBlock[];
+  has_checkbox?: true;
+  is_checked?: true;
+  label: string;
+  type?: "a" | "A" | "i" | "I" | "1";
+  value?: number;
+}
+
+/**
+ * Structured block in a rich message received from Telegram.
+ * @see https://core.telegram.org/bots/api#richblock
+ */
+export type TelegramRichBlock =
+  | {
+      type: "paragraph" | "footer" | "thinking";
+      text: TelegramRichText;
+    }
+  | {
+      type: "heading";
+      size: number;
+      text: TelegramRichText;
+    }
+  | {
+      type: "pre";
+      language?: string;
+      text: TelegramRichText;
+    }
+  | {
+      type: "divider";
+    }
+  | {
+      type: "mathematical_expression";
+      expression: string;
+    }
+  | {
+      type: "anchor";
+      name: string;
+    }
+  | {
+      type: "list";
+      items: TelegramRichItem[];
+    }
+  | {
+      type: "blockquote";
+      blocks: TelegramRichBlock[];
+      credit?: TelegramRichText;
+    }
+  | {
+      type: "pullquote";
+      credit?: TelegramRichText;
+      text: TelegramRichText;
+    }
+  | {
+      type: "collage" | "slideshow";
+      blocks: TelegramRichBlock[];
+      caption?: TelegramRichCaption;
+    }
+  | {
+      type: "table";
+      caption?: TelegramRichText;
+      cells: TelegramRichCell[][];
+      is_bordered?: true;
+      is_striped?: true;
+    }
+  | {
+      type: "details";
+      blocks: TelegramRichBlock[];
+      is_open?: true;
+      summary: TelegramRichText;
+    }
+  | {
+      type: "map";
+      caption?: TelegramRichCaption;
+      height: number;
+      location: { latitude: number; longitude: number };
+      width: number;
+      zoom: number;
+    }
+  | {
+      type: "animation";
+      animation: TelegramFile;
+      caption?: TelegramRichCaption;
+      has_spoiler?: true;
+    }
+  | {
+      type: "audio";
+      audio: TelegramFile;
+      caption?: TelegramRichCaption;
+    }
+  | {
+      type: "photo";
+      caption?: TelegramRichCaption;
+      has_spoiler?: true;
+      photo: TelegramPhotoSize[];
+    }
+  | {
+      type: "video";
+      caption?: TelegramRichCaption;
+      has_spoiler?: true;
+      video: TelegramFile;
+    }
+  | {
+      type: "voice_note";
+      caption?: TelegramRichCaption;
+      voice_note: TelegramFile;
+    };
+
+/**
+ * Rich formatted message received from Telegram.
+ * @see https://core.telegram.org/bots/api#richmessage
+ */
+export interface TelegramRichMessage {
+  blocks: TelegramRichBlock[];
+  is_rtl?: boolean;
+}
+
+/**
  * Telegram message.
  * @see https://core.telegram.org/bots/api#message
  */
@@ -150,6 +393,7 @@ export interface TelegramMessage {
   message_id: number;
   message_thread_id?: number;
   photo?: TelegramPhotoSize[];
+  rich_message?: TelegramRichMessage;
   sender_chat?: TelegramChat;
   sticker?: TelegramFile & { emoji?: string };
   text?: string;
