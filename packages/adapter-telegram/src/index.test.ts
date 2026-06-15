@@ -1383,7 +1383,7 @@ describe("TelegramAdapter", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to a final message when draft streaming updates fail", async () => {
+  it("renders MarkdownV2 when rich draft streaming is unavailable", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -1396,7 +1396,6 @@ describe("TelegramAdapter", () => {
       .mockResolvedValueOnce(
         telegramError(404, 404, "Not Found: method not found")
       )
-      .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(telegramOk(true))
       .mockResolvedValueOnce(
         telegramOk(
@@ -1416,8 +1415,7 @@ describe("TelegramAdapter", () => {
     await adapter.initialize(createMockChat());
 
     async function* textStream(): AsyncIterable<string> {
-      yield "hello";
-      yield " world";
+      yield "**hello**";
     }
 
     const result = await adapter.stream("telegram:123", textStream(), {
@@ -1432,7 +1430,17 @@ describe("TelegramAdapter", () => {
       })
     );
 
-    const finalSendUrl = String(mockFetch.mock.calls[4]?.[0]);
+    const fallbackDraft = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    ) as { parse_mode?: string; text: string };
+    const finalSendUrl = String(mockFetch.mock.calls[3]?.[0]);
+
+    expect(fallbackDraft).toEqual({
+      chat_id: "123",
+      draft_id: expect.any(Number),
+      parse_mode: "MarkdownV2",
+      text: "*hello*",
+    });
     expect(finalSendUrl).toContain("/sendMessage");
   });
 
@@ -3860,6 +3868,91 @@ describe("applyTelegramEntities", () => {
     expect(parsed.formatted.children.map((node) => node.type)).toEqual(
       expect.arrayContaining(["heading", "table"])
     );
+  });
+
+  it("normalizes nested rich media as attachments", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const parsed = adapter.parseMessage(
+      sampleMessage({
+        text: undefined,
+        rich_message: {
+          blocks: [
+            {
+              type: "collage",
+              blocks: [
+                {
+                  type: "photo",
+                  photo: [
+                    {
+                      file_id: "small",
+                      file_unique_id: "small-unique",
+                      height: 100,
+                      width: 100,
+                    },
+                    {
+                      file_id: "large",
+                      file_unique_id: "large-unique",
+                      file_size: 2048,
+                      height: 800,
+                      width: 1200,
+                    },
+                  ],
+                },
+                {
+                  type: "video",
+                  video: {
+                    file_id: "video",
+                    file_unique_id: "video-unique",
+                    duration: 10,
+                    file_name: "clip.mp4",
+                    file_size: 4096,
+                    height: 720,
+                    mime_type: "video/mp4",
+                    width: 1280,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    expect(parsed.attachments).toMatchObject([
+      {
+        fetchMetadata: { fileId: "large" },
+        height: 800,
+        size: 2048,
+        type: "image",
+        width: 1200,
+      },
+      {
+        fetchMetadata: { fileId: "video" },
+        height: 720,
+        mimeType: "video/mp4",
+        name: "clip.mp4",
+        size: 4096,
+        type: "video",
+        width: 1280,
+      },
+    ]);
   });
 });
 

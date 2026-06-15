@@ -190,7 +190,7 @@ Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `
 
 ### Markdown formatting
 
-On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages. Standard markdown gains native headings, lists, tables, task lists, formulas, details, and inline media where supported by Telegram. Private chat streams use rich draft previews and persist the completed response as a rich message.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages. Standard markdown gains native headings, lists, tables, task lists, formulas, details, and separate media blocks where supported by Telegram. Private chat streams use rich draft previews and persist the completed response as a rich message.
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. Older or custom Bot API servers automatically fall back to this existing path when rich message methods are unavailable.
 

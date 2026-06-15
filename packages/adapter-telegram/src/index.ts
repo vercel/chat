@@ -55,6 +55,7 @@ import {
   truncateForTelegram,
 } from "./markdown";
 import {
+  richMessageMedia,
   richMessageToMarkdown,
   richMessageToText,
   truncateRichMarkdown,
@@ -1204,6 +1205,7 @@ export class TelegramAdapter
         return;
       }
 
+      let draftText = text;
       if (streamUsesRich) {
         try {
           await this.telegramFetch<boolean>("sendRichMessageDraft", {
@@ -1236,6 +1238,9 @@ export class TelegramAdapter
             }
           );
           streamUsesRich = false;
+          draftText = useMarkdown
+            ? renderMarkdownText(renderer.render())
+            : renderPlainText(accumulated);
         }
       }
 
@@ -1245,7 +1250,7 @@ export class TelegramAdapter
             chat_id: parsedThread.chatId,
             message_thread_id: parsedThread.messageThreadId,
             draft_id: draftId,
-            text,
+            text: draftText,
             parse_mode: toBotApiParseMode("MarkdownV2"),
           });
         } else {
@@ -1253,10 +1258,10 @@ export class TelegramAdapter
             chat_id: parsedThread.chatId,
             message_thread_id: parsedThread.messageThreadId,
             draft_id: draftId,
-            text,
+            text: draftText,
           });
         }
-        lastDraftText = text;
+        lastDraftText = draftText;
         lastFlushAt = Date.now();
       } catch (error) {
         if (useMarkdown && this.isTelegramMarkdownParseError(error)) {
@@ -1685,6 +1690,20 @@ export class TelegramAdapter
           height: raw.video_note.length,
         })
       );
+    }
+
+    if (raw.rich_message) {
+      for (const media of richMessageMedia(raw.rich_message)) {
+        attachments.push(
+          this.createAttachment(media.type, media.file.file_id, {
+            size: media.file.file_size,
+            width: media.width,
+            height: media.height,
+            name: media.name,
+            mimeType: media.mimeType,
+          })
+        );
+      }
     }
 
     return attachments;
@@ -2740,8 +2759,11 @@ export { escapeMarkdownV2, TelegramFormatConverter } from "./markdown";
 export type {
   TelegramAdapterConfig,
   TelegramAdapterMode,
+  TelegramAnimation,
+  TelegramAudio,
   TelegramCallbackQuery,
   TelegramChat,
+  TelegramLocation,
   TelegramLongPollingConfig,
   TelegramMessage,
   TelegramMessageReactionUpdated,
@@ -2756,5 +2778,7 @@ export type {
   TelegramThreadId,
   TelegramUpdate,
   TelegramUser,
+  TelegramVideo,
+  TelegramVoice,
   TelegramWebhookInfo,
 } from "./types";

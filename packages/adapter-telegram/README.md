@@ -191,7 +191,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 
 ## Markdown formatting
 
-On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and inline media supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
 

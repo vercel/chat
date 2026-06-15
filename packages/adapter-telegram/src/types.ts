@@ -127,6 +127,49 @@ export interface TelegramPhotoSize extends TelegramFile {
   width: number;
 }
 
+export interface TelegramAnimation extends TelegramFile {
+  duration: number;
+  file_name?: string;
+  height: number;
+  mime_type?: string;
+  thumbnail?: TelegramPhotoSize;
+  width: number;
+}
+
+export interface TelegramAudio extends TelegramFile {
+  duration: number;
+  file_name?: string;
+  mime_type?: string;
+  performer?: string;
+  thumbnail?: TelegramPhotoSize;
+  title?: string;
+}
+
+export interface TelegramLocation {
+  heading?: number;
+  horizontal_accuracy?: number;
+  latitude: number;
+  live_period?: number;
+  longitude: number;
+  proximity_alert_radius?: number;
+}
+
+export interface TelegramVideo extends TelegramFile {
+  cover?: TelegramPhotoSize[];
+  duration: number;
+  file_name?: string;
+  height: number;
+  mime_type?: string;
+  start_timestamp?: number;
+  thumbnail?: TelegramPhotoSize;
+  width: number;
+}
+
+export interface TelegramVoice extends TelegramFile {
+  duration: number;
+  mime_type?: string;
+}
+
 /**
  * Rich formatted text received from Telegram.
  * @see https://core.telegram.org/bots/api#richtext
@@ -328,19 +371,19 @@ export type TelegramRichBlock =
       type: "map";
       caption?: TelegramRichCaption;
       height: number;
-      location: { latitude: number; longitude: number };
+      location: TelegramLocation;
       width: number;
       zoom: number;
     }
   | {
       type: "animation";
-      animation: TelegramFile;
+      animation: TelegramAnimation;
       caption?: TelegramRichCaption;
       has_spoiler?: true;
     }
   | {
       type: "audio";
-      audio: TelegramFile;
+      audio: TelegramAudio;
       caption?: TelegramRichCaption;
     }
   | {
@@ -353,12 +396,12 @@ export type TelegramRichBlock =
       type: "video";
       caption?: TelegramRichCaption;
       has_spoiler?: true;
-      video: TelegramFile;
+      video: TelegramVideo;
     }
   | {
       type: "voice_note";
       caption?: TelegramRichCaption;
-      voice_note: TelegramFile;
+      voice_note: TelegramVoice;
     };
 
 /**

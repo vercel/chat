@@ -101,6 +101,65 @@ describe("Telegram rich messages", () => {
     expect(richMessageToMarkdown(message)).toBe("@chat_sdk #release");
   });
 
+  it("normalizes rich formatting to plain text", () => {
+    const message: TelegramRichMessage = {
+      blocks: [
+        {
+          type: "paragraph",
+          text: [
+            {
+              type: "underline",
+              text: "underlined",
+            },
+            " ",
+            {
+              type: "subscript",
+              text: "subscript",
+            },
+            " ",
+            {
+              type: "marked",
+              text: "marked",
+            },
+          ],
+        },
+        {
+          type: "table",
+          cells: [
+            [
+              {
+                align: "left",
+                text: "Name",
+                valign: "top",
+              },
+              {
+                align: "left",
+                text: "Status",
+                valign: "top",
+              },
+            ],
+            [
+              {
+                align: "left",
+                text: "Build",
+                valign: "top",
+              },
+              {
+                align: "left",
+                text: "Ready",
+                valign: "top",
+              },
+            ],
+          ],
+        },
+      ],
+    };
+
+    expect(richMessageToText(message)).toBe(
+      "underlined subscript marked\n\nName\tStatus\nBuild\tReady"
+    );
+  });
+
   it("truncates markdown at the rich message limit", () => {
     const markdown = truncateRichMarkdown(
       "a".repeat(TELEGRAM_RICH_MESSAGE_LIMIT + 100)
