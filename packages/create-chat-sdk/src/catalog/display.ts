@@ -22,8 +22,7 @@ export function listCliPlatformAdapters(
   group: PlatformAdapterGroup
 ): CatalogAdapter[] {
   const adapters = listPlatformAdapters().filter(
-    (adapter) =>
-      adapter.group === group && isCliCompatibleAdapter(adapter.slug)
+    (adapter) => adapter.group === group && isCliCompatibleAdapter(adapter.slug)
   );
 
   if (group === "vendor-official") {

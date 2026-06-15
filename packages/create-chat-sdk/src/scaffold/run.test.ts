@@ -237,7 +237,9 @@ describe("scaffold", () => {
     expect(fs.existsSync(path.join(projectDir, "src/lib/auth-stub.ts"))).toBe(
       false
     );
-    expect(fs.existsSync(path.join(projectDir, "src/app/api/chat"))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, "src/app/api/chat"))).toBe(
+      false
+    );
   });
 
   it("removes a stale vercel.json and Discord gateway on a --force re-run", async () => {
