@@ -4,7 +4,6 @@ const CANCEL = Symbol("cancel");
 
 vi.mock("@clack/prompts", () => ({
   confirm: vi.fn(),
-  groupMultiselect: vi.fn(),
   isCancel: vi.fn((value: unknown) => value === CANCEL),
   log: { info: vi.fn(), warning: vi.fn() },
   multiselect: vi.fn(),
@@ -12,14 +11,7 @@ vi.mock("@clack/prompts", () => ({
   text: vi.fn(),
 }));
 
-import {
-  confirm,
-  groupMultiselect,
-  log,
-  multiselect,
-  select,
-  text,
-} from "@clack/prompts";
+import { confirm, log, multiselect, select, text } from "@clack/prompts";
 import { runPrompts } from "./flow.js";
 
 beforeEach(() => {
@@ -39,7 +31,13 @@ describe("runPrompts", () => {
     const result = await runPrompts({ quiet: false, yes: false });
 
     expect(multiselect).toHaveBeenCalled();
-    expect(groupMultiselect).not.toHaveBeenCalled();
+    expect(multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "slack" }),
+        ]),
+      })
+    );
     expect(result?.name).toBe("my-bot");
     expect(result?.description).toBe("desc");
     expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([
@@ -50,18 +48,31 @@ describe("runPrompts", () => {
     expect(result?.shouldInstall).toBe(true);
   });
 
-  it("groups every adapter under headings when --all is passed", async () => {
+  it("shows only vendor-official adapters when --vendor is passed", async () => {
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(groupMultiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["agentphone"]);
     vi.mocked(select).mockResolvedValueOnce("memory");
     vi.mocked(confirm).mockResolvedValueOnce(true);
 
-    const result = await runPrompts({ all: true, quiet: false, yes: false });
+    const result = await runPrompts({
+      quiet: false,
+      vendor: true,
+      yes: false,
+    });
 
-    expect(groupMultiselect).toHaveBeenCalled();
-    expect(multiselect).not.toHaveBeenCalled();
+    expect(multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "agentphone" }),
+        ]),
+      })
+    );
+    const options = vi.mocked(multiselect).mock.calls[0]?.[0].options ?? [];
+    expect(options).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ value: "slack" })])
+    );
     expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([
-      "slack",
+      "agentphone",
     ]);
   });
 
@@ -77,6 +88,20 @@ describe("runPrompts", () => {
     expect(result?.shouldInitializeGit).toBe(true);
     expect(log.info).toHaveBeenCalledWith("Platform adapters: Slack");
     expect(log.info).toHaveBeenCalledWith("State adapter: PostgreSQL");
+  });
+
+  it("warns when Discord requires a paid Vercel plan", async () => {
+    const result = await runPrompts({
+      name: "my-bot",
+      quiet: false,
+      selectedAdapters: ["discord"],
+      yes: true,
+    });
+
+    expect(result?.platformAdapters[0]?.slug).toBe("discord");
+    expect(log.warning).toHaveBeenCalledWith(
+      expect.stringContaining("Vercel Pro or Enterprise")
+    );
   });
 
   it("disables git initialization when requested", async () => {

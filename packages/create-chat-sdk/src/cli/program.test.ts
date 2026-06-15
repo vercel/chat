@@ -66,7 +66,6 @@ describe("createProgram", () => {
     ]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: "desc",
       detectedAgent: undefined,
       force: false,
@@ -76,15 +75,40 @@ describe("createProgram", () => {
       packageManager: "pnpm",
       quiet: true,
       selectedAdapters: ["slack", "redis"],
+      vendor: false,
       yes: true,
     });
   });
 
-  it("passes --all to runCli", async () => {
+  it("passes --vendor to runCli", async () => {
     const program = createProgram();
-    await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--all"]);
+    await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--vendor"]);
 
-    expect(runCli).toHaveBeenCalledWith(expect.objectContaining({ all: true }));
+    expect(determineAgent).not.toHaveBeenCalled();
+    expect(runCli).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detectedAgent: undefined,
+        vendor: true,
+        yes: false,
+      })
+    );
+  });
+
+  it("rejects --vendor with explicit adapter selection", async () => {
+    const program = createProgram();
+    program.exitOverride();
+    program.configureOutput({ writeErr: () => {} });
+
+    await expect(
+      program.parseAsync([
+        "node",
+        "create-chat-sdk",
+        "my-bot",
+        "--vendor",
+        "--adapter",
+        "slack",
+      ])
+    ).rejects.toThrow("cannot be used with option");
   });
 
   it("supports the short skip-install option", async () => {
@@ -92,7 +116,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-s"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -102,6 +125,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -111,7 +135,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--no-git"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -121,6 +144,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -130,7 +154,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-f"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: true,
@@ -140,6 +163,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -153,7 +177,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: "cursor",
       force: false,
@@ -163,6 +186,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: true,
     });
   });
@@ -198,7 +222,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--yes"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -208,6 +231,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: true,
     });
   });
@@ -217,7 +241,6 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
-      all: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -227,6 +250,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });

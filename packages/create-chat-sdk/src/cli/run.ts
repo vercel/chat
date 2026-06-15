@@ -5,10 +5,6 @@ import { scaffold } from "../scaffold/run.js";
 import type { PackageManager } from "../types.js";
 
 interface RunCliOptions {
-  /**
-   * Include vendor-official adapters in the interactive prompt.
-   */
-  all?: boolean;
   description?: string;
   /**
    * Coding agent name when detection (not an explicit flag) enabled yes mode.
@@ -21,6 +17,7 @@ interface RunCliOptions {
   packageManager?: PackageManager;
   quiet: boolean;
   selectedAdapters?: readonly string[];
+  vendor?: boolean;
   yes: boolean;
 }
 
@@ -35,14 +32,13 @@ export async function runCli(options: RunCliOptions): Promise<void> {
     intro(pc.bgCyan(pc.black(" create-chat-sdk ")));
     if (options.detectedAgent) {
       log.info(
-        `Coding agent detected (${options.detectedAgent}) — using non-interactive defaults. Pass --interactive to use prompts.`
+        `Coding agent detected (${options.detectedAgent}): using non-interactive defaults. Pass --interactive to use prompts.`
       );
     }
   }
 
   try {
     const config = await runPrompts({
-      all: options.all,
       description: options.description,
       initializeGit: options.initializeGit,
       install: options.install,
@@ -50,6 +46,7 @@ export async function runCli(options: RunCliOptions): Promise<void> {
       packageManager: options.packageManager,
       quiet: options.quiet,
       selectedAdapters: options.selectedAdapters,
+      vendor: options.vendor,
       yes: options.yes,
     });
 
@@ -71,6 +68,10 @@ export async function runCli(options: RunCliOptions): Promise<void> {
         outro(pc.gray("Cancelled."));
       }
       process.exitCode = 0;
+      return;
+    }
+
+    if (process.exitCode && process.exitCode !== 0) {
       return;
     }
 

@@ -66,6 +66,18 @@ describe("scaffold", () => {
     expect(fs.existsSync(path.join(projectDir, "package.json"))).toBe(true);
     expect(fs.existsSync(path.join(projectDir, "src/lib/bot.ts"))).toBe(true);
     expect(fs.existsSync(path.join(projectDir, "next-env.d.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, ".chat-sdk.json"))).toBe(true);
+    const route = fs.readFileSync(
+      path.join(projectDir, "src/app/api/webhooks/[platform]/route.ts"),
+      "utf-8"
+    );
+    expect(route).toContain("interface Context");
+    expect(route).toContain("params: Promise<{ platform: string }>");
+    expect(route).not.toContain("RouteContext");
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(projectDir, "package.json"), "utf-8")
+    );
+    expect(packageJson.scripts.typecheck).toBe("tsc --noEmit");
   });
 
   it("renames the template gitignore to .gitignore", async () => {
@@ -141,6 +153,45 @@ describe("scaffold", () => {
     expect(
       fs.readFileSync(path.join(projectDir, "existing.txt"), "utf-8")
     ).toBe("old");
+  });
+
+  it("preserves unowned conditional files when forced", async () => {
+    const projectDir = path.join(tmpDir, "test-project");
+    const route = path.join(projectDir, "src/app/api/chat/route.ts");
+    const gateway = path.join(
+      projectDir,
+      "src/app/api/discord/gateway/route.ts"
+    );
+    fs.mkdirSync(path.dirname(route), { recursive: true });
+    fs.mkdirSync(path.dirname(gateway), { recursive: true });
+    fs.writeFileSync(route, "custom route");
+    fs.writeFileSync(gateway, "custom gateway");
+    fs.writeFileSync(path.join(projectDir, "vercel.json"), '{"custom":true}\n');
+
+    await scaffold(makeConfig(), {
+      force: true,
+      quiet: true,
+      yes: true,
+    });
+
+    expect(fs.readFileSync(route, "utf-8")).toBe("custom route");
+    expect(fs.readFileSync(gateway, "utf-8")).toBe("custom gateway");
+    expect(fs.readFileSync(path.join(projectDir, "vercel.json"), "utf-8")).toBe(
+      '{"custom":true}\n'
+    );
+  });
+
+  it("ignores missing files recorded by generated state", async () => {
+    const projectDir = path.join(tmpDir, "test-project");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, ".chat-sdk.json"),
+      '{"files":["vercel.json"],"version":1}\n'
+    );
+
+    await expect(
+      scaffold(makeConfig(), { force: true, quiet: true, yes: true })
+    ).resolves.toBe(true);
   });
 
   it("writes conditional web route files", async () => {
@@ -240,6 +291,11 @@ describe("scaffold", () => {
     expect(fs.existsSync(path.join(projectDir, "src/app/api/chat"))).toBe(
       false
     );
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(projectDir, ".chat-sdk.json"), "utf-8")
+      ).files
+    ).toEqual([]);
   });
 
   it("removes a stale vercel.json and Discord gateway on a --force re-run", async () => {

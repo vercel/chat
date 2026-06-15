@@ -1,5 +1,5 @@
 import { listStateAdapters } from "chat/adapters";
-import { Command, InvalidArgumentError } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 import { listCliPlatformAdapters } from "../catalog/index.js";
 import { isPackageManager } from "../prompts/validate.js";
 import type { PackageManager } from "../types.js";
@@ -61,9 +61,11 @@ export function createProgram(): Command {
       "--adapter <values...>",
       "platform or state adapters to include (skips interactive adapter prompts)"
     )
-    .option(
-      "--all",
-      "list every adapter (official and vendor-official) in the interactive prompt"
+    .addOption(
+      new Option(
+        "--vendor",
+        "list vendor-official adapters in the interactive prompt"
+      ).conflicts(["adapter", "yes"])
     )
     .option(
       "--pm <manager>",
@@ -98,7 +100,6 @@ export function createProgram(): Command {
         name: string | undefined,
         opts: {
           adapter?: string[];
-          all?: boolean;
           description?: string;
           force?: boolean;
           git?: boolean;
@@ -106,16 +107,19 @@ export function createProgram(): Command {
           pm?: PackageManager;
           quiet?: boolean;
           skipInstall?: boolean;
+          vendor?: boolean;
           yes?: boolean;
         }
       ) => {
-        const detectionApplies = opts.yes !== true && opts.interactive !== true;
+        const detectionApplies =
+          opts.yes !== true &&
+          opts.interactive !== true &&
+          opts.vendor !== true;
         const agentResult = detectionApplies ? await determineAgent() : null;
         const detectedAgent = agentResult?.isAgent
           ? agentResult.agent.name
           : undefined;
         await runCli({
-          all: opts.all === true,
           description: opts.description,
           detectedAgent,
           force: opts.force ?? false,
@@ -125,6 +129,7 @@ export function createProgram(): Command {
           packageManager: opts.pm,
           quiet: opts.quiet ?? false,
           selectedAdapters: opts.adapter,
+          vendor: opts.vendor === true,
           yes: opts.yes === true || detectedAgent !== undefined,
         });
       }

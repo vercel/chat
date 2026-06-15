@@ -24,6 +24,7 @@ import {
   writeProjectFile,
   writeProjectJson,
 } from "./fs.js";
+import { readState, type State, writeState } from "./state.js";
 import { templateDir } from "./template.js";
 
 /**
@@ -58,6 +59,8 @@ export async function scaffold(
   createSpinner?.start("Creating project files");
 
   try {
+    const previousState = readState(projectDir);
+    const files: State["files"] = [];
     copyDir(templateDir(), projectDir);
     writeProjectFile(projectDir, ".env.example", generateEnvExample(config));
     writeProjectFile(projectDir, "next.config.ts", generateNextConfig(config));
@@ -68,30 +71,38 @@ export async function scaffold(
     // otherwise, so a `--force` re-run with a different selection does not leave
     // stale routes behind.
     if (needsWebRoute(config)) {
+      files.push("src/app/api/chat/route.ts", "src/lib/auth-stub.ts");
       writeProjectFile(
         projectDir,
         "src/app/api/chat/route.ts",
         generateWebRoute()
       );
       writeProjectFile(projectDir, "src/lib/auth-stub.ts", generateAuthStub());
-    } else {
+    } else if (
+      previousState.files.includes("src/app/api/chat/route.ts") ||
+      previousState.files.includes("src/lib/auth-stub.ts")
+    ) {
       removeProjectFile(projectDir, "src/app/api/chat/route.ts");
       removeProjectFile(projectDir, "src/lib/auth-stub.ts");
     }
 
     if (needsDiscordGateway(config)) {
+      files.push("src/app/api/discord/gateway/route.ts");
       writeProjectFile(
         projectDir,
         "src/app/api/discord/gateway/route.ts",
         generateDiscordGatewayRoute()
       );
-    } else {
+    } else if (
+      previousState.files.includes("src/app/api/discord/gateway/route.ts")
+    ) {
       removeProjectFile(projectDir, "src/app/api/discord/gateway/route.ts");
     }
 
     if (needsVercelJson(config)) {
+      files.push("vercel.json");
       writeProjectFile(projectDir, "vercel.json", generateVercelJson(config));
-    } else {
+    } else if (previousState.files.includes("vercel.json")) {
       removeProjectFile(projectDir, "vercel.json");
     }
 
@@ -104,6 +115,7 @@ export async function scaffold(
       "package.json",
       generatePackageJson(packageJson, config)
     );
+    writeState(projectDir, files);
   } catch (error) {
     createSpinner?.stop("Failed to create project files.");
     throw error;

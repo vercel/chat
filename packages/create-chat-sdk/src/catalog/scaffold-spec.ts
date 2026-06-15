@@ -54,6 +54,7 @@ export interface CliScaffoldSpec {
    * Factory invocation shape used in generated `src/lib/bot.ts`.
    */
   invocation: ScaffoldInvocation;
+  platformHint?: string;
   /**
    * Packages that Next.js should keep external on the server.
    */
@@ -90,6 +91,7 @@ export const CLI_SCAFFOLD_SPEC = {
   },
   discord: {
     invocation: { kind: "zero-arg" },
+    platformHint: "serverless Gateway requires Vercel Pro or Enterprise",
     serverExternalPackages: [
       "discord.js",
       "@discordjs/ws",
