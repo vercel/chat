@@ -3,7 +3,7 @@ import { bot } from "@/lib/bot";
 
 type Platform = keyof typeof bot.webhooks;
 
-export async function POST(
+async function handleRequest(
   request: Request,
   context: RouteContext<"/api/webhooks/[platform]">
 ) {
@@ -19,3 +19,8 @@ export async function POST(
     waitUntil: (task) => after(() => task),
   });
 }
+
+// Some platforms (e.g. WhatsApp and Messenger) verify the webhook with a GET
+// request before they deliver events over POST.
+export const GET = handleRequest;
+export const POST = handleRequest;

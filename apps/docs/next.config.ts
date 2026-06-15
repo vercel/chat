@@ -50,11 +50,6 @@ const config: NextConfig = {
         permanent: true,
       },
       {
-        source: "/adapters/community/imessage",
-        destination: "/adapters/vendor-official/imessage",
-        permanent: true,
-      },
-      {
         source: "/adapters/community/resend",
         destination: "/adapters/vendor-official/resend",
         permanent: true,

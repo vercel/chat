@@ -67,13 +67,7 @@ const importLine = (adapter: CatalogAdapter): string =>
 export function generateBotTs(config: ProjectConfig): string {
   const selectedAdapters = [...config.platformAdapters, config.stateAdapter];
   const imports = selectedAdapters.map(importLine);
-  const chatImports = new Set(["Chat"]);
-  for (const adapter of selectedAdapters) {
-    for (const name of getCliScaffoldSpec(adapter.slug).chatImports ?? []) {
-      chatImports.add(name);
-    }
-  }
-  imports.push(`import { ${[...chatImports].sort().join(", ")} } from "chat";`);
+  imports.push('import { Chat } from "chat";');
 
   const usesWeb = config.platformAdapters.some(
     (adapter) => adapter.slug === "web"

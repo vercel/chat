@@ -1,7 +1,8 @@
 import type { PackageManager } from "../types.js";
 
-const PACKAGE_NAME_PATTERN =
-  /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+// The project name doubles as the output directory name, so scoped names like
+// "@acme/my-bot" are rejected to avoid creating a nested "@acme/my-bot" path.
+const PACKAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 
 const PACKAGE_MANAGERS = new Set(["npm", "yarn", "pnpm", "bun"]);
 
@@ -24,7 +25,7 @@ export function validatePackageName(
     name.includes("..") ||
     !PACKAGE_NAME_PATTERN.test(name)
   ) {
-    return "Use a valid npm package name, like my-bot or @acme/my-bot";
+    return "Use a valid npm package name (unscoped), like my-bot";
   }
 }
 

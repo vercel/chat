@@ -39,7 +39,7 @@ const groupLabel = (group: "official" | "vendor-official"): string =>
 const DEFAULT_PROJECT_NAME = "my-bot";
 
 const selectedPlatformLabel = (config: ProjectConfig): string =>
-  config.platformAdapters.map((adapter) => adapter.name).join(", ") || "none";
+  config.platformAdapters.map((adapter) => adapter.name).join(", ");
 
 /**
  * Resolve CLI inputs and interactive prompt answers to a project config.
@@ -106,9 +106,9 @@ export async function runPrompts(
       ])
     );
     const selected = await groupMultiselect({
-      message: "Select platform adapters:",
+      message: "Select at least one platform adapter:",
       options: groups,
-      required: false,
+      required: true,
     });
     if (isCancel(selected)) {
       return null;
@@ -132,6 +132,16 @@ export async function runPrompts(
       return null;
     }
     selection = resolveAdapterSelection([...platformValues, stateSlug]);
+  }
+
+  // Any non-interactive path (yes mode or an explicit --adapter selection that
+  // skips the platform prompt) must include a platform adapter; otherwise the
+  // CLI would report success for a bot that cannot receive any event.
+  const skipsAdapterPrompt = inputs.yes || Boolean(flaggedSelection);
+  if (skipsAdapterPrompt && selection.platformAdapters.length === 0) {
+    throw new Error(
+      "Select at least one platform adapter. Pass --adapter with a platform (for example: --adapter slack)."
+    );
   }
 
   const shouldInstall =

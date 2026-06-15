@@ -11,7 +11,15 @@ import { generateEnvExample } from "./env-example.js";
 import { generateNextConfig } from "./next-config.js";
 import { generatePackageJson } from "./package-json.js";
 import { generateReadme } from "./readme.js";
-import { generateAuthStub, generateWebRoute, needsWebRoute } from "./routes.js";
+import {
+  generateAuthStub,
+  generateDiscordGatewayRoute,
+  generateVercelJson,
+  generateWebRoute,
+  needsDiscordGateway,
+  needsVercelJson,
+  needsWebRoute,
+} from "./routes.js";
 
 const adapter = (slug: string): CatalogAdapter => {
   const found = getAdapter(slug);
@@ -55,12 +63,13 @@ describe("generateBotTs", () => {
     expect(result).toContain("Replace with a verified sender address.");
   });
 
-  it("passes required url and logger options to createIoRedisState", () => {
+  it("passes the required url to createIoRedisState without a logger", () => {
     const result = generateBotTs(makeConfig(["slack"], "ioredis"));
-    expect(result).toContain('import { Chat, ConsoleLogger } from "chat";');
+    expect(result).toContain('import { Chat } from "chat";');
     expect(result).toContain("state: createIoRedisState({");
     expect(result).toContain('url: process.env.REDIS_URL ?? "",');
-    expect(result).toContain("logger: new ConsoleLogger(),");
+    expect(result).not.toContain("ConsoleLogger");
+    expect(result).not.toContain("logger:");
   });
 
   it("generates web adapter support", () => {
@@ -122,9 +131,27 @@ describe("generatePackageJson", () => {
       makeConfig(["discord"], "redis")
     );
     expect(result.dependencies?.["@chat-adapter/discord"]).toBe("latest");
-    expect(result.dependencies?.["discord.js"]).toBe("latest");
     expect(result.dependencies?.["@chat-adapter/state-redis"]).toBe("latest");
     expect(result.dependencies?.chat).toBe("latest");
+  });
+
+  it("does not duplicate official adapter provider SDKs (installed transitively)", () => {
+    const result = generatePackageJson(
+      { dependencies: {} },
+      makeConfig(["discord", "slack"], "redis")
+    );
+    expect(result.dependencies?.["discord.js"]).toBeUndefined();
+    expect(result.dependencies?.["@slack/web-api"]).toBeUndefined();
+    expect(result.dependencies?.redis).toBeUndefined();
+  });
+
+  it("installs vendor-official adapter peer dependencies", () => {
+    const result = generatePackageJson(
+      { dependencies: {} },
+      makeConfig(["resend"])
+    );
+    expect(result.dependencies?.["@resend/chat-sdk-adapter"]).toBe("latest");
+    expect(result.dependencies?.["@chat-adapter/shared"]).toBe("latest");
   });
 
   it("removes empty descriptions", () => {
@@ -168,5 +195,47 @@ describe("route and README generators", () => {
     expect(result).toContain("/api/webhooks/slack");
     expect(result).toContain("/api/chat");
     expect(result).toContain("pnpm run dev");
+  });
+
+  it("documents the Discord Gateway endpoint when discord is selected", () => {
+    expect(generateReadme(makeConfig(["discord"]))).toContain(
+      "/api/discord/gateway"
+    );
+    expect(generateReadme(makeConfig(["slack"]))).not.toContain(
+      "/api/discord/gateway"
+    );
+  });
+});
+
+describe("Discord Gateway generation", () => {
+  it("detects when the Discord Gateway route is needed", () => {
+    expect(needsDiscordGateway(makeConfig(["discord"]))).toBe(true);
+    expect(needsDiscordGateway(makeConfig(["slack"]))).toBe(false);
+  });
+
+  it("generates a cron-authenticated Gateway route that forwards to the webhook", () => {
+    const result = generateDiscordGatewayRoute();
+    expect(result).toContain('bot.getAdapter("discord")');
+    expect(result).toContain("startGatewayListener");
+    expect(result).toContain("process.env.CRON_SECRET");
+    expect(result).toContain("/api/webhooks/discord");
+  });
+
+  it("generates vercel.json crons only when discord is selected", () => {
+    expect(needsVercelJson(makeConfig(["discord"]))).toBe(true);
+    expect(needsVercelJson(makeConfig(["slack"]))).toBe(false);
+    const vercelJson = JSON.parse(generateVercelJson(makeConfig(["discord"])));
+    expect(vercelJson.crons).toEqual([
+      { path: "/api/discord/gateway", schedule: "*/9 * * * *" },
+    ]);
+  });
+
+  it("documents CRON_SECRET in .env.example for discord projects", () => {
+    expect(generateEnvExample(makeConfig(["discord"]))).toContain(
+      "CRON_SECRET="
+    );
+    expect(generateEnvExample(makeConfig(["slack"]))).not.toContain(
+      "CRON_SECRET="
+    );
   });
 });

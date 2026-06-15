@@ -57,8 +57,14 @@ export function generatePackageJson(
 
   for (const adapter of [...config.platformAdapters, config.stateAdapter]) {
     dependencies[adapter.packageName] = "latest";
-    for (const peerDep of adapter.peerDeps) {
-      dependencies[peerDep] = "latest";
+    // Official adapters declare their provider SDKs as normal dependencies, so
+    // they install transitively and must not be duplicated in the app manifest.
+    // Vendor-official catalog peerDeps come from the adapter's documented
+    // install command (genuine peers the app must install itself).
+    if (adapter.group === "vendor-official") {
+      for (const peerDep of adapter.peerDeps) {
+        dependencies[peerDep] = "latest";
+      }
     }
     for (const extra of getCliScaffoldSpec(adapter.slug).extraDependencies ??
       []) {

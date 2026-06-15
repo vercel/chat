@@ -18,4 +18,12 @@ describe("listCliPlatformAdapters", () => {
       [...names].sort((first, second) => first.localeCompare(second))
     );
   });
+
+  it("omits adapters that the webhook-only scaffold cannot host", () => {
+    const slugs = listCliPlatformAdapters("vendor-official").map(
+      (adapter) => adapter.slug
+    );
+    expect(slugs).not.toContain("matrix");
+    expect(slugs).not.toContain("lark");
+  });
 });

@@ -59,22 +59,28 @@ describe("runPrompts", () => {
       initializeGit: false,
       name: "my-bot",
       quiet: true,
+      selectedAdapters: ["slack"],
       yes: true,
     });
 
     expect(result?.shouldInitializeGit).toBe(false);
   });
 
-  it("logs none when only a state adapter is flagged", async () => {
-    await runPrompts({
-      name: "my-bot",
-      quiet: false,
-      selectedAdapters: ["redis"],
-      yes: true,
-    });
+  it("requires a platform adapter in non-interactive mode", async () => {
+    await expect(
+      runPrompts({ name: "my-bot", quiet: true, yes: true })
+    ).rejects.toThrow("at least one platform adapter");
+  });
 
-    expect(log.info).toHaveBeenCalledWith("Platform adapters: none");
-    expect(log.info).toHaveBeenCalledWith("State adapter: Redis");
+  it("rejects a state-only selection in non-interactive mode", async () => {
+    await expect(
+      runPrompts({
+        name: "my-bot",
+        quiet: true,
+        selectedAdapters: ["redis"],
+        yes: true,
+      })
+    ).rejects.toThrow("at least one platform adapter");
   });
 
   it("uses defaults in yes mode", async () => {
@@ -82,18 +88,25 @@ describe("runPrompts", () => {
       name: "my-bot",
       packageManager: "bun",
       quiet: true,
+      selectedAdapters: ["slack"],
       yes: true,
     });
 
     expect(result?.description).toBe("");
-    expect(result?.platformAdapters).toEqual([]);
+    expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([
+      "slack",
+    ]);
     expect(result?.stateAdapter.slug).toBe("memory");
     expect(result?.packageManager).toBe("bun");
     expect(confirm).not.toHaveBeenCalled();
   });
 
   it("does not prompt for a project name in yes mode", async () => {
-    const result = await runPrompts({ quiet: true, yes: true });
+    const result = await runPrompts({
+      quiet: true,
+      selectedAdapters: ["slack"],
+      yes: true,
+    });
 
     expect(result?.name).toBe("my-bot");
     expect(text).not.toHaveBeenCalled();

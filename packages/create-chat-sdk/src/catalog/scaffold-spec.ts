@@ -47,11 +47,6 @@ export type ScaffoldPropertyValue =
  */
 export interface CliScaffoldSpec {
   /**
-   * Named exports of the `chat` package that the generated invocation code
-   * references (e.g. `ConsoleLogger`), merged into the bot.ts import.
-   */
-  chatImports?: readonly string[];
-  /**
    * Additional runtime dependencies to install beyond catalog package metadata.
    */
   extraDependencies?: readonly string[];
@@ -110,22 +105,12 @@ export const CLI_SCAFFOLD_SPEC = {
   github: {
     invocation: { kind: "zero-arg" },
   },
-  imessage: {
-    invocation: {
-      kind: "object",
-      properties: [{ key: "local", value: literal("true") }],
-    },
-  },
   ioredis: {
-    // createIoRedisState requires url and logger, with no REDIS_URL
-    // auto-detection.
-    chatImports: ["ConsoleLogger"],
+    // createIoRedisState needs an explicit url (no REDIS_URL auto-detection).
+    // The logger is optional and defaults to a console logger when omitted.
     invocation: {
       kind: "object",
-      properties: [
-        { key: "url", value: env("REDIS_URL") },
-        { key: "logger", value: literal("new ConsoleLogger()") },
-      ],
+      properties: [{ key: "url", value: env("REDIS_URL") }],
     },
     stateHint: "production - ioredis driver",
   },

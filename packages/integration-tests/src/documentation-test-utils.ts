@@ -194,7 +194,6 @@ export const VALID_DOC_PACKAGES = [
   // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
   "@beeper/chat-adapter-matrix",
-  "chat-adapter-imessage",
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
   "@veltdev/chat-sdk-adapter",

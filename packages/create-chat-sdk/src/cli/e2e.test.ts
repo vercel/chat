@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { ADAPTER_NAMES, getAdapter, listEnvVars } from "chat/adapters";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isCliCompatibleAdapter } from "../catalog/compatibility.js";
 import { createProgram } from "./program.js";
 
 let cwdSpy: ReturnType<typeof vi.spyOn>;
@@ -43,6 +44,10 @@ describe("CLI adapter matrix", () => {
     const adapter = getAdapter(slug);
     if (!adapter) {
       throw new Error(`Missing catalog adapter: ${slug}`);
+    }
+
+    if (!isCliCompatibleAdapter(slug)) {
+      continue;
     }
 
     it(`scaffolds ${slug}`, async () => {

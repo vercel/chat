@@ -18,7 +18,10 @@ describe("validatePackageName", () => {
 
   it("accepts valid names", () => {
     expect(validatePackageName("my-bot")).toBeUndefined();
-    expect(validatePackageName("@acme/my-bot")).toBeUndefined();
+  });
+
+  it("rejects scoped names because the name doubles as the output directory", () => {
+    expect(validatePackageName("@acme/my-bot")).toContain("unscoped");
   });
 });
 
