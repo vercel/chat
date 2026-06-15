@@ -9,7 +9,7 @@ import type { AdapterSlug } from "chat/adapters";
  * connection that the generated serverless runtime does not provide, so they
  * are hidden from the CLI prompts and rejected when passed via `--adapter`.
  */
-export const CLI_INCOMPATIBLE_ADAPTERS = {
+const CLI_INCOMPATIBLE_ADAPTERS = {
   lark: "it requires a long-running WebSocket connection",
   matrix: "it requires a long-running sync process",
 } as const satisfies Partial<Record<AdapterSlug, string>>;
