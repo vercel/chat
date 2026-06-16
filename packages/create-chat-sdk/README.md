@@ -33,9 +33,9 @@ npm create chat-sdk@latest -- my-bot --adapter slack redis -y
 
 With npm, the `--` separator is required — npm consumes flags before it instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
 
-Adapter values come from the `chat/adapters` catalog. Official and vendor-official adapters are offered in separate prompt groups. Community adapters are not scaffolded.
+Adapter values come from the `chat/adapters` catalog. The default interactive prompt lists official adapters. Pass `--vendor` to list vendor-official adapters instead. For automation and coding agents, pass official or vendor adapter slugs directly with `--adapter`. Community adapters are not scaffolded.
 
-When the CLI detects a coding agent environment, it announces the detection and automatically runs in non-interactive mode, accepting defaults. If no project name is provided, the default name is `my-bot`. Pass `--interactive` to force prompts.
+When the CLI detects a coding agent environment, it announces the detection and automatically runs in non-interactive mode. Pass at least one platform adapter with `--adapter`; the state adapter defaults to `memory`. If no project name is provided, the default name is `my-bot`. Pass `--interactive` to force prompts.
 
 ## Options
 
@@ -48,6 +48,8 @@ Arguments:
 Options:
   -d, --description <text>  project description
   --adapter <values...>     platform or state adapters to include
+  --vendor                  list vendor-official adapters in the interactive
+                            prompt
   --pm <manager>            package manager to use (npm, yarn, pnpm, bun)
   -y, --yes                 skip prompts and accept defaults
   --interactive             always prompt, even when a coding agent
@@ -71,6 +73,7 @@ The generated project is a minimal Next.js API app:
 - `.env.example` — generated from selected adapter env specs
 - `next.config.ts` — generated server config and externals
 - `package.json` — generated adapter, peer, and extra dependencies
+- `.chat-sdk.json` — generated file ownership used by safe `--force` reruns
 
 The template does not include pages, layouts, or a client UI.
 

@@ -136,6 +136,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway).",
     },
+    webClientOptions: {
+      type: 'Omit<WebClientOptions, "slackApiUrl">',
+      description:
+        "Options forwarded to Slack WebClient instances. Supports settings such as retryConfig, per-request timeout, and rejectRateLimitedCalls.",
+    },
   }}
 />
 

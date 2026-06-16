@@ -198,9 +198,10 @@ describe("route and README generators", () => {
   });
 
   it("documents the Discord Gateway endpoint when discord is selected", () => {
-    expect(generateReadme(makeConfig(["discord"]))).toContain(
-      "/api/discord/gateway"
-    );
+    const readme = generateReadme(makeConfig(["discord"]));
+    expect(readme).toContain("/api/discord/gateway");
+    expect(readme).toContain("requires Vercel Pro or Enterprise");
+    expect(readme).toContain("pnpm run typecheck");
     expect(generateReadme(makeConfig(["slack"]))).not.toContain(
       "/api/discord/gateway"
     );

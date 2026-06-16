@@ -1,8 +1,8 @@
 import {
   confirm,
-  groupMultiselect,
   isCancel,
   log,
+  multiselect,
   select,
   text,
 } from "@clack/prompts";
@@ -30,11 +30,9 @@ interface PromptInputs {
   packageManager?: PackageManager;
   quiet: boolean;
   selectedAdapters?: readonly string[];
+  vendor?: boolean;
   yes: boolean;
 }
-
-const groupLabel = (group: "official" | "vendor-official"): string =>
-  group === "official" ? "Official" : "Vendor-official";
 
 const DEFAULT_PROJECT_NAME = "my-bot";
 
@@ -94,20 +92,14 @@ export async function runPrompts(
   } else if (inputs.yes) {
     platformValues = [];
   } else {
-    const groups = Object.fromEntries(
-      ["official", "vendor-official"].map((group) => [
-        groupLabel(group as "official" | "vendor-official"),
-        listCliPlatformAdapters(group as "official" | "vendor-official").map(
-          (adapter) => ({
-            label: adapter.name,
-            value: adapter.slug,
-          })
-        ),
-      ])
-    );
-    const selected = await groupMultiselect({
+    const selected = await multiselect({
       message: "Select at least one platform adapter:",
-      options: groups,
+      options: listCliPlatformAdapters(
+        inputs.vendor ? "vendor-official" : "official"
+      ).map((adapter) => ({
+        label: adapter.name,
+        value: adapter.slug,
+      })),
       required: true,
     });
     if (isCancel(selected)) {
@@ -171,6 +163,14 @@ export async function runPrompts(
   if (!inputs.quiet && flaggedSelection) {
     log.info(`Platform adapters: ${selectedPlatformLabel(config)}`);
     log.info(`State adapter: ${config.stateAdapter.name}`);
+  }
+  if (
+    !inputs.quiet &&
+    config.platformAdapters.some((adapter) => adapter.slug === "discord")
+  ) {
+    log.warning(
+      "Discord serverless Gateway deployment requires Vercel Pro or Enterprise."
+    );
   }
 
   return config;

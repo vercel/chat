@@ -75,8 +75,40 @@ describe("createProgram", () => {
       packageManager: "pnpm",
       quiet: true,
       selectedAdapters: ["slack", "redis"],
+      vendor: false,
       yes: true,
     });
+  });
+
+  it("passes --vendor to runCli", async () => {
+    const program = createProgram();
+    await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--vendor"]);
+
+    expect(determineAgent).not.toHaveBeenCalled();
+    expect(runCli).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detectedAgent: undefined,
+        vendor: true,
+        yes: false,
+      })
+    );
+  });
+
+  it("rejects --vendor with explicit adapter selection", async () => {
+    const program = createProgram();
+    program.exitOverride();
+    program.configureOutput({ writeErr: () => {} });
+
+    await expect(
+      program.parseAsync([
+        "node",
+        "create-chat-sdk",
+        "my-bot",
+        "--vendor",
+        "--adapter",
+        "slack",
+      ])
+    ).rejects.toThrow("cannot be used with option");
   });
 
   it("supports the short skip-install option", async () => {
@@ -93,6 +125,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -111,6 +144,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -129,6 +163,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });
@@ -151,6 +186,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: true,
     });
   });
@@ -195,6 +231,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: true,
     });
   });
@@ -213,6 +250,7 @@ describe("createProgram", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: false,
       yes: false,
     });
   });

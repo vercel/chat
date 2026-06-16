@@ -67,6 +67,7 @@ describe("runCli", () => {
       packageManager: undefined,
       quiet: false,
       selectedAdapters: undefined,
+      vendor: undefined,
       yes: true,
     });
     expect(scaffold).toHaveBeenCalledWith(config, {
@@ -216,5 +217,23 @@ describe("runCli", () => {
     expect(intro).not.toHaveBeenCalled();
     expect(note).not.toHaveBeenCalled();
     expect(outro).not.toHaveBeenCalled();
+  });
+
+  it("does not print success after a non-interactive install failure", async () => {
+    vi.mocked(runPrompts).mockResolvedValueOnce(config);
+    vi.mocked(scaffold).mockImplementationOnce(async () => {
+      process.exitCode = 1;
+      return true;
+    });
+
+    await runCli({
+      force: false,
+      initializeGit: true,
+      quiet: false,
+      yes: true,
+    });
+
+    expect(note).not.toHaveBeenCalled();
+    expect(outro).not.toHaveBeenCalledWith(expect.stringContaining("Done!"));
   });
 });

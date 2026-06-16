@@ -361,7 +361,7 @@ export const ADAPTERS = {
     },
     factoryExport: "createKapsoAdapter",
     group: "vendor-official",
-    name: "Kapso WhatsApp",
+    name: "Kapso",
     packageName: "@kapso/chat-adapter",
     peerDeps: [],
     slug: "kapso",

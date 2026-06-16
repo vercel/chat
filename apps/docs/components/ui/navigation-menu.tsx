@@ -13,6 +13,15 @@ function isKeyboardClick(event: React.MouseEvent) {
   return event.detail === 0;
 }
 
+function isNestedLinkClick(event: React.MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return target.closest("a") !== null;
+}
+
 function NavigationMenu({
   className,
   children,
@@ -85,7 +94,11 @@ function NavigationMenuTrigger({
       // Prevent the trigger from closing the menu when clicked on non-touch
       // devices. Touch and keyboard users retain default toggle behavior.
       onClick={(event) => {
-        if (!isTouchDevice() && !isKeyboardClick(event)) {
+        if (
+          !isTouchDevice() &&
+          !isKeyboardClick(event) &&
+          !isNestedLinkClick(event)
+        ) {
           event.preventDefault();
         }
         onClick?.(event);

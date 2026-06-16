@@ -9,10 +9,10 @@ Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, 
 
 ## Scaffold a new project
 
-Use `create-chat-sdk` to scaffold a webhook-only Next.js bot project:
+Use `create-chat-sdk` with explicit adapters so coding agents can scaffold a webhook-only Next.js bot project without prompts:
 
 ```bash
-npm create chat-sdk@latest my-bot
+npm create chat-sdk@latest -- my-bot --adapter slack memory -y
 ```
 
 Non-interactive example:
@@ -34,7 +34,7 @@ Key flags:
 - `--no-git` — skip git repository initialization
 - `-q, --quiet` — suppress non-essential output
 
-When `create-chat-sdk` detects a coding agent environment, it automatically uses non-interactive defaults. If no project name is provided, it uses `my-bot`.
+When `create-chat-sdk` detects a coding agent environment, it automatically uses non-interactive defaults. Pass at least one platform adapter with `--adapter`; the state adapter defaults to `memory`. If no project name is provided, it uses `my-bot`.
 
 Generated projects include `src/lib/bot.ts`, `src/app/api/webhooks/[platform]/route.ts`, `.env.example`, `next.config.ts`, and adapter dependencies. If the Web adapter is selected, the CLI also creates `src/app/api/chat/route.ts` and `src/lib/auth-stub.ts`.
 

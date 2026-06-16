@@ -20,6 +20,17 @@ describe("Chat SDK agent skill", () => {
       expect(skill).toContain("node_modules/chat/dist/adapters/index.d.ts");
       expect(skill).toContain("getSecretEnvVars");
     });
+
+    it(`${skillPath} documents an agent-safe scaffold command`, () => {
+      const skill = readFileSync(join(REPO_ROOT, skillPath), "utf-8");
+
+      expect(skill).toContain(
+        "npm create chat-sdk@latest -- my-bot --adapter slack memory -y"
+      );
+      expect(skill).toContain(
+        "Pass at least one platform adapter with `--adapter`"
+      );
+    });
   }
 });
 
