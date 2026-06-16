@@ -96,7 +96,7 @@ Webhook endpoints use the selected adapter slug:
 
 When the [Web adapter](/adapters/official/web) is selected, the CLI also creates `/api/chat` for browser chat requests and a small `getUser` auth stub. Replace the stub with your app's real authentication logic so each web conversation can be associated with the correct user.
 
-When the [Discord adapter](/adapters/official/discord) is selected, the CLI also creates a Gateway listener at `/api/discord/gateway` and a `vercel.json` cron that calls it. Discord delivers slash commands and button clicks to the webhook route, but regular messages and reactions only arrive over the Gateway WebSocket, so the cron keeps that connection alive and forwards events to `/api/webhooks/discord`. Set a `CRON_SECRET` environment variable to authenticate the cron requests. The generated serverless Gateway cron requires Vercel Pro or Enterprise because it runs every nine minutes.
+When the [Discord adapter](/adapters/official/discord) is selected, the CLI also creates a Gateway listener at `/api/discord/gateway` and a `vercel.json` cron that calls it. Discord delivers slash commands and button clicks to the webhook route, but regular messages and reactions only arrive over the Gateway WebSocket, so the cron keeps that connection alive and forwards events to `/api/webhooks/discord`. Set a `CRON_SECRET` environment variable to authenticate the cron requests. The generated serverless Gateway cron requires [Vercel Pro or Enterprise](https://vercel.com/docs/cron-jobs/usage-and-pricing) because it runs every nine minutes.
 
 ## Reference
 
