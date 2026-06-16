@@ -1,5 +1,19 @@
 # @chat-adapter/telegram
 
+## 4.31.0
+
+### Minor Changes
+
+- 4662309: add native rich message formatting and streaming for Telegram Bot API 10.1
+- 9c936f8: Add support for routing Telegram bot commands to Chat SDK slash command handlers
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Minor Changes

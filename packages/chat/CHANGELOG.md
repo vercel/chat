@@ -1,5 +1,12 @@
 # chat
 
+## 4.31.0
+
+### Minor Changes
+
+- 778ae69: Add a zero-dependency `chat/adapters` catalog subpath for official and vendor-official adapter metadata, environment specs, and setup helpers.
+- 171657a: Adding support for stable IDs to link button action handlers
+
 ## 4.30.0
 
 ### Minor Changes

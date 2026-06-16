@@ -1,5 +1,17 @@
 # @chat-adapter/state-ioredis
 
+## 4.31.0
+
+### Minor Changes
+
+- 8f3af76: Make `logger` optional in `createIoRedisState`, defaulting to a console logger, matching `@chat-adapter/state-redis`.
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+
 ## 4.30.0
 
 ### Patch Changes

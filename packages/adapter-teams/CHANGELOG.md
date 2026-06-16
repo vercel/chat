@@ -1,5 +1,18 @@
 # @chat-adapter/teams
 
+## 4.31.0
+
+### Minor Changes
+
+- 8c71411: Add low-level Teams primitive subpaths for custom runtimes.
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Patch Changes
