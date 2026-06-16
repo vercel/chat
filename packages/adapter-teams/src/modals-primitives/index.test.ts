@@ -95,4 +95,113 @@ describe("Teams modal primitives", () => {
       },
     });
   });
+
+  it("converts every modal child type with options and styles", () => {
+    expect(
+      modalToAdaptiveCard(
+        {
+          callbackId: "cb",
+          children: [
+            { content: "Muted", style: "muted", type: "text" },
+            { children: [{ label: "Owner", value: "Ada" }], type: "fields" },
+            {
+              id: "summary",
+              initialValue: "init",
+              label: "Summary",
+              maxLength: 200,
+              multiline: true,
+              placeholder: "Describe",
+              type: "text_input",
+            },
+            {
+              id: "env",
+              initialOption: "prod",
+              label: "Env",
+              optional: true,
+              options: [{ label: "Prod", value: "prod" }],
+              placeholder: "Pick",
+              type: "select",
+            },
+            {
+              id: "strategy",
+              label: "Strategy",
+              options: [{ label: "BG", value: "bg" }],
+              type: "radio_select",
+            },
+          ],
+          submitLabel: "Go",
+          title: "All",
+          type: "modal",
+        },
+        {}
+      )
+    ).toMatchObject({
+      actions: [
+        expect.objectContaining({ data: { __callbackId: "cb" }, title: "Go" }),
+      ],
+      body: expect.arrayContaining([
+        expect.objectContaining({ isSubtle: true, text: "Muted" }),
+        expect.objectContaining({ type: "FactSet" }),
+        expect.objectContaining({
+          id: "summary",
+          isMultiline: true,
+          isRequired: true,
+          maxLength: 200,
+          placeholder: "Describe",
+          type: "Input.Text",
+          value: "init",
+        }),
+        expect.objectContaining({
+          id: "env",
+          isRequired: false,
+          placeholder: "Pick",
+          style: "compact",
+          type: "Input.ChoiceSet",
+          value: "prod",
+        }),
+        expect.objectContaining({
+          id: "strategy",
+          isRequired: true,
+          style: "expanded",
+          type: "Input.ChoiceSet",
+        }),
+      ]),
+    });
+  });
+
+  it("prefers the callbackId option over the modal callbackId", () => {
+    expect(
+      modalToAdaptiveCard(modal, { callbackId: "override" })
+    ).toMatchObject({
+      actions: [
+        expect.objectContaining({ data: { __callbackId: "override" } }),
+      ],
+    });
+  });
+
+  it("returns empty submit values when data is missing", () => {
+    expect(parseTeamsDialogSubmitValues(undefined)).toEqual({
+      callbackId: undefined,
+      contextId: undefined,
+      values: {},
+    });
+  });
+
+  it("ignores non-string submit values", () => {
+    expect(parseTeamsDialogSubmitValues({ count: 5, note: "ok" })).toEqual({
+      callbackId: undefined,
+      contextId: undefined,
+      values: { note: "ok" },
+    });
+  });
+
+  it("creates continue responses for push actions", () => {
+    expect(toTeamsTaskModuleResponse({ action: "push", modal })).toMatchObject({
+      task: { type: "continue", value: { title: "Deploy" } },
+    });
+  });
+
+  it("returns undefined when there is no response", () => {
+    expect(toTeamsTaskModuleResponse(undefined)).toBeUndefined();
+  });
 });

@@ -138,4 +138,153 @@ describe("Teams card primitives", () => {
       })
     ).toEqual({ requestId: "deploy", value: "Needs more testing" });
   });
+
+  it("converts every child type, style, and header element", () => {
+    const card = cardToAdaptiveCard({
+      children: [
+        { content: "Bold", style: "bold", type: "text" },
+        { content: "Muted", style: "muted", type: "text" },
+        { alt: "Logo", type: "image", url: "https://example.com/logo.png" },
+        { type: "divider" },
+        {
+          children: [
+            { id: "deny", label: "Deny", style: "danger", type: "button" },
+            {
+              label: "Docs",
+              style: "primary",
+              type: "link-button",
+              url: "https://example.com",
+            },
+          ],
+          type: "actions",
+        },
+        {
+          children: [
+            {
+              id: "env",
+              label: "Environment",
+              optional: true,
+              options: [{ label: "Prod", value: "prod" }],
+              placeholder: "Pick one",
+              type: "select",
+            },
+            {
+              id: "strategy",
+              label: "Strategy",
+              options: [{ label: "Blue/Green", value: "bg" }],
+              type: "radio_select",
+            },
+          ],
+          type: "actions",
+        },
+        { children: [{ label: "Owner", value: "Ada" }], type: "fields" },
+        { label: "Runbook", type: "link", url: "https://example.com/runbook" },
+        { headers: ["Name", "Status"], rows: [["api", "ok"]], type: "table" },
+        { children: [{ content: "Nested", type: "text" }], type: "section" },
+      ],
+      imageUrl: "https://example.com/banner.png",
+      subtitle: "Subtitle",
+      title: "Everything",
+      type: "card",
+    });
+
+    expect(card.body[0]).toMatchObject({
+      text: "Everything",
+      weight: "Bolder",
+    });
+    expect(card.body[1]).toMatchObject({ isSubtle: true, text: "Subtitle" });
+    expect(card.body[2]).toMatchObject({
+      size: "Stretch",
+      type: "Image",
+      url: "https://example.com/banner.png",
+    });
+
+    expect(card.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          style: "destructive",
+          title: "Deny",
+          type: "Action.Submit",
+        }),
+        expect.objectContaining({
+          style: "positive",
+          title: "Docs",
+          type: "Action.OpenUrl",
+          url: "https://example.com",
+        }),
+        expect.objectContaining({
+          data: { actionId: "__auto_submit" },
+          title: "Submit",
+        }),
+      ])
+    );
+
+    expect(card.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          altText: "Logo",
+          size: "Auto",
+          type: "Image",
+        }),
+        expect.objectContaining({ separator: true, type: "Container" }),
+        expect.objectContaining({
+          id: "env",
+          isRequired: false,
+          placeholder: "Pick one",
+          style: "compact",
+          type: "Input.ChoiceSet",
+        }),
+        expect.objectContaining({
+          id: "strategy",
+          isRequired: true,
+          style: "expanded",
+          type: "Input.ChoiceSet",
+        }),
+        expect.objectContaining({ type: "FactSet" }),
+      ])
+    );
+  });
+
+  it("renders fallback text for every child type", () => {
+    const text = cardToTeamsFallbackText({
+      children: [
+        { content: "Body", type: "text" },
+        { alt: "Logo", type: "image", url: "https://example.com/logo.png" },
+        { type: "image", url: "https://example.com/raw.png" },
+        { type: "divider" },
+        {
+          children: [
+            { id: "ok", label: "Approve", type: "button" },
+            { label: "Docs", type: "link-button", url: "https://example.com" },
+          ],
+          type: "actions",
+        },
+        { children: [{ label: "Owner", value: "Ada" }], type: "fields" },
+        { label: "Runbook", type: "link", url: "https://example.com/r" },
+        { headers: ["A", "B"], rows: [["1", "2"]], type: "table" },
+        { children: [{ content: "Nested", type: "text" }], type: "section" },
+      ],
+      subtitle: "Sub",
+      title: "Title",
+      type: "card",
+    });
+
+    expect(text).toContain("Title");
+    expect(text).toContain("Sub");
+    expect(text).toContain("Body");
+    expect(text).toContain("Logo");
+    expect(text).toContain("https://example.com/raw.png");
+    expect(text).toContain("---");
+    expect(text).toContain("Approve");
+    expect(text).toContain("Owner: Ada");
+    expect(text).toContain("Runbook: https://example.com/r");
+    expect(text).toContain("A | B");
+    expect(text).toContain("1 | 2");
+    expect(text).toContain("Nested");
+  });
+
+  it("returns parse failures for unknown action ids", () => {
+    expect(parseTeamsInputResponse({ actionId: "other:deploy" })).toBeNull();
+    expect(parseTeamsInputResponse({})).toBeNull();
+  });
 });

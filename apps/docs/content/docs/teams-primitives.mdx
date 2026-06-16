@@ -133,7 +133,7 @@ await deleteTeamsMessage({
 });
 ```
 
-Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition.
+Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition. A direct `accessToken` must be scoped for the API you call it against — the Bot Connector subpath (`/api`) needs a `https://api.botframework.com/.default` token, while the Graph subpath (`/graph`) needs a `https://graph.microsoft.com/.default` token. Passing the same token to both will fail against one of them. When you supply `appId`/`appPassword` instead, each subpath requests the correct scope for you.
 
 ## Graph
 

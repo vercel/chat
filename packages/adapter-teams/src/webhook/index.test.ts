@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractTeamsAttachments,
   extractTeamsContinuation,
+  extractTeamsUser,
+  isTeamsMention,
   parseTeamsWebhookBody,
   readTeamsWebhook,
   TeamsWebhookParseError,
@@ -138,5 +141,91 @@ describe("Teams webhook primitives", () => {
 
   it("throws parse errors for invalid JSON", () => {
     expect(() => parseTeamsWebhookBody("{")).toThrow(TeamsWebhookParseError);
+  });
+
+  it("rejects non-object JSON and non-string bodies", () => {
+    expect(() => parseTeamsWebhookBody("null")).toThrow(TeamsWebhookParseError);
+    expect(() => parseTeamsWebhookBody(42)).toThrow(TeamsWebhookParseError);
+  });
+
+  it("classifies Action.Submit messages and msteams payloads as card actions", () => {
+    expect(
+      parseTeamsWebhookBody({
+        ...baseActivity,
+        type: "message",
+        value: { actionId: "approve" },
+      })
+    ).toMatchObject({ actionId: "approve", kind: "card_action" });
+    expect(
+      parseTeamsWebhookBody({
+        ...baseActivity,
+        type: "message",
+        value: { msteams: { type: "messageBack" } },
+      })
+    ).toMatchObject({ actionId: undefined, kind: "card_action" });
+  });
+
+  it("marks unknown and unhandled activity types as unsupported", () => {
+    expect(
+      parseTeamsWebhookBody({ ...baseActivity, type: "typing" })
+    ).toMatchObject({
+      kind: "unsupported",
+      reason: "Unsupported Teams activity type: typing",
+    });
+    expect(
+      parseTeamsWebhookBody({
+        ...baseActivity,
+        name: "signin/verifyState",
+        type: "invoke",
+      })
+    ).toMatchObject({ kind: "unsupported" });
+    expect(parseTeamsWebhookBody({ ...baseActivity })).toMatchObject({
+      reason: "Unsupported Teams activity type: unknown",
+    });
+  });
+
+  it("extracts a user only when an id is present", () => {
+    expect(extractTeamsUser({ from: { name: "Ada" } })).toBeUndefined();
+    expect(extractTeamsUser({ from: { id: "user-id" } })).toEqual({
+      id: "user-id",
+    });
+  });
+
+  it("normalizes attachments and skips non-object entries", () => {
+    expect(
+      extractTeamsAttachments({
+        attachments: [
+          null,
+          "bad",
+          {
+            content: { foo: 1 },
+            contentType: "application/json",
+            contentUrl: "https://example.com/file",
+            name: "file",
+          },
+        ],
+      })
+    ).toEqual([
+      {
+        content: { foo: 1 },
+        contentType: "application/json",
+        contentUrl: "https://example.com/file",
+        name: "file",
+        raw: {
+          content: { foo: 1 },
+          contentType: "application/json",
+          contentUrl: "https://example.com/file",
+          name: "file",
+        },
+      },
+    ]);
+  });
+
+  it("detects mentions by id suffix and ignores them without a botAppId", () => {
+    const activity = {
+      entities: [{ mentioned: { id: "28:bot-id" }, type: "mention" }],
+    };
+    expect(isTeamsMention(activity, "bot-id")).toBe(true);
+    expect(isTeamsMention(activity)).toBe(false);
   });
 });

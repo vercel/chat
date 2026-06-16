@@ -174,4 +174,100 @@ describe("Teams api primitives", () => {
       status: 429,
     } satisfies Partial<TeamsApiError>);
   });
+
+  it("uses a direct access token and normalizes a slashless serviceUrl", async () => {
+    const request = vi.fn().mockResolvedValue(jsonResponse({}));
+
+    const posted = await postTeamsMessage({
+      conversationId: "c",
+      credentials: { accessToken: () => "direct" },
+      fetch: request,
+      serviceUrl: "https://smba.example",
+      text: "hi",
+    });
+
+    expect(posted.id).toBe("");
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      "https://smba.example/v3/conversations/c/activities"
+    );
+    expect(request.mock.calls[0]?.[1]?.headers).toMatchObject({
+      authorization: "Bearer direct",
+    });
+  });
+
+  it("falls back to the default tenant when none is provided", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ access_token: "t" }));
+
+    await resolveTeamsAccessToken({
+      credentials: { appId: "id", appPassword: "secret" },
+      fetch: request,
+    });
+
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+    );
+  });
+
+  it("requires either accessToken or appId and appPassword", async () => {
+    await expect(
+      resolveTeamsAccessToken({
+        credentials: { appId: "only-id" },
+        fetch: vi.fn(),
+      })
+    ).rejects.toThrow("accessToken or appId and appPassword");
+  });
+
+  it("throws when the token request fails", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "bad" }, { status: 400 }));
+
+    await expect(
+      resolveTeamsAccessToken({ credentials, fetch: request })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("throws when the token response omits access_token", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ token_type: "Bearer" }));
+
+    await expect(
+      resolveTeamsAccessToken({ credentials, fetch: request })
+    ).rejects.toThrow("did not include access_token");
+  });
+
+  it("rejects combining markdownText with text", () => {
+    expect(() =>
+      buildTeamsMessageActivity({ markdownText: "a", text: "b" })
+    ).toThrow(TypeError);
+  });
+
+  it("includes optional fields when creating a conversation", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: "token" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "conversation" }));
+
+    await createTeamsConversation({
+      bot: { id: "bot" },
+      conversationType: "personal",
+      credentials,
+      fetch: request,
+      isGroup: true,
+      members: [{ id: "user" }],
+      serviceUrl: "https://smba.example/",
+    });
+
+    const body = JSON.parse(request.mock.calls[1]?.[1]?.body as string);
+    expect(body).toMatchObject({
+      bot: { id: "bot" },
+      conversationType: "personal",
+      isGroup: true,
+      members: [{ id: "user" }],
+    });
+  });
 });

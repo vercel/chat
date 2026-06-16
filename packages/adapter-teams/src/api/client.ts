@@ -2,6 +2,13 @@ export type TeamsCredential = string | (() => Promise<string> | string);
 export type TeamsFetch = typeof fetch;
 
 export interface TeamsCredentials {
+  /**
+   * A pre-acquired bearer token. It must already be scoped for the API it is
+   * used against: `https://api.botframework.com/.default` for the Bot Connector
+   * calls in this module, or `https://graph.microsoft.com/.default` for the
+   * Graph subpath. Supply `appId`/`appPassword` instead to have each subpath
+   * request the correct scope automatically.
+   */
   accessToken?: TeamsCredential;
   appId?: TeamsCredential;
   appPassword?: TeamsCredential;

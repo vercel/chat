@@ -137,4 +137,49 @@ describe("Teams graph primitives", () => {
       "https://graph.microsoft.com/v1.0/next"
     );
   });
+
+  it("throws TeamsApiError when Graph responds with an error", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: "graph-token" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "forbidden" }, { status: 403 })
+      );
+
+    await expect(
+      listTeamsChatMessages({ chatId: "c", credentials, fetch: request })
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("returns sparse messages with empty text and minimal fields", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: "graph-token" }))
+      .mockResolvedValueOnce(jsonResponse({ value: [{ id: "m" }] }));
+
+    const result = await listTeamsChatMessages({
+      chatId: "c",
+      credentials,
+      fetch: request,
+    });
+
+    expect(result.items[0]).toEqual({ id: "m", raw: { id: "m" }, text: "" });
+    expect(result.cursor).toBeUndefined();
+  });
+
+  it("falls back to channelId and omits displayName when Graph returns neither", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ access_token: "graph-token" }))
+      .mockResolvedValueOnce(jsonResponse({}));
+
+    await expect(
+      getTeamsChannel({
+        channelId: "c-id",
+        credentials,
+        fetch: request,
+        teamId: "t",
+      })
+    ).resolves.toEqual({ id: "c-id", raw: {} });
+  });
 });
