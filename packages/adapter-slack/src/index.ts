@@ -65,7 +65,8 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
-import { replaceBareMentions, SlackFormatConverter } from "./markdown";
+import { SlackFormatConverter } from "./markdown";
+import { replaceBareMentions } from "./mentions";
 import {
   decodeModalMetadata,
   encodeModalMetadata,

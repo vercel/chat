@@ -268,6 +268,17 @@ describe("SlackFormatConverter", () => {
         })
       ).toBe("See hackmd.io/@jkyang/abc cc <@george>");
     });
+
+    it("handles malformed angle text without rescanning it", () => {
+      const prefix = "<".repeat(20_000);
+      expect(
+        converter.toSlackPayload(
+          `${prefix} https://example.com/@jkyang cc @george`
+        )
+      ).toEqual({
+        text: `${prefix} https://example.com/@jkyang cc <@george>`,
+      });
+    });
   });
 
   describe("toPlainText", () => {

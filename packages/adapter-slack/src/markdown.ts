@@ -33,11 +33,7 @@ import {
   tableToAscii,
 } from "chat";
 import { slackMrkdwnToMarkdown } from "./format";
-
-const BARE_MENTION_PATTERN = /(?<![<\w])@(\w+)/g;
-const LINK_PATTERN =
-  /<[^>\n]+>|https?:\/\/[^\s<>]+|\b[a-z0-9.-]+\.[a-z]{2,}[/?#][^\s<>]*/gi;
-type MentionReplacer = (mention: string, name: string) => string;
+import { replaceBareMentions } from "./mentions";
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
@@ -195,22 +191,4 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
 function linkBareMentionNames(text: string): string {
   return replaceBareMentions(text, (_mention, name) => `<@${name}>`);
-}
-
-export function replaceBareMentions(
-  text: string,
-  replacer: MentionReplacer
-): string {
-  let result = "";
-  let lastIndex = 0;
-  for (const match of text.matchAll(LINK_PATTERN)) {
-    const start = match.index ?? lastIndex;
-    result += text
-      .slice(lastIndex, start)
-      .replace(BARE_MENTION_PATTERN, replacer);
-    result += match[0];
-    lastIndex = start + match[0].length;
-  }
-  result += text.slice(lastIndex).replace(BARE_MENTION_PATTERN, replacer);
-  return result;
 }
