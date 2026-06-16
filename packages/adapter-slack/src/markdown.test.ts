@@ -186,6 +186,22 @@ describe("SlackFormatConverter", () => {
         text: "(cc <@george>, <@anne>)",
       });
     });
+
+    it("does not mangle @handles inside URL paths in plain strings", () => {
+      expect(
+        converter.toSlackPayload("See https://hackmd.io/@jkyang/B1W69XA-fe")
+      ).toEqual({ text: "See https://hackmd.io/@jkyang/B1W69XA-fe" });
+    });
+
+    it("does not mangle @handles inside URL paths in markdown", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown: "See https://mastodon.social/@user for updates",
+        })
+      ).toEqual({
+        markdown_text: "See https://mastodon.social/@user for updates",
+      });
+    });
   });
 
   describe("toPlainText", () => {

@@ -34,7 +34,11 @@ import {
 } from "chat";
 import { linkBareSlackMentions, slackMrkdwnToMarkdown } from "./format";
 
-const BARE_MENTION_PATTERN = /(?<![<\w])@(\w+)/g;
+// The leading `/` in the negative lookbehind keeps an `@handle` inside a URL
+// path (e.g. https://hackmd.io/@jkyang/abc, mastodon.social/@user) from being
+// rewritten into a `<@handle>` mention, which corrupts the link. Whitespace- and
+// punctuation-led mentions (e.g. "(cc @george)") still match.
+const BARE_MENTION_PATTERN = /(?<![<\w/])@(\w+)/g;
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
