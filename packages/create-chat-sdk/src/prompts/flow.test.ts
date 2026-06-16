@@ -38,6 +38,9 @@ describe("runPrompts", () => {
         ]),
       })
     );
+    const options = vi.mocked(multiselect).mock.calls[0]?.[0].options ?? [];
+    expect(options).toContainEqual({ label: "Discord", value: "discord" });
+    expect(options.every((option) => !("hint" in option))).toBe(true);
     expect(result?.name).toBe("my-bot");
     expect(result?.description).toBe("desc");
     expect(result?.platformAdapters.map((adapter) => adapter.slug)).toEqual([

@@ -78,6 +78,10 @@ describe("scaffold", () => {
       fs.readFileSync(path.join(projectDir, "package.json"), "utf-8")
     );
     expect(packageJson.scripts.typecheck).toBe("tsc --noEmit");
+    const tsconfig = JSON.parse(
+      fs.readFileSync(path.join(projectDir, "tsconfig.json"), "utf-8")
+    );
+    expect(tsconfig.include).toContain(".next/dev/types/**/*.ts");
   });
 
   it("renames the template gitignore to .gitignore", async () => {

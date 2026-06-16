@@ -97,7 +97,6 @@ export async function runPrompts(
       options: listCliPlatformAdapters(
         inputs.vendor ? "vendor-official" : "official"
       ).map((adapter) => ({
-        hint: getCliScaffoldSpec(adapter.slug).platformHint,
         label: adapter.name,
         value: adapter.slug,
       })),
