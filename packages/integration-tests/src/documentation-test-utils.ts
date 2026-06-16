@@ -40,9 +40,7 @@ export const getOfficialPlatformAdapterSlug = (
     return undefined;
   }
 
-  return dirName === "adapter-gchat"
-    ? "google-chat"
-    : dirName.slice("adapter-".length);
+  return dirName.slice("adapter-".length);
 };
 
 export const getOfficialPlatformOgImageUrl = (slug: string): string =>
@@ -57,6 +55,9 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
   }
   if (name === "@chat-adapter/shared") {
     return `${CHAT_SDK_HOMEPAGE}/docs/contributing/building`;
+  }
+  if (name === "create-chat-sdk") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
   }
   if (dirName.startsWith("state-")) {
     const slug =
@@ -139,6 +140,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
 export const VALID_DOC_PACKAGES = [
   "chat",
   "chat/ai",
+  "chat/adapters",
   "@chat-adapter/slack",
   "@chat-adapter/slack/api",
   "@chat-adapter/slack/blocks",
@@ -198,7 +200,6 @@ export const VALID_DOC_PACKAGES = [
   // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
   "@beeper/chat-adapter-matrix",
-  "chat-adapter-imessage",
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
   "@veltdev/chat-sdk-adapter",

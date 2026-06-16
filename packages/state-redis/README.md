@@ -15,6 +15,16 @@ Documentation: [chat-sdk.dev/adapters/official/redis](https://chat-sdk.dev/adapt
 pnpm add @chat-adapter/state-redis
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Slack bot that uses Redis for state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack redis
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 `createRedisState()` auto-detects the `REDIS_URL` environment variable, so you can call it with no arguments:

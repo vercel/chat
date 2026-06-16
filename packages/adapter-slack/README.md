@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/slack](https://chat-sdk.dev/adapt
 pnpm add @chat-adapter/slack
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Slack bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Single-workspace mode
 
 For bots deployed to a single Slack workspace. The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from environment variables:
@@ -333,6 +343,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
 | `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
 | `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
+| `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.

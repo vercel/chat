@@ -43,7 +43,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-gchat"
   },
-  "homepage": "https://chat-sdk.dev/adapters/official/google-chat",
+  "homepage": "https://chat-sdk.dev/adapters/official/gchat",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

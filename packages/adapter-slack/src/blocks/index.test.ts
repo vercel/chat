@@ -121,6 +121,7 @@ describe("Slack Block Kit primitives", () => {
               type: "button",
             },
             {
+              id: "agent_slack_auth_signin",
               label: "Docs",
               style: "default",
               type: "link-button",
@@ -159,6 +160,7 @@ describe("Slack Block Kit primitives", () => {
           type: "button",
         },
         {
+          action_id: "agent_slack_auth_signin",
           text: { emoji: true, text: "Docs", type: "plain_text" },
           type: "button",
           url: "https://example.com/docs",

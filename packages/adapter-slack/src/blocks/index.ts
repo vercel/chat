@@ -255,7 +255,7 @@ function linkButtonToElement(
   convertEmoji: (text: string) => string
 ): Record<string, unknown> {
   return compact({
-    action_id: truncateText(`link-${button.url}`, LIMITS.actionId),
+    action_id: truncateText(button.id ?? `link-${button.url}`, LIMITS.actionId),
     style: mapButtonStyle(button.style),
     text: plainText(button.label, convertEmoji, LIMITS.buttonText),
     type: "button",

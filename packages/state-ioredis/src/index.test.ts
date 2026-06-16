@@ -24,6 +24,12 @@ describe("IoRedisStateAdapter", () => {
     adapter.getClient().disconnect();
   });
 
+  it("should default to a console logger when none is provided", () => {
+    const adapter = createIoRedisState({ url: "redis://localhost:6379" });
+    expect(adapter).toBeInstanceOf(IoRedisStateAdapter);
+    adapter.getClient().disconnect();
+  });
+
   it("should have appendToList method", () => {
     const adapter = createIoRedisState({
       url: "redis://localhost:6379",

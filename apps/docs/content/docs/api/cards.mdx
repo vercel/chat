@@ -130,14 +130,21 @@ CardLink({ url: "https://example.com", label: "Visit Site" })
 
 ## LinkButton
 
-Button that opens a URL. No `onAction` handler needed.
+Button that opens a URL. No `onAction` handler needed for navigation. On
+platforms that emit link-button click events, such as Slack, pass `id` when you
+need a stable action identifier for routing or analytics.
 
 ```typescript
 LinkButton({ url: "https://example.com", label: "View Docs" })
+LinkButton({ id: "view_docs", url: "https://example.com", label: "View Docs" })
 ```
 
 <TypeTable
   type={{
+    id: {
+      description: 'Optional action identifier emitted by platforms that report link clicks.',
+      type: 'string',
+    },
     url: {
       description: 'URL to open when clicked.',
       type: 'string',

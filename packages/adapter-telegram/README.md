@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/telegram](https://chat-sdk.dev/ad
 pnpm add @chat-adapter/telegram
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Telegram bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter telegram memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_API_BASE_URL` from environment variables:
@@ -150,7 +160,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Delete message | Yes |
 | File uploads | Single file (`sendDocument`) |
 | Attachment uploads | Single image/audio/video/file (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`) |
-| Streaming | Private chat draft previews + post/edit fallback |
+| Streaming | Private chat rich draft previews + post/edit fallback |
 
 ### Rich content
 
@@ -160,7 +170,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Buttons | Inline keyboard callbacks |
 | Link buttons | Inline keyboard URLs |
 | Select menus | No |
-| Tables | ASCII |
+| Tables | Native for markdown and AST messages, ASCII in cards |
 | Fields | Yes |
 | Images in cards | No |
 | Modals | No |
@@ -191,9 +201,11 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 
 ## Markdown formatting
 
-Outbound messages are sent with Telegram's `MarkdownV2` parse mode. The adapter walks the markdown AST and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), so you author standard markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`) and the adapter handles every reserved character.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
 
-Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping — the renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
+
+Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping. The renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
 ## Notes
 

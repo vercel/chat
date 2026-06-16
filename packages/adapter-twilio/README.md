@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/twilio](https://chat-sdk.dev/adap
 pnpm add @chat-adapter/twilio
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Twilio bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter twilio memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, and `TWILIO_MESSAGING_SERVICE_SID` from environment variables:

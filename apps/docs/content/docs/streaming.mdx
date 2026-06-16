@@ -59,7 +59,7 @@ await thread.post(stream);
 | Platform | Method | Description |
 |----------|--------|-------------|
 | Slack | Native streaming API | Uses Slack's `chatStream` for smooth, real-time updates |
-| Telegram | Private chat draft previews | Uses Telegram's `sendMessageDraft` in private chats and falls back to post + edit elsewhere |
+| Telegram | Private chat rich draft previews | Uses Telegram's `sendRichMessageDraft` in private chats, persists the final response with `sendRichMessage`, and falls back to post + edit elsewhere |
 | Teams | Native (DMs) / Buffered (group chats) | Uses the Teams SDK's native `stream.emit()` for direct messages; accumulates chunks and posts one final message when no native streamer is active |
 | Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |

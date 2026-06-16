@@ -36,6 +36,10 @@ Chat SDK ships with Vercel-maintained adapters for Slack, Teams, Google Chat, Di
 - Documentation of the adapter in primary vendor docs.
 - Announcement of the adapter in blog post or changelog and social media.
 
+<Callout type="info">
+  Vendor-official adapters should include a Chat SDK docs PR that adds the adapter to the vendor-official listing and the [`chat/adapters` catalog](/docs/adapters#adapter-catalog-chatadapters). Include the package name, peer dependencies, environment variables, credential modes, and any constructor-only config so setup UIs and onboarding tools can discover the adapter without importing its package.
+</Callout>
+
 ## Project setup
 
 This guide uses a hypothetical **Matrix** adapter as a running example. Replace "matrix" with your platform name throughout.

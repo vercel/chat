@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/memory](https://chat-sdk.dev/adap
 pnpm add @chat-adapter/state-memory
 ```
 
+## Scaffold with the CLI
+
+To scaffold a local-development Slack bot that uses in-memory state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 ```typescript

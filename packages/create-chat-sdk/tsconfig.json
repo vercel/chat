@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "chat": ["../chat/src/index.ts"],
+      "chat/adapters": ["../chat/src/adapters/index.ts"]
+    },
+    "rootDir": "../..",
+    "outDir": "./dist",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "_template"]
+}
