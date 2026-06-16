@@ -32,22 +32,12 @@ import {
   stringifyMarkdown,
   tableToAscii,
 } from "chat";
-import { linkBareSlackMentions, slackMrkdwnToMarkdown } from "./format";
+import { slackMrkdwnToMarkdown } from "./format";
 
-// `@handle`s inside URLs (paths, query strings, fragments) must not be rewritten
-// into `<@handle>` Slack mentions, which corrupts the link. Two layers guard
-// against this:
-//   1. `finalize` skips whole `http(s)://…` spans before linking mentions, so an
-//      `@handle` anywhere in a URL (e.g. `?user=@george`, `#@george`) is left
-//      intact.
-//   2. The leading `/` in this negative lookbehind covers the schemeless case
-//      (e.g. `mastodon.social/@user`) that the URL matcher in (1) doesn't catch.
-// Whitespace- and punctuation-led mentions (e.g. "(cc @george)") still match.
-const BARE_MENTION_PATTERN = /(?<![<\w/])@(\w+)/g;
-
-// Matches an `http(s)` URL up to the first whitespace or angle bracket so the
-// span can be excluded from mention linking.
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>]+/g;
+const BARE_MENTION_PATTERN = /(?<![<\w])@(\w+)/g;
+const LINK_PATTERN =
+  /<[^>\n]+>|https?:\/\/[^\s<>]+|\b[a-z0-9.-]+\.[a-z]{2,}[/?#][^\s<>]*/gi;
+type MentionReplacer = (mention: string, name: string) => string;
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
@@ -121,7 +111,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   private finalize(text: string): string {
-    return convertEmojiPlaceholders(linkBareMentionsOutsideUrls(text), "slack");
+    return convertEmojiPlaceholders(linkBareMentionNames(text), "slack");
   }
 
   private astToMrkdwn(ast: Root): string {
@@ -138,7 +128,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      return linkBareMentionNames(linkBareSlackMentions(node.value));
+      return linkBareMentionNames(node.value);
     }
 
     if (isStrongNode(node)) {
@@ -204,22 +194,23 @@ export class SlackFormatConverter extends BaseFormatConverter {
 }
 
 function linkBareMentionNames(text: string): string {
-  return text.replace(BARE_MENTION_PATTERN, "<@$1>");
+  return replaceBareMentions(text, (_mention, name) => `<@${name}>`);
 }
 
-// Apply mention linking only to the text outside `http(s)` URL spans, so a bare
-// `@handle` anywhere inside a URL (path, query, or fragment) is preserved.
-function linkBareMentionsOutsideUrls(text: string): string {
+export function replaceBareMentions(
+  text: string,
+  replacer: MentionReplacer
+): string {
   let result = "";
   let lastIndex = 0;
-  for (const match of text.matchAll(URL_PATTERN)) {
+  for (const match of text.matchAll(LINK_PATTERN)) {
     const start = match.index ?? lastIndex;
-    result += linkBareMentionNames(
-      linkBareSlackMentions(text.slice(lastIndex, start))
-    );
+    result += text
+      .slice(lastIndex, start)
+      .replace(BARE_MENTION_PATTERN, replacer);
     result += match[0];
     lastIndex = start + match[0].length;
   }
-  result += linkBareMentionNames(linkBareSlackMentions(text.slice(lastIndex)));
+  result += text.slice(lastIndex).replace(BARE_MENTION_PATTERN, replacer);
   return result;
 }

@@ -6556,6 +6556,25 @@ describe("reverse user lookup", () => {
       expect(result).toBe("Hey <@U_DOM_123>!");
     });
 
+    it("does not resolve @handles inside URLs", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:jkyang", "U_URL_123");
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:example", "U_EMAIL_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "See https://hackmd.io/@jkyang/abc, https://example.com/p?user=@jkyang, https://example.com/docs#@jkyang, hackmd.io/@jkyang/abc, <https://example.com/@jkyang|profile>, and user@example.com cc @dominik",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "See https://hackmd.io/@jkyang/abc, https://example.com/p?user=@jkyang, https://example.com/docs#@jkyang, hackmd.io/@jkyang/abc, <https://example.com/@jkyang|profile>, and user@example.com cc <@U_DOM_123>"
+      );
+    });
+
     it("deduplicates user IDs from reverse index", async () => {
       const { adapter, state } = createAdapterWithState();
 

@@ -215,9 +215,41 @@ describe("SlackFormatConverter", () => {
       ).toEqual({ text: "Jump https://example.com/docs#@george" });
     });
 
+    it("does not mangle @handles inside Slack links", () => {
+      expect(
+        converter.toSlackPayload(
+          "See <https://example.com/p?user=@george|George's profile>"
+        )
+      ).toEqual({
+        text: "See <https://example.com/p?user=@george|George's profile>",
+      });
+    });
+
+    it("does not mangle @handles inside Markdown links", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown: "See [profile](https://example.com/p?user=@george)",
+        })
+      ).toEqual({
+        markdown_text: "See [profile](https://example.com/p?user=@george)",
+      });
+    });
+
     it("does not mangle @handles inside schemeless host paths", () => {
       expect(converter.toSlackPayload("See hackmd.io/@jkyang/abc")).toEqual({
         text: "See hackmd.io/@jkyang/abc",
+      });
+    });
+
+    it("rewrites slash-separated mentions", () => {
+      expect(converter.toSlackPayload("cc @george/@anne")).toEqual({
+        text: "cc <@george>/<@anne>",
+      });
+    });
+
+    it("rewrites mentions after schemeless host punctuation", () => {
+      expect(converter.toSlackPayload("See example.com,@george")).toEqual({
+        text: "See example.com,<@george>",
       });
     });
 
@@ -227,6 +259,14 @@ describe("SlackFormatConverter", () => {
       ).toEqual({
         text: "See https://hackmd.io/@jkyang/abc cc <@george>",
       });
+    });
+
+    it("preserves schemeless URL handles in response URL markdown", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "See hackmd.io/@jkyang/abc cc @george",
+        })
+      ).toBe("See hackmd.io/@jkyang/abc cc <@george>");
     });
   });
 

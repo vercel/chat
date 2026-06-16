@@ -65,7 +65,7 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
-import { SlackFormatConverter } from "./markdown";
+import { replaceBareMentions, SlackFormatConverter } from "./markdown";
 import {
   decodeModalMetadata,
   encodeModalMetadata,
@@ -3009,25 +3009,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
     const state = this.chat.getState();
 
-    // Find all @word patterns that aren't already wrapped in <@...>
-    const mentionPattern = /@(\w+)/g;
     const mentions = new Map<string, string[]>();
 
-    for (const match of text.matchAll(mentionPattern)) {
-      const name = match[1];
-      // Skip if already a Slack user ID format or inside <@...>
+    replaceBareMentions(text, (mention, name) => {
       if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-        continue;
-      }
-      // Check the character before @ to skip <@...> patterns
-      const idx = match.index;
-      if (idx > 0 && text[idx - 1] === "<") {
-        continue;
+        return mention;
       }
       if (!mentions.has(name.toLowerCase())) {
         mentions.set(name.toLowerCase(), []);
       }
-    }
+      return mention;
+    });
 
     if (mentions.size === 0) {
       return text;
@@ -3054,34 +3046,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     // Replace mentions in text
-    return text.replace(
-      mentionPattern,
-      (match, name: string, offset: number) => {
-        if (offset > 0 && text[offset - 1] === "<") {
-          return match;
-        }
-        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-          return match;
-        }
-
-        const userIds = mentions.get(name.toLowerCase());
-        if (!userIds || userIds.length === 0) {
-          return match;
-        }
-        if (userIds.length === 1) {
-          return `<@${userIds[0]}>`;
-        }
-        // Disambiguate using thread participants
-        if (participants) {
-          const inThread = userIds.filter((id) => participants.has(id));
-          if (inThread.length === 1) {
-            return `<@${inThread[0]}>`;
-          }
-        }
-        // Still ambiguous — leave as plain text
-        return match;
+    return replaceBareMentions(text, (mention, name) => {
+      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+        return mention;
       }
-    );
+
+      const userIds = mentions.get(name.toLowerCase());
+      if (!userIds || userIds.length === 0) {
+        return mention;
+      }
+      if (userIds.length === 1) {
+        return `<@${userIds[0]}>`;
+      }
+      // Disambiguate using thread participants
+      if (participants) {
+        const inThread = userIds.filter((id) => participants.has(id));
+        if (inThread.length === 1) {
+          return `<@${inThread[0]}>`;
+        }
+      }
+      return mention;
+    });
   }
 
   /**
