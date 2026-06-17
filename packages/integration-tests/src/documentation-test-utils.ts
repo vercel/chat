@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -6,6 +12,98 @@ export const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 export const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 export const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
+export const CHAT_SDK_HOMEPAGE = "https://chat-sdk.dev";
+export const CHAT_SDK_GUIDES_URL = "https://vercel.com/kb/chat-sdk";
+
+export interface PublishedPackage {
+  dirName: string;
+  name: string;
+  packageJsonPath: string;
+  readmePath?: string;
+}
+
+export const SHARED_STATE_ADAPTER_KEYWORDS = [
+  "chat-sdk",
+  "state",
+  "state-adapter",
+  "cache",
+  "typescript",
+  "vercel",
+] as const;
+
+export const PRODUCTION_STATE_ADAPTER_KEYWORDS = ["queues"] as const;
+
+export const getOfficialPlatformAdapterSlug = (
+  dirName: string
+): string | undefined => {
+  if (!dirName.startsWith("adapter-") || dirName === "adapter-shared") {
+    return undefined;
+  }
+
+  return dirName.slice("adapter-".length);
+};
+
+export const getOfficialPlatformOgImageUrl = (slug: string): string =>
+  `${CHAT_SDK_HOMEPAGE}/en/adapters/official/${slug}/og`;
+
+export const getExpectedHomepage = (dirName: string, name: string): string => {
+  if (name === "chat") {
+    return `${CHAT_SDK_HOMEPAGE}/docs`;
+  }
+  if (name === "@chat-adapter/tests") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/testing`;
+  }
+  if (name === "@chat-adapter/shared") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/contributing/building`;
+  }
+  if (name === "create-chat-sdk") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
+  }
+  if (dirName.startsWith("state-")) {
+    const slug =
+      dirName === "state-pg" ? "postgres" : dirName.slice("state-".length);
+    return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
+  }
+  if (dirName.startsWith("adapter-")) {
+    const slug = getOfficialPlatformAdapterSlug(dirName);
+    if (!slug) {
+      throw new Error(
+        `No homepage convention for package "${name}" (${dirName})`
+      );
+    }
+    return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
+  }
+  throw new Error(`No homepage convention for package "${name}" (${dirName})`);
+};
+
+export const findPublishedPackages = (): PublishedPackage[] => {
+  const packages: PublishedPackage[] = [];
+
+  for (const dirName of readdirSync(PACKAGES_DIR)) {
+    const packageJsonPath = join(PACKAGES_DIR, dirName, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+      name: string;
+      private?: boolean;
+    };
+    if (pkg.private) {
+      continue;
+    }
+
+    const readmePath = join(PACKAGES_DIR, dirName, "README.md");
+    packages.push({
+      dirName,
+      name: pkg.name,
+      packageJsonPath,
+      readmePath: existsSync(readmePath) ? readmePath : undefined,
+    });
+  }
+
+  return packages.sort((a, b) => a.name.localeCompare(b.name));
+};
 
 export const VALID_PACKAGE_README_IMPORTS = [
   "chat",
@@ -17,6 +115,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/twilio",
   "@chat-adapter/messenger",
   "@chat-adapter/web",
   "@chat-adapter/web/react",
@@ -41,14 +140,30 @@ export const VALID_PACKAGE_README_IMPORTS = [
 export const VALID_DOC_PACKAGES = [
   "chat",
   "chat/ai",
+  "chat/adapters",
   "@chat-adapter/slack",
+  "@chat-adapter/slack/api",
+  "@chat-adapter/slack/blocks",
+  "@chat-adapter/slack/format",
+  "@chat-adapter/slack/webhook",
   "@chat-adapter/teams",
+  "@chat-adapter/teams/api",
+  "@chat-adapter/teams/cards",
+  "@chat-adapter/teams/format",
+  "@chat-adapter/teams/graph",
+  "@chat-adapter/teams/modals",
+  "@chat-adapter/teams/webhook",
   "@chat-adapter/gchat",
   "@chat-adapter/discord",
   "@chat-adapter/telegram",
   "@chat-adapter/github",
   "@chat-adapter/linear",
   "@chat-adapter/whatsapp",
+  "@chat-adapter/twilio",
+  "@chat-adapter/twilio/api",
+  "@chat-adapter/twilio/format",
+  "@chat-adapter/twilio/voice",
+  "@chat-adapter/twilio/webhook",
   "@chat-adapter/messenger",
   "@chat-adapter/web",
   "@chat-adapter/web/react",
@@ -85,10 +200,12 @@ export const VALID_DOC_PACKAGES = [
   // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
   "@beeper/chat-adapter-matrix",
-  "chat-adapter-imessage",
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
+  "@veltdev/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
+  "@agentphone/chat-sdk-adapter",
+  "@kapso/chat-adapter",
   "chat-adapter-baileys",
   "baileys",
   "chat-adapter-blooio",
@@ -99,6 +216,8 @@ export const VALID_DOC_PACKAGES = [
   "chat-adapter-sendblue",
   "@bitbasti/chat-adapter-webex",
   "chat-adapter-zalo",
+  "@larksuite/vercel-chat-adapter",
+  "qrcode-terminal",
 ];
 
 export function extractTypeScriptBlocks(markdown: string): string[] {

@@ -1,4 +1,14 @@
 {
   "title": "Vendor-Official Adapters",
-  "pages": ["matrix", "imessage", "liveblocks", "resend", "zernio"]
+  "pages": [
+    "liveblocks",
+    "resend",
+    "sendblue",
+    "zernio",
+    "matrix",
+    "agentphone",
+    "lark",
+    "velt",
+    "kapso"
+  ]
 }

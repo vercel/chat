@@ -17,6 +17,7 @@
     "incremental": true,
     "paths": {
       "@/*": ["./*"],
+      "chat/adapters": ["../../packages/chat/src/adapters/index.ts"],
       "@/.source": [".source"]
     },
     "plugins": [

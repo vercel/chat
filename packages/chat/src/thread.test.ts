@@ -217,6 +217,28 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
     });
 
+    it("should fall back when adapter.stream returns null", async () => {
+      mockAdapter.stream = vi.fn().mockResolvedValue(null);
+
+      const textStream = createTextStream(["Hello", " ", "World"]);
+      await thread.post(textStream);
+
+      expect(mockAdapter.stream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({ updateIntervalMs: 500 })
+      );
+      expect(mockAdapter.postMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "..."
+      );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
+
     it("should fall back to post+edit when adapter has no native streaming", async () => {
       // Ensure no stream method
       mockAdapter.stream = undefined;

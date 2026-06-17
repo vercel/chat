@@ -604,7 +604,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context + caller options
-    const options: StreamOptions = { ...callerOptions };
+    const options: StreamOptions = {
+      updateIntervalMs: this._streamingUpdateIntervalMs,
+      ...callerOptions,
+    };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
       // recipientTeamId is only consumed by the Slack adapter; other adapters
@@ -642,17 +645,19 @@ export class ThreadImpl<TState = Record<string, unknown>>
       };
 
       const raw = await this.adapter.stream(this.id, wrappedStream, options);
-      const sent = this.createSentMessage(
-        raw.id,
-        { markdown: accumulated },
-        raw.threadId
-      );
+      if (raw) {
+        const sent = this.createSentMessage(
+          raw.id,
+          { markdown: accumulated },
+          raw.threadId
+        );
 
-      if (this._threadHistory) {
-        await this._threadHistory.append(this.id, new Message(sent));
+        if (this._threadHistory) {
+          await this._threadHistory.append(this.id, new Message(sent));
+        }
+
+        return sent;
       }
-
-      return sent;
     }
 
     // Fallback: post + edit with throttling.

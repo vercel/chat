@@ -18,7 +18,7 @@ If you're working with an AI coding agent like Claude Code or Cursor, you can cl
 
 ### Vercel Plugin
 
-Turn your agent into a Vercel expert with this [plugin](https://vercel.com/docs/agent-resources/vercel-plugin); the [Chat SDK skill](https://skills.sh/vercel/chat/chat-sdk) is included.
+Turn your agent into a Vercel expert with this [plugin](https://vercel.com/docs/agent-resources/vercel-plugin); the [Chat SDK skill](https://skills.sh/vercel/chat/chat-sdk) is included. This plugin is optional; it’s not required to use Chat SDK or for this guide.
 
 `npx plugins add vercel/vercel-plugin`
 
@@ -168,6 +168,8 @@ See the [Chat SDK adapter directory](https://chat-sdk.dev/adapters) for the full
 *   [Chat SDK documentation](https://chat-sdk.dev/docs)
     
 *   [Chat SDK GitHub](https://github.com/vercel/chat)
+    
+*   [The Complete Guide to Chat SDK](https://vercel.com/kb/guide/the-complete-guide-to-chat-sdk)
     
 *   [Resend documentation](https://resend.com/docs/api-reference/emails/send-email)
     

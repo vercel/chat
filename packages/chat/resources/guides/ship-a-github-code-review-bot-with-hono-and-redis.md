@@ -39,7 +39,7 @@ Create a new Hono app and add the Chat SDK, AI SDK, and adapter packages:
 
 Select the `vercel` template when prompted by `create-hono`. This sets up the project for Vercel deployment with the correct entry point.
 
-The `chat` package is the Chat SDK core. The `@chat-adapter/github` and `@chat-adapter/state-redis` packages are the [GitHub platform adapter](https://chat-sdk.dev/adapters/github) and [Redis state adapter](https://chat-sdk.dev/adapters/redis). `@vercel/sandbox` provides the ephemeral execution environment, and `bash-tool` wires it up as an AI SDK tool.
+The `chat` package is the Chat SDK core. The `@chat-adapter/github` and `@chat-adapter/state-redis` packages are the [GitHub platform adapter](https://chat-sdk.dev/adapters/official/github) and [Redis state adapter](https://chat-sdk.dev/adapters/official/redis). `@vercel/sandbox` provides the ephemeral execution environment, and `bash-tool` wires it up as an AI SDK tool.
 
 ### 2\. Configure a GitHub webhook
 
@@ -141,6 +141,10 @@ The sandbox has a 5-minute timeout and the agent stops after 20 steps. For large
 ### Redis connection errors
 
 Verify that `REDIS_URL` is reachable from your deployment environment. The state adapter uses Redis for distributed locking, so the bot won't process messages without a working connection.
+
+* * *
+
+## Build with a template or read more.
 
 ---
 

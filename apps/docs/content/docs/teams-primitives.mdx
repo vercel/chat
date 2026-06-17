@@ -1,0 +1,255 @@
+---
+title: Teams Low-Level APIs
+description: Use Teams Activity parsing, Bot Connector calls, Graph reads, formatting, Adaptive Cards, and Task Module helpers without the full Chat runtime.
+type: guide
+prerequisites:
+  - /adapters/official/teams
+related:
+  - /docs/handling-events
+  - /docs/cards
+  - /docs/modals
+---
+
+The Teams adapter is the right default for most bots. It validates Bot Framework requests through the Microsoft Teams SDK, parses Activities, stores conversation context, renders Adaptive Cards, reads Graph history, and routes events through `Chat`.
+
+Use the low-level Teams subpaths when your app already owns routing, state, sessions, or workflow execution and only needs Teams-specific primitives.
+
+| Subpath | Use for |
+|---------|---------|
+| `@chat-adapter/teams/webhook` | Parse Bot Framework Activity JSON, classify common payloads, and extract continuation data |
+| `@chat-adapter/teams/api` | Fetch-based Bot Connector calls for messages, updates, deletes, typing, and conversations |
+| `@chat-adapter/teams/graph` | Fetch-based Microsoft Graph reads for chats, channels, channel messages, and replies |
+| `@chat-adapter/teams/format` | Teams HTML, mention, Markdown-ish, and emoji string helpers |
+| `@chat-adapter/teams/cards` | Runtime-free conversion from simple card objects and input requests to Adaptive Cards |
+| `@chat-adapter/teams/modals` | Runtime-free Task Module Adaptive Card helpers and submit parsing |
+
+<Callout type="warning">
+  The webhook subpath parses Activities only. It does not verify Microsoft Bot Framework JWTs. For production request validation, use `createTeamsAdapter` or the Microsoft Teams SDK request pipeline before handing the Activity to these helpers.
+</Callout>
+
+## Webhooks
+
+Teams sends Bot Framework Activity JSON. `readTeamsWebhook` reads the request body and classifies the Activity, but it intentionally does not perform JWT validation.
+
+```typescript title="app/api/teams/route.ts" lineNumbers
+import { postTeamsMessage } from "@chat-adapter/teams/api";
+import { readTeamsWebhook } from "@chat-adapter/teams/webhook";
+
+export async function POST(request: Request) {
+  const payload = await readTeamsWebhook(request, {
+    botAppId: process.env.TEAMS_APP_ID,
+  });
+
+  if (payload.kind === "message") {
+    await postTeamsMessage({
+      conversationId: payload.continuation.conversationId,
+      credentials: {
+        appId: process.env.TEAMS_APP_ID!,
+        appPassword: process.env.TEAMS_APP_PASSWORD!,
+        tenantId: payload.continuation.tenantId,
+      },
+      markdownText: `received: ${payload.text}`,
+      serviceUrl: payload.continuation.serviceUrl,
+    });
+  }
+
+  return new Response(null, { status: 200 });
+}
+```
+
+`parseTeamsWebhookBody` returns typed payloads:
+
+| Kind | Teams surface |
+|------|---------------|
+| `message` | Message activities |
+| `message_reaction` | Reaction activities |
+| `card_action` | Adaptive Card actions and `Action.Submit` message activities |
+| `dialog_open` | Task Module `task/fetch` invokes |
+| `dialog_submit` | Task Module `task/submit` invokes |
+| `conversation_update` | Conversation membership and install context updates |
+| `installation_update` | App installation updates |
+| `unsupported` | Valid Activities not normalized by this helper yet |
+
+Message-like payloads include `continuation`, which contains provider-native reply context:
+
+```typescript
+type TeamsContinuation = {
+  activityId?: string;
+  channelId?: string;
+  conversationId: string;
+  replyToId?: string;
+  serviceUrl: string;
+  teamId?: string;
+  tenantId?: string;
+};
+```
+
+This is not a Chat SDK `Thread`. It is the durable Teams data you need to reply later with `@chat-adapter/teams/api`.
+
+## Bot Connector API
+
+The API subpath calls the Bot Framework Connector REST API with `fetch`. It does not import `@microsoft/teams.apps`.
+
+```typescript title="teams.ts" lineNumbers
+import {
+  deleteTeamsMessage,
+  postTeamsMessage,
+  sendTeamsTyping,
+  updateTeamsMessage,
+} from "@chat-adapter/teams/api";
+
+const credentials = {
+  appId: process.env.TEAMS_APP_ID!,
+  appPassword: process.env.TEAMS_APP_PASSWORD!,
+  tenantId: process.env.TEAMS_APP_TENANT_ID!,
+};
+
+const posted = await postTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  markdownText: "**hello**",
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+
+await updateTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  messageId: posted.id,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+  text: "updated",
+});
+
+await sendTeamsTyping({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+
+await deleteTeamsMessage({
+  conversationId: "19:abc@thread.tacv2",
+  credentials,
+  messageId: posted.id,
+  serviceUrl: "https://smba.trafficmanager.net/teams/",
+});
+```
+
+Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition. A direct `accessToken` must be scoped for the API you call it against — the Bot Connector subpath (`/api`) needs a `https://api.botframework.com/.default` token, while the Graph subpath (`/graph`) needs a `https://graph.microsoft.com/.default` token. Passing the same token to both will fail against one of them. When you supply `appId`/`appPassword` instead, each subpath requests the correct scope for you.
+
+## Graph
+
+The Graph subpath reads Teams history with explicit Graph IDs. Unlike `TeamsAdapter`, it does not use the adapter state cache to infer `teamId`, `channelId`, or `chatId`.
+
+```typescript
+import { listTeamsChannelMessages } from "@chat-adapter/teams/graph";
+
+const messages = await listTeamsChannelMessages({
+  channelId: "19:channel@thread.tacv2",
+  credentials: {
+    appId: process.env.TEAMS_APP_ID!,
+    appPassword: process.env.TEAMS_APP_PASSWORD!,
+    tenantId: process.env.TEAMS_APP_TENANT_ID!,
+  },
+  limit: 25,
+  teamId: "19:team@thread.tacv2",
+});
+
+const latestText = messages.items[0]?.text;
+```
+
+Graph reads require the same Microsoft Graph permissions as the full adapter. Channel and group-chat reads can use RSC permissions; DM reads require Azure AD application permissions such as `Chat.Read.All`.
+
+## Formatting
+
+Teams renders message text as HTML. The format subpath provides small helpers for custom runtimes:
+
+```typescript
+import {
+  formatTeamsMention,
+  markdownToTeamsHtml,
+  teamsHtmlToMarkdown,
+} from "@chat-adapter/teams/format";
+
+const html = markdownToTeamsHtml(
+  `${formatTeamsMention("Ada")} approved **deploy v2.4.1**`
+);
+const markdown = teamsHtmlToMarkdown("<p>Hello <strong>world</strong></p>");
+```
+
+Use the full `TeamsFormatConverter` from `@chat-adapter/teams` when you need mdast conversion inside Chat SDK.
+
+## Cards
+
+The cards subpath converts simple card objects into Adaptive Card JSON without importing the full `chat` JSX runtime.
+
+```typescript title="cards.ts" lineNumbers
+import {
+  cardToAdaptiveCard,
+  cardToTeamsFallbackText,
+} from "@chat-adapter/teams/cards";
+import { postTeamsMessage } from "@chat-adapter/teams/api";
+
+const card = {
+  children: [
+    { content: "deploy v2.4.1?", type: "text" },
+    {
+      children: [
+        { id: "approve", label: "Approve", style: "primary", type: "button" },
+        { id: "deny", label: "Deny", style: "danger", type: "button" },
+      ],
+      type: "actions",
+    },
+  ],
+  title: "Deployment",
+  type: "card",
+} as const;
+
+await postTeamsMessage({
+  adaptiveCard: cardToAdaptiveCard(card),
+  conversationId: payload.continuation.conversationId,
+  credentials,
+  serviceUrl: payload.continuation.serviceUrl,
+  text: cardToTeamsFallbackText(card),
+});
+```
+
+Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@chat-adapter/teams/cards` when you are building a Teams-only runtime and want Adaptive Card output directly.
+
+## Modals
+
+Teams Task Modules are invoke-based dialogs backed by Adaptive Cards. The modals subpath builds those cards and parses submit data.
+
+```typescript
+import {
+  modalToAdaptiveCard,
+  parseTeamsDialogSubmitValues,
+  toTeamsTaskModuleResponse,
+} from "@chat-adapter/teams/modals";
+
+const modal = {
+  callbackId: "deploy",
+  children: [
+    { content: "Why deploy now?", type: "text" },
+    { id: "reason", label: "Reason", type: "text_input" },
+  ],
+  title: "Deploy",
+  type: "modal",
+} as const;
+
+const card = modalToAdaptiveCard(modal, { contextId: "deploy-1" });
+const values = parseTeamsDialogSubmitValues(payload.value);
+
+return Response.json(
+  toTeamsTaskModuleResponse({ action: "update", modal }, { contextId: "deploy-1" })
+);
+```
+
+## Import Boundaries
+
+The low-level Teams subpaths are designed to avoid the full runtime import graph:
+
+- no `chat` import
+- no `@chat-adapter/shared` import
+- no `@microsoft/teams.apps` import
+- no full adapter import
+
+The package still installs the full Teams adapter dependencies. The subpaths keep your source and bundle imports clean, but they are not a package-size split.

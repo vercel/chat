@@ -2,6 +2,7 @@ import { DynamicLink } from "fumadocs-core/dynamic-link";
 import { TypeTable } from "fumadocs-ui/components/type-table";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
+import { AdapterSlugList } from "./adapter-slug-list";
 import {
   Callout,
   CalloutContainer,
@@ -66,6 +67,7 @@ export const getMDXComponents = (
 
   FeatureSupport,
   GlobalFeatureMatrix,
+  AdapterSlugList,
   PackageInstall,
 
   // User components last to allow overwriting defaults

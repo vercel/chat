@@ -1,15 +1,29 @@
-# chat
+# Chat SDK
+
+> npm package: [`chat`](https://www.npmjs.com/package/chat)
 
 [![npm version](https://img.shields.io/npm/v/chat)](https://www.npmjs.com/package/chat)
 [![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
 
-Core SDK for building multi-platform chat bots. Provides the `Chat` class, event handlers, JSX card runtime, emoji helpers, and type-safe message formatting.
+Universal TypeScript SDK for building multi-platform chat bots and AI agents on Slack, Teams, Google Chat, Discord, WhatsApp, and more. Provides the `Chat` class, event handlers, JSX cards, emoji helpers, and type-safe message formatting.
+
+Documentation: [chat-sdk.dev/docs](https://chat-sdk.dev/docs) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
 ```bash
 npm install chat
 ```
+
+## CLI
+
+Scaffold a minimal Next.js bot app with `create-chat-sdk`:
+
+```bash
+npx create-chat-sdk@latest my-bot
+```
+
+The CLI generates your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog. See the [CLI docs](https://chat-sdk.dev/docs/create-chat-sdk) for options and non-interactive usage.
 
 ## Usage
 
@@ -40,7 +54,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state) for all options.
+> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state-adapters) for all options.
 
 ## Configuration
 
@@ -53,13 +67,25 @@ bot.onSubscribedMessage(async (thread, message) => {
 | `streamingUpdateIntervalMs` | `number` | `500` | Update interval for fallback streaming (post + edit) in ms |
 | `dedupeTtlMs` | `number` | `300000` | TTL for message deduplication entries in ms. Increase if webhook cold starts cause platform retries (e.g., Slack's `http_timeout` retry) that arrive after the default window |
 
-## AI coding agent support
+## AI Coding Agents
 
-If you use an AI coding agent like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), you can teach it about Chat SDK:
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
 
 ```bash
 npx skills add vercel/chat
 ```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## Documentation
 

@@ -295,8 +295,8 @@
 }
 
 .dark {
-  --ds-background-100: oklch(0 0 0);
-  --ds-background-200: oklch(0.027 0 0);
+  --ds-background-100: oklch(0.145 0 0);
+  --ds-background-200: oklch(0 0 0);
   --ds-gray-100: oklch(0.218 0 0);
   --ds-gray-200: oklch(0.239 0 0);
   --ds-gray-300: oklch(0.281 0 0);
@@ -468,9 +468,108 @@
 }
 
 /* Geist text utilities */
+html {
+  --font-sans-fallback:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+  --font-family-geist:
+    Geist, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+}
+
 @utility material-small {
   box-shadow: var(--ds-shadow-border-small);
   @apply bg-background-100 rounded-md;
+}
+
+@utility text-heading-32 {
+  font-family: var(--font-family-geist);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -1.28px;
+  line-height: 40px;
+}
+
+@utility text-heading-20 {
+  font-family: var(--font-family-geist);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 26px;
+}
+
+@utility text-heading-16 {
+  font-family: var(--font-family-geist);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.32px;
+  line-height: 24px;
+}
+
+@utility text-heading-40 {
+  font-family: var(--font-family-geist);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -2.4px;
+  line-height: 48px;
+}
+
+@utility text-heading-48 {
+  font-family: var(--font-family-geist);
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: -2.88px;
+  line-height: 56px;
+}
+
+@utility text-heading-64 {
+  font-family: var(--font-family-geist);
+  font-size: 64px;
+  font-weight: 600;
+  letter-spacing: -3.84px;
+  line-height: 64px;
+}
+
+@utility text-heading-24 {
+  font-family: var(--font-family-geist);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.96px;
+  line-height: 32px;
+}
+
+@utility text-copy-14 {
+  font-family: var(--font-family-geist);
+  font-size: 14px;
+  font-variation-settings: "wght" 400;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+@utility text-copy-16 {
+  font-family: var(--font-family-geist);
+  font-size: 16px;
+  font-variation-settings: "wght" 400;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+@utility text-copy-18 {
+  font-family: var(--font-family-geist);
+  font-size: 18px;
+  font-variation-settings: "wght" 400;
+  font-weight: 400;
+  line-height: 28px;
+}
+
+@utility text-copy-20 {
+  font-family: var(--font-family-geist);
+  font-size: 20px;
+  font-variation-settings: "wght" 400;
+  font-weight: 400;
+  line-height: 36px;
 }
 
 @utility text-label-13 {
@@ -493,6 +592,22 @@
 .prose h5,
 .prose h6 {
   @apply tracking-tight;
+}
+
+.prose :where(p > code, li > code) {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+  overflow-wrap: anywhere;
+  @apply rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground;
+}
+
+.prose :where(p > code, li > code)::before,
+.prose :where(p > code, li > code)::after {
+  content: none;
 }
 
 /* Line numbers styles for code blocks */

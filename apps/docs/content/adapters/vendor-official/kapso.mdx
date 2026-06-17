@@ -1,0 +1,291 @@
+---
+title: Kapso
+description: Kapso-first WhatsApp adapter for Chat SDK. Receive Kapso platform webhooks, reply through Chat SDK threads, send cards/buttons and media, and fetch Kapso conversation history.
+packageName: "@kapso/chat-adapter"
+slug: kapso
+type: platform
+tagline: WhatsApp adapter for Chat SDK backed by Kapso webhooks, sends, media, reactions, contacts, conversations, and message history.
+community: true
+vendorOfficial: true
+author: Kapso
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads:
+    status: yes
+    label: Images, video, audio, documents, stickers
+  streaming: no
+  scheduledMessages: no
+  cardFormat:
+    status: partial
+    label: WhatsApp-compatible text and actions
+  buttons:
+    status: yes
+    label: Up to 3 reply buttons
+  linkButtons: yes
+  selectMenus: no
+  tables: no
+  fields: no
+  imagesInCards:
+    status: partial
+    label: Sent as media
+  modals: no
+  slashCommands: no
+  mentions: no
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint: yes
+  fetchMessages: yes
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+---
+
+## Install
+
+<PackageInstall package="@kapso/chat-adapter chat" />
+
+Install a durable Chat SDK state adapter for production. The examples below use `@chat-adapter/state-memory` for local development.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createKapsoAdapter } from "@kapso/chat-adapter";
+
+export const bot = new Chat({
+  userName: "support",
+  state: createMemoryState(),
+  adapters: {
+    kapso: createKapsoAdapter({
+      kapsoApiKey: process.env.KAPSO_API_KEY,
+      phoneNumberId: process.env.KAPSO_PHONE_NUMBER_ID,
+      webhookSecret: process.env.KAPSO_WEBHOOK_SECRET,
+    }),
+  },
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+Kapso webhooks are direct-message conversations. Replies, cards, files, reactions, and history calls use the same Chat SDK `Thread` and `Message` APIs as the official adapters.
+
+## Configuration
+
+<TypeTable
+  type={{
+    kapsoApiKey: {
+      type: "string",
+      description: "Kapso API key used for sends, history, contacts, conversations, and media. Falls back to `KAPSO_API_KEY`.",
+    },
+    phoneNumberId: {
+      type: "string",
+      description: "WhatsApp phone number ID connected in Kapso. Used by `openDM()` and webhook fallback parsing. Falls back to `KAPSO_PHONE_NUMBER_ID`.",
+    },
+    webhookSecret: {
+      type: "string",
+      description: "Kapso webhook secret used to verify `X-Webhook-Signature` deliveries. Falls back to `KAPSO_WEBHOOK_SECRET`.",
+    },
+    baseUrl: {
+      type: "string",
+      default: '"https://api.kapso.ai/meta/whatsapp"',
+      description: "Kapso proxy URL. Falls back to `KAPSO_BASE_URL`.",
+    },
+    client: {
+      type: "WhatsAppClient",
+      description: "Existing `@kapso/whatsapp-cloud-api` client. Use this when your app already shares a configured Kapso client.",
+    },
+    verifyWebhookSignatures: {
+      type: "boolean",
+      default: "true",
+      description: "Whether POST webhook signatures must verify. Disable only for local unsigned fixtures.",
+    },
+    appSecret: {
+      type: "string",
+      description: "Meta app secret used only for direct Meta webhook compatibility.",
+    },
+    webhookVerifyToken: {
+      type: "string",
+      description: "Meta webhook verify token used only for direct Meta webhook subscription challenge compatibility.",
+    },
+    userName: {
+      type: "string",
+      description: "Bot display name. Falls back to `KAPSO_BOT_USERNAME`, then the Chat SDK `userName`.",
+    },
+    historyFields: {
+      type: "string",
+      description: "Kapso message history fields selector. Defaults to common content and media fields.",
+    },
+    cacheSize: {
+      type: "number",
+      default: "200",
+      description: "Maximum messages kept in adapter memory for fallback history.",
+    },
+    logger: {
+      type: "Logger",
+      description: "Chat SDK-compatible logger.",
+    },
+    debug: {
+      type: "boolean",
+      default: "false",
+      description: "Emit verbose adapter diagnostics to the configured logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `KAPSO_API_KEY` | Yes | Kapso API key used for sends, history, contacts, conversations, and media. |
+| `KAPSO_PHONE_NUMBER_ID` | Recommended | WhatsApp phone number ID connected in Kapso. Required for `openDM()` and useful as a webhook fallback. |
+| `KAPSO_WEBHOOK_SECRET` | Recommended | Secret used to verify Kapso `X-Webhook-Signature` webhook deliveries. |
+| `KAPSO_BASE_URL` | No | Kapso proxy URL. Defaults to `https://api.kapso.ai/meta/whatsapp`. |
+| `KAPSO_BOT_USERNAME` | No | Bot display name. Defaults to the Chat SDK `userName` after initialization. |
+
+## Platform setup
+
+1. Create or use a Kapso integration and copy your **API key**.
+2. Copy the WhatsApp **phone number ID** connected in Kapso if the bot will initiate outbound direct messages.
+3. Create a webhook secret in Kapso and set the same value as `KAPSO_WEBHOOK_SECRET`.
+4. Configure your webhook endpoint URL to the public route that forwards requests to `bot.webhooks.kapso`.
+5. Subscribe to `whatsapp.message.received`; add `whatsapp.message.sent` only if your app needs sent-message echoes.
+
+## Webhook route
+
+Kapso sends platform webhooks as `POST` requests. Forward the raw `Request` to Chat SDK:
+
+```typescript title="app/api/webhooks/kapso/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.kapso(request);
+}
+```
+
+The adapter verifies Kapso `X-Webhook-Signature` headers by default and returns `401` for invalid signed requests. For unsigned local fixtures only, pass `verifyWebhookSignatures: false`.
+
+## Sending messages
+
+Reply inside an incoming WhatsApp handler:
+
+```typescript
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post({
+    markdown: `Received: **${message.text}**`,
+  });
+});
+```
+
+Start a WhatsApp conversation from your app with `openDM()`:
+
+```typescript
+import type { KapsoAdapter } from "@kapso/chat-adapter";
+
+const adapter = bot.getAdapter("kapso") as KapsoAdapter;
+const threadId = await adapter.openDM("15551234567");
+const thread = bot.thread(threadId);
+
+await thread.post("Hello from Kapso.");
+```
+
+## Buttons and cards
+
+Chat SDK card buttons render as WhatsApp reply buttons.
+
+```tsx
+import { Actions, Button, Card } from "chat";
+
+await thread.post(
+  Card({
+    title: "Approve refund?",
+    children: [
+      Actions([
+        Button({ id: "approve", label: "Approve", value: "refund-123" }),
+        Button({ id: "reject", label: "Reject", value: "refund-123" }),
+      ]),
+    ],
+  })
+);
+```
+
+WhatsApp supports up to 3 reply buttons. Button labels must be 1-20 characters, and the adapter throws a validation error instead of silently truncating labels or dropping buttons.
+
+## Media
+
+Send files through Chat SDK:
+
+```typescript
+import { readFile } from "node:fs/promises";
+
+await thread.post({
+  markdown: "Here is the receipt.",
+  files: [
+    {
+      filename: "receipt.pdf",
+      mimeType: "application/pdf",
+      data: await readFile("receipt.pdf"),
+    },
+  ],
+});
+```
+
+Inbound media is exposed as Chat SDK attachments. When Kapso includes a mirrored media URL, the attachment has `url`. When a WhatsApp media ID is available, the attachment has lazy `fetchData()`.
+
+## History
+
+With `KAPSO_API_KEY`, history reads from Kapso:
+
+```typescript
+const page = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
+```
+
+`fetchThread()` enriches metadata with Kapso contact and conversation records when available.
+
+## Thread IDs
+
+Current thread IDs are encoded as:
+
+```text
+kapso:<base64url(phoneNumberId)>:<base64url(waId)>[:<base64url(conversationId)>]
+```
+
+Use helpers instead of constructing thread IDs manually:
+
+```typescript
+const threadId = adapter.encodeThreadId({
+  phoneNumberId: "16315558151",
+  waId: "15551234567",
+});
+
+const decoded = adapter.decodeThreadId(threadId);
+```
+
+## Limitations
+
+- Direct Meta webhook setup is a compatibility path; Kapso platform webhooks are preferred.
+- Message edit/delete is not supported by WhatsApp/Kapso for recipient devices.
+- Raw WhatsApp templates, flows, and catalogs should be sent through `@kapso/whatsapp-cloud-api` directly alongside the Chat SDK adapter.
+- Streaming is not supported by WhatsApp/Kapso for recipient devices.
+
+## Links
+
+- [Kapso docs](https://docs.kapso.ai/)
+- [GitHub](https://github.com/gokapso/chat-sdk-adapter)
+- [npm](https://www.npmjs.com/package/@kapso/chat-adapter)
+
+## Feature support
+
+<FeatureSupport />

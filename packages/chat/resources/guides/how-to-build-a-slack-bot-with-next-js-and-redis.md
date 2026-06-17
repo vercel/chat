@@ -35,7 +35,7 @@ Create a new Next.js app and add the Chat SDK and adapter packages:
 
 `npx create-next-app@latest my-slack-bot --typescript --app cd my-slack-bot pnpm add chat @chat-adapter/slack @chat-adapter/state-redis`
 
-The `chat` package is the Chat SDK core. The `@chat-adapter/slack` and `@chat-adapter/state-redis` packages are the [Slack platform adapter](https://chat-sdk.dev/adapters/slack) and [Redis state adapter](https://chat-sdk.dev/adapters/redis).
+The `chat` package is the Chat SDK core. The `@chat-adapter/slack` and `@chat-adapter/state-redis` packages are the [Slack platform adapter](https://chat-sdk.dev/adapters/official/slack) and [Redis state adapter](https://chat-sdk.dev/adapters/official/redis).
 
 ### 2\. Create a Slack app
 
@@ -128,6 +128,10 @@ Verify that `REDIS_URL` is reachable from your deployment environment. If runnin
 ### Handlers don't run to completion on Vercel
 
 Make sure your webhook route passes `waitUntil` to the handler, as shown in step 5. Without it, serverless functions can terminate before your event handlers finish.
+
+* * *
+
+## Build with a template or read more.
 
 ---
 

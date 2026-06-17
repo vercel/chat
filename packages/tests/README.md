@@ -1,5 +1,7 @@
 # @chat-adapter/tests
 
+> npm package: [`@chat-adapter/tests`](https://www.npmjs.com/package/@chat-adapter/tests)
+
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/tests)](https://www.npmjs.com/package/@chat-adapter/tests)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/tests)](https://www.npmjs.com/package/@chat-adapter/tests)
 
@@ -114,3 +116,27 @@ Text-pattern matchers (`toHavePosted`, `toHaveEdited`, `toHavePostedToChannel`) 
 - **Adapter authors** — verify your `Adapter` implementation routes webhooks through the right `ChatInstance.process*` hook with the right normalized payload.
 
 Adapter-specific helpers (e.g. signed Slack webhook builders, Teams claim builders) live in each adapter's own `/testing` subpath, not in this kit.
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
+
+## License
+
+MIT
