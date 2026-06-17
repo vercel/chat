@@ -25,7 +25,7 @@ const Layout = async ({ children, params }: LayoutProps<"/[lang]">) => {
 
   return (
     <html
-      className={cn(sans.variable, mono.variable, "antialiased")}
+      className={cn(sans.variable, sans.className, mono.variable, "antialiased")}
       lang={lang}
       suppressHydrationWarning
     >

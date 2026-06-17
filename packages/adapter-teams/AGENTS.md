@@ -33,19 +33,25 @@ packages/adapter-teams/
 │   ├── index.ts             # TeamsAdapter + createTeamsAdapter factory
 │   ├── index.test.ts
 │   ├── bridge-adapter.ts    # adapter-side glue between Bot Framework + Chat SDK
+│   ├── api/                 # low-level Bot Connector REST primitives
 │   ├── cards.ts             # Card / PostableMessage → Adaptive Cards
+│   ├── cards-primitives/    # plain-object Adaptive Card primitives
 │   ├── cards.test.ts
 │   ├── config.ts            # configuration parsing & env resolution
 │   ├── errors.ts            # AuthenticationError / RateLimit mapping
 │   ├── errors.test.ts
+│   ├── format/              # runtime-free Teams string helpers
+│   ├── graph/               # low-level Microsoft Graph REST primitives
 │   ├── graph-api.ts         # Microsoft Graph client wrapper
 │   ├── graph-api.test.ts
 │   ├── markdown.ts          # TeamsFormatConverter (mdast ↔ Teams HTML)
 │   ├── markdown.test.ts
 │   ├── modals.ts            # Modal → Task Module conversion
+│   ├── modals-primitives/   # plain-object Task Module primitives
 │   ├── modals.test.ts
 │   ├── thread-id.ts         # encode/decode/isDM helpers
-│   └── types.ts             # internal Teams payload typings
+│   ├── types.ts             # internal Teams payload typings
+│   └── webhook/             # parse-only Activity webhook primitives
 ├── sample-messages.md       # captured Bot Framework activities
 ├── package.json
 ├── tsconfig.json
@@ -54,10 +60,9 @@ packages/adapter-teams/
 └── README.md
 ```
 
-`bridge-adapter.ts` adapts the
-[`botbuilder`](https://www.npmjs.com/package/botbuilder) `Activity`
-event stream into the Chat SDK adapter contract. Keep it free of
-business logic — convert and forward only.
+`bridge-adapter.ts` adapts the `@microsoft/teams.apps` route handler
+into the Chat SDK adapter contract. Keep it free of business logic —
+convert and forward only.
 
 ## Build, test, typecheck
 
@@ -98,6 +103,25 @@ The package's main exports (see `src/index.ts`):
 - Helpers re-exported from sub-modules:
   `cardToAdaptiveCard`, `cardToFallbackText`, `TeamsFormatConverter`,
   `decodeThreadId`, `encodeThreadId`, `isDM`.
+
+Low-level subpaths are exported for custom runtimes that do not want the
+full Chat SDK adapter graph:
+
+- `@chat-adapter/teams/api` — fetch-based Bot Connector message,
+  typing, and conversation helpers.
+- `@chat-adapter/teams/graph` — fetch-based Microsoft Graph reads with
+  explicit `teamId`, `channelId`, or `chatId`.
+- `@chat-adapter/teams/webhook` — parse-only Activity classification
+  and continuation extraction. It does **not** verify Bot Framework
+  JWTs.
+- `@chat-adapter/teams/format` — runtime-free Teams HTML, mention, and
+  emoji helpers.
+- `@chat-adapter/teams/cards` — plain-object Adaptive Card helpers.
+- `@chat-adapter/teams/modals` — plain-object Task Module helpers.
+
+Primitive subpaths must not import `chat`, `@chat-adapter/shared`,
+`@microsoft/teams.apps`, or the main adapter entry. Keep boundary tests
+updated whenever a new primitive file is added.
 
 ## Thread ID format
 

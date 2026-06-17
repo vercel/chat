@@ -1,5 +1,20 @@
 # @chat-adapter/slack
 
+## 4.31.0
+
+### Minor Changes
+
+- 8336a3e: Add `webClientOptions` to `SlackAdapterConfig`, forwarded to both the default and per-token `@slack/web-api` `WebClient` instances. This exposes Web API settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`. Use the existing `apiUrl` option to override the Slack Web API base URL.
+- 171657a: Adding support for stable IDs to link button action handlers
+
+### Patch Changes
+
+- a8bf99a: Fix `@mention` rewriting so an `@handle` inside a URL is no longer turned into a `<@handle>` Slack mention, which corrupted the link. Mention linking now skips whole `http(s)://…` spans, so handles in paths (`https://hackmd.io/@jkyang/abc`), query strings (`?user=@george`), and fragments (`#@george`) are preserved; the lookbehind also excludes a `/` immediately before `@` to cover schemeless URLs (`mastodon.social/@user`). Whitespace- and punctuation-led mentions (e.g. `(cc @george)`), emails, and `<mailto:…>` links are unaffected.
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Minor Changes

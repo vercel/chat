@@ -2845,6 +2845,66 @@ describe("direct WebClient access via adapter.client", () => {
     ).toBe("https://slack-gov.com/api/");
   });
 
+  it("forwards webClientOptions to the internal WebClient", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      webClientOptions: { timeout: 15_000 },
+      logger: mockLogger,
+    });
+
+    expect(
+      (
+        adapter as unknown as {
+          _client: { axios: { defaults: { timeout: number } } };
+        }
+      )._client.axios.defaults.timeout
+    ).toBe(15_000);
+  });
+
+  it("forwards webClientOptions to token-bound WebClients", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      webClientOptions: { timeout: 15_000 },
+      logger: mockLogger,
+    });
+
+    await adapter.withBotToken("xoxb-context-token", () => {
+      expect(
+        (
+          adapter.webClient as unknown as {
+            axios: { defaults: { timeout: number } };
+          }
+        ).axios.defaults.timeout
+      ).toBe(15_000);
+    });
+  });
+
+  it("isolates custom headers between token-bound WebClients", async () => {
+    const headers = { "X-Test": "value" };
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      webClientOptions: { headers },
+      logger: mockLogger,
+    });
+
+    const authorizations: Array<string | undefined> = [];
+    for (const token of ["xoxb-first", "xoxb-second"]) {
+      await adapter.withBotToken(token, () => {
+        authorizations.push(
+          (
+            adapter.webClient as unknown as {
+              axios: { defaults: { headers: { Authorization?: string } } };
+            }
+          ).axios.defaults.headers.Authorization
+        );
+      });
+    }
+
+    expect(authorizations).toEqual(["Bearer xoxb-first", "Bearer xoxb-second"]);
+    expect(headers).toEqual({ "X-Test": "value" });
+  });
+
   it("throws when no token is available (multi-workspace, outside context)", () => {
     const adapter = createSlackAdapter({
       clientId: "test-client-id",

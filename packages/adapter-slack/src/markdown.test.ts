@@ -186,6 +186,48 @@ describe("SlackFormatConverter", () => {
         text: "(cc <@george>, <@anne>)",
       });
     });
+
+    it("does not mangle @handles inside URL paths in plain strings", () => {
+      expect(
+        converter.toSlackPayload("See https://hackmd.io/@jkyang/B1W69XA-fe")
+      ).toEqual({ text: "See https://hackmd.io/@jkyang/B1W69XA-fe" });
+    });
+
+    it("does not mangle @handles inside URL paths in markdown", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown: "See https://mastodon.social/@user for updates",
+        })
+      ).toEqual({
+        markdown_text: "See https://mastodon.social/@user for updates",
+      });
+    });
+
+    it("does not mangle @handles inside URL query strings", () => {
+      expect(
+        converter.toSlackPayload("Profile https://example.com/p?user=@george")
+      ).toEqual({ text: "Profile https://example.com/p?user=@george" });
+    });
+
+    it("does not mangle @handles inside URL fragments", () => {
+      expect(
+        converter.toSlackPayload("Jump https://example.com/docs#@george")
+      ).toEqual({ text: "Jump https://example.com/docs#@george" });
+    });
+
+    it("does not mangle @handles inside schemeless host paths", () => {
+      expect(converter.toSlackPayload("See hackmd.io/@jkyang/abc")).toEqual({
+        text: "See hackmd.io/@jkyang/abc",
+      });
+    });
+
+    it("still rewrites a real mention that follows a URL", () => {
+      expect(
+        converter.toSlackPayload("See https://hackmd.io/@jkyang/abc cc @george")
+      ).toEqual({
+        text: "See https://hackmd.io/@jkyang/abc cc <@george>",
+      });
+    });
   });
 
   describe("toPlainText", () => {

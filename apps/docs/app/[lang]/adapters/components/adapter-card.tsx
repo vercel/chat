@@ -32,7 +32,7 @@ const iconMap: Record<
 > = {
   slack,
   teams,
-  "google-chat": gchat,
+  gchat,
   discord,
   github,
   web,

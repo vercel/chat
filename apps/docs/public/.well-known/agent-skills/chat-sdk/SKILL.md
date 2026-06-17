@@ -1,11 +1,42 @@
 ---
 name: chat-sdk
-description: Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot, handle mentions, direct messages, subscribed threads, reactions, slash commands, cards, modals, files, or AI streaming, set up webhook routes or multi-adapter bots, send rich cards or streamed AI responses to chat platforms, or build a custom adapter or state adapter.
+description: Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to scaffold a bot with create-chat-sdk, build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot, handle mentions, direct messages, subscribed threads, reactions, slash commands, cards, modals, files, or AI streaming, set up webhook routes or multi-adapter bots, send rich cards or streamed AI responses to chat platforms, or build a custom adapter or state adapter.
 ---
 
 # Chat SDK
 
 Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, and WhatsApp. Write bot logic once, deploy everywhere.
+
+## Scaffold a new project
+
+Use `create-chat-sdk` with explicit adapters so coding agents can scaffold a webhook-only Next.js bot project without prompts:
+
+```bash
+npm create chat-sdk@latest -- my-bot --adapter slack memory -y
+```
+
+Non-interactive example:
+
+```bash
+npm create chat-sdk@latest -- my-bot --adapter slack redis -d "My bot" --pm pnpm -y
+```
+
+With npm, the `--` separator is required — npm consumes the flags itself instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
+
+Key flags:
+- `--adapter <values...>` — platform or state adapters from `chat/adapters`
+- `-d, --description <text>` — project description
+- `--pm <manager>` — package manager (`npm`, `yarn`, `pnpm`, `bun`)
+- `-y, --yes` — skip prompts and accept defaults
+- `--interactive` — always prompt, even when a coding agent environment is detected
+- `-f, --force` — overwrite generated files in an existing directory
+- `-s, --skip-install` — skip dependency installation
+- `--no-git` — skip git repository initialization
+- `-q, --quiet` — suppress non-essential output
+
+When `create-chat-sdk` detects a coding agent environment, it automatically uses non-interactive defaults. Pass at least one platform adapter with `--adapter`; the state adapter defaults to `memory`. If no project name is provided, it uses `my-bot`.
+
+Generated projects include `src/lib/bot.ts`, `src/app/api/webhooks/[platform]/route.ts`, `.env.example`, `next.config.ts`, and adapter dependencies. If the Web adapter is selected, the CLI also creates `src/app/api/chat/route.ts` and `src/lib/auth-stub.ts`.
 
 ## Start with published sources
 

@@ -1,5 +1,3 @@
-import { cn } from "@/lib/utils";
-
 const CONTRIBUTORS_LINK_REGEX = /page=(\d+)>;\s*rel="last"/;
 
 const FALLBACK = {
@@ -90,23 +88,11 @@ export const OssStatsSection = async () => {
   ];
 
   return (
-    <dl className="grid grid-cols-2 md:grid-cols-4">
-      {stats.map((stat, i) => (
-        <div
-          className={cn(
-            "flex flex-col gap-1.5 px-6 py-10 sm:px-10 sm:py-12",
-            i === 1 && "border-l",
-            i === 2 && "border-t md:border-t-0 md:border-l",
-            i === 3 && "border-t border-l md:border-t-0"
-          )}
-          key={stat.label}
-        >
-          <dt className="font-semibold text-3xl tracking-tight sm:text-4xl">
-            {stat.value}
-          </dt>
-          <dd className="font-mono text-muted-foreground text-sm">
-            {stat.label}
-          </dd>
+    <dl className="home-grid home-grid-stats" data-home-grid>
+      {stats.map((stat) => (
+        <div className="home-grid-cell text-left" key={stat.label}>
+          <dt className="text-gray-1000 text-heading-32">{stat.value}</dt>
+          <dd className="font-mono text-gray-900 text-sm">{stat.label}</dd>
         </div>
       ))}
     </dl>

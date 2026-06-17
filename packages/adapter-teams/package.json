@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/teams",
-  "version": "4.30.0",
+  "version": "4.31.0",
   "description": "Microsoft Teams adapter for Chat SDK — Bot Framework webhooks, Adaptive Cards, and Graph API",
   "type": "module",
   "engines": {
@@ -13,6 +13,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./cards": {
+      "types": "./dist/cards.d.ts",
+      "import": "./dist/cards.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
+    "./graph": {
+      "types": "./dist/graph.d.ts",
+      "import": "./dist/graph.js"
+    },
+    "./modals": {
+      "types": "./dist/modals.d.ts",
+      "import": "./dist/modals.js"
+    },
+    "./webhook": {
+      "types": "./dist/webhook.d.ts",
+      "import": "./dist/webhook.js"
     }
   },
   "files": [

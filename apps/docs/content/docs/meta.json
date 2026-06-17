@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "getting-started",
+    "create-chat-sdk",
     "---Usage---",
     "usage",
     "threads-messages-channels",
@@ -16,6 +17,7 @@
     "adapters",
     "platform-adapters",
     "slack-primitives",
+    "teams-primitives",
     "state-adapters",
     "---Messaging---",
     "streaming",

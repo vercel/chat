@@ -39,6 +39,7 @@ todo/
 .env*.local
 
 next-env.d.ts
+!packages/create-chat-sdk/_template/next-env.d.ts
 .source
 
 packages/chat/docs

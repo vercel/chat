@@ -139,7 +139,6 @@ describe("Vendor-Official adapter MDX", () => {
     expect(vendorAdapters.map((a) => a.slug).sort()).toEqual(
       [
         "agentphone",
-        "imessage",
         "kapso",
         "lark",
         "liveblocks",
@@ -248,7 +247,7 @@ describe("Official platform adapter OG images", () => {
       [
         "discord",
         "github",
-        "google-chat",
+        "gchat",
         "linear",
         "messenger",
         "slack",

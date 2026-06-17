@@ -1,5 +1,5 @@
 ---
-title: Kapso WhatsApp
+title: Kapso
 description: Kapso-first WhatsApp adapter for Chat SDK. Receive Kapso platform webhooks, reply through Chat SDK threads, send cards/buttons and media, and fetch Kapso conversation history.
 packageName: "@kapso/chat-adapter"
 slug: kapso
@@ -101,11 +101,11 @@ Kapso webhooks are direct-message conversations. Replies, cards, files, reaction
     baseUrl: {
       type: "string",
       default: '"https://api.kapso.ai/meta/whatsapp"',
-      description: "Kapso WhatsApp proxy URL. Falls back to `KAPSO_BASE_URL`.",
+      description: "Kapso proxy URL. Falls back to `KAPSO_BASE_URL`.",
     },
     client: {
       type: "WhatsAppClient",
-      description: "Existing `@kapso/whatsapp-cloud-api` client. Use this when your app already shares a configured Kapso WhatsApp client.",
+      description: "Existing `@kapso/whatsapp-cloud-api` client. Use this when your app already shares a configured Kapso client.",
     },
     verifyWebhookSignatures: {
       type: "boolean",
@@ -157,7 +157,7 @@ Kapso webhooks are direct-message conversations. Replies, cards, files, reaction
 
 ## Platform setup
 
-1. Create or use a Kapso WhatsApp integration and copy your **API key**.
+1. Create or use a Kapso integration and copy your **API key**.
 2. Copy the WhatsApp **phone number ID** connected in Kapso if the bot will initiate outbound direct messages.
 3. Create a webhook secret in Kapso and set the same value as `KAPSO_WEBHOOK_SECRET`.
 4. Configure your webhook endpoint URL to the public route that forwards requests to `bot.webhooks.kapso`.

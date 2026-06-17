@@ -15,6 +15,16 @@ Documentation: [chat-sdk.dev/adapters/official/postgres](https://chat-sdk.dev/ad
 pnpm add @chat-adapter/state-pg
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Slack bot that uses PostgreSQL for state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack postgres
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 `createPostgresState()` auto-detects `POSTGRES_URL` (or `DATABASE_URL`) so you can call it with no arguments:

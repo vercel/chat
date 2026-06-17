@@ -17,6 +17,16 @@ Documentation: [chat-sdk.dev/adapters/official/teams](https://chat-sdk.dev/adapt
 pnpm add @chat-adapter/teams
 ```
 
+## Scaffold with the CLI
+
+To scaffold a new Microsoft Teams bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter teams memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
 ## Usage
 
 The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from environment variables:

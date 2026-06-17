@@ -455,6 +455,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
+  protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -574,6 +575,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     let client = this.tokenClientCache.get(token);
     if (!client) {
       client = new WebClient(token, {
+        ...this.webClientOptions,
+        ...(this.webClientOptions?.headers
+          ? { headers: { ...this.webClientOptions.headers } }
+          : {}),
         ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
       });
       this.tokenClientCache.set(token, client);
@@ -615,9 +620,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botTokenProvider = normalizeBotTokenProvider(botTokenConfig);
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.webClientOptions = config.webClientOptions;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
+      ...this.webClientOptions,
+      ...(this.webClientOptions?.headers
+        ? { headers: { ...this.webClientOptions.headers } }
+        : {}),
       ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
@@ -5015,6 +5025,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
     botUserId: config?.botUserId,
+    webClientOptions: config?.webClientOptions,
     webhookVerifier,
   };
   return new SlackAdapter(resolved);
