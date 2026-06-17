@@ -37,6 +37,7 @@ export const metadata: Metadata = {
   description: heroDescription,
   openGraph: {
     title: { absolute: metadataTitle },
+    images: "/opengraph-image.png",
   },
   twitter: {
     card: "summary_large_image",

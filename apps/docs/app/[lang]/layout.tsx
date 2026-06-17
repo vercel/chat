@@ -8,6 +8,7 @@ import { mono, sans } from "@/lib/geistdocs/fonts";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://chat-sdk.dev"),
   title: {
     template: "%s | Chat SDK",
     default: "Chat SDK",
@@ -17,6 +18,7 @@ export const metadata: Metadata = {
       template: "%s | Chat SDK",
       default: "Chat SDK",
     },
+    images: "/opengraph-image.png",
   },
 };
 
