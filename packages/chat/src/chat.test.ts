@@ -449,6 +449,22 @@ describe("Chat", () => {
       expect(mentionHandler).not.toHaveBeenCalled();
       expect(patternHandler).toHaveBeenCalledTimes(1);
     });
+
+    it("should not trigger onNewMention when a bot with a hyphen-suffixed name is mentioned", async () => {
+      // @slack-bot should not react when @slack-bot-dev is mentioned
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot-dev help me");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
   });
 
   it("should match message patterns", async () => {
