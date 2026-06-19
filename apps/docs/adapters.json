@@ -338,5 +338,16 @@
     "author": "Novu",
     "readme": "https://github.com/novuhq/novu/blob/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
     "vendorOfficial": true
+  },
+  {
+    "name": "Linq",
+    "slug": "linq",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    "packageName": "@linqapp/chat-sdk-adapter",
+    "author": "Linq",
+    "readme": "https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq",
+    "vendorOfficial": true
   }
 ]
