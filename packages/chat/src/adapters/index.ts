@@ -560,6 +560,35 @@ export const ADAPTERS = {
     slug: "messenger",
     type: "platform",
   },
+  novu: {
+    description:
+      "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    env: {
+      optional: [
+        urlEnv(
+          "NOVU_API_BASE_URL",
+          "API base URL. Defaults to https://api.novu.co."
+        ),
+      ],
+      required: [
+        secretEnv(
+          "NOVU_SECRET_KEY",
+          "Novu API key that authorizes replies and verifies the inbound HMAC. Set automatically by npx novu connect."
+        ),
+        env(
+          "NOVU_AGENT_IDENTIFIER",
+          "Bridge agent ID set automatically by npx novu connect."
+        ),
+      ],
+    },
+    factoryExport: "createNovuAdapter",
+    group: "vendor-official",
+    name: "Novu",
+    packageName: "@novu/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "novu",
+    type: "platform",
+  },
   postgres: {
     description:
       "Production state adapter using PostgreSQL for persistence and distributed locking.",

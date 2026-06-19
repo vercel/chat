@@ -160,6 +160,9 @@ export const CLI_SCAFFOLD_SPEC = {
   messenger: {
     invocation: { kind: "zero-arg" },
   },
+  novu: {
+    invocation: { kind: "zero-arg" },
+  },
   postgres: {
     invocation: { kind: "zero-arg" },
     stateHint: "production - PostgreSQL",

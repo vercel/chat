@@ -327,5 +327,16 @@
     "author": "Kapso",
     "readme": "https://github.com/gokapso/chat-sdk-adapter/tree/7c7e9b349323b8cfa060cc64b15d97bcb9f906b3",
     "vendorOfficial": true
+  },
+  {
+    "name": "Novu",
+    "slug": "novu",
+    "type": "platform",
+    "community": true,
+    "description": "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    "packageName": "@novu/chat-sdk-adapter",
+    "author": "Novu",
+    "readme": "https://github.com/novuhq/novu/blob/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
+    "vendorOfficial": true
   }
 ]

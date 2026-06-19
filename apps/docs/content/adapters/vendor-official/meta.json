@@ -3,6 +3,7 @@
   "pages": [
     "liveblocks",
     "resend",
+    "novu",
     "sendblue",
     "zernio",
     "matrix",

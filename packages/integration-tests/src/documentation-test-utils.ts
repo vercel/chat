@@ -206,6 +206,7 @@ export const VALID_DOC_PACKAGES = [
   "@zernio/chat-sdk-adapter",
   "@agentphone/chat-sdk-adapter",
   "@kapso/chat-adapter",
+  "@novu/chat-sdk-adapter",
   "chat-adapter-baileys",
   "baileys",
   "chat-adapter-blooio",
