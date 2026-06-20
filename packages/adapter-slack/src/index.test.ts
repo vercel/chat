@@ -6675,6 +6675,70 @@ describe("reverse user lookup", () => {
 
       expect(result).toBe("Hey @dominik");
     });
+
+    it("skips mentions inside inline code (backticks)", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Use `@vercel/postgres` for the database",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Use `@vercel/postgres` for the database");
+    });
+
+    it("skips mentions inside code blocks (triple backticks)", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Install:\n```\nnpm install @vercel/postgres\n```",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Install:\n```\nnpm install @vercel/postgres\n```");
+    });
+
+    it("resolves mentions outside code but skips those inside", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Hey @dominik, use `@vercel/postgres` for this",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Hey <@U_DOM_123>, use `@vercel/postgres` for this");
+    });
+
+    it("handles multiple inline code spans with mentions", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:neondatabase", "U_NEON_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Use `@neondatabase/serverless` or `@vercel/postgres`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Use `@neondatabase/serverless` or `@vercel/postgres`"
+      );
+    });
   });
 
   describe("resolveMessageMentions", () => {
