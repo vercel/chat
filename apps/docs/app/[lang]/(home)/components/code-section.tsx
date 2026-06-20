@@ -51,7 +51,7 @@ export const CodeSection = () => (
             <span className="font-mono text-muted-foreground text-sm">
               +{" "}
               <DynamicLink
-                className="whitespace-nowrap text-foreground hover:underline hover:underline-offset-4"
+                className="whitespace-nowrap text-muted-foreground hover:underline hover:underline-offset-4"
                 href="/[lang]/adapters"
               >
                 more adapters

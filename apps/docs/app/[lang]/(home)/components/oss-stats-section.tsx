@@ -92,7 +92,9 @@ export const OssStatsSection = async () => {
       {stats.map((stat) => (
         <div className="home-grid-cell text-left" key={stat.label}>
           <dt className="text-gray-1000 text-heading-32">{stat.value}</dt>
-          <dd className="font-mono text-gray-900 text-sm">{stat.label}</dd>
+          <dd className="whitespace-nowrap font-mono text-gray-900 text-sm">
+            {stat.label}
+          </dd>
         </div>
       ))}
     </dl>
