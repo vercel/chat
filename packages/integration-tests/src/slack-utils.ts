@@ -320,14 +320,67 @@ function createSlackBlockActionsPayload(options: SlackBlockActionsOptions) {
   return payload;
 }
 
+export interface SlackViewSubmissionOptions {
+  apiAppId?: string;
+  callbackId: string;
+  /** Defaults to `""` so payloads match Slack's always-present string field. */
+  privateMetadata?: string;
+  stateValues?: Record<
+    string,
+    Record<string, { type?: string; value?: string }>
+  >;
+  teamId: string;
+  userId: string;
+  userName?: string;
+  viewId: string;
+}
+
+function createSlackViewSubmissionPayload(options: SlackViewSubmissionOptions) {
+  const {
+    viewId,
+    callbackId,
+    userId,
+    userName = "testuser",
+    teamId,
+    apiAppId = "A_TEST",
+    privateMetadata = "",
+    stateValues = {},
+  } = options;
+
+  return {
+    type: "view_submission",
+    team: { id: teamId, domain: "test-workspace" },
+    user: {
+      id: userId,
+      username: userName,
+      name: userName,
+      team_id: teamId,
+    },
+    api_app_id: apiAppId,
+    token: "test-interactivity-token",
+    trigger_id: "trigger-for-view-submission",
+    view: {
+      id: viewId,
+      team_id: teamId,
+      type: "modal",
+      callback_id: callbackId,
+      private_metadata: privateMetadata,
+      state: { values: stateValues },
+      blocks: [],
+      title: { type: "plain_text", text: "Modal" },
+      submit: { type: "plain_text", text: "Submit" },
+      close: { type: "plain_text", text: "Cancel" },
+    },
+  };
+}
+
 /**
- * Create a Slack block_actions webhook request (form-urlencoded)
+ * Create a signed Slack interactivity webhook request (form-urlencoded).
  */
-export function createSlackBlockActionsRequest(
-  options: SlackBlockActionsOptions,
+function createSlackInteractiveRequest(
+  payload: Record<string, unknown>,
   signingSecret = SLACK_SIGNING_SECRET
 ): Request {
-  const payload = createSlackBlockActionsPayload(options);
   const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const sigBasestring = `v0:${timestamp}:${body}`;
@@ -344,4 +397,30 @@ export function createSlackBlockActionsRequest(
     },
     body,
   });
+}
+
+/**
+ * Create a Slack view_submission webhook request (form-urlencoded).
+ */
+export function createSlackViewSubmissionRequest(
+  options: SlackViewSubmissionOptions,
+  signingSecret = SLACK_SIGNING_SECRET
+): Request {
+  return createSlackInteractiveRequest(
+    createSlackViewSubmissionPayload(options),
+    signingSecret
+  );
+}
+
+/**
+ * Create a Slack block_actions webhook request (form-urlencoded)
+ */
+export function createSlackBlockActionsRequest(
+  options: SlackBlockActionsOptions,
+  signingSecret = SLACK_SIGNING_SECRET
+): Request {
+  return createSlackInteractiveRequest(
+    createSlackBlockActionsPayload(options),
+    signingSecret
+  );
 }

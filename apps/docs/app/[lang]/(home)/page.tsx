@@ -17,19 +17,28 @@ import { Hero } from "./components/hero";
 import { IntegrationsSection } from "./components/integrations-section";
 import { OssStatsSection } from "./components/oss-stats-section";
 import { SupportedPlatforms } from "./components/supported-platforms";
-import { Usage } from "./components/usage";
 
 const COMMAND_FOR_HUMANS = "npm install chat";
 const COMMAND_FOR_AGENTS = "npx skills add vercel/chat";
 
 const metadataTitle = "Chat SDK";
-const heroTitle = "Universal chat layer for building bots and agents";
+const heroTitleDisplay = (
+  <>
+    Universal chat layer for
+    <br />
+    building bots and agents
+  </>
+);
 const heroDescription =
   "A unified TypeScript SDK for building chat bots with type-safe handlers, JSX cards, and multi-platform support—powered by Vercel";
 
 export const metadata: Metadata = {
-  title: metadataTitle,
+  title: { absolute: metadataTitle },
   description: heroDescription,
+  openGraph: {
+    title: { absolute: metadataTitle },
+    images: "/opengraph-image.png",
+  },
   twitter: {
     card: "summary_large_image",
   },
@@ -92,7 +101,7 @@ const jsonLd = {
   codeRepository: "https://github.com/vercel/chat",
   programmingLanguage: "TypeScript",
   runtimePlatform: "Node.js",
-  license: "https://opensource.org/licenses/Apache-2.0",
+  license: "https://opensource.org/licenses/MIT",
   author: {
     "@type": "Organization",
     name: "Vercel",
@@ -101,13 +110,13 @@ const jsonLd = {
 };
 
 const HomePage = () => (
-  <div className="container mx-auto max-w-5xl">
+  <div className="w-full pb-24 sm:pb-36">
     <script
       // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
       dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       type="application/ld+json"
     />
-    <Hero description={heroDescription} title={heroTitle}>
+    <Hero description={heroDescription} title={heroTitleDisplay}>
       <CommandPromptRoot className="mt-2" defaultValue="humans">
         <CommandPromptList>
           <CommandPromptTrigger className="min-w-[90px]" value="humans">
@@ -135,14 +144,18 @@ const HomePage = () => (
         <Demo />
       </div>
     </Hero>
-    <div className="grid divide-y border-y sm:border-x">
-      <OssStatsSection />
-      <SupportedPlatforms />
-      <CodeSection>
-        <Usage />
-      </CodeSection>
-      <IntegrationsSection />
-      <GetStartedSection data={templates} />
+    <div className="flex w-full justify-center px-4">
+      <div className="home-grid-system-wrapper">
+        <div className="home-grid-system relative sm:border-x-0">
+          <OssStatsSection />
+          <SupportedPlatforms />
+          <CodeSection />
+          <IntegrationsSection />
+          <div className="home-grid-section">
+            <GetStartedSection data={templates} />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 );

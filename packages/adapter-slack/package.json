@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.29.0",
-  "description": "Slack adapter for chat",
+  "version": "4.31.0",
+  "description": "Slack adapter for Chat SDK — webhooks, Block Kit cards, OAuth, slash commands, and AI streaming",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -25,6 +25,10 @@
     "./api": {
       "types": "./dist/api.d.ts",
       "import": "./dist/api.js"
+    },
+    "./blocks": {
+      "types": "./dist/blocks.d.ts",
+      "import": "./dist/blocks.js"
     }
   },
   "files": [
@@ -55,7 +59,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-slack"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/slack",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -64,9 +68,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "slack",
+    "slack-bot",
     "bot",
-    "adapter"
+    "adapter",
+    "block-kit",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

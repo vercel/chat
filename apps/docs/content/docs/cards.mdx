@@ -141,10 +141,18 @@ Or with children as the label:
 
 ### LinkButton
 
-Opens an external URL. No `onAction` handler needed.
+Opens an external URL. No `onAction` handler needed for navigation. On platforms
+that emit link-button click events, such as Slack, pass `id` when you need a
+stable action identifier for routing or analytics.
 
 ```tsx title="lib/bot.tsx"
 <LinkButton url="https://example.com/order/1234">View Order</LinkButton>
+```
+
+```tsx title="lib/bot.tsx"
+<LinkButton id="view_order" url="https://example.com/order/1234">
+  View Order
+</LinkButton>
 ```
 
 ### Actions

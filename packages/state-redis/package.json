@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/state-redis",
-  "version": "4.29.0",
-  "description": "Redis state adapter for chat (production)",
+  "version": "4.31.0",
+  "description": "Redis state adapter for Chat SDK — production subscriptions, distributed locks, cache, lists, and queues via node-redis",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -35,7 +35,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/state-redis"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/redis",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -50,9 +50,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "redis",
-    "production"
+    "node-redis",
+    "subscriptions",
+    "distributed-lock",
+    "cache",
+    "queues",
+    "production",
+    "typescript",
+    "vercel"
   ],
   "license": "MIT"
 }

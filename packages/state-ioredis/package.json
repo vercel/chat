@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/state-ioredis",
-  "version": "4.29.0",
-  "description": "ioredis state adapter for chat (production)",
+  "version": "4.31.0",
+  "description": "ioredis state adapter for Chat SDK — production state with Redis Cluster and Sentinel support via ioredis",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -35,7 +35,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/state-ioredis"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/ioredis",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -50,10 +50,20 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "ioredis",
     "redis",
-    "production"
+    "redis-cluster",
+    "sentinel",
+    "subscriptions",
+    "distributed-lock",
+    "cache",
+    "queues",
+    "production",
+    "typescript",
+    "vercel"
   ],
   "license": "MIT"
 }

@@ -17,6 +17,10 @@ export const metadata: Metadata = {
     "ai agent",
     "vercel",
   ],
+  openGraph: {
+    title: "Resources",
+    images: "/opengraph-image.png",
+  },
   twitter: {
     card: "summary_large_image",
   },

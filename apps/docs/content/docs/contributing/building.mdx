@@ -36,6 +36,10 @@ Chat SDK ships with Vercel-maintained adapters for Slack, Teams, Google Chat, Di
 - Documentation of the adapter in primary vendor docs.
 - Announcement of the adapter in blog post or changelog and social media.
 
+<Callout type="info">
+  Vendor-official adapters should include a Chat SDK docs PR that adds the adapter to the vendor-official listing and the [`chat/adapters` catalog](/docs/adapters#adapter-catalog-chatadapters). Include the package name, peer dependencies, environment variables, credential modes, and any constructor-only config so setup UIs and onboarding tools can discover the adapter without importing its package.
+</Callout>
+
 ## Project setup
 
 This guide uses a hypothetical **Matrix** adapter as a running example. Replace "matrix" with your platform name throughout.
@@ -338,6 +342,8 @@ async handleWebhook(
 ### Message parsing
 
 Convert the raw platform message into a normalized `Message` instance. The `author` fields use `userId` and `userName`, and `isBot` accepts `boolean | "unknown"`. Include a `metadata` object with `dateSent` and `edited` instead of a top-level `createdAt`.
+
+Set `author.isMe` only when the message was sent by this adapter runtime and should be ignored by Chat SDK's handler dispatch. Do not map a platform "sent from my account" flag directly to `isMe` unless that account is the bot identity. For user-owned account adapters, keep user-authored messages as `isMe: false` and track message IDs returned by `postMessage`; if the platform echoes one of those IDs through the webhook, mark that echo as `isMe: true` and `isBot: true`.
 
 ```typescript title="src/adapter.ts" lineNumbers
 parseMessage(raw: unknown): Message<unknown> {

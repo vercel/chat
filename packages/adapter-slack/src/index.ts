@@ -10,7 +10,7 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { WebClient } from "@slack/web-api";
+import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -455,6 +455,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
+  protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -574,6 +575,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     let client = this.tokenClientCache.get(token);
     if (!client) {
       client = new WebClient(token, {
+        ...this.webClientOptions,
+        ...(this.webClientOptions?.headers
+          ? { headers: { ...this.webClientOptions.headers } }
+          : {}),
         ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
       });
       this.tokenClientCache.set(token, client);
@@ -615,9 +620,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botTokenProvider = normalizeBotTokenProvider(botTokenConfig);
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.webClientOptions = config.webClientOptions;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
+      ...this.webClientOptions,
+      ...(this.webClientOptions?.headers
+        ? { headers: { ...this.webClientOptions.headers } }
+        : {}),
       ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
@@ -2256,6 +2266,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       (this._botUserId !== null && event.user === this._botUserId) ||
       (this._botId !== null && event.user === this._botId);
 
+    const userInfo = await this.lookupUser(event.user);
+    const userName = userInfo?.displayName ?? event.user;
+    const fullName = userInfo?.realName ?? userName;
+
     // Build reaction event
     const reactionEvent: Omit<ReactionEvent, "adapter" | "thread"> = {
       emoji: normalizedEmoji,
@@ -2263,9 +2277,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       added: event.type === "reaction_added",
       user: {
         userId: event.user,
-        userName: event.user, // Will be resolved below if possible
-        fullName: event.user,
-        isBot: false, // Users add reactions, not bots typically
+        userName,
+        fullName,
+        isBot: userInfo?.isBot ?? false,
         isMe,
       },
       messageId,
@@ -3123,11 +3137,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const threadTs = rawThreadTs || undefined;
 
     try {
+      let uploadedFileIds: string[] | undefined;
+
       // Check for files to upload
       const files = extractFiles(message);
       if (files.length > 0) {
         // Upload files first (they're shared to the channel automatically)
-        await this.uploadFiles(files, channel, threadTs);
+        uploadedFileIds = await this.uploadFiles(files, channel, threadTs);
 
         // If message only has files (no text/card), return early
         const hasText =
@@ -3144,7 +3160,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return {
             id: `file-${Date.now()}`,
             threadId,
-            raw: { files },
+            raw: { files, uploadedFileIds },
           };
         }
       }
@@ -3182,7 +3198,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return {
           id: result.ts as string,
           threadId,
-          raw: result,
+          raw:
+            uploadedFileIds === undefined
+              ? result
+              : { ...result, uploadedFileIds },
         };
       }
 
@@ -3212,7 +3231,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return {
         id: result.ts as string,
         threadId,
-        raw: result,
+        raw:
+          uploadedFileIds === undefined
+            ? result
+            : { ...result, uploadedFileIds },
       };
     } catch (error) {
       this.handleSlackError(error);
@@ -3979,28 +4001,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }),
     });
 
-    let first = true;
     let lastAppended = "";
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
     });
 
-    /**
-     * Helper to flush markdown text delta to the stream.
-     * Handles first-append token passing and empty-delta skipping.
-     */
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
       if (delta.length === 0) {
         return;
       }
-      if (first) {
-        // Pass token on first append so the streamer uses it for all subsequent calls
-        // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
-        await streamer.append({ markdown_text: delta, token } as any);
-        first = false;
-      } else {
-        await streamer.append({ markdown_text: delta });
-      }
+      await streamer.append({ markdown_text: delta, token });
     };
 
     /**
@@ -4026,15 +4036,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
 
       try {
-        // Send the chunk directly — Slack's API accepts chunks array
-        if (first) {
-          // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token or chunks
-          await streamer.append({ chunks: [chunk], token } as any);
-          first = false;
-        } else {
-          // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-          await streamer.append({ chunks: [chunk] } as any);
-        }
+        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+        await streamer.append({ chunks: [chunk], token } as any);
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
@@ -4074,10 +4077,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const finalDelta = finalCommittable.slice(lastAppended.length);
     await flushMarkdownDelta(finalDelta);
 
-    const result = await streamer.stop(
-      // biome-ignore lint/suspicious/noExplicitAny: stopBlocks are platform-specific Block Kit elements
-      options?.stopBlocks ? { blocks: options.stopBlocks as any[] } : undefined
-    );
+    const result = await streamer.stop({
+      token,
+      ...(options?.stopBlocks
+        ? {
+            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+          }
+        : {}),
+    });
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
@@ -5018,6 +5025,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
     botUserId: config?.botUserId,
+    webClientOptions: config?.webClientOptions,
     webhookVerifier,
   };
   return new SlackAdapter(resolved);

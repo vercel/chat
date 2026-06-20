@@ -177,6 +177,18 @@ describe("parseSlackWebhookBody", () => {
         event: {
           channel: "C123",
           text: "<@U999> hello",
+          files: [
+            {
+              id: "F123",
+              mimetype: "image/png",
+              name: "chart.png",
+              size: 123,
+              title: "Chart",
+              url_private: "https://files.slack.com/files-pri/chart.png",
+              url_private_download:
+                "https://files.slack.com/files-pri/chart-download.png",
+            },
+          ],
           thread_ts: "1710000000.000001",
           ts: "1710000000.000002",
           type: "app_mention",
@@ -207,6 +219,18 @@ describe("parseSlackWebhookBody", () => {
       },
       eventId: "Ev123",
       eventTime: 1_710_000_000,
+      files: [
+        {
+          downloadUrl: "https://files.slack.com/files-pri/chart-download.png",
+          id: "F123",
+          mimeType: "image/png",
+          name: "chart.png",
+          size: 123,
+          title: "Chart",
+          type: "image",
+          url: "https://files.slack.com/files-pri/chart.png",
+        },
+      ],
       isExtSharedChannel: true,
       kind: "app_mention",
       retry: { num: 2, reason: "http_timeout" },
@@ -309,7 +333,10 @@ describe("parseSlackWebhookBody", () => {
         {
           action_id: "approve",
           block_id: "actions",
-          selected_option: { value: "yes" },
+          selected_option: {
+            text: { text: "Yes", type: "plain_text" },
+            value: "yes",
+          },
           text: { text: "Approve", type: "plain_text" },
           type: "button",
           value: "approve-value",
@@ -323,6 +350,12 @@ describe("parseSlackWebhookBody", () => {
         type: "message",
       },
       message: {
+        blocks: [
+          {
+            text: { text: "Approve deployment?", type: "mrkdwn" },
+            type: "section",
+          },
+        ],
         thread_ts: "1710000000.000001",
         ts: "1710000000.000002",
       },
@@ -345,9 +378,11 @@ describe("parseSlackWebhookBody", () => {
         {
           actionId: "approve",
           blockId: "actions",
-          label: "Approve",
+          label: "Yes",
+          selectedOptionLabel: "Yes",
           selectedOptionValue: "yes",
           type: "button",
+          user: { id: "U123", username: "josh" },
           value: "approve-value",
         },
       ],
@@ -359,11 +394,19 @@ describe("parseSlackWebhookBody", () => {
         threadTs: "1710000000.000001",
       },
       kind: "block_actions",
+      messageBlocks: [
+        {
+          text: { text: "Approve deployment?", type: "mrkdwn" },
+          type: "section",
+        },
+      ],
+      messagePromptText: "Approve deployment?",
       messageTs: "1710000000.000002",
       responseUrl: "https://hooks.slack.com/actions/T123/1/abc",
       teamId: "T123",
       threadTs: "1710000000.000001",
       triggerId: "123.456.abc",
+      user: { id: "U123", username: "josh" },
       userId: "U123",
     });
   });
@@ -404,6 +447,7 @@ describe("parseSlackWebhookBody", () => {
       view: {
         callback_id: "feedback",
         id: "V123",
+        private_metadata: '{"id":"123"}',
         response_urls: [
           {
             action_id: "target",
@@ -411,6 +455,16 @@ describe("parseSlackWebhookBody", () => {
             response_url: "https://hooks.slack.com/app/1/2/3",
           },
         ],
+        state: {
+          values: {
+            feedback: {
+              message: {
+                type: "plain_text_input",
+                value: "looks good",
+              },
+            },
+          },
+        },
       },
     };
     const payload = parseSlackWebhookBody(
@@ -419,7 +473,9 @@ describe("parseSlackWebhookBody", () => {
     );
 
     expect(payload).toMatchObject({
+      callbackId: "feedback",
       kind: "view_submission",
+      privateMetadata: '{"id":"123"}',
       responseUrls: [
         {
           action_id: "target",
@@ -428,7 +484,16 @@ describe("parseSlackWebhookBody", () => {
         },
       ],
       teamId: "T123",
+      user: { id: "U123" },
       userId: "U123",
+      values: [
+        {
+          actionId: "message",
+          blockId: "feedback",
+          type: "plain_text_input",
+          value: "looks good",
+        },
+      ],
       view: { callback_id: "feedback", id: "V123" },
     });
   });

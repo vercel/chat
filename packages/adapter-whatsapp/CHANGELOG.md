@@ -1,5 +1,27 @@
 # @chat-adapter/whatsapp
 
+## 4.31.0
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
+## 4.30.0
+
+### Minor Changes
+
+- ffc43fc: Add WhatsApp typing indicator support by sending Meta's read-plus-typing payload when a recent inbound message is available. Update the default API version to v25.0.
+
+### Patch Changes
+
+- 9b8d8c4: expand npm `keywords` for adapter and state packages to improve discoverability (adds `chat-sdk`, `chatbot`, `ai-agent`, `ai-sdk`, `vercel`, plus platform-specific terms)
+- Updated dependencies [5461ea9]
+  - chat@4.30.0
+  - @chat-adapter/shared@4.30.0
+
 ## 4.29.0
 
 ### Minor Changes

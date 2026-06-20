@@ -7,6 +7,24 @@
       "type": "guide"
     },
     {
+      "title": "Human-in-the-Loop with Chat SDK and Workflow SDK",
+      "description": "Pause durable workflows on Slack approval cards using Chat SDK and Workflow SDK. Uses createWebhook to suspend workflows until a button click, with patterns for multi-stage approvals, timeouts via durable sleep, and approver validation.",
+      "href": "https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk",
+      "type": "guide"
+    },
+    {
+      "title": "How to build an agent for Liveblocks",
+      "description": "Build an AI agent that replies to @-mentions in Liveblocks comment threads with streamed responses and tool calling. Uses Chat SDK, the Liveblocks adapter, AI SDK's ToolLoopAgent, and Redis for thread subscriptions and distributed locking.",
+      "href": "https://vercel.com/kb/guide/liveblocks-chat-sdk-ai-sdk",
+      "type": "guide"
+    },
+    {
+      "title": "How to build a Slack bot that manages files in Vercel Blob",
+      "description": "Build a Slack bot that lists, reads, uploads, and deletes files in Vercel Blob through tool calls. Uses Chat SDK, AI SDK's ToolLoopAgent, and Files SDK's createFileTools factory with approval-gated write tools and a read-only mode.",
+      "href": "https://vercel.com/kb/guide/slack-bot-vercel-blob",
+      "type": "guide"
+    },
+    {
       "title": "Run and track deploys from Slack",
       "description": "Build a Slack deploy bot with Chat SDK and Vercel Workflow. Dispatch GitHub Actions from a slash command, gate production behind approval, poll for completion, and notify Linear and GitHub when the run finishes.",
       "href": "https://vercel.com/kb/guide/run-and-track-deploys-from-slack",
@@ -40,6 +58,12 @@
       "title": "Chat SDK Liveblocks Bot",
       "description": "Build a bot that you can engage with inside Liveblocks.",
       "href": "https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot",
+      "type": "template"
+    },
+    {
+      "title": "Durable iMessage Agent",
+      "description": "Durable iMessage agent powered by the Sendblue adapter.",
+      "href": "https://vercel.com/templates/nitro/durable-imessage-ai-agent",
       "type": "template"
     },
     {

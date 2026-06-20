@@ -1,0 +1,143 @@
+---
+title: CLI
+description: Scaffold a Chat SDK bot app with a single command.
+---
+
+`create-chat-sdk` creates a minimal Next.js app for Chat SDK bots.
+
+The CLI will generate your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog.
+
+## Quick start
+
+<CodeBlockTabs defaultValue="npm">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="npm">npm</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="pnpm">pnpm</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="yarn">yarn</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="bun">bun</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+  <CodeBlockTab value="npm">
+```bash
+npm create chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="pnpm">
+```bash
+pnpm create chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="yarn">
+```bash
+yarn create chat-sdk my-bot
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="bun">
+```bash
+bunx create-chat-sdk@latest my-bot
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+<Callout type="info">
+  `create-chat-sdk` automatically detects when it is being run by Cursor, Claude Code, or another coding agent. In agent environments, pass at least one platform adapter with `--adapter`; the state adapter defaults to `memory`. The CLI runs non-interactively and uses `my-bot` when no project name is provided. Pass `--interactive` to force prompts.
+</Callout>
+
+## Non-interactive usage
+
+Pass platform and state adapters with `--adapter`:
+
+```bash
+npm create chat-sdk@latest -- my-bot --adapter slack redis -y
+```
+
+<Callout type="warn">
+  With npm, the `--` separator is required because npm consumes flags before it (`-y` is npm's own `--yes`) instead of forwarding them to the CLI. `pnpm create` and `yarn create` forward flags without it.
+</Callout>
+
+The interactive prompt lists official adapters by default. Pass `--vendor` to list only vendor-official adapters instead. Automation and coding agents can install any CLI-supported official or vendor adapter directly with `--adapter`.
+
+Adapters that require a long-running process, including Matrix and Lark, cannot run on the webhook-only serverless runtime and are not available through the CLI. Add them to an existing project manually instead.
+
+<AdapterSlugList />
+
+Examples:
+
+```bash
+npm create chat-sdk@latest -- slack-bot --adapter slack memory -y --skip-install
+npm create chat-sdk@latest -- gchat-bot --adapter gchat redis -y --pm pnpm
+npm create chat-sdk@latest -- email-bot --adapter resend postgres -y --no-git
+npm create chat-sdk@latest -- my-bot --adapter slack memory -y --force
+```
+
+## What gets generated
+
+The scaffolded app is webhook-only. It does not include pages, layouts, or a client UI.
+
+```txt
+src/
+  lib/bot.ts                              Bot configuration and handlers
+  app/api/webhooks/[platform]/route.ts    Dynamic platform webhook route
+  app/api/chat/route.ts                   Web adapter route, only when selected
+  app/api/discord/gateway/route.ts        Discord Gateway listener, only when selected
+.env.example                              Required environment variables
+next.config.ts                            Next.js server config
+vercel.json                               Cron schedules, only when needed
+.chat-sdk.json                            Generated file ownership for safe reruns
+package.json                              Adapter dependencies
+```
+
+Webhook endpoints use the selected adapter slug:
+
+```txt
+/api/webhooks/slack
+/api/webhooks/gchat
+/api/webhooks/discord
+```
+
+When the [Web adapter](/adapters/official/web) is selected, the CLI also creates `/api/chat` for browser chat requests and a small `getUser` auth stub. Replace the stub with your app's real authentication logic so each web conversation can be associated with the correct user.
+
+When the [Discord adapter](/adapters/official/discord) is selected, the CLI also creates a Gateway listener at `/api/discord/gateway` and a `vercel.json` cron that calls it. Discord delivers slash commands and button clicks to the webhook route, but regular messages and reactions only arrive over the Gateway WebSocket, so the cron keeps that connection alive and forwards events to `/api/webhooks/discord`. Set a `CRON_SECRET` environment variable to authenticate the cron requests. The generated serverless Gateway cron requires [Vercel Pro or Enterprise](https://vercel.com/docs/cron-jobs/usage-and-pricing) because it runs every nine minutes.
+
+## Reference
+
+| Option | Description |
+| --- | --- |
+| `[name]` | Name of the project. |
+| `-d, --description <text>` | Project description. |
+| `--adapter <values...>` | Platform or state adapters to include. |
+| `--vendor` | List only vendor-official adapters in the interactive prompt. |
+| `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
+| `-y, --yes` | Skip prompts and accept defaults. |
+| `--interactive` | Always prompt, even when a coding agent environment is detected. |
+| `-f, --force` | Overwrite generated files in an existing directory. |
+| `-s, --skip-install` | Skip dependency installation. |
+| `--no-git` | Skip git repository initialization. |
+| `-q, --quiet` | Suppress non-essential output. |
+
+Color output follows the [NO_COLOR standard](https://no-color.org/) — set `NO_COLOR=1` to disable colors.
+
+## Customize your bot
+
+Most bot behavior lives in `src/lib/bot.ts`. Start there when you want to:
+
+- Add or change handlers like `onNewMention`, `onSubscribedMessage`, `onNewMessage`, reactions, actions, or slash commands.
+- Adjust adapter configuration, for example passing explicit credentials or platform-specific options instead of relying only on environment variables.
+- If you selected the memory state adapter, switch to Redis, ioredis, or PostgreSQL before deploying to production.
+
+The generated file includes starter handlers for mentions and subscribed thread replies.
+
+## Next steps
+
+After scaffolding:
+
+```bash
+cd my-bot
+cp .env.example .env.local
+npm run dev
+```
+
+Fill in the generated environment variables, expose your local server, and configure each selected platform to call its `/api/webhooks/{adapter}` endpoint.
+
+## Resources
+
+See guides, templates, and examples on the [resources](/resources) page.

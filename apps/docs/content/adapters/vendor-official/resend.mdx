@@ -54,7 +54,7 @@ features:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
-import { MemoryStateAdapter } from "@chat-adapter/state-memory";
+import { createMemoryState } from "@chat-adapter/state-memory";
 import { createResendAdapter } from "@resend/chat-sdk-adapter";
 
 const resend = createResendAdapter({
@@ -67,7 +67,7 @@ const resend = createResendAdapter({
 const chat = new Chat({
   userName: "email-bot",
   adapters: { resend },
-  state: new MemoryStateAdapter(),
+  state: createMemoryState(),
 });
 
 // New inbound email starts a new thread.

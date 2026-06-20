@@ -2,6 +2,7 @@
  * Slack adapter types.
  */
 
+import type { WebClientOptions } from "@slack/web-api";
 import type { Logger } from "chat";
 import type { SlackWebhookVerifier } from "./webhook/index";
 
@@ -72,6 +73,30 @@ export interface SlackAdapterConfig {
   socketForwardingSecret?: string;
   /** Override bot username (optional) */
   userName?: string;
+  /**
+   * Options forwarded to the underlying `@slack/web-api` `WebClient` instances, both the
+   * default client and the per-token clients used for multi-workspace requests.
+   *
+   * Use this to tune Web API behavior the adapter does not otherwise expose, most
+   * notably `retryConfig` and `timeout`. By default the WebClient retries rate-limited
+   * (429) requests with `retryPolicies.tenRetriesInAboutThirtyMinutes`, so a single
+   * `chat.update`/`chat.postMessage` can block for ~30 minutes under sustained rate
+   * limiting. Callers that stream frequent edits (where a hung call can stall a whole
+   * turn) will typically want a bounded policy and/or a timeout. `timeout` applies to
+   * each HTTP request attempt, not the total retry period. Set
+   * `rejectRateLimitedCalls` to reject 429 responses without waiting for `Retry-After`.
+   *
+   * ```ts
+   * import { retryPolicies } from "@slack/web-api";
+   * createSlackAdapter({
+   *   signingSecret,
+   *   webClientOptions: { retryConfig: retryPolicies.fiveRetriesInFiveMinutes, timeout: 15_000 },
+   * });
+   * ```
+   *
+   * Use `apiUrl` to override the Slack Web API base URL.
+   */
+  webClientOptions?: Omit<WebClientOptions, "slackApiUrl">;
   /**
    * Custom webhook verifier. Used in place of `signingSecret`.
    * Receives the incoming `Request` and the raw body text already

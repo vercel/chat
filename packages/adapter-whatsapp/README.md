@@ -1,15 +1,31 @@
+[![WhatsApp Business Cloud adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/whatsapp/og)](https://chat-sdk.dev/adapters/official/whatsapp)
+
 # @chat-adapter/whatsapp
+
+> npm package: [`@chat-adapter/whatsapp`](https://www.npmjs.com/package/@chat-adapter/whatsapp)
 
 [![npm version](https://img.shields.io/npm/v/@chat-adapter/whatsapp)](https://www.npmjs.com/package/@chat-adapter/whatsapp)
 [![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/whatsapp)](https://www.npmjs.com/package/@chat-adapter/whatsapp)
 
 WhatsApp Business Cloud adapter for [Chat SDK](https://chat-sdk.dev), using the [WhatsApp Business Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api).
 
+Documentation: [chat-sdk.dev/adapters/official/whatsapp](https://chat-sdk.dev/adapters/official/whatsapp) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
+
 ## Installation
 
 ```bash
 pnpm add @chat-adapter/whatsapp
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new WhatsApp bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter whatsapp memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -67,7 +83,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `appSecret` | No* | App secret for webhook verification. Auto-detected from `WHATSAPP_APP_SECRET` |
 | `phoneNumberId` | No* | Bot's phone number ID. Auto-detected from `WHATSAPP_PHONE_NUMBER_ID` |
 | `verifyToken` | No* | Webhook verification secret. Auto-detected from `WHATSAPP_VERIFY_TOKEN` |
-| `apiVersion` | No | Graph API version (defaults to `v21.0`) |
+| `apiVersion` | No | Graph API version (defaults to `v25.0`) |
 | `userName` | No | Bot username for self-message detection. Auto-detected from `WHATSAPP_BOT_USERNAME` (defaults to `whatsapp-bot`) |
 | `apiUrl` | No | Override the Meta Graph API base URL. Auto-detected from `WHATSAPP_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
@@ -132,7 +148,7 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | Reactions | Yes (add and remove) |
-| Typing indicator | No (not supported by Cloud API) |
+| Typing indicator | Yes (requires a recent inbound message, marks it as read, and displays for up to 25 seconds) |
 | DMs | Yes |
 | Open DM | Yes |
 
@@ -195,6 +211,26 @@ Example: `whatsapp:1234567890:15551234567`
 
 - Temporary tokens from the API Setup page expire after 24 hours
 - For production, create a **System User** in Meta Business Suite and generate a permanent token
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

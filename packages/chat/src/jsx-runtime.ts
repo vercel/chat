@@ -121,6 +121,7 @@ export interface ButtonProps {
 /** Props for LinkButton component in JSX */
 export interface LinkButtonProps {
   children?: string | number | (string | number | undefined)[];
+  id?: string;
   label?: string;
   style?: ButtonStyle;
   url: string;
@@ -647,6 +648,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
         ? processedChildren.map(String).join("")
         : (props.label ?? "");
     return LinkButton({
+      id: props.id,
       url: props.url,
       label,
       style: props.style,

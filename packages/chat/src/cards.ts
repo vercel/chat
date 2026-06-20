@@ -78,6 +78,8 @@ export interface ButtonElement {
 
 /** Link button element that opens a URL */
 export interface LinkButtonElement {
+  /** Optional action identifier emitted by platforms that report link clicks */
+  id?: string;
   /** Button label text */
   label: string;
   /** Visual style */
@@ -394,6 +396,8 @@ export function Button(options: ButtonOptions): ButtonElement {
 
 /** Options for LinkButton */
 export interface LinkButtonOptions {
+  /** Optional action identifier emitted by platforms that report link clicks */
+  id?: string;
   /** Button label text */
   label: string;
   /** Visual style */
@@ -414,6 +418,7 @@ export interface LinkButtonOptions {
 export function LinkButton(options: LinkButtonOptions): LinkButtonElement {
   return {
     type: "link-button",
+    id: options.id,
     url: options.url,
     label: options.label,
     style: options.style,

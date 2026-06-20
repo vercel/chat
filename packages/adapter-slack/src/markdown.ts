@@ -32,11 +32,22 @@ import {
   stringifyMarkdown,
   tableToAscii,
 } from "chat";
+import { linkBareSlackMentions, slackMrkdwnToMarkdown } from "./format";
 
-// Match bare @mentions (e.g. "@george") to rewrite as Slack's `<@george>`.
-// The lookbehind excludes `<` (already-formatted mentions like `<@U123>`) and
-// any word character, so email addresses like `user@example.com` are left alone.
-const BARE_MENTION_REGEX = /(?<![<\w])@(\w+)/g;
+// `@handle`s inside URLs (paths, query strings, fragments) must not be rewritten
+// into `<@handle>` Slack mentions, which corrupts the link. Two layers guard
+// against this:
+//   1. `finalize` skips whole `http(s)://…` spans before linking mentions, so an
+//      `@handle` anywhere in a URL (e.g. `?user=@george`, `#@george`) is left
+//      intact.
+//   2. The leading `/` in this negative lookbehind covers the schemeless case
+//      (e.g. `mastodon.social/@user`) that the URL matcher in (1) doesn't catch.
+// Whitespace- and punctuation-led mentions (e.g. "(cc @george)") still match.
+const BARE_MENTION_PATTERN = /(?<![<\w/])@(\w+)/g;
+
+// Matches an `http(s)` URL up to the first whitespace or angle bracket so the
+// span can be excluded from mention linking.
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>]+/g;
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
@@ -53,32 +64,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    * Parse Slack mrkdwn into an AST. Used for incoming `message` events.
    */
   toAst(mrkdwn: string): Root {
-    let markdown = mrkdwn;
-
-    // User mentions: <@U123|name> -> @name or <@U123> -> @U123
-    markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^<>]+)>/g, "@$2");
-    markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
-
-    // Channel mentions: <#C123|name> -> #name
-    markdown = markdown.replace(/<#[A-Z0-9_]+\|([^<>]+)>/g, "#$1");
-    markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
-
-    // Links: <url|text> -> [text](url)
-    markdown = markdown.replace(
-      /<(https?:\/\/[^|<>]+)\|([^<>]+)>/g,
-      "[$2]($1)"
-    );
-
-    // Bare links: <url> -> url
-    markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
-
-    // Bold: *text* -> **text** (Slack uses single * for bold)
-    markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
-
-    // Strikethrough: ~text~ -> ~~text~~
-    markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
-
-    return parseMarkdown(markdown);
+    return parseMarkdown(slackMrkdwnToMarkdown(mrkdwn));
   }
 
   /**
@@ -135,10 +121,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   private finalize(text: string): string {
-    return convertEmojiPlaceholders(
-      text.replace(BARE_MENTION_REGEX, "<@$1>"),
-      "slack"
-    );
+    return convertEmojiPlaceholders(linkBareMentionsOutsideUrls(text), "slack");
   }
 
   private astToMrkdwn(ast: Root): string {
@@ -155,7 +138,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      return node.value.replace(BARE_MENTION_REGEX, "<@$1>");
+      return linkBareMentionNames(linkBareSlackMentions(node.value));
     }
 
     if (isStrongNode(node)) {
@@ -218,4 +201,25 @@ export class SlackFormatConverter extends BaseFormatConverter {
 
     return this.defaultNodeToText(node, (child) => this.nodeToMrkdwn(child));
   }
+}
+
+function linkBareMentionNames(text: string): string {
+  return text.replace(BARE_MENTION_PATTERN, "<@$1>");
+}
+
+// Apply mention linking only to the text outside `http(s)` URL spans, so a bare
+// `@handle` anywhere inside a URL (path, query, or fragment) is preserved.
+function linkBareMentionsOutsideUrls(text: string): string {
+  let result = "";
+  let lastIndex = 0;
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const start = match.index ?? lastIndex;
+    result += linkBareMentionNames(
+      linkBareSlackMentions(text.slice(lastIndex, start))
+    );
+    result += match[0];
+    lastIndex = start + match[0].length;
+  }
+  result += linkBareMentionNames(linkBareSlackMentions(text.slice(lastIndex)));
+  return result;
 }

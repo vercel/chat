@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 
-const COMMAND = "npm i chat";
+const COMMAND = "npx create-chat-sdk@latest";
 
 interface Template {
   code: string;
@@ -109,7 +109,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
           template.
         </p>
       </div>
-      <div className="flex flex-col items-stretch gap-3 sm:shrink-0 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-stretch gap-3 sm:shrink-0">
         <Button asChild className="h-[42px] rounded-full px-5" size="default">
           <DynamicLink href="/[lang]/docs">Visit Documentation</DynamicLink>
         </Button>

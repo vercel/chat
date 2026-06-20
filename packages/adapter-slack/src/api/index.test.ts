@@ -4,6 +4,8 @@ import {
   deleteSlackMessage,
   encodeSlackApiBody,
   fetchSlackFile,
+  fetchSlackThreadReplies,
+  openSlackView,
   postSlackEphemeral,
   postSlackMessage,
   SlackApiError,
@@ -312,5 +314,69 @@ describe("Slack api primitives", () => {
 
     expect(result).toBe(response);
     expect(request.mock.calls[0][1].headers.authorization).toBe("Bearer xoxb");
+  });
+
+  it("fetches thread replies with cursor metadata", async () => {
+    const request = vi.fn().mockResolvedValue(
+      jsonResponse({
+        messages: [{ text: "root", ts: "1.23" }],
+        ok: true,
+        response_metadata: { next_cursor: "next" },
+      })
+    );
+
+    const result = await fetchSlackThreadReplies({
+      channel: "C123",
+      fetch: request,
+      limit: 50,
+      token: "xoxb",
+      ts: "1.23",
+    });
+
+    expect(String(request.mock.calls[0][0])).toBe(
+      "https://slack.com/api/conversations.replies"
+    );
+    expect(
+      new URLSearchParams(textRequestBody(...request.mock.calls[0])).get("ts")
+    ).toBe("1.23");
+    expect(result).toEqual({
+      messages: [{ text: "root", ts: "1.23" }],
+      nextCursor: "next",
+      raw: {
+        messages: [{ text: "root", ts: "1.23" }],
+        ok: true,
+        response_metadata: { next_cursor: "next" },
+      },
+    });
+  });
+
+  it("opens Slack views with trigger ids", async () => {
+    const request = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        view: { id: "V123", type: "modal" },
+      })
+    );
+
+    const result = await openSlackView({
+      fetch: request,
+      token: "xoxb",
+      triggerId: "trigger",
+      view: { type: "modal" },
+    });
+
+    expect(String(request.mock.calls[0][0])).toBe(
+      "https://slack.com/api/views.open"
+    );
+    expect(
+      JSON.parse(
+        String(
+          new URLSearchParams(textRequestBody(...request.mock.calls[0])).get(
+            "view"
+          )
+        )
+      )
+    ).toEqual({ type: "modal" });
+    expect(result.view).toEqual({ id: "V123", type: "modal" });
   });
 });

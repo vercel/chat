@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/state-memory",
-  "version": "4.29.0",
-  "description": "In-memory state adapter for chat (development/testing)",
+  "version": "4.31.0",
+  "description": "In-memory state adapter for Chat SDK — zero-dependency subscriptions, locks, and cache for local development and tests",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -34,7 +34,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/state-memory"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/memory",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -49,9 +49,19 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
     "state",
+    "state-adapter",
     "memory",
-    "testing"
+    "in-memory",
+    "subscriptions",
+    "distributed-lock",
+    "cache",
+    "development",
+    "testing",
+    "local",
+    "typescript",
+    "vercel"
   ],
   "license": "MIT"
 }
