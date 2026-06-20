@@ -446,6 +446,27 @@ export const ADAPTERS = {
     slug: "linear",
     type: "platform",
   },
+  linq: {
+    description:
+      "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    env: {
+      config: ["baseURL"],
+      required: [
+        secretEnv("LINQ_API_KEY", "Linq API key for outbound API calls."),
+        secretEnv(
+          "LINQ_WEBHOOK_SECRET",
+          "Webhook signing secret used to verify inbound HMAC-SHA256 signatures."
+        ),
+      ],
+    },
+    factoryExport: "createLinqAdapter",
+    group: "vendor-official",
+    name: "Linq",
+    packageName: "@linqapp/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "linq",
+    type: "platform",
+  },
   liveblocks: {
     description:
       "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",

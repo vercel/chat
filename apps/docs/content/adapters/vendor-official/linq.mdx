@@ -94,12 +94,12 @@ The adapter maps a Linq chat to a Chat SDK thread, a text to a message, and an i
   type={{
     apiKey: {
       type: "string",
-      description: "Linq API key for outbound API calls. Falls back to `LINQ_API_KEY`.",
+      description: "Linq API key for outbound API calls.",
     },
     signingSecret: {
       type: "string",
       description:
-        "Webhook signing secret. Inbound requests are verified with HMAC-SHA256 over `{timestamp}.{body}` with replay protection. Falls back to `LINQ_WEBHOOK_SECRET`.",
+        "Webhook signing secret. Inbound requests are verified with HMAC-SHA256 over `{timestamp}.{body}` with replay protection.",
     },
     baseURL: {
       type: "string",

@@ -130,6 +130,15 @@ export const CLI_SCAFFOLD_SPEC = {
   linear: {
     invocation: { kind: "zero-arg" },
   },
+  linq: {
+    invocation: {
+      kind: "object",
+      properties: [
+        { key: "apiKey", value: env("LINQ_API_KEY") },
+        { key: "signingSecret", value: env("LINQ_WEBHOOK_SECRET") },
+      ],
+    },
+  },
   liveblocks: {
     invocation: {
       kind: "object",
