@@ -141,6 +141,7 @@ describe("Vendor-Official adapter MDX", () => {
         "agentphone",
         "kapso",
         "lark",
+        "linq",
         "liveblocks",
         "matrix",
         "novu",
