@@ -6739,6 +6739,102 @@ describe("reverse user lookup", () => {
         "Use `@neondatabase/serverless` or `@vercel/postgres`"
       );
     });
+
+    it("resolves the same name outside code while skipping it inside code", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Ping @vercel, but don't link `@vercel/postgres`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Ping <@U_VER_123>, but don't link `@vercel/postgres`"
+      );
+    });
+
+    it("resolves a mention immediately following an inline code span", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Run `npm i` then ping @dominik",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Run `npm i` then ping <@U_DOM_123>");
+    });
+
+    it("resolves a mention immediately preceding an inline code span", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "@dominik try `npm i`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("<@U_DOM_123> try `npm i`");
+    });
+
+    it("resolves mentions surrounding a multiline fenced code block", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:george", "U_GEO_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Hey @dominik:\n```bash\nnpm install @vercel/postgres\n```\ncc @george",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Hey <@U_DOM_123>:\n```bash\nnpm install @vercel/postgres\n```\ncc <@U_GEO_123>"
+      );
+    });
+
+    it("does not skip a mention after an unbalanced single backtick", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Cost is `5 and @dominik should know",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Cost is `5 and <@U_DOM_123> should know");
+    });
+
+    it("skips a mention inside inline code at the start of the text", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "`@vercel/postgres` is the package",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("`@vercel/postgres` is the package");
+    });
   });
 
   describe("resolveMessageMentions", () => {
