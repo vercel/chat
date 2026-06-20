@@ -1747,7 +1747,7 @@ export class Chat<
     }
 
     const threadId = await adapter.openDM(userId);
-    return this.createThread(adapter, threadId, {} as Message, false);
+    return this.createThread(adapter, threadId, undefined, false);
   }
 
   /**
@@ -1860,7 +1860,7 @@ export class Chat<
       );
     }
 
-    return this.createThread(adapter, threadId, {} as Message, false);
+    return this.createThread(adapter, threadId, undefined, false);
   }
 
   /**
@@ -2547,7 +2547,7 @@ export class Chat<
   private createThread(
     adapter: Adapter,
     threadId: string,
-    initialMessage: Message,
+    initialMessage: Message | undefined,
     isSubscribedContext = false
   ): Thread<TState> {
     // Parse thread ID to get channel ID with adapter

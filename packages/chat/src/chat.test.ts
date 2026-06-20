@@ -1828,6 +1828,23 @@ describe("Chat", () => {
         'Adapter "unknown" not found'
       );
     });
+
+    // Regression for #631: a lightweight thread handle has no current
+    // message context, so streaming via `thread.post(asyncIterable)` used to
+    // crash on `this._currentMessage.author.userId` after the constructor
+    // cast `{} as Message` and the truthy empty object satisfied the
+    // `if (this._currentMessage)` branch in `handleStream`. Passing
+    // `undefined` instead of the cast keeps that branch unentered.
+    it("should not crash on stream() from a lightweight thread handle", async () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+      await expect(
+        thread.post({
+          async *[Symbol.asyncIterator]() {
+            yield "Hi";
+          },
+        })
+      ).resolves.not.toThrow();
+    });
   });
 
   describe("getUser", () => {
