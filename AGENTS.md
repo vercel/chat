@@ -42,7 +42,7 @@ pnpm monorepo, Turborepo orchestrated. All packages are ESM (`"type": "module"`)
 - `packages/state-{memory,redis,ioredis,pg}` — state adapters
 - `packages/integration-tests` — integration tests against real platform APIs
 - `apps/docs` — fumadocs-based docs site (chat-sdk.dev)
-- `examples/nextjs-chat` — example Next.js app
+- `examples/*` — standalone example apps (e.g. `examples/nextjs-chat`). Each example's `package.json` `name` must follow the `example-*` convention so changesets ignores it automatically (see Releases). This is enforced by a test in `packages/integration-tests`.
 
 ### Core concepts
 
@@ -93,6 +93,8 @@ User-facing docs live in `apps/docs/content/docs/` (rendered at chat-sdk.dev/doc
 ## Releases
 
 Uses Changesets with fixed versioning (every package shares one version). Every PR that changes a package's behavior must include a changeset (`pnpm changeset`). Full rules in `.github/CONTRIBUTING.md`.
+
+Example apps (`examples/*`) are private and never published. The `ignore` list in `.changeset/config.json` uses an `example-*` glob, so any example named `example-*` is excluded from versioning and publishing automatically — no changeset and no config edit needed when adding one.
 
 ## Environment variables
 

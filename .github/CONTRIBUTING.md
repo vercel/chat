@@ -31,6 +31,13 @@ The repo uses [konsistent](https://www.npmjs.com/package/konsistent) (configured
 
 `${Name}` is the kebab-case package suffix in PascalCase — most cases are mechanical (`discord` → `Discord`), but a few overrides live in `kebabToPascalMap` in the config (e.g. `gchat` → `GoogleChat`, `whatsapp` → `WhatsApp`).
 
+**Example apps (`examples/*`)** must:
+
+- Be marked `"private": true` (they are never published)
+- Name their `package.json` `name` field `example-*` (e.g. `example-nextjs-chat`)
+
+The `example-*` name lets the `ignore` glob in `.changeset/config.json` exclude every example from versioning and publishing automatically, so adding a new example needs no changeset and no edit to the changesets config. A test in `packages/integration-tests` asserts every `examples/*` package follows this convention and is in the resolved changesets `ignore` list.
+
 ## Signed Commits
 
 All commits to this repository must be **signed and verified**. Pull requests with unsigned commits will not be merged.
@@ -99,7 +106,7 @@ This creates a markdown file in `.changeset/` describing your change. Commit thi
 ### When to Add a Changeset
 
 - **Do add** for: bug fixes, new features, breaking changes, dependency updates affecting behavior
-- **Don't add** for: documentation changes, internal refactors, test changes, CI updates
+- **Don't add** for: documentation changes, internal refactors, test changes, CI updates, or changes to example apps (`examples/*` are private and ignored by changesets)
 
 ### Changeset Types
 
