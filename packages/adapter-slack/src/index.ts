@@ -120,6 +120,38 @@ const TRAILING_SLASH_PATTERN = /\/$/;
 const UNFURL_WAIT_MS = 2000;
 const UNFURL_POLL_MS = 150;
 
+interface CodeRange {
+  end: number;
+  start: number;
+}
+
+function findCodeRanges(text: string): CodeRange[] {
+  const ranges: CodeRange[] = [];
+
+  // Match code blocks first (triple backticks), then inline code (single backticks)
+  // Code blocks: ```...``` (may span multiple lines)
+  // Inline code: `...` (single line, no nested backticks)
+  const codeBlockPattern = /```[\s\S]*?```/g;
+  const inlineCodePattern = /`[^`\n]+`/g;
+
+  for (const match of text.matchAll(codeBlockPattern)) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+  }
+  for (const match of text.matchAll(inlineCodePattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    // Skip if this inline code is inside a code block
+    if (!ranges.some((r) => start >= r.start && end <= r.end)) {
+      ranges.push({ start, end });
+    }
+  }
+  return ranges;
+}
+
+function isInsideCodeRange(index: number, ranges: CodeRange[]): boolean {
+  return ranges.some((r) => index >= r.start && index < r.end);
+}
+
 interface SlackUnfurl {
   description?: string;
   imageUrl?: string;
@@ -3009,6 +3041,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
     const state = this.chat.getState();
 
+    // Build ranges for code spans and code blocks to skip mentions inside them
+    const codeRanges = findCodeRanges(text);
+
     // Find all @word patterns that aren't already wrapped in <@...>
     const mentionPattern = /@(\w+)/g;
     const mentions = new Map<string, string[]>();
@@ -3022,6 +3057,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       // Check the character before @ to skip <@...> patterns
       const idx = match.index;
       if (idx > 0 && text[idx - 1] === "<") {
+        continue;
+      }
+      // Skip if inside a code span or code block
+      if (isInsideCodeRange(idx, codeRanges)) {
         continue;
       }
       if (!mentions.has(name.toLowerCase())) {
@@ -3061,6 +3100,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return match;
         }
         if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+          return match;
+        }
+        // Skip if inside a code span or code block
+        if (isInsideCodeRange(offset, codeRanges)) {
           return match;
         }
 
