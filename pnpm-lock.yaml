@@ -743,6 +743,9 @@ importers:
         specifier: ^0.37.119
         version: 0.37.120
     devDependencies:
+      '@changesets/config':
+        specifier: ^3.1.2
+        version: 3.1.2
       '@emulators/core':
         specifier: ^0.6.0
         version: 0.6.0
@@ -755,6 +758,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.2
         version: 2.0.2(hono@4.12.18)
+      '@manypkg/get-packages':
+        specifier: ^1.1.3
+        version: 1.1.3
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -10940,11 +10946,11 @@ snapshots:
 
   '@slack/logger@4.0.0':
     dependencies:
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
 
   '@slack/logger@4.0.1':
     dependencies:
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
 
   '@slack/socket-mode@2.0.6':
     dependencies:
@@ -10986,7 +10992,7 @@ snapshots:
     dependencies:
       '@slack/logger': 4.0.1
       '@slack/types': 2.20.1
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
       '@types/retry': 0.12.0
       axios: 1.16.1
       eventemitter3: 5.0.1
@@ -11660,7 +11666,7 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
 
   '@types/mdast@4.0.4':
     dependencies:
@@ -11708,7 +11714,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
 
   '@ungap/structured-clone@1.3.0': {}
 
