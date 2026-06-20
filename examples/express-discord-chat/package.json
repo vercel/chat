@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@chat-adapter/discord": "^4.29.0",
-    "@chat-adapter/state-memory": "^4.29.0",
-    "chat": "^4.29.0",
+    "@chat-adapter/discord": "workspace:*",
+    "@chat-adapter/state-memory": "workspace:*",
+    "chat": "workspace:*",
     "express": "^5.1.0"
   },
   "devDependencies": {

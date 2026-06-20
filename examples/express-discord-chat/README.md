@@ -23,10 +23,14 @@ pnpm install
 
 ## 2) Configure environment
 
-Create a local env file for this example:
+Copy the example env file and fill in your Discord credentials:
 
 ```bash
+cp .env.example .env
 ```
+
+Required:
+
 - `DISCORD_BOT_TOKEN`
 - `DISCORD_PUBLIC_KEY`
 - `DISCORD_APPLICATION_ID`
@@ -132,3 +136,8 @@ Success response:
 - If you want regular message events (not only interactions), add a Gateway listener route/worker in addition to the webhook route.
 - Chat SDK webhook handlers use the Web `Request`/`Response` API, so this example adapts Express request/response objects in a few lines inside the route.
 - This example is intentionally small and focused on showing how Chat SDK plugs into plain Express.
+
+## Further reading
+
+- [Build with an Express starter template](https://vercel.com/kb/guide/build-with-a-express-starter-template)
+- [How to ship an Express app on Vercel](https://vercel.com/kb/guide/ship-a-express-app-on-vercel)

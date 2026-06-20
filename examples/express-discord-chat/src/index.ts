@@ -33,7 +33,10 @@ chat.onNewMention(async (thread, message) => {
 
 const app = express();
 
-app.use(express.json());
+// Note: do NOT register a global `express.json()` middleware. It would parse
+// the Discord webhook body first, leaving `req.body` as a JS object instead of
+// raw bytes and breaking Ed25519 signature verification. Each route below opts
+// in to the body parser it needs.
 
 app.post(
   "/api/webhooks/discord",
@@ -67,7 +70,7 @@ app.post(
   }
 );
 
-app.post("/api/messages/dm", async (req, res) => {
+app.post("/api/messages/dm", express.json(), async (req, res) => {
   const userId = String(req.body?.userId ?? "");
   const text = String(req.body?.text ?? "");
 
