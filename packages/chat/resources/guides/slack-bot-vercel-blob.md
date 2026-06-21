@@ -124,18 +124,18 @@ This creates a `POST /api/webhooks/slack` endpoint. The `waitUntil` option ensur
 
 1.  Start the dev server:
     
-    `pnpm dev`
-    
-2.  Expose it with a tunnel:
-    
-    `npx ngrok http 3000`
-    
-3.  Copy the tunnel URL (for example, [`https://abc123.ngrok-free.dev`](https://abc123.ngrok-free.dev)) and update both **Event Subscriptions** and **Interactivity** Request URLs in your [Slack app settings](https://api.slack.com/apps) to [`https://abc123.ngrok-free.dev/api/webhooks/slack`](https://abc123.ngrok-free.dev/api/webhooks/slack).
-    
-4.  Invite the bot to a channel: `/invite @Files Bot`.
-    
-5.  @mention the bot and ask it to list files: "Show me what's in the bucket." The agent calls `listFiles` and streams the response back into the thread. To test a write operation end-to-end before building an approval flow, temporarily pass `requireApproval: false` to `createFileTools` in `lib/bot.ts` and ask the bot to "Upload a file called test.txt with the contents 'hello world'."
-    
+
+`pnpm dev`
+
+2\. Expose it with a tunnel:
+
+`npx ngrok http 3000`
+
+3\. Copy the tunnel URL (for example, `https://abc123.ngrok-free.dev`) and update both **Event Subscriptions** and **Interactivity** Request URLs in your [Slack app settings](https://api.slack.com/apps) to `https://abc123.ngrok-free.dev/api/webhooks/slack`.
+
+4\. Invite the bot to a channel: `/invite @Files Bot`.
+
+5\. @mention the bot and ask it to list files: "Show me what's in the bucket." The agent calls `listFiles` and streams the response back into the thread. To test a write operation end-to-end before building an approval flow, temporarily pass `requireApproval: false` to `createFileTools` in `lib/bot.ts` and ask the bot to "Upload a file called test.txt with the contents 'hello world'."
 
 ### 9\. Deploy to Vercel
 
@@ -151,7 +151,7 @@ Then deploy to production:
 
 `vercel --prod`
 
-Update the **Event Subscriptions** and **Interactivity** Request URLs in your Slack app settings to your production URL, for example [`https://my-files-bot.vercel.app/api/webhooks/slack`](https://my-files-bot.vercel.app/api/webhooks/slack).
+Update the **Event Subscriptions** and **Interactivity** Request URLs in your Slack app settings to your production URL, for example `https://your-app.vercel.app/api/webhooks/slack`.
 
 ## Configuring approval and read-only mode
 

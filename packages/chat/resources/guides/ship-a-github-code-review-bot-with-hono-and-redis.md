@@ -45,7 +45,7 @@ The `chat` package is the Chat SDK core. The `@chat-adapter/github` and `@chat-a
 
 1.  Go to your repository **Settings**, then **Webhooks**, then **Add webhook**
     
-2.  Set **Payload URL** to [`https://your-domain.com/api/webhooks/github`](https://your-domain.com/api/webhooks/github)
+2.  Set **Payload URL** to `https://your-domain.com/api/webhooks/github`
     
 3.  Set **Content type** to `application/json`
     

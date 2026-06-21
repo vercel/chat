@@ -43,8 +43,6 @@ Before continuing, make sure you have a React app with Liveblocks Comments up an
 
 Install the Liveblocks adapter, Chat SDK, AI SDK, and other related packages:
 
-`npm install @liveblocks/chat-sdk-adapter @liveblocks/node chat @chat-adapter/state-redis ai zod`
-
 The `chat` package is the Chat SDK core. `@liveblocks/chat-sdk-adapter` is the Liveblocks platform adapter. `ai` is the AI SDK, which includes `ToolLoopAgent`. `zod` is used to define tool input schemas. `@chat-adapter/state-redis` is the [Redis state adapter,](https://chat-sdk.dev/adapters/official/redis) which handles thread subscriptions and distributed locking.
 
 ### 3\. Create a Liveblocks project
