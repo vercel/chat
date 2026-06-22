@@ -7988,6 +7988,143 @@ describe("stream with empty threadTs", () => {
       expect.objectContaining({ token: "xoxb-test-token" })
     );
   });
+
+  it("rotates markdown into multiple stream segments before Slack size limits", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const streams: Array<{
+      append: ReturnType<typeof vi.fn>;
+      stop: ReturnType<typeof vi.fn>;
+      streamTs: string;
+    }> = [];
+    const chatStream = vi.fn(() => {
+      const stream = {
+        append: vi.fn().mockResolvedValue({ ok: true }),
+        stop: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            ok: true,
+            ts: stream.streamTs,
+          })
+        ),
+        streamTs: `1234567890.${String(streams.length + 1).padStart(6, "0")}`,
+      };
+      streams.push(stream);
+      return stream;
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    async function* longStream() {
+      yield "a".repeat(12_000);
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", longStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(chatStream).toHaveBeenCalledTimes(2);
+    expect(streams[0].append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        markdown_text: expect.any(String),
+        token: "xoxb-test-token",
+      })
+    );
+    expect(
+      streams[0].append.mock.calls[0][0].markdown_text.length
+    ).toBeLessThan(11_500);
+    expect(streams[0].stop).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(streams[1].stop).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+  });
+
+  it("rotates structured task chunks before the estimated payload budget is exhausted", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const streams: Array<{
+      append: ReturnType<typeof vi.fn>;
+      stop: ReturnType<typeof vi.fn>;
+      streamTs: string;
+    }> = [];
+    const chatStream = vi.fn(() => {
+      const stream = {
+        append: vi.fn().mockResolvedValue({ ok: true }),
+        stop: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            ok: true,
+            ts: stream.streamTs,
+          })
+        ),
+        streamTs: `1234567890.${String(streams.length + 1).padStart(6, "0")}`,
+      };
+      streams.push(stream);
+      return stream;
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    async function* taskStream() {
+      for (let index = 0; index < 40; index += 1) {
+        yield {
+          details: "x".repeat(220),
+          id: `task-${index}`,
+          status: "in_progress" as const,
+          title: `Task ${index}`,
+          type: "task_update" as const,
+        };
+      }
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", taskStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(chatStream.mock.calls.length).toBeGreaterThan(1);
+    for (const stream of streams) {
+      expect(stream.stop).toHaveBeenCalledWith(
+        expect.objectContaining({ token: "xoxb-test-token" })
+      );
+    }
+  });
+
+  it("annotates stream delivery errors with the failed stream message id", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const error = Object.assign(new Error("msg_too_long"), {
+      data: { error: "msg_too_long" },
+    });
+    const stream = {
+      append: vi.fn().mockResolvedValue({ ok: true }),
+      stop: vi.fn().mockRejectedValue(error),
+      streamTs: "1234567890.111111",
+    };
+    mockClientMethod(adapter, "chatStream", vi.fn().mockReturnValue(stream));
+
+    async function* shortStream() {
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("slack:C123:1234567890.000000", shortStream(), {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      })
+    ).rejects.toMatchObject({
+      slackAnswerLost: true,
+      slackStreamMessageId: "1234567890.111111",
+    });
+  });
 });
 
 describe("scheduleMessage with empty threadTs", () => {

@@ -81,6 +81,290 @@ const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
 // Slack expects block_suggestion responses within 3s. Leave headroom for
 // network latency so the HTTP response lands before Slack gives up.
 const OPTIONS_LOAD_TIMEOUT_MS = 2500;
+const STREAM_BUFFER_SIZE = 256;
+const STREAM_SEGMENT_LIMIT = 11_500;
+const STREAM_CHUNK_LIMIT = 256;
+const STREAM_TASK_LIMIT = 50;
+const STREAM_FENCE_RESERVE = 64;
+const STREAM_CARD_OVERHEAD = 320;
+
+type SlackTaskUpdateChunk = Extract<StreamChunk, { type: "task_update" }> & {
+  sources?: unknown;
+};
+type SlackPlanUpdateChunk = Extract<StreamChunk, { type: "plan_update" }>;
+type SlackProgressChunk = SlackTaskUpdateChunk | SlackPlanUpdateChunk;
+interface SlackStreamSegment {
+  cards: number;
+  hasContent: boolean;
+  length: number;
+  startedAt: number;
+  stopped: boolean;
+  streamer: ReturnType<WebClient["chatStream"]>;
+  taskChars: Map<string, number>;
+  taskCharsTotal: number;
+}
+
+// Slack hard-expires a streaming message around five minutes after chat.startStream.
+// Rotate segments before then so long renders survive delayed stopStream calls.
+function streamSegmentMaxAgeMs(): number {
+  const value = Number(process.env.SLACK_STREAM_SEGMENT_MAX_AGE_MS ?? "");
+  return Number.isFinite(value) && value > 0 ? value : 240_000;
+}
+
+function streamSegmentTaskCharBudget(): number {
+  const value = Number(process.env.SLACK_STREAM_SEGMENT_TASK_CHAR_BUDGET ?? "");
+  return Number.isFinite(value) && value > 0 ? value : 9_000;
+}
+
+function streamSegmentPayloadCharBudget(): number {
+  const value = Number(
+    process.env.SLACK_STREAM_SEGMENT_PAYLOAD_CHAR_BUDGET ?? ""
+  );
+  return Number.isFinite(value) && value > 0 ? value : 11_000;
+}
+
+function slackStreamErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return typeof error === "string" ? error : "";
+  }
+  const candidate = error as {
+    data?: unknown;
+    error?: unknown;
+    message?: unknown;
+  };
+  if (typeof candidate.error === "string") {
+    return candidate.error;
+  }
+  const data = candidate.data as { error?: unknown } | undefined;
+  if (data && typeof data.error === "string") {
+    return data.error;
+  }
+  if (typeof candidate.message === "string") {
+    return candidate.message;
+  }
+  return "";
+}
+
+function isSlackStreamDeliveryError(error: unknown): boolean {
+  const code = slackStreamErrorCode(error);
+  return (
+    code.includes("msg_too_long") ||
+    code.includes("msg_blocks_too_long") ||
+    code.includes("message_not_in_streaming_state")
+  );
+}
+
+function annotateSlackAnswerLost(error: unknown, lost: boolean): void {
+  if (!error || (typeof error !== "object" && typeof error !== "function")) {
+    return;
+  }
+  try {
+    (error as { slackAnswerLost?: boolean }).slackAnswerLost = lost;
+  } catch {
+    // Best-effort annotation only.
+  }
+}
+
+function annotateSlackStreamMessage(
+  error: unknown,
+  segment: SlackStreamSegment | undefined
+): void {
+  if (!error || (typeof error !== "object" && typeof error !== "function")) {
+    return;
+  }
+  const streamTs = (segment?.streamer as { streamTs?: string } | undefined)
+    ?.streamTs;
+  if (typeof streamTs !== "string" || streamTs.length === 0) {
+    return;
+  }
+  try {
+    (error as { slackStreamMessageId?: string }).slackStreamMessageId =
+      streamTs;
+  } catch {
+    // Best-effort annotation only.
+  }
+}
+
+function slackAnswerLostAnnotation(error: unknown): boolean | undefined {
+  if (!error || (typeof error !== "object" && typeof error !== "function")) {
+    return;
+  }
+  const value = (error as { slackAnswerLost?: unknown }).slackAnswerLost;
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function jsonChars(value: unknown): number {
+  if (value === undefined) {
+    return 0;
+  }
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return 0;
+  }
+}
+
+function taskChunkChars(chunk: SlackProgressChunk): number {
+  const task = chunk.type === "task_update" ? chunk : undefined;
+  return (
+    (task ? task.id.length : 0) +
+    chunk.title.length +
+    (task ? task.status.length : 0) +
+    (task?.details?.length ?? 0) +
+    (task?.output?.length ?? 0) +
+    jsonChars(task?.sources) +
+    STREAM_CARD_OVERHEAD
+  );
+}
+
+function segmentPayloadChars(segment: SlackStreamSegment): number {
+  return segment.length + segment.taskCharsTotal;
+}
+
+function segmentMarkdownAvailable(segment: SlackStreamSegment): number {
+  return Math.max(
+    0,
+    Math.min(
+      STREAM_SEGMENT_LIMIT - segment.length,
+      streamSegmentPayloadCharBudget() - segmentPayloadChars(segment)
+    )
+  );
+}
+
+const FENCE_PATTERN = /^(`{3,}|~{3,})/;
+
+class Fence {
+  private buffer = "";
+  private value?: { marker: string; opening: string };
+
+  get closing(): string | undefined {
+    return this.value ? `\n${this.value.marker}` : undefined;
+  }
+
+  get opening(): string | undefined {
+    return this.value ? `${this.value.opening}\n` : undefined;
+  }
+
+  finish(): void {
+    if (this.buffer) {
+      this.track(this.buffer);
+      this.buffer = "";
+    }
+  }
+
+  push(text: string): void {
+    const lines = `${this.buffer}${text}`.split("\n");
+    this.buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      this.track(line);
+    }
+  }
+
+  private track(line: string): void {
+    const trimmed = line.trimStart();
+    const match = FENCE_PATTERN.exec(trimmed);
+    if (!match) {
+      return;
+    }
+    const marker = match[1];
+    if (!this.value) {
+      this.value = { marker, opening: trimmed };
+      return;
+    }
+    if (
+      marker[0] === this.value.marker[0] &&
+      marker.length >= this.value.marker.length
+    ) {
+      this.value = undefined;
+    }
+  }
+}
+
+function splitText(text: string, limit: number): string[] {
+  if (text.length <= limit) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  let offset = 0;
+  let remaining = Math.ceil(text.length / limit);
+  while (offset < text.length) {
+    const left = text.length - offset;
+    if (left <= limit) {
+      chunks.push(text.slice(offset));
+      break;
+    }
+    const target = Math.min(limit, Math.ceil(left / Math.max(remaining, 1)));
+    const minimum = Math.max(1, Math.floor(target * 0.75));
+    let end = offset + target;
+    const window = text.slice(offset, end);
+    const boundary = Math.max(
+      window.lastIndexOf("\n"),
+      window.lastIndexOf(" ")
+    );
+    if (boundary >= minimum) {
+      end = offset + boundary + 1;
+    }
+    const lastCode = text.charCodeAt(end - 1);
+    if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+      end += end - offset === 1 ? 1 : -1;
+    }
+    chunks.push(text.slice(offset, end));
+    offset = end;
+    remaining = Math.max(1, remaining - 1);
+  }
+  return chunks;
+}
+
+function truncateText(text: string, limit: number): string {
+  if (text.length <= limit) {
+    return text;
+  }
+  let end = limit - 3;
+  const lastCode = text.charCodeAt(end - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    end -= 1;
+  }
+  return `${text.slice(0, end)}...`;
+}
+
+function taskId(id: string, index: number): string {
+  if (index === 0) {
+    return truncateText(id, STREAM_CHUNK_LIMIT);
+  }
+  const suffix = `:part:${index + 1}`;
+  return `${truncateText(id, STREAM_CHUNK_LIMIT - suffix.length)}${suffix}`;
+}
+
+function taskTitle(title: string, index: number, total: number): string {
+  if (total === 1) {
+    return truncateText(title, STREAM_CHUNK_LIMIT);
+  }
+  const suffix = ` (${index + 1}/${total})`;
+  return `${truncateText(title, STREAM_CHUNK_LIMIT - suffix.length)}${suffix}`;
+}
+
+function splitTask(
+  chunk: SlackTaskUpdateChunk,
+  previous: number
+): SlackTaskUpdateChunk[] {
+  const sources = chunk.sources;
+  const details = chunk.details
+    ? splitText(chunk.details, STREAM_CHUNK_LIMIT)
+    : [];
+  const output = chunk.output
+    ? splitText(chunk.output, STREAM_CHUNK_LIMIT)
+    : [];
+  const total = Math.max(previous, details.length, output.length, 1);
+  return Array.from({ length: total }, (_, index) => ({
+    ...(details[index] ? { details: details[index] } : {}),
+    id: taskId(chunk.id, index),
+    ...(output[index] ? { output: output[index] } : {}),
+    ...(index === 0 && sources !== undefined ? { sources } : {}),
+    status: chunk.status,
+    title: taskTitle(chunk.title, index, total),
+    type: "task_update",
+  }));
+}
 
 /**
  * Compare two strings in constant time to avoid leaking information about how
@@ -4034,54 +4318,328 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
-    const streamer = this._client.chatStream({
-      channel,
-      thread_ts: threadTs,
-      recipient_user_id: options.recipientUserId,
-      recipient_team_id: options.recipientTeamId,
-      ...(options.taskDisplayMode && {
-        task_display_mode: options.taskDisplayMode,
+    const createSegment = (): SlackStreamSegment => ({
+      cards: 0,
+      hasContent: false,
+      length: 0,
+      startedAt: Date.now(),
+      stopped: false,
+      taskChars: new Map(),
+      taskCharsTotal: 0,
+      streamer: this._client.chatStream({
+        channel,
+        thread_ts: threadTs,
+        recipient_user_id: options.recipientUserId,
+        recipient_team_id: options.recipientTeamId,
+        ...(options.taskDisplayMode && {
+          task_display_mode: options.taskDisplayMode,
+        }),
+        buffer_size: STREAM_BUFFER_SIZE,
       }),
     });
 
+    let current = createSegment();
+    const structured = new Set<SlackStreamSegment>();
+    let lastResult:
+      | Awaited<ReturnType<SlackStreamSegment["streamer"]["stop"]>>
+      | undefined;
+    let provisionalResult:
+      | Awaited<ReturnType<SlackStreamSegment["streamer"]["stop"]>>
+      | undefined;
+    let sourceConsumed = false;
     let lastAppended = "";
+    let plan: SlackPlanUpdateChunk | undefined;
+    const taskParts = new Map<string, number>();
+    const taskSegments = new Map<string, SlackStreamSegment>();
+    const fence = new Fence();
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
     });
+
+    const isExpired = (segment: SlackStreamSegment): boolean =>
+      Date.now() - segment.startedAt >= streamSegmentMaxAgeMs();
+
+    const stopSegment = async (
+      segment: SlackStreamSegment,
+      blocks?: StreamOptions["stopBlocks"],
+      force = false
+    ): Promise<typeof lastResult> => {
+      if (segment.stopped || !(segment.hasContent || force)) {
+        return undefined;
+      }
+      let result: typeof lastResult;
+      try {
+        result = await segment.streamer.stop({
+          token,
+          ...(blocks
+            ? { blocks: blocks as ChatStopStreamArguments["blocks"] }
+            : {}),
+        });
+      } catch (error) {
+        annotateSlackStreamMessage(error, segment);
+        throw error;
+      }
+      segment.stopped = true;
+      if (result) {
+        provisionalResult = result;
+      }
+      return result;
+    };
+
+    const unmapSegment = (segment: SlackStreamSegment): void => {
+      structured.delete(segment);
+      for (const [id, taskSegment] of taskSegments) {
+        if (taskSegment === segment) {
+          taskSegments.delete(id);
+        }
+      }
+    };
+
+    const retireSegment = async (
+      segment: SlackStreamSegment,
+      reason: string
+    ): Promise<void> => {
+      try {
+        await stopSegment(segment);
+        unmapSegment(segment);
+      } catch (stopError) {
+        if (segment.length > 0) {
+          annotateSlackAnswerLost(stopError, true);
+          throw stopError;
+        }
+        unmapSegment(segment);
+        this.logger.warn(
+          "Slack: failed to stop rotated progress stream segment",
+          { error: stopError, reason }
+        );
+      }
+    };
+
+    const rotateSegment = async (
+      closing?: string,
+      opening?: string
+    ): Promise<void> => {
+      if (closing) {
+        await current.streamer.append({ markdown_text: closing, token });
+        current.hasContent = true;
+        current.length += closing.length;
+      }
+      if (!structured.has(current)) {
+        await stopSegment(current);
+      }
+      current = createSegment();
+      if (opening) {
+        await current.streamer.append({ markdown_text: opening, token });
+        current.hasContent = true;
+        current.length += opening.length;
+      }
+    };
+
+    const rotateCurrentForAge = async (): Promise<void> => {
+      const closing = fence.closing;
+      const opening = fence.opening;
+      if (closing && current.hasContent && !current.stopped) {
+        try {
+          await current.streamer.append({ markdown_text: closing, token });
+          current.length += closing.length;
+        } catch (closeError) {
+          this.logger.warn(
+            "Slack: failed to close fence on aged stream segment",
+            {
+              error: closeError,
+            }
+          );
+        }
+      }
+      if (structured.has(current)) {
+        await retireSegment(current, "age");
+      } else {
+        await stopSegment(current);
+      }
+      current = createSegment();
+      if (opening) {
+        await current.streamer.append({ markdown_text: opening, token });
+        current.hasContent = true;
+        current.length += opening.length;
+      }
+    };
 
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
       if (delta.length === 0) {
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+      let remaining = delta;
+      while (remaining.length > 0) {
+        if (isExpired(current)) {
+          await rotateCurrentForAge();
+        }
+        if (
+          current.length === STREAM_SEGMENT_LIMIT ||
+          (segmentMarkdownAvailable(current) === 0 && current.hasContent)
+        ) {
+          await rotateSegment(fence.closing, fence.opening);
+        }
+        const available = segmentMarkdownAvailable(current);
+        const first = remaining.codePointAt(0);
+        const width = first !== undefined && first > 0xffff ? 2 : 1;
+        if (available < width) {
+          await rotateSegment(fence.closing, fence.opening);
+          continue;
+        }
+        if (
+          remaining.length > available &&
+          available <= STREAM_FENCE_RESERVE + width
+        ) {
+          await rotateSegment(fence.closing, fence.opening);
+          continue;
+        }
+        const limit =
+          remaining.length > available
+            ? Math.max(width, available - STREAM_FENCE_RESERVE)
+            : available;
+        const [text] = splitText(remaining, limit);
+        if (!text) {
+          break;
+        }
+        await current.streamer.append({ markdown_text: text, token });
+        current.hasContent = true;
+        current.length += text.length;
+        fence.push(text);
+        remaining = remaining.slice(text.length);
+        if (remaining.length > 0) {
+          await rotateSegment(fence.closing, fence.opening);
+        }
+      }
     };
 
-    /**
-     * Helper to send a structured chunk (task_update, plan_update, etc.)
-     * directly to Slack's streaming API. Any buffered markdown text is
-     * flushed first to maintain correct ordering.
-     *
-     * If the Slack API rejects the chunk (e.g. missing assistant:write scope,
-     * older @slack/web-api version, or Assistant features not enabled in the
-     * app manifest), the error is logged and the chunk is silently skipped.
-     * Text streaming continues unaffected.
-     */
     let structuredChunksSupported = true;
-    const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
+    const appendStructuredChunk = async (
+      segment: SlackStreamSegment,
+      chunk: SlackProgressChunk
+    ): Promise<void> => {
+      // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+      await segment.streamer.append({ chunks: [chunk], token } as any);
+      segment.hasContent = true;
+      const key = chunk.type === "plan_update" ? "@plan" : chunk.id;
+      const size = taskChunkChars(chunk);
+      const previous = segment.taskChars.get(key) ?? 0;
+      if (size > previous) {
+        segment.taskCharsTotal += size - previous;
+        segment.taskChars.set(key, size);
+      }
+    };
+
+    const createStructuredSegment = async (): Promise<SlackStreamSegment> => {
+      current = createSegment();
+      structured.add(current);
+      if (plan) {
+        await appendStructuredChunk(current, plan);
+      }
+      return current;
+    };
+
+    const getTaskSegment = async (
+      id: string,
+      chunkChars: number
+    ): Promise<SlackStreamSegment> => {
+      const existing = taskSegments.get(id);
+      if (existing) {
+        if (isExpired(existing)) {
+          await retireSegment(existing, "age");
+        } else if (existing.stopped) {
+          taskSegments.delete(id);
+        } else {
+          const previous = existing.taskChars.get(id) ?? 0;
+          const projected =
+            existing.taskCharsTotal - previous + Math.max(previous, chunkChars);
+          if (
+            projected <= streamSegmentTaskCharBudget() &&
+            existing.length + projected <= streamSegmentPayloadCharBudget()
+          ) {
+            return existing;
+          }
+          taskSegments.delete(id);
+        }
+      }
+      if (isExpired(current)) {
+        await rotateCurrentForAge();
+      }
+      if (
+        current.cards >= STREAM_TASK_LIMIT ||
+        current.taskCharsTotal + chunkChars > streamSegmentTaskCharBudget() ||
+        segmentPayloadChars(current) + chunkChars >
+          streamSegmentPayloadCharBudget()
+      ) {
+        await createStructuredSegment();
+      } else {
+        structured.add(current);
+      }
+      current.cards += 1;
+      taskSegments.set(id, current);
+      return current;
+    };
+
+    const sendStructuredChunk = async (
+      chunk: SlackProgressChunk
+    ): Promise<void> => {
       if (!structuredChunksSupported) {
         return;
       }
 
-      // Flush any buffered markdown before sending the structured chunk
+      // Flush any buffered markdown before sending the structured chunk.
       const committable = renderer.getCommittableText();
       const delta = committable.slice(lastAppended.length);
       await flushMarkdownDelta(delta);
       lastAppended = committable;
 
       try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
+        if (chunk.type === "plan_update") {
+          plan = {
+            ...chunk,
+            title: truncateText(chunk.title, STREAM_CHUNK_LIMIT),
+          };
+          for (const segment of Array.from(structured)) {
+            if (segment.stopped) {
+              structured.delete(segment);
+              continue;
+            }
+            if (isExpired(segment)) {
+              if (segment === current) {
+                await rotateCurrentForAge();
+              } else {
+                await retireSegment(segment, "age");
+              }
+              continue;
+            }
+            await appendStructuredChunk(segment, plan);
+          }
+          if (structured.size === 0) {
+            if (isExpired(current)) {
+              await rotateCurrentForAge();
+            }
+            structured.add(current);
+            await appendStructuredChunk(current, plan);
+          }
+          return;
+        }
+
+        const task = chunk as SlackTaskUpdateChunk;
+        const chunks = splitTask(task, taskParts.get(task.id) ?? 0);
+        taskParts.set(task.id, chunks.length);
+        for (const normalized of chunks) {
+          const segment = await getTaskSegment(
+            normalized.id,
+            taskChunkChars(normalized)
+          );
+          await appendStructuredChunk(segment, normalized);
+        }
       } catch (error) {
+        if (
+          isSlackStreamDeliveryError(error) ||
+          slackAnswerLostAnnotation(error) === true
+        ) {
+          throw error;
+        }
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
         // to avoid repeated failures and log once.
@@ -4103,39 +4661,100 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
     };
 
-    for await (const chunk of textStream) {
-      if (typeof chunk === "string") {
-        await pushTextAndFlush(chunk);
-      } else if (chunk.type === "markdown_text") {
-        await pushTextAndFlush(chunk.text);
-      } else {
-        // Structured chunk (task_update, plan_update) — send directly to Slack
-        await sendStructuredChunk(chunk);
+    try {
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") {
+          await pushTextAndFlush(chunk);
+        } else if (chunk.type === "markdown_text") {
+          await pushTextAndFlush(chunk.text);
+        } else {
+          await sendStructuredChunk(chunk);
+        }
       }
+
+      renderer.finish();
+      const finalCommittable = renderer.getCommittableText();
+      const finalDelta = finalCommittable.slice(lastAppended.length);
+      await flushMarkdownDelta(finalDelta);
+      sourceConsumed = true;
+
+      fence.finish();
+      if (fence.closing && !current.stopped) {
+        await current.streamer.append({
+          markdown_text: fence.closing,
+          token,
+        });
+        current.hasContent = true;
+        current.length += fence.closing.length;
+      }
+
+      lastResult =
+        (await stopSegment(current, options?.stopBlocks, !provisionalResult)) ??
+        provisionalResult;
+
+      for (const segment of Array.from(structured)) {
+        if (segment === current || segment.stopped) {
+          continue;
+        }
+        try {
+          await stopSegment(segment);
+        } catch (stopError) {
+          if (segment.length > 0) {
+            throw stopError;
+          }
+          this.logger.warn("Slack: failed to stop progress stream segment", {
+            error: stopError,
+          });
+        }
+      }
+    } catch (error) {
+      const segments = new Set([...structured, current]);
+      fence.finish();
+      let answerStopFailed = false;
+
+      for (const segment of segments) {
+        if (!(segment.hasContent && !segment.stopped)) {
+          continue;
+        }
+        if (segment === current && fence.closing) {
+          try {
+            await segment.streamer.append({
+              markdown_text: fence.closing,
+              token,
+            });
+            segment.length += fence.closing.length;
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }
+        try {
+          await stopSegment(segment);
+        } catch (stopError) {
+          if (segment.length > 0 || segment === current) {
+            answerStopFailed = true;
+          }
+          this.logger.warn("Slack: failed to stop partial stream", {
+            error: stopError,
+          });
+        }
+      }
+
+      annotateSlackAnswerLost(error, !sourceConsumed || answerStopFailed);
+      throw error;
     }
 
-    // Flush any remaining buffered content (e.g. held table rows at end of stream).
-    renderer.finish();
-    const finalCommittable = renderer.getCommittableText();
-    const finalDelta = finalCommittable.slice(lastAppended.length);
-    await flushMarkdownDelta(finalDelta);
+    if (!lastResult) {
+      throw new NetworkError("slack", "Slack stream returned no result");
+    }
 
-    const result = await streamer.stop({
-      token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
-        : {}),
-    });
-    const messageTs = (result.message?.ts ?? result.ts) as string;
+    const messageTs = (lastResult.message?.ts ?? lastResult.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
 
     return {
       id: messageTs,
       threadId,
-      raw: result,
+      raw: lastResult,
     };
   }
 
