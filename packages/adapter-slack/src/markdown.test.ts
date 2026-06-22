@@ -235,6 +235,26 @@ describe("SlackFormatConverter", () => {
       });
     });
 
+    it("does not link @handles inside inline code", () => {
+      expect(
+        converter.toSlackPayload("Use `@vercel/postgres` and ping @george")
+      ).toEqual({
+        text: "Use `@vercel/postgres` and ping <@george>",
+      });
+    });
+
+    it("does not link @handles inside fenced code", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown:
+            "Install:\n```\nnpm install @vercel/postgres\n```\ncc @george",
+        })
+      ).toEqual({
+        markdown_text:
+          "Install:\n```\nnpm install @vercel/postgres\n```\ncc <@george>",
+      });
+    });
+
     it("does not mangle @handles inside schemeless host paths", () => {
       expect(converter.toSlackPayload("See hackmd.io/@jkyang/abc")).toEqual({
         text: "See hackmd.io/@jkyang/abc",
