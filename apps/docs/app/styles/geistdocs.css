@@ -508,6 +508,14 @@ html {
   line-height: 24px;
 }
 
+@utility text-heading-14 {
+  font-family: var(--font-family-geist);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.28px;
+  line-height: 20px;
+}
+
 @utility text-heading-40 {
   font-family: var(--font-family-geist);
   font-size: 40px;

@@ -19,6 +19,11 @@
       "title": "Community Agent",
       "description": "Open source AI-powered Slack community management bot with a built-in Next.js admin panel. Uses Chat SDK, AI SDK, and Vercel Workflow.",
       "href": "https://vercel.com/templates/next.js/chat-sdk-community-agent"
+    },
+    {
+      "title": "Caltext",
+      "description": "iMessage calorie tracking assistant powered by AI.",
+      "href": "https://vercel.com/templates/hono/caltext"
     }
   ]
 }

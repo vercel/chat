@@ -3,12 +3,14 @@
   "pages": [
     "liveblocks",
     "resend",
+    "novu",
     "sendblue",
     "zernio",
     "matrix",
     "agentphone",
     "lark",
     "velt",
-    "kapso"
+    "kapso",
+    "linq"
   ]
 }

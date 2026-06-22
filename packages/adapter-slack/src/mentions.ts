@@ -87,6 +87,28 @@ function findHostEnd(text: string, index: number, end: number): number {
   return cursor;
 }
 
+function findCodeEnd(text: string, index: number, end: number): number {
+  if (text[index] !== "`") {
+    return index;
+  }
+
+  const fence = text.startsWith("```", index);
+  const marker = fence ? "```" : "`";
+  const start = index + marker.length;
+  const close = text.indexOf(marker, start);
+
+  if (close === -1 || close >= end) {
+    return index;
+  }
+  if (!fence) {
+    const newline = text.indexOf("\n", start);
+    if (newline !== -1 && newline < close) {
+      return index;
+    }
+  }
+  return close + marker.length;
+}
+
 function replaceRange(
   text: string,
   start: number,
@@ -98,6 +120,13 @@ function replaceRange(
   let index = start;
 
   while (index < end) {
+    const codeEnd = findCodeEnd(text, index, end);
+    if (codeEnd > index) {
+      result += text.slice(index, codeEnd);
+      index = codeEnd;
+      continue;
+    }
+
     if (angles && text[index] === "<") {
       let cursor = index + 1;
       while (

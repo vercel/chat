@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   description: ADAPTERS_LISTING_DESCRIPTION,
   openGraph: {
     title: "Adapters",
+    images: "/opengraph-image.png",
   },
   twitter: {
     card: "summary_large_image",

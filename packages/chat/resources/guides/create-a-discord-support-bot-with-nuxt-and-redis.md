@@ -56,7 +56,7 @@ The `chat` package is the Chat SDK core. The `@chat-adapter/discord` and `@chat-
 
 Then set up the Interactions endpoint:
 
-1.  In **General Information**, set the **Interactions Endpoint URL** to [`https://your-domain.com/api/webhooks/discord`](https://your-domain.com/api/webhooks/discord)
+1.  In **General Information**, set the **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`
     
 2.  Discord will send a PING to verify the endpoint. You'll need to deploy first or use a tunnel
     
@@ -128,7 +128,7 @@ The Gateway listener connects to Discord's WebSocket, receives messages, and for
     
 3.  Expose your server with a tunnel (e.g. `ngrok http 3000`)
     
-4.  Update the **Interactions Endpoint URL** in your Discord app settings to your tunnel URL (e.g. [`https://abc123.ngrok.io/api/webhooks/discord`](https://abc123.ngrok.io/api/webhooks/discord))
+4.  Update the **Interactions Endpoint URL** in your Discord app settings to your tunnel URL (e.g. `https://abc123.ngrok.io/api/webhooks/discord`)
     
 5.  @mention the bot in your Discord server. It should respond with a support card
     

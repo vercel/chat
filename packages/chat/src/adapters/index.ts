@@ -446,6 +446,27 @@ export const ADAPTERS = {
     slug: "linear",
     type: "platform",
   },
+  linq: {
+    description:
+      "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    env: {
+      config: ["baseURL"],
+      required: [
+        secretEnv("LINQ_API_KEY", "Linq API key for outbound API calls."),
+        secretEnv(
+          "LINQ_WEBHOOK_SECRET",
+          "Webhook signing secret used to verify inbound HMAC-SHA256 signatures."
+        ),
+      ],
+    },
+    factoryExport: "createLinqAdapter",
+    group: "vendor-official",
+    name: "Linq",
+    packageName: "@linqapp/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "linq",
+    type: "platform",
+  },
   liveblocks: {
     description:
       "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
@@ -558,6 +579,35 @@ export const ADAPTERS = {
     packageName: "@chat-adapter/messenger",
     peerDeps: [],
     slug: "messenger",
+    type: "platform",
+  },
+  novu: {
+    description:
+      "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    env: {
+      optional: [
+        urlEnv(
+          "NOVU_API_BASE_URL",
+          "API base URL. Defaults to https://api.novu.co."
+        ),
+      ],
+      required: [
+        secretEnv(
+          "NOVU_SECRET_KEY",
+          "Novu API key that authorizes replies and verifies the inbound HMAC. Set automatically by npx novu connect."
+        ),
+        env(
+          "NOVU_AGENT_IDENTIFIER",
+          "Bridge agent ID set automatically by npx novu connect."
+        ),
+      ],
+    },
+    factoryExport: "createNovuAdapter",
+    group: "vendor-official",
+    name: "Novu",
+    packageName: "@novu/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "novu",
     type: "platform",
   },
   postgres: {
@@ -794,7 +844,7 @@ export const ADAPTERS = {
   },
   velt: {
     description:
-      "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
+      "Velt Comments adapter for bots that read, reply, mention, and start threads in anchored comments across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
     env: {
       config: [
         "botUserId",

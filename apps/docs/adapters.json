@@ -311,10 +311,10 @@
     "slug": "velt",
     "type": "platform",
     "community": true,
-    "description": "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
+    "description": "Velt Comments adapter for bots that read, reply, mention, and start threads in anchored comments across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
     "packageName": "@veltdev/chat-sdk-adapter",
     "author": "Velt",
-    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/a30c5e0fdfb1ac07c4efca1a0f3834d313e6eac3/packages/chat-sdk-adapter",
+    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/9974db6ee24dc378987decc5c56cce95a12e7805/packages/chat-sdk-adapter",
     "vendorOfficial": true
   },
   {
@@ -326,6 +326,28 @@
     "packageName": "@kapso/chat-adapter",
     "author": "Kapso",
     "readme": "https://github.com/gokapso/chat-sdk-adapter/tree/7c7e9b349323b8cfa060cc64b15d97bcb9f906b3",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Novu",
+    "slug": "novu",
+    "type": "platform",
+    "community": true,
+    "description": "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    "packageName": "@novu/chat-sdk-adapter",
+    "author": "Novu",
+    "readme": "https://github.com/novuhq/novu/blob/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Linq",
+    "slug": "linq",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    "packageName": "@linqapp/chat-sdk-adapter",
+    "author": "Linq",
+    "readme": "https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq",
     "vendorOfficial": true
   }
 ]

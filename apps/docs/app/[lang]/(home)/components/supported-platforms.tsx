@@ -74,10 +74,10 @@ export const SupportedPlatforms = () => (
     <div className="home-grid home-grid-features" data-home-grid>
       {features.map((feature) => (
         <div className="home-grid-cell" key={feature.title}>
-          <span className="block text-heading-16 sm:text-heading-20">
+          <span className="block text-heading-14 sm:text-heading-20">
             {feature.title}
           </span>
-          <span className="block font-medium! text-gray-900 text-heading-16 sm:text-heading-20">
+          <span className="block font-medium! text-gray-900 text-heading-14 sm:text-heading-20">
             {feature.description}
           </span>
         </div>

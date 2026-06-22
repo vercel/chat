@@ -55,6 +55,30 @@
       "type": "guide"
     },
     {
+      "title": "Build your own Slackbot with Vercel Connect",
+      "description": "Learn how to build your very own Slackbot with Chat SDK and AI SDK. Vercel Connect supplies runtime Slack tokens and forwards triggers, so you never store a long-lived bot token.",
+      "href": "https://vercel.com/kb/guide/build-a-slack-bot-with-vercel-connect",
+      "type": "guide"
+    },
+    {
+      "title": "Give your agents secure access to third-party APIs",
+      "description": "Use Vercel Connect to call provider APIs like Slack, GitHub, and Snowflake from your agents and services with short-lived, user-authorized tokens instead of long-lived secrets.",
+      "href": "https://vercel.com/kb/guide/vercel-connect",
+      "type": "guide"
+    },
+    {
+      "title": "Build AI agents with AI Gateway and AI SDK",
+      "description": "Build AI agents on Vercel with AI Gateway and AI SDK, then make them reliable, capable, and durable with Sandbox, Chat SDK, Vercel Connect, and Workflow.",
+      "href": "https://vercel.com/kb/guide/ai-gateway-and-ai-sdk",
+      "type": "guide"
+    },
+    {
+      "title": "Build a daily digest bot with Chat SDK and Workflow SDK",
+      "description": "Create your own daily digest bot that posts a daily digest of GitHub stats to Slack. Learn how to use Vercel Connect to set up Slack and GitHub app securely in your project.",
+      "href": "https://vercel.com/kb/guide/daily-digest-bot-with-chat-sdk-and-workflow-sdk",
+      "type": "guide"
+    },
+    {
       "title": "Chat SDK Liveblocks Bot",
       "description": "Build a bot that you can engage with inside Liveblocks.",
       "href": "https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot",
@@ -76,6 +100,12 @@
       "title": "Community Agent",
       "description": "Open source AI-powered Slack community management bot with a built-in Next.js admin panel. Uses Chat SDK, AI SDK, and Vercel Workflow.",
       "href": "https://vercel.com/templates/next.js/chat-sdk-community-agent",
+      "type": "template"
+    },
+    {
+      "title": "Caltext",
+      "description": "iMessage calorie tracking assistant powered by AI.",
+      "href": "https://vercel.com/templates/hono/caltext",
       "type": "template"
     }
   ]

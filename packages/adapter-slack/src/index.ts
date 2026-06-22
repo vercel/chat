@@ -3009,7 +3009,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return text;
     }
     const state = this.chat.getState();
-
     const mentions = new Map<string, string[]>();
 
     replaceBareMentions(text, (mention, name) => {
@@ -3046,7 +3045,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       participants = new Set(participantList);
     }
 
-    // Replace mentions in text
     return replaceBareMentions(text, (mention, name) => {
       if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
         return mention;

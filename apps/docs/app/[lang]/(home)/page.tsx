@@ -25,8 +25,7 @@ const metadataTitle = "Chat SDK";
 const heroTitleDisplay = (
   <>
     Universal chat layer for
-    <br />
-    building bots and agents
+    <br className="hidden sm:block" /> building bots and agents
   </>
 );
 const heroDescription =
@@ -37,6 +36,7 @@ export const metadata: Metadata = {
   description: heroDescription,
   openGraph: {
     title: { absolute: metadataTitle },
+    images: "/opengraph-image.png",
   },
   twitter: {
     card: "summary_large_image",
