@@ -11,7 +11,7 @@ export const HighlightedCode = ({
 }) => (
   <pre
     className={cn(
-      "overflow-x-auto bg-transparent py-5 font-mono text-[13px] leading-5 [font-feature-settings:'ss09']",
+      "bg-transparent py-5 font-mono text-[13px] leading-5 [font-feature-settings:'ss09']",
       className
     )}
   >

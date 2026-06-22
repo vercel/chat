@@ -25,8 +25,7 @@ const metadataTitle = "Chat SDK";
 const heroTitleDisplay = (
   <>
     Universal chat layer for
-    <br />
-    building bots and agents
+    <br className="hidden sm:block" /> building bots and agents
   </>
 );
 const heroDescription =
