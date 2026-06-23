@@ -78,6 +78,16 @@ import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+const SLACK_STREAM_EXPIRED_ERROR = "message_not_in_streaming_state";
+
+function isSlackStreamExpiredError(error: unknown): boolean {
+  const slackError = error as { code?: string; data?: { error?: string } };
+
+  return (
+    slackError.code === "slack_webapi_platform_error" &&
+    slackError.data?.error === SLACK_STREAM_EXPIRED_ERROR
+  );
+}
 
 // Slack expects block_suggestion responses within 3s. Leave headroom for
 // network latency so the HTTP response lands before Slack gives up.
@@ -3989,15 +3999,91 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     let lastAppended = "";
+    let streamExpired = false;
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
     });
+
+    const markStreamExpired = (error: unknown): void => {
+      if (streamExpired) {
+        return;
+      }
+      streamExpired = true;
+      this.logger.warn(
+        "Slack stream expired; falling back to chat.update for final content",
+        { error }
+      );
+    };
+
+    const runSlackStreamRequest = async <T>(
+      request: () => Promise<T>,
+      onUnhandledError?: (error: unknown) => void
+    ): Promise<T | null> => {
+      if (streamExpired) {
+        return null;
+      }
+
+      try {
+        return await request();
+      } catch (error) {
+        if (isSlackStreamExpiredError(error)) {
+          markStreamExpired(error);
+          return null;
+        }
+        if (onUnhandledError) {
+          onUnhandledError(error);
+          return null;
+        }
+        this.handleSlackError(error);
+      }
+    };
+
+    const updateExpiredStream = async (
+      markdownText: string
+    ): Promise<RawMessage<unknown>> => {
+      const messageTs = streamer.ts;
+      if (!messageTs) {
+        throw new Error(
+          "Slack stream expired before a message timestamp was available"
+        );
+      }
+
+      const payload = options?.stopBlocks
+        ? {
+            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+            text: markdownText,
+          }
+        : { markdown_text: markdownText };
+
+      try {
+        const result = await this._client.chat.update({
+          channel,
+          ts: messageTs,
+          token,
+          ...payload,
+        });
+
+        this.logger.debug("Slack: stream completed via chat.update fallback", {
+          messageId: result.ts,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
+      } catch (error) {
+        this.handleSlackError(error);
+      }
+    };
 
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
       if (delta.length === 0) {
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+      await runSlackStreamRequest(() =>
+        streamer.append({ markdown_text: delta, token })
+      );
     };
 
     /**
@@ -4022,21 +4108,25 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       await flushMarkdownDelta(delta);
       lastAppended = committable;
 
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
-      } catch (error) {
-        // Structured chunks may fail if the app doesn't have the required
-        // Assistant scopes/features. Disable for the rest of this stream
-        // to avoid repeated failures and log once.
-        structuredChunksSupported = false;
-        this.logger.warn(
-          "Structured streaming chunk failed, falling back to text-only streaming. " +
-            "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
-            "and @slack/web-api >= 7.14.0",
-          { chunkType: chunk.type, error }
-        );
+      if (streamExpired) {
+        return;
       }
+
+      await runSlackStreamRequest(
+        () => streamer.append({ chunks: [chunk], token }),
+        (error) => {
+          // Structured chunks may fail if the app doesn't have the required
+          // Assistant scopes/features. Disable for the rest of this stream
+          // to avoid repeated failures and log once.
+          structuredChunksSupported = false;
+          this.logger.warn(
+            "Structured streaming chunk failed, falling back to text-only streaming. " +
+              "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
+              "and @slack/web-api >= 7.14.0",
+            { chunkType: chunk.type, error }
+          );
+        }
+      );
     };
 
     const pushTextAndFlush = async (text: string): Promise<void> => {
@@ -4064,14 +4154,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const finalDelta = finalCommittable.slice(lastAppended.length);
     await flushMarkdownDelta(finalDelta);
 
-    const result = await streamer.stop({
-      token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
-        : {}),
-    });
+    if (streamExpired) {
+      return updateExpiredStream(finalCommittable);
+    }
+
+    const result = await runSlackStreamRequest(() =>
+      streamer.stop({
+        token,
+        ...(options?.stopBlocks
+          ? {
+              blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+            }
+          : {}),
+      })
+    );
+
+    if (streamExpired) {
+      return updateExpiredStream(finalCommittable);
+    }
+    if (!result) {
+      throw new Error("Slack stream stopped without a response");
+    }
+
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });

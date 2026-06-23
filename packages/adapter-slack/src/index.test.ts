@@ -8052,6 +8052,107 @@ describe("stream with empty threadTs", () => {
       expect.objectContaining({ token: "xoxb-test-token" })
     );
   });
+
+  it("falls back to chat.update when a stream append expires", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const expiredError = Object.assign(new Error("stream expired"), {
+      code: "slack_webapi_platform_error",
+      data: { error: "message_not_in_streaming_state", ok: false },
+    });
+    const append = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockRejectedValueOnce(expiredError);
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    const update = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: "1234567890.111111" })
+    );
+    mockClientMethod(adapter, "chat.update", update);
+
+    async function* expiringStream() {
+      yield "hello\n\n";
+      yield "world";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      expiringStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(result?.id).toBe("1234567890.111111");
+    expect(stop).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      channel: "C123",
+      markdown_text: "hello\n\nworld",
+      token: "xoxb-test-token",
+      ts: "1234567890.111111",
+    });
+  });
+
+  it("falls back to chat.update when stopping an expired stream fails", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const expiredError = Object.assign(new Error("stream expired"), {
+      code: "slack_webapi_platform_error",
+      data: { error: "message_not_in_streaming_state", ok: false },
+    });
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockRejectedValue(expiredError);
+    const update = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: "1234567890.111111" })
+    );
+    mockClientMethod(adapter, "chat.update", update);
+
+    async function* shortStream() {
+      yield "hello world";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      shortStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(result?.id).toBe("1234567890.111111");
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(update).toHaveBeenCalledWith({
+      channel: "C123",
+      markdown_text: "hello world",
+      token: "xoxb-test-token",
+      ts: "1234567890.111111",
+    });
+  });
 });
 
 describe("scheduleMessage with empty threadTs", () => {
