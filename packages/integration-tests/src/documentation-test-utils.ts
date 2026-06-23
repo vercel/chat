@@ -219,6 +219,7 @@ export const VALID_DOC_PACKAGES = [
   "@bitbasti/chat-adapter-webex",
   "chat-adapter-zalo",
   "@larksuite/vercel-chat-adapter",
+  "chat-adapter-weixin",
   "qrcode-terminal",
 ];
 
