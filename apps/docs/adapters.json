@@ -349,5 +349,15 @@
     "author": "Linq",
     "readme": "https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq",
     "vendorOfficial": true
+  },
+  {
+    "name": "Weixin",
+    "slug": "weixin",
+    "type": "platform",
+    "community": true,
+    "description": "Community Weixin (WeChat) iLink bot adapter for Chat SDK with long polling, QR login, media uploads, and typing indicators.",
+    "packageName": "chat-adapter-weixin",
+    "author": "wong2",
+    "readme": "https://github.com/wong2/weixin-chat-adapter/tree/f6627e9b4a2d5ceef66e967d91fd746e8c0648dc"
   }
 ]
