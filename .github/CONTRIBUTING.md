@@ -46,6 +46,31 @@ GitHub has a guide on setting this up: [Signing commits](https://docs.github.com
 
 Verify your setup by checking that new commits show a "Verified" badge on github.com.
 
+## Developer Certificate of Origin (DCO)
+
+In addition to signing, every commit must be **signed off** to certify that you wrote the patch (or otherwise have the right to submit it under the project's license), per the [Developer Certificate of Origin](https://developercertificate.org/) (the full text is also included in this repo as [`DCO.txt`](../DCO.txt)). A [DCO check](https://github.com/apps/dco) runs on each pull request and must pass before it can be merged.
+
+Sign off by adding the `-s` flag when you commit:
+
+```bash
+git commit -s -m "feat: add a thing"
+```
+
+This appends a trailer to your commit message:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+The name and email must match the author of the commit. To set them once:
+
+```bash
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+```
+
+If the DCO check fails on existing commits, the simplest fixes are to amend (`git commit --amend -s`) or rebase (`git rebase --signoff main`) and force-push. The DCO app also accepts a single remediation commit if you'd rather not rewrite history — follow the instructions in the failed check's details.
+
 ## Commit messages
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`). The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
