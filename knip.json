@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": ["@biomejs/biome"],
+  "ignoreDependencies": ["@biomejs/biome", "@vercel/oidc"],
   "ignore": [
     "apps/docs/**/*",
     "packages/create-chat-sdk/_template/next.config.ts",
