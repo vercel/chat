@@ -26,7 +26,7 @@ pnpm --filter docs dev    # Preview the docs site (chat-sdk.dev) locally
 
 - Install dependencies with `pnpm add`, not by editing `package.json` by hand.
 - `sample-messages.md` files in adapter packages contain real-world webhook logs — useful when writing parsers or fixtures.
-- Commits must be **signed and verified** — see `.github/CONTRIBUTING.md`.
+- Commits must be **signed and verified**, and **signed off** for the DCO (`git commit -s`) — see `.github/CONTRIBUTING.md`.
 - We follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`, optionally scoped). The release workflow's auto-PR uses `chore(release): version packages` — don't reuse that exact subject for unrelated commits.
 - See the Ultracite section at the bottom for the in-code style rules Biome doesn't catch automatically.
 
