@@ -1103,6 +1103,181 @@ describe("handleWebhook - invalid JSON", () => {
 // Webhook - comment created handling
 // =============================================================================
 
+describe("Vercel Connect mode", () => {
+  it("constructs with a function accessToken + webhookVerifier (no secret)", () => {
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("lin_connect_token"),
+      webhookVerifier: () => true,
+      userName: "connect-bot",
+      logger: createMockLogger(),
+    });
+    expect(adapter.name).toBe("linear");
+  });
+
+  it("verifies via webhookVerifier and dispatches comment events", async () => {
+    const logger = createMockLogger();
+    const verifier = vi.fn(() => true);
+    const resolver = vi.fn(() => Promise.resolve("lin_connect_token"));
+    const adapter = new LinearAdapter({
+      accessToken: resolver,
+      webhookVerifier: verifier,
+      userName: "test-bot",
+      logger,
+    });
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+    const mockChat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
+
+    const payload = createCommentPayload();
+    const body = JSON.stringify(payload);
+    // No linear-signature header — the verifier is the only gate.
+    const request = buildWebhookRequest(body);
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(verifier).toHaveBeenCalledTimes(1);
+    // The Connect token resolver is invoked to bind a client for the handler.
+    expect(resolver).toHaveBeenCalled();
+    expect(mockChat.processMessage).toHaveBeenCalledWith(
+      adapter,
+      "linear:issue-123:c:comment-abc",
+      expect.objectContaining({
+        id: "comment-abc",
+        text: "Hello from webhook",
+      }),
+      undefined
+    );
+  });
+
+  it("returns 401 when the webhookVerifier throws", async () => {
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("t"),
+      webhookVerifier: () => {
+        throw new Error("bad oidc token");
+      },
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 401 when the webhookVerifier returns falsy", async () => {
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("t"),
+      webhookVerifier: () => false,
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 400 when the verified body is not valid JSON", async () => {
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("t"),
+      webhookVerifier: () => true,
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const request = buildWebhookRequest("not-json{{{");
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects mixing a Connect accessToken with apiKey at the type level", () => {
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("t"),
+      webhookVerifier: () => true,
+      // @ts-expect-error accessToken is mutually exclusive with apiKey
+      apiKey: "key",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    expect(adapter.name).toBe("linear");
+  });
+
+  it("binds a request-scoped client for out-of-webhook calls via withInstallation", async () => {
+    const resolver = vi.fn(() => Promise.resolve("lin_connect_token"));
+    const adapter = new LinearAdapter({
+      accessToken: resolver,
+      webhookVerifier: () => true,
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+
+    const internal = adapter as unknown as { getClient(): unknown };
+    let clientInside: unknown;
+    await adapter.withInstallation("org-123", () => {
+      clientInside = internal.getClient();
+    });
+
+    expect(resolver).toHaveBeenCalled();
+    expect(clientInside).toBeDefined();
+  });
+
+  it("lazily resolves bot identity on the first webhook when init was skipped", async () => {
+    const logger = createMockLogger();
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("lin_connect_token"),
+      webhookVerifier: () => true,
+      userName: "test-bot",
+      logger,
+    });
+    const internal = adapter as unknown as {
+      resolveConnectIdentity: () => Promise<void>;
+      defaultBotUserId: string | null;
+      defaultOrganizationId: string | null;
+    };
+    const resolveSpy = vi
+      .spyOn(internal, "resolveConnectIdentity")
+      .mockImplementation(() => {
+        internal.defaultBotUserId = "lazy-bot";
+        internal.defaultOrganizationId = "org-123";
+        return Promise.resolve();
+      });
+    const mockChat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
+
+    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(resolveSpy).toHaveBeenCalled();
+    expect(mockChat.processMessage).toHaveBeenCalled();
+  });
+
+  it("returns 500 when bot identity cannot be resolved (no silent empty id)", async () => {
+    const logger = createMockLogger();
+    const adapter = new LinearAdapter({
+      accessToken: () => Promise.resolve("lin_connect_token"),
+      webhookVerifier: () => true,
+      userName: "test-bot",
+      logger,
+    });
+    // Identity resolution stays a no-op, so defaultBotUserId remains null.
+    const internal = adapter as unknown as {
+      resolveConnectIdentity: () => Promise<void>;
+    };
+    vi.spyOn(internal, "resolveConnectIdentity").mockResolvedValue(undefined);
+    const mockChat = createMockChatInstance(createMockState(), logger);
+    (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
+
+    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
+    const response = await adapter.handleWebhook(request);
+
+    // M1 guard turns the thrown identity error into a clean 500 (not an
+    // unhandled rejection), and no message is dispatched with an empty id.
+    expect(response.status).toBe(500);
+    expect(mockChat.processMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleWebhook - comment created", () => {
   it("should process comment create events via chat.processMessage", async () => {
     const logger = createMockLogger();
@@ -3784,7 +3959,7 @@ describe("createLinearAdapter", () => {
 
   it("should throw when webhookSecret is not provided and not in env", () => {
     expect(() => createLinearAdapter({ apiKey: "key" })).toThrow(
-      "webhookSecret is required"
+      "webhookSecret or webhookVerifier is required"
     );
   });
 

@@ -50,6 +50,7 @@ import type {
   LinearOAuthTokenResponse,
   LinearRawMessage,
   LinearThreadId,
+  LinearWebhookVerifier,
 } from "./types";
 import {
   assertAgentSessionThread,
@@ -98,6 +99,7 @@ export type {
   LinearAdapterAPIKeyConfig,
   LinearAdapterClientCredentialsConfig,
   LinearAdapterConfig,
+  LinearAdapterConnectConfig,
   LinearAdapterMode,
   LinearAdapterMultiTenantConfig,
   LinearAdapterOAuthConfig,
@@ -108,8 +110,22 @@ export type {
   LinearOAuthCallbackOptions,
   LinearRawMessage,
   LinearThreadId,
+  LinearWebhookVerifier,
 } from "./types";
 export { assertAgentSessionThread } from "./utils";
+
+/**
+ * Normalize an `accessToken` config value (string or resolver) to an async
+ * resolver invoked per API call.
+ */
+function normalizeAccessTokenProvider(
+  value: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof value === "function") {
+    return async () => await value();
+  }
+  return () => Promise.resolve(value);
+}
 
 /**
  * Linear adapter for chat SDK.
@@ -199,7 +215,10 @@ export class LinearAdapter
   }
 
   protected readonly mode: LinearAdapterMode;
-  protected readonly webhookSecret: string;
+  protected readonly webhookSecret?: string;
+  protected readonly webhookVerifier?: LinearWebhookVerifier;
+  // Vercel Connect access-token resolver (Connect mode only)
+  protected readonly accessTokenProvider: (() => Promise<string>) | null = null;
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected defaultBotUserId: string | null = null;
@@ -223,15 +242,21 @@ export class LinearAdapter
   protected readonly encryptionKey: Buffer | undefined;
 
   constructor(config: LinearAdapterConfig = {} as LinearAdapterAutoConfig) {
-    const webhookSecret =
-      config.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET;
-    if (!webhookSecret) {
+    const webhookVerifier = config.webhookVerifier;
+    // webhookVerifier takes precedence over webhookSecret (config) and the
+    // LINEAR_WEBHOOK_SECRET env var. When a verifier is configured we ignore
+    // both so an env-configured deployment can't silently shadow it.
+    const webhookSecret = webhookVerifier
+      ? undefined
+      : (config.webhookSecret ?? process.env.LINEAR_WEBHOOK_SECRET);
+    if (!(webhookSecret || webhookVerifier)) {
       throw new ValidationError(
         "linear",
-        "webhookSecret is required. Set LINEAR_WEBHOOK_SECRET or provide it in config."
+        "webhookSecret or webhookVerifier is required. Set LINEAR_WEBHOOK_SECRET, provide webhookSecret in config, or provide a webhookVerifier."
       );
     }
     this.webhookSecret = webhookSecret;
+    this.webhookVerifier = webhookVerifier;
     this.logger = config.logger ?? new ConsoleLogger("info").child("linear");
     this.mode = config.mode ?? "comments";
     this.userName =
@@ -252,6 +277,13 @@ export class LinearAdapter
     }
 
     if ("accessToken" in config && config.accessToken) {
+      // Function form (e.g. Vercel Connect): resolve a fresh token per call.
+      if (typeof config.accessToken === "function") {
+        this.accessTokenProvider = normalizeAccessTokenProvider(
+          config.accessToken
+        );
+        return;
+      }
       this.defaultClient = new LinearClient({
         accessToken: config.accessToken,
         ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
@@ -353,9 +385,109 @@ export class LinearAdapter
       } catch (error) {
         this.logger.warn("Could not fetch Linear bot user ID", { error });
       }
+    } else if (this.accessTokenProvider) {
+      // Vercel Connect mode: resolve a token once to detect the bot identity
+      // so self-message detection works. If this fails (e.g. transient network
+      // error at startup), it is retried lazily on the first webhook.
+      try {
+        await this.resolveConnectIdentity();
+        this.logger.info("Linear auth completed (Vercel Connect)", {
+          botUserId: this.defaultBotUserId,
+          organizationId: this.defaultOrganizationId,
+        });
+      } catch (error) {
+        this.logger.warn(
+          "Could not fetch Linear bot user ID (Vercel Connect); will retry on first webhook",
+          { error }
+        );
+      }
     } else if (this.isMultiTenantMode()) {
       this.logger.info("Linear adapter initialized in multi-tenant mode");
     }
+  }
+
+  /** Whether the adapter sources tokens from Vercel Connect (function form). */
+  protected isConnectMode(): boolean {
+    return this.accessTokenProvider !== null;
+  }
+
+  /**
+   * Build a LinearClient for a resolved Connect token. Not cached: Connect
+   * tokens are short-lived and rotate, and the `@vercel/connect` SDK already
+   * caches the underlying token fetch, so a fresh client per call is cheap and
+   * avoids unbounded growth from accumulating per-token clients.
+   */
+  protected getConnectClient(token: string): LinearClient {
+    return new LinearClient({
+      accessToken: token,
+      ...(this.apiUrl ? { apiUrl: this.apiUrl } : {}),
+    });
+  }
+
+  /**
+   * Resolve and cache the bot identity (user id + organization id) for Vercel
+   * Connect mode by minting a token and querying the viewer. Idempotent-ish:
+   * callers gate on {@link defaultBotUserId} being unset.
+   */
+  protected async resolveConnectIdentity(): Promise<void> {
+    const provider = this.accessTokenProvider;
+    if (!provider) {
+      return;
+    }
+    const token = await provider();
+    const identity = await this.fetchClientIdentity(
+      this.getConnectClient(token)
+    );
+    this.defaultBotUserId = identity.botUserId;
+    this.defaultOrganizationId = identity.organizationId;
+  }
+
+  /**
+   * Run a function with a freshly-resolved Connect client bound to the request
+   * context, so getClient()/organizationId/botUserId resolve correctly.
+   */
+  protected async withConnectClient<T>(
+    organizationId: string | undefined,
+    fn: () => Promise<T> | T
+  ): Promise<T> {
+    const provider = this.accessTokenProvider;
+    if (!provider) {
+      return await fn();
+    }
+
+    // Lazily (re)resolve the bot identity if a prior attempt (e.g. at init)
+    // failed, so we never bind an empty botUserId (which would disable
+    // self-message detection or throw in the botUserId getter).
+    if (this.defaultBotUserId === null) {
+      try {
+        await this.resolveConnectIdentity();
+      } catch (error) {
+        this.logger.warn(
+          "Could not resolve Linear bot identity for Vercel Connect webhook",
+          { error }
+        );
+      }
+    }
+
+    if (!this.defaultBotUserId) {
+      throw new AuthenticationError(
+        "linear",
+        "No Linear bot identity available in Vercel Connect mode. The viewer lookup failed — check the connector token and its scopes."
+      );
+    }
+
+    const token = await provider();
+    const client = this.getConnectClient(token);
+    const installation: LinearInstallation = {
+      accessToken: token,
+      botUserId: this.defaultBotUserId,
+      expiresAt: null,
+      organizationId: organizationId ?? this.defaultOrganizationId ?? "",
+    };
+    return await this.requestContext.run(
+      { client, installation },
+      async () => await fn()
+    );
   }
 
   protected normalizeClientCredentials(
@@ -397,7 +529,7 @@ export class LinearAdapter
 
     throw new AuthenticationError(
       "linear",
-      "No Linear access token available. In multi-tenant mode, ensure the webhook is being processed or use withInstallation()."
+      "No Linear access token available. In multi-tenant or Vercel Connect mode, ensure the webhook is being processed, or wrap the call in withInstallation() for out-of-webhook operations (cron jobs, workflows)."
     );
   }
 
@@ -664,6 +796,16 @@ export class LinearAdapter
     organizationId: string | LinearInstallation,
     fn: () => Promise<T> | T
   ): Promise<T> {
+    // Vercel Connect mode: resolve a fresh token and bind a request-scoped
+    // client so outbound calls work outside webhook handling (cron, workflows).
+    if (this.isConnectMode()) {
+      const orgId =
+        typeof organizationId === "string"
+          ? organizationId
+          : organizationId.organizationId;
+      return await this.withConnectClient(orgId, fn);
+    }
+
     if (!this.isMultiTenantMode()) {
       return await fn();
     }
@@ -1122,55 +1264,176 @@ export class LinearAdapter
     request: Request,
     options?: WebhookOptions
   ): Promise<Response> {
+    // Custom verifier (e.g. Vercel Connect OIDC) takes precedence over the
+    // Linear webhook-secret signature check.
+    if (this.webhookVerifier) {
+      return await this.handleVerifiedWebhook(request, options);
+    }
+
     const webhookHandler = new LinearWebhookClient(
-      this.webhookSecret
+      this.webhookSecret as string
     ).createHandler();
 
-    webhookHandler.on("OAuthApp", async (payload) => {
-      if (payload.action !== "revoked") {
+    webhookHandler.on(
+      "OAuthApp",
+      async (payload) => await this.onOAuthAppEvent(payload)
+    );
+    webhookHandler.on(
+      "Comment",
+      async (payload) => await this.onCommentEvent(payload, options)
+    );
+    webhookHandler.on(
+      "AgentSessionEvent",
+      async (payload) => await this.onAgentSessionEvent(payload, options)
+    );
+    webhookHandler.on(
+      "Reaction",
+      async (payload) => await this.onReactionEvent(payload)
+    );
+
+    return await webhookHandler(request);
+  }
+
+  /**
+   * Handle a webhook verified by a custom `webhookVerifier` (no Linear
+   * signing secret). Parses the body and dispatches the same event handlers
+   * the signature path uses.
+   */
+  protected async handleVerifiedWebhook(
+    request: Request,
+    options?: WebhookOptions
+  ): Promise<Response> {
+    const body = await request.text();
+
+    let verified: unknown;
+    try {
+      verified = await this.webhookVerifier?.(request, body);
+    } catch (error) {
+      this.logger.warn("Linear webhook verifier rejected the request", {
+        error,
+      });
+      return new Response("Invalid webhook", { status: 401 });
+    }
+    if (!verified) {
+      return new Response("Invalid webhook", { status: 401 });
+    }
+
+    const rawBody = typeof verified === "string" ? verified : body;
+    let payload: {
+      type?: string;
+      action?: string;
+      organizationId?: string;
+    };
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return new Response("Invalid webhook", { status: 400 });
+    }
+
+    // Mirror @linear/sdk's LinearWebhookClient, which wraps dispatch in a
+    // try/catch and returns 500 on a throwing handler. Without this, a handler
+    // throw on the verifier path would escape as an unhandled rejection.
+    try {
+      await this.dispatchWebhookEvent(payload, options);
+    } catch (error) {
+      this.logger.error("Linear webhook handler failed", { error });
+      return new Response("Internal server error", { status: 500 });
+    }
+    return new Response("OK", { status: 200 });
+  }
+
+  /**
+   * Route a parsed webhook payload to the matching event handler. Used by the
+   * custom-verifier path; the signature path dispatches via LinearWebhookClient.
+   */
+  protected async dispatchWebhookEvent(
+    payload: { type?: string },
+    options?: WebhookOptions
+  ): Promise<void> {
+    switch (payload.type) {
+      case "OAuthApp":
+        await this.onOAuthAppEvent(
+          payload as { action: string; organizationId: string }
+        );
+        break;
+      case "Comment":
+        await this.onCommentEvent(
+          payload as unknown as CommentWebhookPayload,
+          options
+        );
+        break;
+      case "AgentSessionEvent":
+        await this.onAgentSessionEvent(
+          payload as unknown as AgentSessionEventWebhookPayload,
+          options
+        );
+        break;
+      case "Reaction":
+        await this.onReactionEvent(
+          payload as unknown as ReactionWebhookPayload
+        );
+        break;
+      default:
+        this.logger.debug("Ignoring unhandled Linear webhook type", {
+          type: payload.type,
+        });
+        break;
+    }
+  }
+
+  protected async onOAuthAppEvent(payload: {
+    action: string;
+    organizationId: string;
+  }): Promise<void> {
+    if (payload.action !== "revoked") {
+      return;
+    }
+
+    try {
+      await this.deleteInstallation(payload.organizationId);
+    } catch (error) {
+      this.logger.error("Failed to delete Linear installation on revoke", {
+        organizationId: payload.organizationId,
+        error,
+      });
+    }
+  }
+
+  protected async onCommentEvent(
+    payload: CommentWebhookPayload,
+    options?: WebhookOptions
+  ): Promise<void> {
+    await this.withWebhookInstallation(payload.organizationId, () => {
+      if (this.mode !== "comments" || payload.action !== "create") {
         return;
       }
 
-      try {
-        await this.deleteInstallation(payload.organizationId);
-      } catch (error) {
-        this.logger.error("Failed to delete Linear installation on revoke", {
-          organizationId: payload.organizationId,
-          error,
-        });
+      this.handleCommentCreated(payload, options);
+    });
+  }
+
+  protected async onAgentSessionEvent(
+    payload: AgentSessionEventWebhookPayload,
+    options?: WebhookOptions
+  ): Promise<void> {
+    await this.withWebhookInstallation(payload.organizationId, () => {
+      if (this.mode !== "agent-sessions") {
+        this.logger.warn(
+          "Received AgentSessionEvent webhook but adapter is not in agent-sessions mode, ignoring"
+        );
+        return;
       }
+
+      this.handleAgentSessionEvent(payload, options);
     });
+  }
 
-    webhookHandler.on("Comment", async (payload) => {
-      await this.withWebhookInstallation(payload.organizationId, () => {
-        if (this.mode !== "comments" || payload.action !== "create") {
-          return;
-        }
-
-        this.handleCommentCreated(payload, options);
-      });
+  protected async onReactionEvent(
+    payload: ReactionWebhookPayload
+  ): Promise<void> {
+    await this.withWebhookInstallation(payload.organizationId, () => {
+      this.handleReaction(payload);
     });
-
-    webhookHandler.on("AgentSessionEvent", async (payload) => {
-      await this.withWebhookInstallation(payload.organizationId, () => {
-        if (this.mode !== "agent-sessions") {
-          this.logger.warn(
-            "Received AgentSessionEvent webhook but adapter is not in agent-sessions mode, ignoring"
-          );
-          return;
-        }
-
-        this.handleAgentSessionEvent(payload, options);
-      });
-    });
-
-    webhookHandler.on("Reaction", async (payload) => {
-      await this.withWebhookInstallation(payload.organizationId, () => {
-        this.handleReaction(payload);
-      });
-    });
-
-    return await webhookHandler(request);
   }
 
   /**
@@ -1180,6 +1443,11 @@ export class LinearAdapter
     organizationId: string,
     fn: () => Promise<void> | void
   ): Promise<void> {
+    if (this.isConnectMode()) {
+      await this.withConnectClient(organizationId, fn);
+      return;
+    }
+
     if (!this.isMultiTenantMode()) {
       return await fn();
     }
