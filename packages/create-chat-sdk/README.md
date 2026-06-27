@@ -2,8 +2,8 @@
 
 > npm package: [`create-chat-sdk`](https://www.npmjs.com/package/create-chat-sdk)
 
-[![npm version](https://img.shields.io/npm/v/create-chat-sdk)](https://www.npmjs.com/package/create-chat-sdk)
-[![npm downloads](https://img.shields.io/npm/dm/create-chat-sdk)](https://www.npmjs.com/package/create-chat-sdk)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Scaffold a webhook-only [Chat SDK](https://chat-sdk.dev) bot project from the command line.
 

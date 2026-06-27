@@ -2,8 +2,8 @@
 
 > npm package: [`chat`](https://www.npmjs.com/package/chat)
 
-[![npm version](https://img.shields.io/npm/v/chat)](https://www.npmjs.com/package/chat)
-[![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Universal TypeScript SDK for building multi-platform chat bots and AI agents on Slack, Teams, Google Chat, Discord, WhatsApp, and more. Provides the `Chat` class, event handlers, JSX cards, emoji helpers, and type-safe message formatting.
 

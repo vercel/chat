@@ -48,7 +48,7 @@ Verify your setup by checking that new commits show a "Verified" badge on github
 
 ## Developer Certificate of Origin (DCO)
 
-In addition to signing, every commit must be **signed off** to certify that you wrote the patch (or otherwise have the right to submit it under the project's license), per the [Developer Certificate of Origin](https://developercertificate.org/) (the full text is also included in this repo as [`DCO.txt`](../DCO.txt)). A [DCO check](https://github.com/apps/dco) runs on each pull request and must pass before it can be merged.
+In addition to signing, every commit must be **signed off** to certify that you wrote the patch (or otherwise have the right to submit it under the project's license), per the [Developer Certificate of Origin](https://developercertificate.org/).
 
 Sign off by adding the `-s` flag when you commit:
 
@@ -73,7 +73,9 @@ If the DCO check fails on existing commits, the simplest fixes are to amend (`gi
 
 ## Commit messages
 
-We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`). The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
+We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`).
+
+The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
 
 ## Development
 
@@ -155,7 +157,7 @@ pnpm --filter docs dev
 
 ## Preview Branch Testing
 
-The example app includes a middleware that can proxy webhook requests to a preview branch deployment. This allows testing preview branches with real webhook traffic from Slack/Teams/GChat.
+The example app includes a proxy that can forward webhook requests to a preview branch deployment. This allows testing preview branches with real webhook traffic from Slack/Teams/GChat.
 
 ### Setup
 
@@ -169,6 +171,6 @@ Clear the URL on the settings page.
 
 ### Files
 
-- `examples/nextjs-chat/src/middleware.ts` - The proxy middleware
+- `examples/nextjs-chat/src/proxy.ts` - The proxy logic
 - `examples/nextjs-chat/src/app/settings/page.tsx` - Settings UI
 - `examples/nextjs-chat/src/app/api/settings/preview-branch/route.ts` - API to get/set the URL

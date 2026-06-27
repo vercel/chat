@@ -5,7 +5,7 @@
       "type": "skill-md",
       "description": "Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot with a single TypeScript codebase.",
       "url": "/.well-known/agent-skills/chat-sdk/SKILL.md",
-      "digest": "sha256:744ef0e7467adbba0c59a9b187059037454965fc283927dc30a9f919f0ac648d"
+      "digest": "sha256:6e896ea626060baf607f2f87191c3967a20deae16155b9571a345f7fed91e50f"
     }
   ]
 }

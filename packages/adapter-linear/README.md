@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/linear`](https://www.npmjs.com/package/@chat-adapter/linear)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Linear adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in issue comment threads and Linear app-actor agent sessions.
 
