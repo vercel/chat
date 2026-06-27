@@ -113,6 +113,39 @@ createGitHubAdapter({
 
 The adapter automatically extracts installation IDs from webhooks and caches API clients per-installation.
 
+### Option C: Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source installation access tokens at runtime instead of storing a GitHub App private key. The `installationToken` resolver supplies the token the adapter sends directly (skipping the App JWT exchange), and `webhookVerifier` verifies Connect trigger-forwarded webhooks via a Vercel OIDC token instead of a webhook secret.
+
+The simplest path is the `connectGitHubAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect):
+
+```typescript
+import { createGitHubAdapter } from "@chat-adapter/github";
+import { connectGitHubAdapter } from "@vercel/connect/chat";
+
+createGitHubAdapter({
+  ...connectGitHubAdapter("github/acme-github"),
+  userName: "my-bot[bot]",
+});
+```
+
+Or wire the fields yourself:
+
+```typescript
+import { getToken } from "@vercel/connect";
+
+createGitHubAdapter({
+  installationToken: () =>
+    getToken("github/acme-github", { subject: { type: "app" } }),
+  webhookVerifier: myConnectWebhookVerifier,
+  userName: "my-bot[bot]",
+});
+```
+
+`installationToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call, so it composes with Connect's short-lived tokens. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `GITHUB_WEBHOOK_SECRET`.
+
+> **Freshness:** OIDC verification replaces GitHub's signature check, so request freshness relies on the short-lived OIDC token's expiry rather than a signed timestamp, and there is no built-in nonce/delivery-id de-duplication. Keep your webhook handlers idempotent (GitHub may also redeliver events).
+
 ## Installation lookup
 
 You can resolve the GitHub App installation ID associated with a `Thread` or `Message`:
@@ -210,15 +243,17 @@ All options are auto-detected from environment variables when not provided.
 | `appId` | No* | GitHub App ID. Auto-detected from `GITHUB_APP_ID` |
 | `privateKey` | No | GitHub App private key (PEM). Auto-detected from `GITHUB_PRIVATE_KEY` |
 | `installationId` | No | Installation ID (omit for multi-tenant). Auto-detected from `GITHUB_INSTALLATION_ID` |
+| `installationToken` | No* | Vercel Connect mode: installation access token, or a `() => string \| Promise<string>` resolver invoked per API call. Skips the App JWT exchange. |
 | `webhookSecret` | No** | Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET` |
+| `webhookVerifier` | No** | Custom verifier `(request, body) => unknown \| Promise<unknown>` used in place of `webhookSecret`. Takes precedence over `webhookSecret`/`GITHUB_WEBHOOK_SECRET`. Required in Connect mode |
 | `userName` | No | Bot username for @mention detection. Auto-detected from `GITHUB_BOT_USERNAME` (default: `"github-bot"`) |
 | `botUserId` | No | Bot's numeric user ID (auto-detected if not provided) |
 | `apiUrl` | No | Override the GitHub API base URL (e.g. for GitHub Enterprise Server). Auto-detected from `GITHUB_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*Either `token`/`GITHUB_TOKEN` or `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY` is required.
+*One of `token`/`GITHUB_TOKEN`, `appId`+`privateKey`/`GITHUB_APP_ID`+`GITHUB_PRIVATE_KEY`, or `installationToken` (Vercel Connect) is required.
 
-**`webhookSecret` is required — either via config or `GITHUB_WEBHOOK_SECRET` env var.
+**Either `webhookSecret` (via config or `GITHUB_WEBHOOK_SECRET`) or a `webhookVerifier` is required. When `webhookVerifier` is set it takes precedence and the secret is ignored.
 
 ## Environment variables
 

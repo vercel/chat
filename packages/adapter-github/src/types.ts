@@ -9,6 +9,19 @@ import type { Logger } from "chat";
 // =============================================================================
 
 /**
+ * Custom webhook verifier used in place of the GitHub webhook secret.
+ *
+ * Receives the incoming request and its raw body. Return a truthy value
+ * to accept the request; throw or return a falsy value to reject it
+ * (the adapter responds `401`). Used for verifying Vercel Connect
+ * trigger-forwarded webhooks via the Vercel OIDC token Connect attaches.
+ */
+export type GitHubWebhookVerifier = (
+  request: Request,
+  body: string
+) => Promise<unknown> | unknown;
+
+/**
  * Base configuration options shared by all auth methods.
  */
 interface GitHubAdapterBaseConfig {
@@ -33,6 +46,14 @@ interface GitHubAdapterBaseConfig {
    * Defaults to GITHUB_WEBHOOK_SECRET env var.
    */
   webhookSecret?: string;
+  /**
+   * Custom webhook verifier used in place of `webhookSecret`. When set, it
+   * takes precedence over `webhookSecret` and the `GITHUB_WEBHOOK_SECRET`
+   * env var. Useful when webhooks arrive via Vercel Connect trigger
+   * forwarding (verified with a Vercel OIDC token rather than GitHub's
+   * webhook secret).
+   */
+  webhookVerifier?: GitHubWebhookVerifier;
 }
 
 /**
@@ -42,6 +63,7 @@ interface GitHubAdapterBaseConfig {
 export interface GitHubAdapterPATConfig extends GitHubAdapterBaseConfig {
   appId?: never;
   installationId?: never;
+  installationToken?: never;
   privateKey?: never;
   /** Personal Access Token with appropriate scopes (repo, write:discussion) */
   token: string;
@@ -56,6 +78,7 @@ export interface GitHubAdapterAppConfig extends GitHubAdapterBaseConfig {
   appId: string;
   /** Installation ID for the app (for single-tenant apps) */
   installationId: number;
+  installationToken?: never;
   /** GitHub App private key (PEM format) */
   privateKey: string;
   token?: never;
@@ -72,9 +95,41 @@ export interface GitHubAdapterMultiTenantAppConfig
   appId: string;
   /** Omit installationId to enable multi-tenant mode */
   installationId?: never;
+  installationToken?: never;
   /** GitHub App private key (PEM format) */
   privateKey: string;
   token?: never;
+}
+
+/**
+ * Configuration backed by Vercel Connect.
+ *
+ * Supplies installation access tokens directly (skipping the GitHub App
+ * JWT exchange) and verifies inbound webhooks with a custom
+ * `webhookVerifier` instead of a webhook secret. Pair with
+ * `connectGitHubAdapter()` from `@vercel/connect/chat`.
+ *
+ * @see https://vercel.com/docs/connect
+ */
+export interface GitHubAdapterConnectConfig extends GitHubAdapterBaseConfig {
+  appId?: never;
+  installationId?: never;
+  /**
+   * Installation access token, or a resolver invoked per API call.
+   * The adapter sends it directly as the bearer credential and skips the
+   * GitHub App private-key JWT exchange. The function form composes with
+   * Vercel Connect's short-lived tokens (`getToken`).
+   */
+  installationToken: string | (() => string | Promise<string>);
+  privateKey?: never;
+  token?: never;
+  /** Connect verifies webhooks via OIDC, so a webhook secret is not used. */
+  webhookSecret?: never;
+  /**
+   * Required. Connect-forwarded webhooks are verified with a Vercel OIDC
+   * token rather than GitHub's webhook secret.
+   */
+  webhookVerifier: GitHubWebhookVerifier;
 }
 
 /**
@@ -83,17 +138,20 @@ export interface GitHubAdapterMultiTenantAppConfig
 export interface GitHubAdapterAutoConfig extends GitHubAdapterBaseConfig {
   appId?: never;
   installationId?: never;
+  installationToken?: never;
   privateKey?: never;
   token?: never;
 }
 
 /**
- * GitHub adapter configuration - PAT, single-tenant App, or multi-tenant App.
+ * GitHub adapter configuration - PAT, single-tenant App, multi-tenant App,
+ * or Vercel Connect.
  */
 export type GitHubAdapterConfig =
   | GitHubAdapterPATConfig
   | GitHubAdapterAppConfig
   | GitHubAdapterMultiTenantAppConfig
+  | GitHubAdapterConnectConfig
   | GitHubAdapterAutoConfig;
 
 // =============================================================================

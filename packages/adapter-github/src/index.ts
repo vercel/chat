@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractCard, ValidationError } from "@chat-adapter/shared";
+import {
+  AuthenticationError,
+  extractCard,
+  ValidationError,
+} from "@chat-adapter/shared";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type {
@@ -37,6 +41,7 @@ import type {
   GitHubReviewComment,
   GitHubThreadId,
   GitHubUser,
+  GitHubWebhookVerifier,
   IssueCommentWebhookPayload,
   PullRequestReviewCommentWebhookPayload,
 } from "./types";
@@ -49,11 +54,26 @@ const PR_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+)$/;
 export type {
   GitHubAdapterAppConfig,
   GitHubAdapterConfig,
+  GitHubAdapterConnectConfig,
   GitHubAdapterMultiTenantAppConfig,
   GitHubAdapterPATConfig,
   GitHubRawMessage,
   GitHubThreadId,
+  GitHubWebhookVerifier,
 } from "./types";
+
+/**
+ * Normalize an `installationToken` config value (string or resolver) to an
+ * async resolver invoked per API call.
+ */
+function normalizeInstallationTokenProvider(
+  value: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof value === "function") {
+    return async () => await value();
+  }
+  return () => Promise.resolve(value);
+}
 
 /**
  * GitHub adapter for chat SDK.
@@ -167,8 +187,12 @@ export class GitHubAdapter
   private readonly installationClients = new Map<number, Octokit>();
   // Custom API base URL (e.g. for GitHub Enterprise)
   protected readonly apiUrl?: string;
+  // Vercel Connect installation-token resolver (Connect mode only)
+  protected readonly installationTokenProvider: (() => Promise<string>) | null =
+    null;
 
-  protected readonly webhookSecret: string;
+  protected readonly webhookSecret?: string;
+  protected readonly webhookVerifier?: GitHubWebhookVerifier;
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected _botUserId: number | null = null;
@@ -185,21 +209,54 @@ export class GitHubAdapter
   }
 
   constructor(config: GitHubAdapterConfig = {} as GitHubAdapterAutoConfig) {
-    const webhookSecret =
-      config.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
-    if (!webhookSecret) {
+    const webhookVerifier = config.webhookVerifier;
+    // webhookVerifier takes precedence over webhookSecret (config) and the
+    // GITHUB_WEBHOOK_SECRET env var. When a verifier is configured we ignore
+    // both so an env-configured deployment can't silently shadow it.
+    const webhookSecret = webhookVerifier
+      ? undefined
+      : (config.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET);
+    if (!(webhookSecret || webhookVerifier)) {
       throw new ValidationError(
         "github",
-        "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
+        "webhookSecret or webhookVerifier is required. Set GITHUB_WEBHOOK_SECRET, provide webhookSecret in config, or provide a webhookVerifier."
       );
     }
     this.webhookSecret = webhookSecret;
+    this.webhookVerifier = webhookVerifier;
     this.logger = config.logger ?? new ConsoleLogger("info").child("github");
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
     this._botUserId = config.botUserId ?? null;
     this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
     let fixedInstallationId: number | null = null;
+
+    // Vercel Connect mode: a resolver supplies installation access tokens
+    // directly, so we skip the GitHub App JWT / PAT setup. A single Octokit
+    // instance resolves a fresh token per request via a before-hook, so all
+    // existing call sites (sync and async) keep working unchanged.
+    if ("installationToken" in config && config.installationToken) {
+      this.installationTokenProvider = normalizeInstallationTokenProvider(
+        config.installationToken
+      );
+      const octokit = new Octokit({
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+      });
+      octokit.hook.before("request", async (options) => {
+        const token = await this.installationTokenProvider?.();
+        if (!token) {
+          throw new AuthenticationError(
+            "github",
+            "Vercel Connect returned an empty installation token. Check the connector configuration and its scopes."
+          );
+        }
+        options.headers = options.headers ?? {};
+        options.headers.authorization = `token ${token}`;
+      });
+      this.defaultOctokit = octokit;
+      this.fixedInstallationId = null;
+      return;
+    }
 
     // Create Octokit instance based on auth method.
     // Only fall back to env vars when NO auth field was explicitly provided,
@@ -511,10 +568,26 @@ export class GitHubAdapter
       body: body.substring(0, 500),
     });
 
-    // Verify request signature
-    const signature = request.headers.get("x-hub-signature-256");
-    if (!this.verifySignature(body, signature)) {
-      return new Response("Invalid signature", { status: 401 });
+    // Verify the request. A custom webhookVerifier (e.g. Vercel Connect OIDC)
+    // takes precedence over the HMAC-SHA256 signature check.
+    if (this.webhookVerifier) {
+      let verified: unknown;
+      try {
+        verified = await this.webhookVerifier(request, body);
+      } catch (error) {
+        this.logger.warn("GitHub webhook verifier rejected the request", {
+          error,
+        });
+        return new Response("Invalid signature", { status: 401 });
+      }
+      if (!verified) {
+        return new Response("Invalid signature", { status: 401 });
+      }
+    } else {
+      const signature = request.headers.get("x-hub-signature-256");
+      if (!this.verifySignature(body, signature)) {
+        return new Response("Invalid signature", { status: 401 });
+      }
     }
 
     // Get event type from header
@@ -562,6 +635,14 @@ export class GitHubAdapter
       }
     }
 
+    // Vercel Connect mode uses a single default Octokit, so the multi-tenant
+    // block above is skipped. Init-time detection may have failed silently
+    // (best-effort), so lazily re-detect here before dispatch — otherwise
+    // self-message detection stays disabled and the bot can self-reply-loop.
+    if (this.installationTokenProvider && this._botUserId === null) {
+      await this.detectBotUserId(this.getOctokit());
+    }
+
     // Handle events
     const ctx = { installationId };
     if (eventType === "issue_comment") {
@@ -587,6 +668,10 @@ export class GitHubAdapter
    * Verify GitHub webhook signature using HMAC-SHA256.
    */
   protected verifySignature(body: string, signature: string | null): boolean {
+    if (!this.webhookSecret) {
+      return false;
+    }
+
     if (!signature) {
       return false;
     }

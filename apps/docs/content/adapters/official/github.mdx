@@ -99,10 +99,20 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Installation ID. Omit for multi-tenant setups so the adapter resolves it from each webhook.",
     },
+    installationToken: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Vercel Connect mode: installation access token (or a resolver invoked per API call). Skips the GitHub App JWT exchange.",
+    },
     webhookSecret: {
       type: "string",
       description:
         "Webhook secret. Auto-detected from `GITHUB_WEBHOOK_SECRET`.",
+    },
+    webhookVerifier: {
+      type: "(request, body) => unknown | Promise<unknown>",
+      description:
+        "Custom verifier used in place of `webhookSecret` (e.g. Vercel Connect OIDC). Takes precedence over the secret; required in Connect mode.",
     },
     userName: {
       type: "string",
@@ -118,7 +128,8 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
-Either `token` or `appId`+`privateKey` is required, plus `webhookSecret`.
+One of `token`, `appId`+`privateKey`, or `installationToken` (Vercel Connect) is
+required, plus either `webhookSecret` or a `webhookVerifier`.
 
 ## Authentication
 
@@ -174,6 +185,22 @@ createGitHubAdapter({
 ```
 
 The adapter automatically extracts installation IDs from webhooks and caches API clients per-installation.
+
+### Option C — Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source installation access tokens at runtime instead of storing a GitHub App private key. The `connectGitHubAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires an `installationToken` resolver (skipping the App JWT exchange) and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createGitHubAdapter } from "@chat-adapter/github";
+import { connectGitHubAdapter } from "@vercel/connect/chat";
+
+createGitHubAdapter({
+  ...connectGitHubAdapter("github/acme-github"),
+  userName: "my-bot[bot]",
+});
+```
+
+`installationToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `GITHUB_WEBHOOK_SECRET`.
 
 ## Advanced
 
