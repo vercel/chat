@@ -34,13 +34,20 @@ import {
   tableToAscii,
 } from "chat";
 
+/**
+ * Matches a bare `@mention` (an `@` followed by word characters), but only when
+ * the `@` is not preceded by a word character, another `@`, or `.` — so email
+ * addresses and handles like `user@example.com` are left untouched.
+ */
+const BARE_MENTION_PATTERN = /(?<![\w@.])@(\w+)/g;
+
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
    * Convert @mentions to Discord format in plain text.
    * @name → <@name>
    */
   private convertMentionsToDiscord(text: string): string {
-    return text.replace(/@(\w+)/g, "<@$1>");
+    return text.replace(BARE_MENTION_PATTERN, "<@$1>");
   }
 
   /**
@@ -107,7 +114,7 @@ export class DiscordFormatConverter extends BaseFormatConverter {
 
     if (isTextNode(node)) {
       // Convert @mentions to Discord format <@mention>
-      return node.value.replace(/@(\w+)/g, "<@$1>");
+      return node.value.replace(BARE_MENTION_PATTERN, "<@$1>");
     }
 
     if (isStrongNode(node)) {

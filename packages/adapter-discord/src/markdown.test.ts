@@ -57,6 +57,13 @@ describe("DiscordFormatConverter", () => {
       const result = converter.fromAst(ast);
       expect(result).toContain("<@someone>");
     });
+
+    it("should not turn email addresses into mentions", () => {
+      const ast = converter.toAst("Contact me at user@example.com");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("user@example.com");
+      expect(result).not.toContain("<@example>");
+    });
   });
 
   describe("toAst (Discord markdown -> AST)", () => {
