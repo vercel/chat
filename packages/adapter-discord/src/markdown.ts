@@ -13,6 +13,7 @@
  * - Spoiler: ||text||
  */
 
+import { replaceBareMentions } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -34,22 +35,13 @@ import {
   tableToAscii,
 } from "chat";
 
-/**
- * Matches a bare `@mention` (an `@` followed by word characters), but only when
- * the `@` is not preceded by a word character, another `@`, or `<`. The word
- * boundary leaves email addresses and handles like `user@example.com` untouched
- * (the `@` follows a word character), and excluding `<` avoids re-wrapping an
- * already-formatted Discord mention such as `<@123>` into `<<@123>>`.
- */
-const BARE_MENTION_PATTERN = /(?<![\w@<])@(\w+)/g;
-
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
-   * Convert @mentions to Discord format in plain text.
-   * @name → <@name>
+   * Convert bare `@mentions` to Discord format (`@name` → `<@name>`), leaving
+   * emails, URLs, code spans, and existing `<@…>` tokens untouched.
    */
   private convertMentionsToDiscord(text: string): string {
-    return text.replace(BARE_MENTION_PATTERN, "<@$1>");
+    return replaceBareMentions(text, (_mention, name) => `<@${name}>`);
   }
 
   /**
@@ -115,8 +107,8 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      // Convert @mentions to Discord format <@mention>
-      return node.value.replace(BARE_MENTION_PATTERN, "<@$1>");
+      // Convert bare @mentions to Discord format <@mention>
+      return this.convertMentionsToDiscord(node.value);
     }
 
     if (isStrongNode(node)) {

@@ -70,9 +70,29 @@ describe("DiscordFormatConverter", () => {
       const result = converter.fromAst(ast);
       expect(result).toContain("<@everyone>");
     });
+
+    it("should not mangle an @handle inside a url", () => {
+      const result = converter.renderPostable({
+        markdown: "see https://github.com/@vercel here",
+      });
+      expect(result).toContain("https://github.com/@vercel");
+      expect(result).not.toContain("<@vercel>");
+    });
+
+    it("should not mangle a mention inside an inline code span", () => {
+      const result = converter.renderPostable({ markdown: "run `ping @here`" });
+      expect(result).toContain("`ping @here`");
+      expect(result).not.toContain("<@here>");
+    });
   });
 
   describe("renderPostable (mentions)", () => {
+    it("should convert a bare mention in raw text", () => {
+      expect(converter.renderPostable({ raw: "hey @alice" })).toContain(
+        "<@alice>"
+      );
+    });
+
     it("should not double-wrap an already-formatted mention in raw text", () => {
       const result = converter.renderPostable({ raw: "ping <@123> now" });
       expect(result).toContain("<@123>");
@@ -87,9 +107,12 @@ describe("DiscordFormatConverter", () => {
       expect(result).not.toContain("<@vercel>");
     });
 
-    it("should convert a bare mention in raw text", () => {
-      const result = converter.renderPostable({ raw: "hey @alice" });
-      expect(result).toContain("<@alice>");
+    it("should not mangle an @handle inside a url in raw text", () => {
+      const result = converter.renderPostable({
+        raw: "see twitter.com/@jack",
+      });
+      expect(result).toContain("twitter.com/@jack");
+      expect(result).not.toContain("<@jack>");
     });
   });
 

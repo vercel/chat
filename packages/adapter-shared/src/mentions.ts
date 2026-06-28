@@ -1,4 +1,23 @@
-type MentionReplacer = (mention: string, name: string) => string;
+/**
+ * Bare `@mention` resolver shared across adapters.
+ *
+ * Converting a bare `@name` into a platform mention with a naive
+ * `/@(\w+)/g` regex mangles surrounding text: it rewrites email addresses
+ * (`user@example.com`), `@handles` inside URLs (`https://github.com/@org`),
+ * and mentions inside code spans. `replaceBareMentions` scans the text
+ * character-by-character and skips:
+ *
+ * - inline code and fenced code (`` `…` `` / ```` ``` ````)
+ * - URLs with a scheme (`http://…`, `https://…`)
+ * - schemeless hosts followed by a path (`example.com/…`)
+ * - existing angle-bracket tokens (`<@123>`, `<at>…</at>`, `<url|label>`)
+ *
+ * Only an `@` at a word boundary that is followed by a word character is
+ * handed to the `replacer`, which decides how to render it for the target
+ * platform.
+ */
+
+export type MentionReplacer = (mention: string, name: string) => string;
 
 const HTTP = "http://";
 const HTTPS = "https://";
