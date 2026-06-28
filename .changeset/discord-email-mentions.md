@@ -2,4 +2,4 @@
 "@chat-adapter/discord": patch
 ---
 
-prevent email addresses and word@word handles from being mangled into Discord mentions (the bare-mention regex now requires the `@` to be at a word boundary)
+fix bare-mention conversion so it no longer mangles surrounding text: email addresses and `word@word` handles are left intact (the `@` must be at a word boundary), already-formatted mentions like `<@123>` are no longer double-wrapped into `<<@123>>`, and a real mention that follows a period (e.g. `docs.@everyone`) still converts

@@ -36,10 +36,12 @@ import {
 
 /**
  * Matches a bare `@mention` (an `@` followed by word characters), but only when
- * the `@` is not preceded by a word character, another `@`, or `.` — so email
- * addresses and handles like `user@example.com` are left untouched.
+ * the `@` is not preceded by a word character, another `@`, or `<`. The word
+ * boundary leaves email addresses and handles like `user@example.com` untouched
+ * (the `@` follows a word character), and excluding `<` avoids re-wrapping an
+ * already-formatted Discord mention such as `<@123>` into `<<@123>>`.
  */
-const BARE_MENTION_PATTERN = /(?<![\w@.])@(\w+)/g;
+const BARE_MENTION_PATTERN = /(?<![\w@<])@(\w+)/g;
 
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
