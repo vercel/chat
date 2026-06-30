@@ -92,15 +92,8 @@ GITHUB_WEBHOOK_SECRET=...`}
 
       <h3>Linear</h3>
       <pre>
-        {`# Single-workspace
-LINEAR_API_KEY=lin_api_...
-LINEAR_WEBHOOK_SECRET=...
-
-# OR multi-tenant OAuth installs
-LINEAR_CLIENT_ID=...
-LINEAR_CLIENT_SECRET=...
-LINEAR_REDIRECT_URI=https://your-domain.com/api/linear/install/callback
-LINEAR_WEBHOOK_SECRET=...`}
+        {`LINEAR_CONNECTOR=linear/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
     </main>
   );
