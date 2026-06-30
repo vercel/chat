@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GitHubFormatConverter } from "./markdown";
 
+const TEST_BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
+
 describe("GitHubFormatConverter", () => {
   const converter = new GitHubFormatConverter();
 
@@ -105,6 +107,11 @@ describe("GitHubFormatConverter", () => {
       const result = converter.extractPlainText("Hey @user, **thanks**!");
       expect(result).toContain("@user");
       expect(result).toContain("thanks");
+    });
+
+    it("should preserve whitespace after newline-separated @mentions", () => {
+      const result = converter.extractPlainText("@test-bot\nhi there");
+      expect(result).toMatch(TEST_BOT_MENTION_WITH_WHITESPACE_REGEX);
     });
 
     it("should extract text from code blocks", () => {
