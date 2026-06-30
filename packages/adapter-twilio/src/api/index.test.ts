@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   callTwilioApi,
   deleteTwilioMessage,
+  encodeBase64Utf8,
   fetchTwilioMedia,
   fetchTwilioMessage,
   listTwilioMessages,
@@ -11,6 +12,9 @@ import {
 } from "./index";
 
 describe("Twilio api helpers", () => {
+  it("encodes basic auth credentials without relying on btoa", () => {
+    expect(encodeBase64Utf8("AC123:token")).toBe("QUMxMjM6dG9rZW4=");
+  });
   it("supports object-shaped raw API calls", async () => {
     const request = mockFetch({ ok: true });
 
