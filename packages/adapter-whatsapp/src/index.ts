@@ -1,7 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
+  cardToFallbackText,
   extractCard,
+  extractFiles,
+  extractPostableAttachments,
+  type PlatformName,
+  toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
 import type {
@@ -13,6 +18,7 @@ import type {
   EmojiValue,
   FetchOptions,
   FetchResult,
+  FileUpload,
   FormattedContent,
   Logger,
   RawMessage,
@@ -38,6 +44,7 @@ import type {
   WhatsAppInboundMessage,
   WhatsAppInteractiveMessage,
   WhatsAppMediaResponse,
+  WhatsAppMediaUploadResponse,
   WhatsAppRawMessage,
   WhatsAppSendResponse,
   WhatsAppThreadId,
@@ -45,11 +52,116 @@ import type {
   WhatsAppWebhookPayload,
 } from "./types";
 
+/** Platform label for shared buffer utilities (not yet in PlatformName union). */
+const WHATSAPP_BUFFER_PLATFORM = "whatsapp" as PlatformName;
+
 /** Default Graph API version */
 const DEFAULT_API_VERSION = "v25.0";
 
 /** Maximum message length for WhatsApp Cloud API */
 const WHATSAPP_MESSAGE_LIMIT = 4096;
+
+/** Maximum caption length for WhatsApp media messages */
+const WHATSAPP_CAPTION_LIMIT = 1024;
+
+/** WhatsApp media message types supported for outbound sends */
+export type WhatsAppMediaType = "image" | "document" | "video" | "audio";
+
+/** Per-type upload size limits (bytes) from WhatsApp Cloud API */
+const WHATSAPP_MEDIA_SIZE_LIMITS: Record<WhatsAppMediaType, number> = {
+  image: 5 * 1024 * 1024,
+  audio: 16 * 1024 * 1024,
+  video: 16 * 1024 * 1024,
+  document: 100 * 1024 * 1024,
+};
+
+interface ResolvedWhatsAppMedia {
+  captionEligible: boolean;
+  filename?: string;
+  mimeType: string;
+  payload: { id?: string; link?: string };
+  type: WhatsAppMediaType;
+}
+
+const EXTENSION_MIME_TYPES: Record<string, string> = {
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
+  ".ogg": "audio/ogg",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".webp": "image/webp",
+};
+
+/**
+ * Map a MIME type to a WhatsApp outbound media message type.
+ */
+export function getWhatsAppMediaType(mimeType: string): WhatsAppMediaType {
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+
+  if (normalized === "image/jpeg" || normalized === "image/png") {
+    return "image";
+  }
+
+  if (normalized.startsWith("image/")) {
+    return "document";
+  }
+
+  if (normalized === "video/mp4" || normalized === "video/3gpp") {
+    return "video";
+  }
+
+  if (normalized.startsWith("audio/")) {
+    return "audio";
+  }
+
+  return "document";
+}
+
+/**
+ * Validate binary size against WhatsApp per-type limits.
+ */
+export function validateFileSize(type: WhatsAppMediaType, size: number): void {
+  const limit = WHATSAPP_MEDIA_SIZE_LIMITS[type];
+
+  if (size > limit) {
+    throw new ValidationError(
+      "whatsapp",
+      `File size ${size} bytes exceeds WhatsApp ${type} limit of ${limit} bytes`
+    );
+  }
+}
+
+function inferMimeType(filename: string, mimeType?: string): string {
+  if (mimeType) {
+    return mimeType;
+  }
+
+  const extension = filename.includes(".")
+    ? filename.slice(filename.lastIndexOf(".")).toLowerCase()
+    : "";
+
+  return EXTENSION_MIME_TYPES[extension] ?? "application/octet-stream";
+}
+
+function attachmentToWhatsAppType(attachment: Attachment): WhatsAppMediaType {
+  if (attachment.mimeType) {
+    return getWhatsAppMediaType(attachment.mimeType);
+  }
+
+  switch (attachment.type) {
+    case "image":
+      return "image";
+    case "video":
+      return "video";
+    case "audio":
+      return "audio";
+    default:
+      return "document";
+  }
+}
 
 /**
  * Split text into chunks that fit within WhatsApp's message limit,
@@ -746,6 +858,16 @@ export class WhatsAppAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const { userWaId } = this.decodeThreadId(threadId);
+    const files = extractFiles(message);
+    const attachments = extractPostableAttachments(message);
+    const mediaItems: Array<FileUpload | Attachment> = [
+      ...files,
+      ...attachments,
+    ];
+
+    if (mediaItems.length > 0) {
+      return this.postMessageWithMedia(threadId, userWaId, message, mediaItems);
+    }
 
     // Check if this is a card with interactive buttons
     const card = extractCard(message);
@@ -758,9 +880,11 @@ export class WhatsAppAdapter
             JSON.stringify(result.interactive),
             "whatsapp"
           )
-        );
+        ) as WhatsAppInteractiveMessage;
+
         return this.sendInteractiveMessage(threadId, userWaId, interactive);
       }
+
       return this.sendTextMessage(
         threadId,
         userWaId,
@@ -773,7 +897,89 @@ export class WhatsAppAdapter
       this.formatConverter.renderPostable(message),
       "whatsapp"
     );
+
     return this.sendTextMessage(threadId, userWaId, body);
+  }
+
+  /**
+   * Send one or more media messages, optionally followed by a card.
+   */
+  protected async postMessageWithMedia(
+    threadId: string,
+    userWaId: string,
+    message: AdapterPostableMessage,
+    mediaItems: Array<FileUpload | Attachment>
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const card = extractCard(message);
+    const text = card
+      ? convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp")
+      : convertEmojiPlaceholders(this.renderPostableText(message), "whatsapp");
+
+    const resolved = await Promise.all(
+      mediaItems.map((item) => this.resolveMedia(item))
+    );
+
+    const firstMedia = resolved[0];
+    const useSeparateText =
+      text.length > 0 &&
+      (text.length > WHATSAPP_CAPTION_LIMIT ||
+        firstMedia?.type === "audio" ||
+        !firstMedia?.captionEligible);
+
+    if (useSeparateText) {
+      await this.sendTextMessage(threadId, userWaId, text);
+    }
+
+    let result: RawMessage<WhatsAppRawMessage> | undefined;
+
+    for (const [index, media] of resolved.entries()) {
+      const caption =
+        index === 0 &&
+        !useSeparateText &&
+        text.length > 0 &&
+        media.captionEligible
+          ? text
+          : undefined;
+
+      result = await this.sendMediaMessage(
+        threadId,
+        userWaId,
+        media.type,
+        media.payload,
+        caption,
+        media.filename
+      );
+    }
+
+    if (card) {
+      const cardResult = cardToWhatsApp(card);
+      if (cardResult.type === "interactive") {
+        const interactive = JSON.parse(
+          convertEmojiPlaceholders(
+            JSON.stringify(cardResult.interactive),
+            "whatsapp"
+          )
+        ) as WhatsAppInteractiveMessage;
+
+        result = await this.sendInteractiveMessage(
+          threadId,
+          userWaId,
+          interactive
+        );
+      } else if (text.length === 0) {
+        result = await this.sendTextMessage(
+          threadId,
+          userWaId,
+          convertEmojiPlaceholders(cardResult.text, "whatsapp")
+        );
+      }
+    }
+
+    if (!result) {
+      throw new Error("WhatsApp media message did not return a result");
+    }
+
+    return result;
   }
 
   /**
@@ -1196,6 +1402,242 @@ export class WhatsAppAdapter
   // =============================================================================
   // Private helpers
   // =============================================================================
+
+  /**
+   * Render optional text from a postable message (empty for files-only payloads).
+   */
+  protected renderPostableText(message: AdapterPostableMessage): string {
+    if (typeof message === "string") {
+      return message;
+    }
+
+    if (typeof message !== "object" || message === null) {
+      return "";
+    }
+
+    if ("markdown" in message || "raw" in message || "ast" in message) {
+      return this.formatConverter.renderPostable(message);
+    }
+
+    return "";
+  }
+
+  /**
+   * Upload binary media to the Cloud API and return a media ID.
+   *
+   * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#upload-media
+   */
+  protected async uploadMedia(file: {
+    data: Buffer;
+    filename: string;
+    mimeType: string;
+  }): Promise<string> {
+    const formData = new FormData();
+    formData.append("messaging_product", "whatsapp");
+    formData.append(
+      "file",
+      new Blob([new Uint8Array(file.data)], { type: file.mimeType }),
+      file.filename
+    );
+
+    const response = await this.graphApiUpload<WhatsAppMediaUploadResponse>(
+      `/${this.phoneNumberId}/media`,
+      formData
+    );
+
+    if (!response.id) {
+      throw new Error("WhatsApp API did not return a media ID for upload");
+    }
+
+    return response.id;
+  }
+
+  /**
+   * Send a media message (image, document, video, or audio).
+   */
+  protected async sendMediaMessage(
+    threadId: string,
+    to: string,
+    type: WhatsAppMediaType,
+    payload: { id?: string; link?: string },
+    caption?: string,
+    filename?: string
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const mediaObject: Record<string, string> = {};
+
+    if (payload.id) {
+      mediaObject.id = payload.id;
+    }
+
+    if (payload.link) {
+      mediaObject.link = payload.link;
+    }
+
+    if (caption && type !== "audio") {
+      mediaObject.caption = caption;
+    }
+
+    if (filename && type === "document") {
+      mediaObject.filename = filename;
+    }
+
+    const response = await this.graphApiRequest<WhatsAppSendResponse>(
+      `/${this.phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type,
+        [type]: mediaObject,
+      }
+    );
+
+    if (!(response.messages?.length && response.messages[0]?.id)) {
+      throw new Error(
+        `WhatsApp API did not return a message ID for ${type} message`
+      );
+    }
+
+    const messageId = response.messages[0].id;
+
+    return {
+      id: messageId,
+      threadId,
+      raw: {
+        message: {
+          id: messageId,
+          from: this.phoneNumberId,
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          type,
+        },
+        phoneNumberId: this.phoneNumberId,
+      },
+    };
+  }
+
+  /**
+   * Normalize a FileUpload or Attachment into a WhatsApp media payload.
+   */
+  protected async resolveMedia(
+    item: FileUpload | Attachment
+  ): Promise<ResolvedWhatsAppMedia> {
+    if ("filename" in item) {
+      const mimeType = inferMimeType(item.filename, item.mimeType);
+      const type = getWhatsAppMediaType(mimeType);
+      const buffer = await toBuffer(item.data, {
+        platform: WHATSAPP_BUFFER_PLATFORM,
+      });
+
+      if (!buffer) {
+        throw new ValidationError("whatsapp", "File upload data is empty");
+      }
+
+      validateFileSize(type, buffer.length);
+
+      const mediaId = await this.uploadMedia({
+        data: buffer,
+        filename: item.filename,
+        mimeType,
+      });
+
+      return {
+        captionEligible: type !== "audio",
+        filename: item.filename,
+        mimeType,
+        payload: { id: mediaId },
+        type,
+      };
+    }
+
+    const type = attachmentToWhatsAppType(item);
+    const filename = item.name ?? "attachment";
+    const mimeType = inferMimeType(filename, item.mimeType);
+
+    const data =
+      item.data ?? (item.fetchData ? await item.fetchData() : undefined);
+
+    if (data) {
+      const buffer = await toBuffer(data, {
+        platform: WHATSAPP_BUFFER_PLATFORM,
+      });
+
+      if (!buffer) {
+        throw new ValidationError("whatsapp", "Attachment data is empty");
+      }
+
+      validateFileSize(type, buffer.length);
+
+      const mediaId = await this.uploadMedia({
+        data: buffer,
+        filename,
+        mimeType,
+      });
+
+      return {
+        captionEligible: type !== "audio",
+        filename,
+        mimeType,
+        payload: { id: mediaId },
+        type,
+      };
+    }
+
+    if (!item.url) {
+      throw new ValidationError(
+        "whatsapp",
+        "Attachment requires data, fetchData, or a public HTTPS url"
+      );
+    }
+
+    if (!item.url.startsWith("https://")) {
+      throw new ValidationError(
+        "whatsapp",
+        "Attachment URL must use HTTPS for WhatsApp link passthrough"
+      );
+    }
+
+    if (typeof item.size === "number") {
+      validateFileSize(type, item.size);
+    }
+
+    return {
+      captionEligible: type !== "audio",
+      filename,
+      mimeType,
+      payload: { link: item.url },
+      type,
+    };
+  }
+
+  /**
+   * Make a multipart upload request to the Meta Graph API.
+   */
+  protected async graphApiUpload<T = unknown>(
+    path: string,
+    formData: FormData
+  ): Promise<T> {
+    const response = await fetch(`${this.graphApiUrl}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      this.logger.error("WhatsApp API upload error", {
+        status: response.status,
+        body: errorBody,
+        path,
+      });
+      throw new Error(
+        `WhatsApp API upload error: ${response.status} ${errorBody}`
+      );
+    }
+
+    return response.json() as Promise<T>;
+  }
 
   /**
    * Resolve the latest inbound message ID for a thread.

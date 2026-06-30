@@ -181,6 +181,30 @@ Example: `whatsapp:1234567890:15551234567`.
 
 Outgoing messages longer than 4096 characters are automatically chunked.
 
+### File uploads
+
+`postMessage` accepts both `files` and `attachments` (typed media with optional `data`, `fetchData`, or a public URL). See the [file uploads guide](/docs/files) for the shared API.
+
+WhatsApp-specific behavior:
+
+- **One media per message** — multiple `files` or `attachments` in a single `post()` are sent as sequential messages (the last message ID is returned).
+- **Captions** — markdown (or card fallback text) is attached as a caption on the first media message when supported (max 1024 characters). Text is sent as a separate message first when the caption is too long or when the first media is audio (audio does not support captions).
+- **Binary vs link** — buffers are uploaded via the Cloud API `/media` endpoint; `attachments` with only an `url` use HTTPS link passthrough (no upload). URLs must use `https://`.
+- **Cards + files** — media is sent first (caption from card fallback text), then an interactive button message when the card has valid reply buttons. To send a photo with buttons, pass the image via `files` or `attachments` — card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
+
+```typescript title="lib/bot.ts" lineNumbers
+await thread.post({
+  markdown: "Here's the report:",
+  files: [
+    {
+      data: reportBuffer,
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+    },
+  ],
+});
+```
+
 ## Feature support
 
 <FeatureSupport />

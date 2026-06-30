@@ -236,6 +236,15 @@ export interface WhatsAppMediaResponse {
 }
 
 /**
+ * Response from uploading media via the Cloud API.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#upload-media
+ */
+export interface WhatsAppMediaUploadResponse {
+  id: string;
+}
+
+/**
  * Message delivery/read status update.
  */
 export interface WhatsAppStatus {
