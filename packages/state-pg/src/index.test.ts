@@ -439,6 +439,30 @@ describe("PostgresStateAdapter", () => {
         expect(result).toBe(true);
       });
 
+      it("should allow setIfNotExists to replace expired keys", async () => {
+        queryRows = [{ cache_key: "key" }];
+        const result = await adapter.setIfNotExists("key", "value", 5000);
+
+        expect(result).toBe(true);
+        expect(pool.query).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "ON CONFLICT (key_prefix, cache_key) DO UPDATE"
+          ),
+          ["chat-sdk", "key", '"value"', expect.any(Date)]
+        );
+
+        const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls;
+        const setIfNotExistsCall = calls.find(
+          (c: unknown[]) =>
+            typeof c[0] === "string" &&
+            c[0].includes("INSERT INTO chat_state_cache") &&
+            c[0].includes("WHERE chat_state_cache.expires_at IS NOT NULL") &&
+            c[0].includes("chat_state_cache.expires_at <= now()")
+        );
+
+        expect(setIfNotExistsCall).toBeTruthy();
+      });
+
       it("should delete a value without throwing", async () => {
         await adapter.delete("key");
       });

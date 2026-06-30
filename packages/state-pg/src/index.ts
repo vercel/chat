@@ -260,7 +260,12 @@ export class PostgresStateAdapter implements StateAdapter {
     const result = await this.pool.query(
       `INSERT INTO chat_state_cache (key_prefix, cache_key, value, expires_at)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (key_prefix, cache_key) DO NOTHING
+       ON CONFLICT (key_prefix, cache_key) DO UPDATE
+         SET value = EXCLUDED.value,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = now()
+         WHERE chat_state_cache.expires_at IS NOT NULL
+           AND chat_state_cache.expires_at <= now()
        RETURNING cache_key`,
       [this.keyPrefix, key, serialized, expiresAt]
     );
