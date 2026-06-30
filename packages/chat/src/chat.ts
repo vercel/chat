@@ -2590,7 +2590,7 @@ export class Chat<
 
     // Primary check: @username format (normalized by all adapters)
     const usernamePattern = new RegExp(
-      `@${this.escapeRegex(botUserName)}\\b`,
+      `@${this.escapeRegex(botUserName)}(?![\\w-])`,
       "i"
     );
     if (usernamePattern.test(message.text)) {
