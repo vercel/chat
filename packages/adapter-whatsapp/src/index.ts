@@ -40,6 +40,8 @@ import type {
   WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppSendResponse,
+  WhatsAppTemplateComponent,
+  WhatsAppTemplateMessage,
   WhatsAppThreadId,
   WhatsAppTypingIndicatorResponse,
   WhatsAppWebhookPayload,
@@ -94,6 +96,10 @@ export type {
   WhatsAppAdapterConfig,
   WhatsAppMediaResponse,
   WhatsAppRawMessage,
+  WhatsAppTemplateButtonParameter,
+  WhatsAppTemplateComponent,
+  WhatsAppTemplateMessage,
+  WhatsAppTemplateParameter,
   WhatsAppThreadId,
 } from "./types";
 
@@ -889,6 +895,85 @@ export class WhatsAppAdapter
   }
 
   /**
+   * Send a pre-approved template message via the Cloud API.
+   *
+   * Templates are the only message type WhatsApp accepts outside the
+   * 24-hour customer service window, making them the way to start
+   * business-initiated conversations. The adapter does not auto-substitute
+   * templates for outbound text posts — callers must opt in explicitly
+   * when they detect the window is closed.
+   *
+   * @example
+   * ```typescript
+   * await adapter.sendTemplate(threadId, {
+   *   name: "appointment_reminder",
+   *   language: "en",
+   *   components: [
+   *     {
+   *       type: "body",
+   *       parameters: [{ type: "text", text: "Tomorrow at 2pm" }],
+   *     },
+   *   ],
+   * });
+   * ```
+   *
+   * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates
+   */
+  async sendTemplate(
+    threadId: string,
+    template: WhatsAppTemplateMessage
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const { userWaId } = this.decodeThreadId(threadId);
+
+    // Convert emoji placeholders in component parameters (e.g. body text
+    // variables), mirroring the interactive message path
+    const components = template.components?.length
+      ? (JSON.parse(
+          convertEmojiPlaceholders(
+            JSON.stringify(template.components),
+            "whatsapp"
+          )
+        ) as WhatsAppTemplateComponent[])
+      : undefined;
+
+    const response = await this.graphApiRequest<WhatsAppSendResponse>(
+      `/${this.phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: userWaId,
+        type: "template",
+        template: {
+          name: template.name,
+          language: { code: template.language },
+          ...(components ? { components } : {}),
+        },
+      }
+    );
+
+    if (!(response.messages?.length && response.messages[0]?.id)) {
+      throw new Error(
+        "WhatsApp API did not return a message ID for template message"
+      );
+    }
+    const messageId = response.messages[0].id;
+
+    return {
+      id: messageId,
+      threadId,
+      raw: {
+        message: {
+          id: messageId,
+          from: this.phoneNumberId,
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          type: "template",
+        },
+        phoneNumberId: this.phoneNumberId,
+      },
+    };
+  }
+
+  /**
    * Edit a message. Not supported by WhatsApp Cloud API — throws an error.
    *
    * Callers should use postMessage directly if they want to send a follow-up.
@@ -1131,7 +1216,7 @@ export class WhatsAppAdapter
    * For WhatsApp, this simply constructs the thread ID since all
    * conversations are inherently DMs. Note: you can only message users
    * who have messaged you first (within the 24-hour window) or
-   * via approved template messages.
+   * via approved template messages (see {@link sendTemplate}).
    */
   async openDM(userId: string): Promise<string> {
     return this.encodeThreadId({
