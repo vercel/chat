@@ -23,6 +23,7 @@ import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
 } from "@chat-adapter/whatsapp";
+import { connectGitHubAdapter } from "@vercel/connect/chat";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -221,20 +222,26 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // GitHub adapter (optional) - env vars: GITHUB_WEBHOOK_SECRET + (GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)
-  if (process.env.GITHUB_WEBHOOK_SECRET) {
+  // GitHub adapter (optional) - Vercel Connect.
+  // env vars: GITHUB_CONNECTOR (the connector UID, e.g. "github/acme-github")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectGitHubAdapter()
+  // resolves a short-lived installation token from Vercel Connect at runtime
+  // (skipping the GitHub App JWT exchange) and verifies Connect-forwarded
+  // webhooks via the Vercel OIDC token instead of a webhook secret.
+  if (process.env.GITHUB_CONNECTOR) {
     try {
       adapters.github = withRecording(
         createGitHubAdapter({
           logger: logger.child("github"),
           userName: "chat-sdk-bot",
+          ...connectGitHubAdapter(process.env.GITHUB_CONNECTOR),
         }),
         "github",
         GITHUB_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create github adapter (check GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)"
+        "[chat] Failed to create github adapter (check GITHUB_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }
