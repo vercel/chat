@@ -234,6 +234,10 @@ export function buildAdapters(): Adapters {
         createGitHubAdapter({
           logger: logger.child("github"),
           userName: "chat-sdk-bot",
+          // In Connect mode the adapter can't auto-detect its own bot user id
+          // (the /app lookup needs an App JWT), so set GITHUB_BOT_USER_ID — the
+          // adapter auto-detects it — to skip self-authored comments and avoid
+          // reply loops across function instances.
           ...connectGitHubAdapter(process.env.GITHUB_CONNECTOR),
         }),
         "github",
