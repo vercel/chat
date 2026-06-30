@@ -66,6 +66,7 @@ describe("createProgram", () => {
     ]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: "desc",
       detectedAgent: undefined,
       force: false,
@@ -78,6 +79,22 @@ describe("createProgram", () => {
       vendor: false,
       yes: true,
     });
+  });
+
+  it("passes --connect to runCli", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "my-bot",
+      "--adapter",
+      "slack",
+      "--connect",
+    ]);
+
+    expect(runCli).toHaveBeenCalledWith(
+      expect.objectContaining({ connect: true, selectedAdapters: ["slack"] })
+    );
   });
 
   it("passes --vendor to runCli", async () => {
@@ -116,6 +133,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-s"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -135,6 +153,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--no-git"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -154,6 +173,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "-f"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: undefined,
       force: true,
@@ -177,6 +197,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: "cursor",
       force: false,
@@ -222,6 +243,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot", "--yes"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,
@@ -241,6 +263,7 @@ describe("createProgram", () => {
     await program.parseAsync(["node", "create-chat-sdk", "my-bot"]);
 
     expect(runCli).toHaveBeenCalledWith({
+      connect: false,
       description: undefined,
       detectedAgent: undefined,
       force: false,

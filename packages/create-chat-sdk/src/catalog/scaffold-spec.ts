@@ -43,9 +43,41 @@ export type ScaffoldPropertyValue =
   | { kind: "placeholder"; code: string; comment?: string };
 
 /**
+ * An extra `.env.example` entry emitted for an adapter in Vercel Connect mode.
+ */
+export interface ConnectEnvVar {
+  /** Comment describing the variable. */
+  description: string;
+  /** Environment variable name. */
+  key: string;
+}
+
+/**
+ * Vercel Connect code-generation policy for a Connect-capable adapter.
+ *
+ * When the user opts into Connect (`--connect` or the interactive auth-mode
+ * prompt), the generated bot spreads the matching helper from
+ * `@vercel/connect/chat` into the adapter factory and reads the connector UID
+ * from `connectorEnvVar`, replacing the adapter's native provider secrets.
+ */
+export interface AdapterConnectSpec {
+  /** Environment variable holding the Vercel Connect connector UID. */
+  connectorEnvVar: string;
+  /** Extra Connect-only `.env.example` entries (e.g. recommended bot ids). */
+  extraEnv?: readonly ConnectEnvVar[];
+  /** Helper exported from `@vercel/connect/chat`, e.g. `connectSlackAdapter`. */
+  helper: string;
+}
+
+/**
  * create-chat-sdk-only code generation policy for one adapter.
  */
 export interface CliScaffoldSpec {
+  /**
+   * Vercel Connect code-generation policy. Present only for adapters that
+   * support Connect (Slack, GitHub, Linear).
+   */
+  connect?: AdapterConnectSpec;
   /**
    * Additional runtime dependencies to install beyond catalog package metadata.
    */
@@ -63,6 +95,16 @@ export interface CliScaffoldSpec {
    */
   stateHint?: string;
 }
+
+/**
+ * Package added to generated `package.json` when Connect mode is selected.
+ */
+export const CONNECT_PACKAGE = "@vercel/connect";
+
+/**
+ * Subpath the generated bot imports Connect helpers from.
+ */
+export const CONNECT_CHAT_IMPORT = "@vercel/connect/chat";
 
 const env = (name: string, fallback = '""'): ScaffoldPropertyValue => ({
   kind: "env",
@@ -103,6 +145,17 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   github: {
+    connect: {
+      connectorEnvVar: "GITHUB_CONNECTOR",
+      extraEnv: [
+        {
+          description:
+            "GitHub bot user ID - strongly recommended on serverless to prevent reply loops",
+          key: "GITHUB_BOT_USER_ID",
+        },
+      ],
+      helper: "connectGitHubAdapter",
+    },
     invocation: { kind: "zero-arg" },
   },
   ioredis: {
@@ -128,6 +181,10 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   linear: {
+    connect: {
+      connectorEnvVar: "LINEAR_CONNECTOR",
+      helper: "connectLinearAdapter",
+    },
     invocation: { kind: "zero-arg" },
   },
   linq: {
@@ -198,6 +255,10 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   slack: {
+    connect: {
+      connectorEnvVar: "SLACK_CONNECTOR",
+      helper: "connectSlackAdapter",
+    },
     invocation: { kind: "zero-arg" },
   },
   teams: {
@@ -256,3 +317,13 @@ export const getCliScaffoldSpec = (slug: string): CliScaffoldSpec => {
   }
   return CLI_SCAFFOLD_SPEC[slug];
 };
+
+/**
+ * Vercel Connect policy for an adapter, or `undefined` when it has none.
+ *
+ * @param slug - Catalog adapter slug.
+ * @returns The adapter's Connect spec, if it supports Vercel Connect.
+ */
+export const getAdapterConnectSpec = (
+  slug: string
+): AdapterConnectSpec | undefined => getCliScaffoldSpec(slug).connect;

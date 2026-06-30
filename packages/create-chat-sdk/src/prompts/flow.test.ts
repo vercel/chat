@@ -188,11 +188,91 @@ describe("runPrompts", () => {
     vi.mocked(select).mockResolvedValueOnce("memory");
     vi.mocked(confirm).mockResolvedValueOnce(CANCEL as never);
     expect(await runPrompts({ quiet: false, yes: false })).toBeNull();
+
+    vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(select)
+      .mockResolvedValueOnce("memory")
+      .mockResolvedValueOnce(CANCEL as never);
+    expect(await runPrompts({ quiet: false, yes: false })).toBeNull();
   });
 
   it("validates initial names", async () => {
     await expect(
       runPrompts({ name: "bad name!", quiet: true, yes: true })
     ).rejects.toThrow("Use a valid npm package name");
+  });
+
+  it("prompts for auth mode and applies Vercel Connect when chosen", async () => {
+    vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(select)
+      .mockResolvedValueOnce("memory")
+      .mockResolvedValueOnce("connect");
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    const result = await runPrompts({ quiet: false, yes: false });
+
+    expect(select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "How should adapters authenticate?",
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "connect" }),
+        ]),
+      })
+    );
+    expect(result?.useConnect).toBe(true);
+  });
+
+  it("keeps provider secrets when the auth-mode prompt selects secrets", async () => {
+    vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
+    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(select)
+      .mockResolvedValueOnce("memory")
+      .mockResolvedValueOnce("secrets");
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    const result = await runPrompts({ quiet: false, yes: false });
+
+    expect(result?.useConnect).toBe(false);
+  });
+
+  it("does not prompt for auth mode without a Connect-capable adapter", async () => {
+    vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
+    vi.mocked(multiselect).mockResolvedValueOnce(["discord"]);
+    vi.mocked(select).mockResolvedValueOnce("memory");
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    const result = await runPrompts({ quiet: false, yes: false });
+
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(result?.useConnect).toBe(false);
+  });
+
+  it("enables Vercel Connect with --connect on a flagged selection", async () => {
+    const result = await runPrompts({
+      connect: true,
+      name: "my-bot",
+      quiet: true,
+      selectedAdapters: ["slack", "memory"],
+      yes: true,
+    });
+
+    expect(result?.useConnect).toBe(true);
+  });
+
+  it("ignores --connect when no Connect-capable adapter is selected", async () => {
+    const result = await runPrompts({
+      connect: true,
+      name: "my-bot",
+      quiet: false,
+      selectedAdapters: ["discord", "memory"],
+      yes: true,
+    });
+
+    expect(result?.useConnect).toBe(false);
+    expect(log.warning).toHaveBeenCalledWith(
+      expect.stringContaining("Ignoring --connect")
+    );
   });
 });
