@@ -2599,6 +2599,31 @@ describe("GitHubAdapter - Vercel Connect mode", () => {
     });
     expect(adapter.name).toBe("github");
   });
+
+  it("learns the bot user id from the first posted comment", async () => {
+    mockIssuesCreateComment.mockResolvedValueOnce({
+      data: {
+        id: 100,
+        body: "hi",
+        user: { id: 4242, login: "chat-sdk-example[bot]", type: "Bot" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+        html_url: "https://github.com/acme/app/issues/42#issuecomment-100",
+      },
+    });
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    // Auto-detection can't work in Connect mode, so it starts unset...
+    expect(adapter.botUserId).toBeUndefined();
+
+    await adapter.postMessage("github:acme/app:42", "hi");
+
+    // ...and is learned from the comment the bot just posted.
+    expect(adapter.botUserId).toBe("4242");
+  });
 });
 
 describe("createGitHubAdapter", () => {
@@ -2615,6 +2640,7 @@ describe("createGitHubAdapter", () => {
       "GITHUB_PRIVATE_KEY",
       "GITHUB_INSTALLATION_ID",
       "GITHUB_BOT_USERNAME",
+      "GITHUB_BOT_USER_ID",
       "GITHUB_API_URL",
     ]) {
       delete process.env[key];
@@ -2633,6 +2659,22 @@ describe("createGitHubAdapter", () => {
     });
     expect(a).toBeInstanceOf(GitHubAdapter);
     expect(a.userName).toBe("bot");
+  });
+
+  it("auto-detects botUserId from the GITHUB_BOT_USER_ID env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_BOT_USER_ID = "4242";
+    const a = createGitHubAdapter();
+    expect(a.botUserId).toBe("4242");
+  });
+
+  it("prefers an explicit botUserId over GITHUB_BOT_USER_ID", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_BOT_USER_ID = "4242";
+    const a = createGitHubAdapter({ botUserId: 99 });
+    expect(a.botUserId).toBe("99");
   });
 
   it("should create adapter with explicit app config (single-tenant)", () => {

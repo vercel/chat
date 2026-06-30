@@ -202,6 +202,19 @@ createGitHubAdapter({
 
 `installationToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `GITHUB_WEBHOOK_SECRET`.
 
+<Callout type="warn">
+  In Connect mode the adapter only holds an installation token, so it can't auto-detect its own bot user id (the `/app` lookup needs the App's JWT). Without it the adapter can't recognize its own comments and will reply to itself in a loop. It learns the id from the first comment it posts, but that's in-memory only — not enough on serverless, where each webhook can hit a fresh instance. Pass `botUserId` (the numeric id of your `…[bot]` user, e.g. from `curl -s 'https://api.github.com/users/your-app%5Bbot%5D'`) so every instance knows it up front:
+
+```typescript
+createGitHubAdapter({
+  ...connectGitHubAdapter("github/acme-github"),
+  botUserId: 12345678,
+});
+```
+
+Or set the `GITHUB_BOT_USER_ID` environment variable, which the adapter auto-detects.
+</Callout>
+
 ## Advanced
 
 ### Installation lookup

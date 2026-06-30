@@ -28,8 +28,12 @@ interface GitHubAdapterBaseConfig {
   /** Override the GitHub API base URL (e.g. "https://github.example.com/api/v3" for GitHub Enterprise). Defaults to GITHUB_API_URL env var. */
   apiUrl?: string;
   /**
-   * Bot's GitHub user ID (numeric).
-   * Used for self-message detection. If not provided, will be fetched on first API call.
+   * Bot's GitHub user ID (numeric). Used for self-message detection.
+   * Defaults to the `GITHUB_BOT_USER_ID` env var. If still unset, the adapter
+   * tries to auto-detect it (and, in Vercel Connect mode, learns it from the
+   * first comment it posts). Set it explicitly in Connect mode — auto-detection
+   * can't run with only an installation token, and without it the adapter may
+   * reply to its own comments (especially across serverless instances).
    */
   botUserId?: number;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */

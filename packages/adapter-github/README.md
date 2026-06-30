@@ -146,6 +146,17 @@ createGitHubAdapter({
 
 > **Freshness:** OIDC verification replaces GitHub's signature check, so request freshness relies on the short-lived OIDC token's expiry rather than a signed timestamp, and there is no built-in nonce/delivery-id de-duplication. Keep your webhook handlers idempotent (GitHub may also redeliver events).
 
+> **Set `botUserId` for self-message detection.** In Connect mode the adapter only holds an installation token, so it can't auto-detect its own bot user id (the `/app` lookup needs the App's JWT). Without it, the adapter can't tell its own comments apart from users' and will reply to itself in a loop. The adapter learns the id from the first comment it posts, but that lives in memory — on serverless (where each webhook may hit a fresh instance) that isn't enough. Pass `botUserId` (the numeric id of your `…[bot]` user) so every instance knows it up front:
+>
+> ```typescript
+> createGitHubAdapter({
+>   ...connectGitHubAdapter("github/acme-github"),
+>   botUserId: 12345678, // id of your-app[bot]
+> });
+> ```
+>
+> Or set the `GITHUB_BOT_USER_ID` environment variable, which the adapter auto-detects. Find the id (no auth needed) with `curl -s 'https://api.github.com/users/your-app%5Bbot%5D'`.
+
 ## Installation lookup
 
 You can resolve the GitHub App installation ID associated with a `Thread` or `Message`:

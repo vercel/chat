@@ -227,7 +227,14 @@ export class GitHubAdapter
     this.logger = config.logger ?? new ConsoleLogger("info").child("github");
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
-    this._botUserId = config.botUserId ?? null;
+    const envBotUserId = process.env.GITHUB_BOT_USER_ID
+      ? Number.parseInt(process.env.GITHUB_BOT_USER_ID, 10)
+      : undefined;
+    this._botUserId =
+      config.botUserId ??
+      (envBotUserId !== undefined && !Number.isNaN(envBotUserId)
+        ? envBotUserId
+        : null);
     this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
     let fixedInstallationId: number | null = null;
 
@@ -413,6 +420,17 @@ export class GitHubAdapter
     if (this._botUserId !== null) {
       return;
     }
+    // Vercel Connect mode: only an installation token is available, so neither
+    // GET /user nor GET /app (which needs the App's signed JWT) can identify
+    // the bot. The id is instead learned from the first comment the bot posts
+    // (see captureBotUserId); set `botUserId` in config to enable self-message
+    // detection before that first post.
+    if (this.installationTokenProvider) {
+      this.logger.debug(
+        "Skipping GitHub bot user ID auto-detection in Vercel Connect mode; it will be learned from the first posted comment, or set botUserId explicitly"
+      );
+      return;
+    }
     // For App installations, /user is not available. Fetch the App's bot user
     // via /app then look up the slug to get a numeric user ID. The /user
     // endpoint works for PAT mode and (returns the bot user) for installation
@@ -448,6 +466,25 @@ export class GitHubAdapter
       }
     } catch (error) {
       this.logger.warn("Could not auto-detect GitHub bot user ID", { error });
+    }
+  }
+
+  /**
+   * Learn the bot's own numeric user id from a comment it just created. The
+   * create-comment response's `user` is the authenticated author (the bot), so
+   * this lets self-message detection (`isMe`) start working even in Vercel
+   * Connect mode, where the id can't be auto-detected from an installation
+   * token — preventing the adapter from replying to its own comments in a loop.
+   */
+  protected captureBotUserId(
+    user: { id?: number; login?: string } | null | undefined
+  ): void {
+    if (this._botUserId === null && typeof user?.id === "number") {
+      this._botUserId = user.id;
+      this.logger.info("GitHub bot user ID learned from posted comment", {
+        botUserId: this._botUserId,
+        login: user.login,
+      });
     }
   }
 
@@ -922,6 +959,8 @@ export class GitHubAdapter
         }
       );
 
+      this.captureBotUserId(comment.user);
+
       return {
         id: comment.id.toString(),
         threadId,
@@ -945,6 +984,8 @@ export class GitHubAdapter
       issue_number: prNumber,
       body,
     });
+
+    this.captureBotUserId(comment.user);
 
     return {
       id: comment.id.toString(),
