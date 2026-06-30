@@ -23,6 +23,7 @@ import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
 } from "@chat-adapter/whatsapp";
+import { connectSlackAdapter } from "@vercel/connect/chat";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -173,14 +174,18 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
-  if (process.env.SLACK_SIGNING_SECRET) {
+  // Slack adapter (optional) - Vercel Connect.
+  // env vars: SLACK_CONNECTOR (the connector UID, e.g. "slack/acme-slack") plus
+  // VERCEL_OIDC_TOKEN (run `vercel env pull`). connectSlackAdapter() resolves a
+  // short-lived bot token from Vercel Connect at runtime and verifies
+  // Connect-forwarded webhooks via the Vercel OIDC token, so there's no
+  // SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET to store.
+  if (process.env.SLACK_CONNECTOR) {
     adapters.slack = withRecording(
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
-        botToken: process.env.SLACK_BOT_TOKEN,
-        clientSecret: process.env.SLACK_CLIENT_SECRET,
+        ...connectSlackAdapter(process.env.SLACK_CONNECTOR),
       }),
       "slack",
       SLACK_METHODS
