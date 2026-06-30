@@ -25,6 +25,7 @@
     "ephemeral-messages",
     "files",
     "conversation-history",
+    "history",
     "subject",
     "concurrency",
     "---Interactivity---",

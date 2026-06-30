@@ -5,17 +5,22 @@ type: guide
 prerequisites:
   - /docs/state-adapters
 related:
+  - /docs/history
   - /docs/handling-events
-  - /docs/api/transcripts
+  - /docs/api/history
 ---
+
+<Callout type="warn">
+  This page covers the older `bot.transcripts` API. The new **[History API](/docs/history)** (`bot.history.user`) is a drop-in replacement with an expanded feature set — user, thread, and channel scopes in one unified namespace. Migrate by renaming your config key from `transcripts` to `history.user` and updating call sites from `bot.transcripts.*` to `bot.history.user.*`.
+</Callout>
 
 Bots that hold context across a user's conversations need somewhere to store it. The platform's own message history won't do — a user might talk to your bot in Slack today and Discord tomorrow, and you want the same memory to follow them.
 
-`bot.transcripts` keeps a per-user transcript in your state adapter, keyed by a stable identifier you choose (an email, an internal user ID, anything that's the same person no matter where they are).
+`bot.history.user` (previously `bot.transcripts`) keeps a per-user transcript in your state adapter, keyed by a stable identifier you choose (an email, an internal user ID, anything that's the same person no matter where they are).
 
 ## Setup
 
-You opt in by setting two fields on `ChatConfig`:
+You opt in by setting two fields on `ChatConfig`. The examples below use the new `history.user` key — `transcripts` still works as a deprecated alias:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -31,19 +36,19 @@ const bot = new Chat({
   },
   state: createRedisState({ url: process.env.REDIS_URL! }),
 
-  // Resolve the cross-platform identifier for an inbound message.
-  // Return null for messages you don't want to remember.
-  identity: ({ author }) => author.email ?? null,
-
   // Storage tuning. retention is the list TTL, refreshed on every append.
-  transcripts: {
-    retention: "30d",
-    maxPerUser: 200,
+  // identity is now inside history.user (was a top-level field with transcripts).
+  history: {
+    user: {
+      identity: ({ author }) => author.email ?? null,
+      retention: "30d",
+      maxPerUser: 200,
+    },
   },
 });
 ```
 
-`transcripts` and `identity` are paired — set one without the other and the constructor throws. This keeps the API loud rather than silently no-op'ing on every call.
+`history.user` requires an identity resolver — set `history.user.identity`, or keep the deprecated top-level `identity` field during migration. Omitting both when `history.user` is set throws at construction.
 
 ## Building LLM context
 
@@ -51,9 +56,9 @@ The most common pattern: append the user's message, build a prompt from recent t
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, msg) => {
-  await bot.transcripts.append(thread, msg);
+  await bot.history.user.append(thread, msg);
 
-  const recent = await bot.transcripts.list({
+  const recent = await bot.history.user.list({
     userKey: msg.userKey!,
     limit: 20,
   });
@@ -61,7 +66,7 @@ bot.onSubscribedMessage(async (thread, msg) => {
   const reply = await generateReply(recent, msg);
   await thread.post(reply);
 
-  await bot.transcripts.append(
+  await bot.history.user.append(
     thread,
     { role: "assistant", text: reply },
     { userKey: msg.userKey! }
@@ -77,16 +82,20 @@ A few things worth knowing:
 
 ## Identity resolution
 
-`identity` runs once per inbound message during dispatch. The `author`, `message`, and `adapter` name are all available:
+`identity` lives inside `history.user` and runs once per inbound message during dispatch. The `author`, `message`, and `adapter` name are all available:
 
 ```typescript
-identity: async ({ adapter, author, message }) => {
-  // Look up by email when the platform exposes it
-  if (author.email) {
-    return author.email;
-  }
-  // Or map a platform user to an internal ID
-  return await lookupUser(adapter, author.userId);
+history: {
+  user: {
+    identity: async ({ adapter, author, message }) => {
+      // Look up by email when the platform exposes it
+      if (author.email) {
+        return author.email;
+      }
+      // Or map a platform user to an internal ID
+      return await lookupUser(adapter, author.userId);
+    },
+  },
 }
 ```
 
@@ -100,19 +109,19 @@ If your resolver throws, the SDK logs a warning and dispatches the message witho
 
 ```typescript
 // Recent N across all platforms
-await bot.transcripts.list({ userKey: "mike@acme.com", limit: 50 });
+await bot.history.user.list({ userKey: "mike@acme.com", limit: 50 });
 
 // Single platform
-await bot.transcripts.list({ userKey: "mike@acme.com", platforms: ["slack"] });
+await bot.history.user.list({ userKey: "mike@acme.com", platforms: ["slack"] });
 
 // Single thread
-await bot.transcripts.list({
+await bot.history.user.list({
   userKey: "mike@acme.com",
   threadId: "slack:C123:1234.5678",
 });
 
 // Only the user's own messages
-await bot.transcripts.list({ userKey: "mike@acme.com", roles: ["user"] });
+await bot.history.user.list({ userKey: "mike@acme.com", roles: ["user"] });
 ```
 
 ## Deleting a user's transcript
@@ -120,7 +129,7 @@ await bot.transcripts.list({ userKey: "mike@acme.com", roles: ["user"] });
 For data-subject requests or simple "forget me" flows:
 
 ```typescript
-await bot.transcripts.delete({ userKey: "mike@acme.com" });
+await bot.history.user.delete({ userKey: "mike@acme.com" });
 // → { deleted: 47 }
 ```
 
@@ -134,4 +143,4 @@ Entries are written under the key `transcripts:user:{userKey}` as a capped list.
 
 ## Reference
 
-See [Transcripts](/docs/api/transcripts) for full type signatures, configuration options, and the entry shape.
+See [History API reference](/docs/api/history) for full type signatures, configuration options, and the entry shape.
