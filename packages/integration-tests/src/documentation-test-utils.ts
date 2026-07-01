@@ -185,6 +185,8 @@ export const VALID_DOC_PACKAGES = [
   "@ai-sdk/gateway",
   "@vercel/sandbox",
   "@vercel/functions",
+  "@vercel/connect",
+  "@vercel/connect/chat",
   "workflow",
   "workflow/next",
   "workflow/api",
