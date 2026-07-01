@@ -3409,6 +3409,58 @@ describe("Chat", () => {
         totalSinceLastHandler: 3,
       });
     });
+
+    it("should call onNewMention when a skipped queued message mentions the bot", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      queueChat.onNewMention(handler);
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-1", "Hey @slack-bot")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-2", "please help")
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-3", "trigger")
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      const message = handler.mock.calls[0][1];
+      const context = handler.mock.calls[0][2];
+      expect(message.text).toBe("please help");
+      expect(message.isMention).toBe(false);
+      expect(
+        context?.skipped.map((skipped) => ({
+          text: skipped.text,
+          isMention: skipped.isMention,
+        }))
+      ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
+    });
   });
 
   describe("concurrency: queue attachment rehydration", () => {
@@ -4184,6 +4236,60 @@ describe("Chat", () => {
             totalSinceLastHandler: 3,
           },
         ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should call onNewMention when a skipped burst message mentions the bot", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockResolvedValue(undefined);
+        burstChat.onNewMention(handler);
+
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-skip-mention-1", "Hey @slack-bot")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-skip-mention-2", "please help")
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        const message = handler.mock.calls[0][1];
+        const context = handler.mock.calls[0][2];
+        expect(message.text).toBe("please help");
+        expect(message.isMention).toBe(false);
+        expect(
+          context?.skipped.map((skipped) => ({
+            text: skipped.text,
+            isMention: skipped.isMention,
+          }))
+        ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
       } finally {
         vi.useRealTimers();
       }

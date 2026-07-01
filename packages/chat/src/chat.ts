@@ -2424,10 +2424,7 @@ export class Chat<
     message: Message,
     context?: MessageContext
   ): Promise<void> {
-    // Set isMention on the message for handler access
-    // Preserve existing isMention if already set (e.g., from Gateway detection)
-    message.isMention =
-      message.isMention || this.detectMention(adapter, message);
+    const hasMention = this.setMentionFlags(adapter, message, context);
 
     // Check subscription status (needed for createThread optimization)
     const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
@@ -2503,7 +2500,7 @@ export class Chat<
     }
 
     // Check for @-mention of bot
-    if (message.isMention) {
+    if (message.isMention || hasMention) {
       this.logger.debug("Bot mentioned", {
         threadId,
         text: message.text.slice(0, 100),
@@ -2542,6 +2539,24 @@ export class Chat<
         text: message.text.slice(0, 100),
       });
     }
+  }
+
+  private setMentionFlags(
+    adapter: Adapter,
+    message: Message,
+    context?: MessageContext
+  ): boolean {
+    message.isMention =
+      message.isMention || this.detectMention(adapter, message);
+
+    let hasMention = message.isMention === true;
+    for (const skipped of context?.skipped ?? []) {
+      skipped.isMention =
+        skipped.isMention || this.detectMention(adapter, skipped);
+      hasMention = hasMention || skipped.isMention === true;
+    }
+
+    return hasMention;
   }
 
   private createThread(
