@@ -1,5 +1,136 @@
 # @chat-adapter/slack
 
+## 4.31.0
+
+### Minor Changes
+
+- 8336a3e: Add `webClientOptions` to `SlackAdapterConfig`, forwarded to both the default and per-token `@slack/web-api` `WebClient` instances. This exposes Web API settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`. Use the existing `apiUrl` option to override the Slack Web API base URL.
+- 171657a: Adding support for stable IDs to link button action handlers
+
+### Patch Changes
+
+- a8bf99a: Fix `@mention` rewriting so an `@handle` inside a URL is no longer turned into a `<@handle>` Slack mention, which corrupted the link. Mention linking now skips whole `http(s)://…` spans, so handles in paths (`https://hackmd.io/@jkyang/abc`), query strings (`?user=@george`), and fragments (`#@george`) are preserved; the lookbehind also excludes a `/` immediately before `@` to cover schemeless URLs (`mastodon.social/@user`). Whitespace- and punctuation-led mentions (e.g. `(cc @george)`), emails, and `<mailto:…>` links are unaffected.
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
+## 4.30.0
+
+### Minor Changes
+
+- 4c46c26: add lightweight Slack formatting primitives subpath
+- dbd8dc5: expose runtime-free Block Kit helpers for Slack card conversion
+- aba6aa9: add lightweight Slack API primitives subpath
+- b332a03: add lightweight Slack webhook primitives subpath
+- 6ed4a43: add low-level Slack helpers for files, thread replies, views, interactions, and input blocks
+
+### Patch Changes
+
+- 9b8d8c4: expand npm `keywords` for adapter and state packages to improve discoverability (adds `chat-sdk`, `chatbot`, `ai-agent`, `ai-sdk`, `vercel`, plus platform-specific terms)
+- 073ff92: surface Slack file upload confirmation ids in postMessage results
+- b63c042: fix(slack): resolve reaction user display names
+
+  Slack reaction events now resolve the reacting user's display name and real name
+  through the existing cached user lookup path. If lookup fails, the adapter falls
+  back to the Slack user ID.
+
+- 1294490: reuse low-level Slack formatting helpers in the adapter
+- 999d268: pass the Slack bot token through native stream append and stop calls
+- Updated dependencies [5461ea9]
+  - chat@4.30.0
+  - @chat-adapter/shared@4.30.0
+
+## 4.29.0
+
+### Minor Changes
+
+- 2f108bd: Rename the typed native client getter on the Slack, GitHub, and Linear adapters to match the underlying SDK class.
+
+  - `bot.getAdapter("slack").client` is now `bot.getAdapter("slack").webClient` (returns `WebClient` from `@slack/web-api`).
+  - `bot.getAdapter("github").client` is now `bot.getAdapter("github").octokit` (returns `Octokit`).
+  - `bot.getAdapter("linear").client` is now `bot.getAdapter("linear").linearClient` (returns `LinearClient`).
+
+  The previous `.client` getter is kept as a deprecated alias on all three adapters, so existing code continues to work without changes.
+
+- c46fdb6: Add support for external `installationProvider` and Enterprise Grid org-wide installs.
+
+  - New optional `installationProvider` config: `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation | null> }`. When set, the adapter resolves bot tokens for incoming events, slash commands, and interactive payloads through the provider instead of the internal `StateAdapter` — useful for hosted token-management systems (e.g. Vercel Connect). The provider is read-only; OAuth callback writes (`setInstallation`, `handleOAuthCallback`) and the `getInstallation`/`deleteInstallation` public methods continue to use internal state, so callers using a provider should manage their own writes.
+  - Enterprise Grid org-wide installs (`is_enterprise_install: true`) are now keyed on `enterprise_id` instead of `team_id` across event_callback, slash command, and interactive payload paths. Multi-workspace deployments using the internal `StateAdapter` for org-wide installs must repopulate installations under the `enterprise_id` key — previously, org-wide events would fall through to a `team_id` lookup that did not match what the OAuth flow had stored.
+
+- fdebde7: feat(slack): expose direct `WebClient` access via `adapter.client`
+
+  `bot.getAdapter("slack").client` now returns a typed `WebClient` from
+  `@slack/web-api`, matching the existing pattern on the Linear and GitHub
+  adapters. The returned client is bound to the bot token for the current
+  request context (multi-workspace) or the configured default token
+  (single-workspace). Use it for any Web API call not covered by the SDK's
+  high-level methods, e.g. `adapter.client.pins.add(...)` or
+  `adapter.client.usergroups.list(...)`.
+
+  Resolution order:
+
+  1. The token from the current `requestContext` — set during webhook
+     handling, or by `adapter.withBotToken(token, fn)`.
+  2. The default `botToken`, when configured as a static string or a
+     synchronous resolver function.
+
+  Throws `AuthenticationError` outside of any context in multi-workspace
+  mode, or when `botToken` is configured as an async resolver function.
+  For async tokens, await the token first and bind it explicitly with
+  `adapter.withBotToken(token, () => adapter.client...)`.
+
+  Also fixes `createSlackAdapter()` silently dropping the `apiUrl`
+  config field.
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- 06fb8e5: Align package shapes with the new `konsistent` conventions. All changes are
+  backwards-compatible — previous type names are kept as deprecated aliases.
+
+  - `@chat-adapter/gchat`, `@chat-adapter/slack`: moved `*AdapterConfig` (and
+    related sub-types) into a `./types` module; the public re-exports from
+    `index.ts` are unchanged.
+  - `@chat-adapter/slack`: `createSlackAdapter` now accepts `SlackAdapterConfig`
+    directly instead of `Partial<SlackAdapterConfig>`. Every field on the config
+    was already optional, so no call sites need to change.
+  - `@chat-adapter/messenger`: `MessengerAdapterConfig` fields are now optional
+    (the factory still falls back to `FACEBOOK_*` env vars), and `logger` /
+    `userName` live on `MessengerAdapterConfig` directly. The factory signature
+    is now `createMessengerAdapter(config?: MessengerAdapterConfig)`.
+  - `@chat-adapter/web`: renamed `WebAdapterOptions` to `WebAdapterConfig`; the
+    old name is exported as a deprecated alias.
+  - `@chat-adapter/whatsapp`: every field on `WhatsAppAdapterConfig` is optional
+    (the factory still falls back to `WHATSAPP_*` env vars). `createWhatsAppAdapter`
+    is now typed `(config?: WhatsAppAdapterConfig) => WhatsAppAdapter`.
+  - `@chat-adapter/state-memory`: added an empty `MemoryStateAdapterOptions`
+    type so the package matches every other state adapter; `createMemoryState`
+    now accepts an optional argument of that type.
+  - `@chat-adapter/state-ioredis`, `@chat-adapter/state-redis`,
+    `@chat-adapter/state-pg`: the URL- and client-based option shapes were split
+    into named interfaces (`*StateAdapterUrlOptions` /
+    `*StateAdapterClientOptions`) and unified under `*StateAdapterOptions`. The
+    factories now take the union type directly. Old names — `RedisStateClientOptions`,
+    `CreateRedisStateOptions`, `PostgresStateClientOptions`,
+    `CreatePostgresStateOptions`, `IoRedisStateClientOptions` — are kept as
+    deprecated aliases.
+
+- 0f0c203: fix(slack): prefer `webhookVerifier` over `signingSecret` and `SLACK_SIGNING_SECRET`
+
+  When a `webhookVerifier` is configured, it now takes precedence over both the
+  `signingSecret` config field and the `SLACK_SIGNING_SECRET` env var. Previously,
+  a configured `signingSecret` (or env var) would shadow the verifier.
+
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
 ## 4.28.1
 
 ### Patch Changes

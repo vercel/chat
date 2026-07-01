@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/linear",
-  "version": "4.28.1",
-  "description": "Linear adapter for chat - issue comment threads",
+  "version": "4.31.0",
+  "description": "Linear adapter for Chat SDK — @mentions in issue comments and Linear agent sessions",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -42,7 +42,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-linear"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/linear",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -51,11 +51,17 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "linear",
+    "linear-bot",
     "bot",
     "adapter",
     "issues",
-    "project-management"
+    "project-management",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

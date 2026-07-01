@@ -21,6 +21,7 @@ import {
   slack,
   teams,
   telegram,
+  twilio,
   web,
   whatsapp,
 } from "@/lib/logos";
@@ -31,7 +32,7 @@ const iconMap: Record<
 > = {
   slack,
   teams,
-  "google-chat": gchat,
+  gchat,
   discord,
   github,
   web,
@@ -42,6 +43,7 @@ const iconMap: Record<
   postgres,
   memory,
   whatsapp,
+  twilio,
   messenger,
 };
 

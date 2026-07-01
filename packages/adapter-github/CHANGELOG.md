@@ -1,5 +1,47 @@
 # @chat-adapter/github
 
+## 4.31.0
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
+## 4.30.0
+
+### Patch Changes
+
+- 9b8d8c4: expand npm `keywords` for adapter and state packages to improve discoverability (adds `chat-sdk`, `chatbot`, `ai-agent`, `ai-sdk`, `vercel`, plus platform-specific terms)
+- Updated dependencies [5461ea9]
+  - chat@4.30.0
+  - @chat-adapter/shared@4.30.0
+
+## 4.29.0
+
+### Minor Changes
+
+- 2f108bd: Rename the typed native client getter on the Slack, GitHub, and Linear adapters to match the underlying SDK class.
+
+  - `bot.getAdapter("slack").client` is now `bot.getAdapter("slack").webClient` (returns `WebClient` from `@slack/web-api`).
+  - `bot.getAdapter("github").client` is now `bot.getAdapter("github").octokit` (returns `Octokit`).
+  - `bot.getAdapter("linear").client` is now `bot.getAdapter("linear").linearClient` (returns `LinearClient`).
+
+  The previous `.client` getter is kept as a deprecated alias on all three adapters, so existing code continues to work without changes.
+
+- 2ffed48: Adapter internals are now `protected` rather than `private`, so consumers can subclass an adapter to override or extend its behavior (e.g. handling additional Telegram update types by overriding `processUpdate`).
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+- Updated dependencies [ac8a207]
+- Updated dependencies [e60bc8c]
+- Updated dependencies [add2730]
+- Updated dependencies [b75eedb]
+  - chat@4.29.0
+  - @chat-adapter/shared@4.29.0
+
 ## 4.28.1
 
 ### Patch Changes

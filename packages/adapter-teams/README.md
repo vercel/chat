@@ -1,15 +1,31 @@
+[![Microsoft Teams adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/teams/og)](https://chat-sdk.dev/adapters/official/teams)
+
 # @chat-adapter/teams
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
+> npm package: [`@chat-adapter/teams`](https://www.npmjs.com/package/@chat-adapter/teams)
+
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Microsoft Teams adapter for [Chat SDK](https://chat-sdk.dev).
+
+Documentation: [chat-sdk.dev/adapters/official/teams](https://chat-sdk.dev/adapters/official/teams) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
 ```bash
 pnpm add @chat-adapter/teams
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Microsoft Teams bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter teams memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -38,7 +54,7 @@ bot.onNewMention(async (thread, message) => {
 The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
 
 ```bash
-npm install -g @microsoft/teams.cli@preview
+npm install -g @microsoft/teams.cli
 ```
 
 ### 1. Create the app
@@ -261,6 +277,26 @@ Run `teams app doctor <appId>` to diagnose common issues — it checks bot regis
 - Verify the messaging endpoint URL is correct
 - Check that your server is accessible from the internet
 - Review Azure Bot logs for errors
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

@@ -7,9 +7,8 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "example-nextjs-chat",
-    "example-telegram-chat",
-    "@chat-adapter/integration-tests"
-  ]
+  "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
+    "onlyUpdatePeerDependentsWhenOutOfRange": true
+  },
+  "ignore": ["example-*", "@chat-adapter/integration-tests"]
 }

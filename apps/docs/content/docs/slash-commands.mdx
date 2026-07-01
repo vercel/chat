@@ -8,11 +8,12 @@ related:
   - /docs/modals
   - /adapters/official/slack
   - /adapters/official/discord
+  - /adapters/official/telegram
 ---
 
 Slash commands let users invoke your bot with `/command` syntax. Register handlers with `onSlashCommand` to respond.
 
-Slash commands are supported on [Slack](/adapters/official/slack) and [Discord](/adapters/official/discord).
+Slash commands are supported on [Slack](/adapters/official/slack), [Discord](/adapters/official/discord), and [Telegram](/adapters/official/telegram).
 
 ## Handle a specific command
 
@@ -112,11 +113,15 @@ bot.onModalSubmit("feedback_form", async (event) => {
 });
 ```
 
+## Telegram
+
+Telegram supports bot commands such as `/status` and `/status@mybot`. Register handlers with `onSlashCommand`; commands addressed to another bot are ignored as slash commands and continue through the normal message path.
+
 ## Discord
 
 Discord slash commands are received via [HTTP Interactions](/adapters/official/discord#http-interactions-vs-gateway) — no Gateway connection is needed. The adapter automatically sends a deferred response to Discord, then resolves it when your handler calls `event.channel.post()`.
 
-To control Discord message flags on the initial deferred response, such as returning `DiscordMessageFlag.Ephemeral` for selected commands, use the Discord adapter's [`flags` option](/adapters/official/discord#interaction-flags).
+To make selected Discord slash command responses ephemeral, return `DiscordInteractionResponseFlag.Ephemeral` from the Discord adapter's [`interactionFlags` option](/adapters/official/discord#interaction-flags).
 
 ### Subcommands
 

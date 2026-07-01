@@ -1,9 +1,13 @@
 # @chat-adapter/shared
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/shared)](https://www.npmjs.com/package/@chat-adapter/shared)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/shared)](https://www.npmjs.com/package/@chat-adapter/shared)
+> npm package: [`@chat-adapter/shared`](https://www.npmjs.com/package/@chat-adapter/shared)
+
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Shared utilities for [Chat SDK](https://chat-sdk.dev) adapters. Provides common helpers used across adapter implementations.
+
+Documentation: [chat-sdk.dev/docs/contributing/building](https://chat-sdk.dev/docs/contributing/building) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
@@ -54,6 +58,26 @@ Standardized errors for adapter implementations:
 - `PermissionError` - missing scopes or permissions
 - `ResourceNotFoundError` - missing channel/thread/message
 - `ValidationError` - invalid config or input
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

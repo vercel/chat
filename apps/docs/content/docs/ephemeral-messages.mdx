@@ -29,10 +29,10 @@ The `fallbackToDM` option is required and controls behavior on platforms without
 |----------|---------------|----------|-------------|
 | Slack | Yes | Ephemeral in channel | Session-only (disappears on reload) |
 | Google Chat | Yes | Private message in space | Persists until deleted |
-| Discord | Yes | Ephemeral in channel | Session-only (disappears on reload) |
+| Discord | No | DM fallback | Persists in DM |
 | Teams | No | DM fallback | Persists in DM |
 
-Discord ephemeral support is established in the adapter config by returning `DiscordMessageFlag.Ephemeral` from the Discord adapter's [`flags` option](/adapters/official/discord#interaction-flags). Outside that interaction flow, `postEphemeral` still follows the fallback behavior.
+Discord slash command responses can be made ephemeral with the Discord adapter's [`interactionFlags` option](/adapters/official/discord#interaction-flags). Outside that interaction flow, `postEphemeral` still follows the fallback behavior.
 
 ## Check for fallback
 

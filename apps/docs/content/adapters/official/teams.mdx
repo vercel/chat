@@ -133,7 +133,7 @@ The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app regis
 ### Install the CLI
 
 ```bash
-npm install -g @microsoft/teams.cli@preview
+npm install -g @microsoft/teams.cli
 ```
 
 ### 1. Create the app
@@ -236,6 +236,8 @@ az ad app permission add \
 
 az ad app permission admin-consent --id <appId>
 ```
+
+If your app already owns routing, state, sessions, or workflow execution, use the [low-level Teams APIs](/docs/teams-primitives) instead of the full adapter runtime.
 
 ### Receiving all messages
 

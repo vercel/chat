@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.28.1",
-  "description": "GitHub adapter for chat - PR and issue comment threads",
+  "version": "4.31.0",
+  "description": "GitHub adapter for Chat SDK — respond to @mentions in pull request and issue comment threads",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -43,7 +43,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-github"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/github",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -52,12 +52,19 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "github",
+    "github-bot",
+    "github-app",
     "bot",
     "adapter",
     "pull-request",
     "issue",
-    "code-review"
+    "code-review",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

@@ -1,15 +1,31 @@
+[![Slack adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/slack/og)](https://chat-sdk.dev/adapters/official/slack)
+
 # @chat-adapter/slack
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
+> npm package: [`@chat-adapter/slack`](https://www.npmjs.com/package/@chat-adapter/slack)
+
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Slack adapter for [Chat SDK](https://chat-sdk.dev). Configure single-workspace or multi-workspace OAuth deployments.
+
+Documentation: [chat-sdk.dev/adapters/official/slack](https://chat-sdk.dev/adapters/official/slack) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
 ```bash
 pnpm add @chat-adapter/slack
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Slack bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Single-workspace mode
 
@@ -327,6 +343,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
 | `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
 | `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
+| `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
@@ -544,6 +561,34 @@ await slackAdapter.handleOAuthCallback(request);
 - Verify event subscriptions are configured
 - Check that the bot has been added to the channel
 - Ensure the webhook URL is correct and accessible
+
+## Resources
+
+- [How to build an AI agent for Slack with Chat SDK and AI SDK](https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-slack&utm_content=how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk) — Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.
+- [How to build a Slack bot that manages files in Vercel Blob](https://vercel.com/kb/guide/slack-bot-vercel-blob?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-slack&utm_content=slack-bot-vercel-blob) — Build a Slack bot that lists, reads, uploads, and deletes files in Vercel Blob through tool calls. Uses Chat SDK, AI SDK's ToolLoopAgent, and Files SDK's `createFileTools` factory with approval-gated write tools and a read-only mode.
+- [How to build a Slack bot with Next.js and Redis](https://vercel.com/kb/guide/how-to-build-a-slack-bot-with-next-js-and-redis?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-slack&utm_content=how-to-build-a-slack-bot-with-next-js-and-redis) — Walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-slack&utm_content=resources).
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

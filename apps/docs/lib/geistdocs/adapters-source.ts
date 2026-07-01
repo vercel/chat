@@ -21,3 +21,29 @@ export const getAdapterPageImage = (page: AdapterPage) => {
       : `/og/${segments.join("/")}`,
   };
 };
+
+export const getAdapterLLMText = async (page: AdapterPage, body?: string) => {
+  const content = body ?? (await page.data.getText("processed"));
+  const { title, description } = page.data;
+  const { packageName, tagline } = page.data as unknown as {
+    packageName?: string;
+    tagline?: string;
+  };
+
+  const frontmatter = [
+    "---",
+    `title: ${title}`,
+    description && `description: ${description}`,
+    tagline && `tagline: ${tagline}`,
+    packageName && `package: ${packageName}`,
+    "---",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `${frontmatter}
+
+# ${title}
+
+${content}`;
+};

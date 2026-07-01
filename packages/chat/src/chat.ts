@@ -1485,7 +1485,7 @@ export class Chat<
           metadata: { dateSent: new Date(), edited: false },
           attachments: [],
         })
-      : ({} as Message);
+      : undefined;
 
     // Create thread for the action event (skip for view-based actions with no threadId)
     const thread = event.threadId
@@ -1638,7 +1638,7 @@ export class Chat<
     const thread = await this.createThread(
       event.adapter,
       event.threadId,
-      event.message ?? ({} as Message),
+      event.message,
       isSubscribed
     );
 
@@ -1747,7 +1747,7 @@ export class Chat<
     }
 
     const threadId = await adapter.openDM(userId);
-    return this.createThread(adapter, threadId, {} as Message, false);
+    return this.createThread(adapter, threadId, undefined, false);
   }
 
   /**
@@ -1860,7 +1860,7 @@ export class Chat<
       );
     }
 
-    return this.createThread(adapter, threadId, {} as Message, false);
+    return this.createThread(adapter, threadId, undefined, false);
   }
 
   /**
@@ -2424,10 +2424,7 @@ export class Chat<
     message: Message,
     context?: MessageContext
   ): Promise<void> {
-    // Set isMention on the message for handler access
-    // Preserve existing isMention if already set (e.g., from Gateway detection)
-    message.isMention =
-      message.isMention || this.detectMention(adapter, message);
+    const hasMention = this.setMentionFlags(adapter, message, context);
 
     // Check subscription status (needed for createThread optimization)
     const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
@@ -2503,7 +2500,7 @@ export class Chat<
     }
 
     // Check for @-mention of bot
-    if (message.isMention) {
+    if (message.isMention || hasMention) {
       this.logger.debug("Bot mentioned", {
         threadId,
         text: message.text.slice(0, 100),
@@ -2544,10 +2541,28 @@ export class Chat<
     }
   }
 
+  private setMentionFlags(
+    adapter: Adapter,
+    message: Message,
+    context?: MessageContext
+  ): boolean {
+    message.isMention =
+      message.isMention || this.detectMention(adapter, message);
+
+    let hasMention = message.isMention === true;
+    for (const skipped of context?.skipped ?? []) {
+      skipped.isMention =
+        skipped.isMention || this.detectMention(adapter, skipped);
+      hasMention = hasMention || skipped.isMention === true;
+    }
+
+    return hasMention;
+  }
+
   private createThread(
     adapter: Adapter,
     threadId: string,
-    initialMessage: Message,
+    initialMessage: Message | undefined,
     isSubscribedContext = false
   ): Thread<TState> {
     // Parse thread ID to get channel ID with adapter

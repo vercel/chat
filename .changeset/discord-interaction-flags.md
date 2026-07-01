@@ -1,5 +1,5 @@
 ---
-"@chat-adapter/discord": patch
+"@chat-adapter/discord": minor
 ---
 
-Add a Discord adapter flags callback and message flag constants for initial deferred slash command responses.
+Add a Discord adapter interactionFlags callback for ephemeral slash command responses.

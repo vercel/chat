@@ -4,10 +4,10 @@
     "---Platforms---",
     "webex",
     "baileys",
-    "sendblue",
     "blooio",
     "zalo",
     "mattermost",
+    "weixin",
     "---State---",
     "cloudflare-do",
     "mysql"

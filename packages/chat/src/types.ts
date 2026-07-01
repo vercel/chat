@@ -528,7 +528,9 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * Stream a message using platform-native streaming APIs.
    *
    * The adapter consumes the async iterable and handles the entire streaming lifecycle.
-   * Only available on platforms with native streaming support (e.g., Slack).
+   * Available on platforms with native streaming or preview APIs.
+   * Adapters may return `null` before consuming any chunks to delegate back to
+   * Chat SDK's built-in post+edit fallback for the current thread.
    *
    * The stream can yield plain strings (text chunks) or {@link StreamChunk} objects
    * for rich content like task progress cards. Adapters that don't support structured
@@ -537,13 +539,13 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @param threadId - The thread to stream to
    * @param textStream - Async iterable of text chunks or structured StreamChunk objects
    * @param options - Platform-specific streaming options
-   * @returns The raw message after streaming completes
+   * @returns The raw message after streaming completes, or `null` to use core fallback
    */
   stream?(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<TRawMessage>>;
+  ): Promise<RawMessage<TRawMessage> | null>;
   /** Bot username (can override global userName) */
   readonly userName: string;
 }
@@ -1153,8 +1155,8 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Post a message to this thread.
    *
    * Supports text, markdown, cards, and streaming from async iterables.
-   * When posting a stream (e.g., from AI SDK), uses platform-native streaming
-   * APIs when available (Slack), or falls back to post + edit with throttling.
+   * When posting a stream (e.g., from AI SDK), uses adapter-native streaming
+   * when available, or falls back to post + edit with throttling.
    *
    * @param message - String, PostableMessage, JSX Card, or AsyncIterable<string>
    * @returns A SentMessage with methods to edit, delete, or add reactions
@@ -1425,7 +1427,7 @@ export interface Author {
   fullName: string;
   /** Whether the author is a bot */
   isBot: boolean | "unknown";
-  /** Whether the author is this bot */
+  /** Whether this message was sent by this bot/runtime */
   isMe: boolean;
   /** Unique user ID */
   userId: string;

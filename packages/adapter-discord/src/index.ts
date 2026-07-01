@@ -73,6 +73,7 @@ import {
   type DiscordGatewayReactionData,
   type DiscordInteraction,
   type DiscordInteractionFlagsContext,
+  type DiscordInteractionResponseFlags,
   type DiscordInteractionResponse,
   type DiscordMessagePayload,
   type DiscordRequestContext,
@@ -104,7 +105,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
-  protected readonly flags?: DiscordAdapterConfig["flags"];
+  protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new DiscordFormatConverter();
@@ -151,7 +152,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
-    this.flags = config.flags;
+    this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
@@ -500,11 +501,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   protected getInteractionFlags(
     context: DiscordInteractionFlagsContext | null
-  ): DiscordMessagePayload["flags"] {
-    if (!(context && this.flags)) {
+  ): DiscordInteractionResponseFlags | undefined {
+    if (!(context && this.interactionFlags)) {
       return undefined;
     }
-    return this.flags(context);
+    return this.interactionFlags(context);
   }
 
   protected handleApplicationCommandInteraction(
@@ -2709,7 +2710,7 @@ export {
 export type {
   DiscordAdapterConfig,
   DiscordInteractionFlagsContext,
-  DiscordMessageFlagValue,
+  DiscordInteractionResponseFlags,
   DiscordThreadId,
 } from "./types";
-export { DiscordMessageFlag } from "./types";
+export { DiscordInteractionResponseFlag } from "./types";

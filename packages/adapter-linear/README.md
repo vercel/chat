@@ -1,17 +1,33 @@
+[![Linear adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/linear/og)](https://chat-sdk.dev/adapters/official/linear)
+
 # @chat-adapter/linear
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
+> npm package: [`@chat-adapter/linear`](https://www.npmjs.com/package/@chat-adapter/linear)
+
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Linear adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in issue comment threads and Linear app-actor agent sessions.
 
 The Linear adapter treats issue comments as messages and issues as threads.
+
+Documentation: [chat-sdk.dev/adapters/official/linear](https://chat-sdk.dev/adapters/official/linear) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
 ```bash
 pnpm add @chat-adapter/linear
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Linear bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter linear memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -357,6 +373,26 @@ LINEAR_API_URL=...
 - Webhook timestamp is too old (> 5 minutes)
 - Usually indicates a delivery delay or clock skew
 - Check that your server time is synchronized
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

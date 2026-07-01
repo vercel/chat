@@ -35,7 +35,7 @@ Create a new Next.js app and add the Chat SDK and adapter packages:
 
 `npx create-next-app@latest my-slack-bot --typescript --app cd my-slack-bot pnpm add chat @chat-adapter/slack @chat-adapter/state-redis`
 
-The `chat` package is the Chat SDK core. The `@chat-adapter/slack` and `@chat-adapter/state-redis` packages are the [Slack platform adapter](https://chat-sdk.dev/adapters/slack) and [Redis state adapter](https://chat-sdk.dev/adapters/redis).
+The `chat` package is the Chat SDK core. The `@chat-adapter/slack` and `@chat-adapter/state-redis` packages are the [Slack platform adapter](https://chat-sdk.dev/adapters/official/slack) and [Redis state adapter](https://chat-sdk.dev/adapters/official/redis).
 
 ### 2\. Create a Slack app
 
@@ -45,7 +45,7 @@ Select your workspace and paste the following manifest:
 
 `display_information: name: My Bot description: A bot built with Chat SDK features: bot_user: display_name: My Bot always_online: true oauth_config: scopes: bot: - app_mentions:read - channels:history - channels:read - chat:write - groups:history - groups:read - im:history - im:read - mpim:history - mpim:read - reactions:read - reactions:write - users:read settings: event_subscriptions: request_url: https://your-domain.com/api/webhooks/slack bot_events: - app_mention - message.channels - message.groups - message.im - message.mpim interactivity: is_enabled: true request_url: https://your-domain.com/api/webhooks/slack org_deploy_enabled: false socket_mode_enabled: false token_rotation_enabled: false`
 
-Replace [`https://your-domain.com/api/webhooks/slack`](https://your-domain.com/api/webhooks/slack) with your deployed webhook URL, then click **Create**.
+Replace `https://your-domain.com/api/webhooks/slack` with your deployed webhook URL, then click **Create**.
 
 After creating the app:
 
@@ -128,6 +128,10 @@ Verify that `REDIS_URL` is reachable from your deployment environment. If runnin
 ### Handlers don't run to completion on Vercel
 
 Make sure your webhook route passes `waitUntil` to the handler, as shown in step 5. Without it, serverless functions can terminate before your event handlers finish.
+
+* * *
+
+## Build with a template or read more.
 
 ---
 

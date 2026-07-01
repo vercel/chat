@@ -7,7 +7,7 @@ prerequisites:
 related:
   - /docs/handling-events
   - /docs/adapters
-  - /docs/state
+  - /docs/state-adapters
 ---
 
 The `Chat` class is the main entry point for your bot. It coordinates adapters, routes events to your handlers, and manages thread state.
@@ -34,10 +34,10 @@ bot.onNewMention(async (thread) => {
 ```
 
 <Callout type="info">
-  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/official/postgres) and [ioredis](/adapters/official/ioredis) as production state adapters. See [State Adapters](/docs/state) for all options.
+  This example uses Redis. Chat SDK also supports [PostgreSQL](/adapters/official/postgres) and [ioredis](/adapters/official/ioredis) as production state adapters. See [State Adapters](/docs/state-adapters) for all options.
 </Callout>
 
-Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
+Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override. For setup UIs and build scripts, the [`chat/adapters` catalog](/docs/adapters#adapter-catalog-chatadapters) lists official and vendor-official adapter env specs without importing adapter packages.
 
 ## Multiple adapters
 

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDiscordAdapter,
   DiscordAdapter,
-  DiscordMessageFlag,
+  DiscordInteractionResponseFlag,
 } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -522,14 +522,16 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
   });
 
-  it("sets initial deferred slash command flags from config", async () => {
-    const flags = vi.fn().mockReturnValue(DiscordMessageFlag.Ephemeral);
+  it("sets initial deferred slash command interaction flags from config", async () => {
+    const interactionFlags = vi
+      .fn()
+      .mockReturnValue(DiscordInteractionResponseFlag.Ephemeral);
     const flaggedAdapter = createDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
       applicationId: "test-app-id",
       logger: mockLogger,
-      flags,
+      interactionFlags,
     });
 
     const body = JSON.stringify({
@@ -563,9 +565,9 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const responseBody = await response.json();
     expect(responseBody).toEqual({
       type: 5,
-      data: { flags: DiscordMessageFlag.Ephemeral },
+      data: { flags: DiscordInteractionResponseFlag.Ephemeral },
     });
-    expect(flags).toHaveBeenCalledWith(
+    expect(interactionFlags).toHaveBeenCalledWith(
       expect.objectContaining({
         channelId: "discord:guild123:channel456",
         command: "/test",
@@ -3376,15 +3378,17 @@ describe("legacy gateway interactions", () => {
     );
   });
 
-  it("sets gateway deferred slash command flags from config", async () => {
+  it("sets gateway deferred slash command interaction flags from config", async () => {
     const processSlashCommand = vi.fn();
-    const flags = vi.fn().mockReturnValue(DiscordMessageFlag.Ephemeral);
+    const interactionFlags = vi
+      .fn()
+      .mockReturnValue(DiscordInteractionResponseFlag.Ephemeral);
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
       applicationId: "test-app-id",
       logger: mockLogger,
-      flags,
+      interactionFlags,
     });
 
     await adapter.initialize({
@@ -3429,9 +3433,9 @@ describe("legacy gateway interactions", () => {
     await waitForGatewayHandlers();
 
     expect(deferReply).toHaveBeenCalledWith({
-      flags: DiscordMessageFlag.Ephemeral,
+      flags: DiscordInteractionResponseFlag.Ephemeral,
     });
-    expect(flags).toHaveBeenCalledWith(
+    expect(interactionFlags).toHaveBeenCalledWith(
       expect.objectContaining({
         channelId: "discord:guild123:channel456",
         command: "/test",

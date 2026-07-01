@@ -39,7 +39,7 @@ Create a new Nuxt app and add the Chat SDK, AI SDK, and adapter packages:
 
 `npx nuxi@latest init my-discord-bot cd my-discord-bot pnpm add chat @chat-adapter/discord @chat-adapter/state-redis ai @ai-sdk/anthropic`
 
-The `chat` package is the Chat SDK core. The `@chat-adapter/discord` and `@chat-adapter/state-redis` packages are the [Discord platform adapter](https://chat-sdk.dev/adapters/discord) and [Redis state adapter](https://chat-sdk.dev/adapters/redis). The `ai` and `@ai-sdk/anthropic` packages are used to generate responses with Claude.
+The `chat` package is the Chat SDK core. The `@chat-adapter/discord` and `@chat-adapter/state-redis` packages are the [Discord platform adapter](https://chat-sdk.dev/adapters/official/discord) and [Redis state adapter](https://chat-sdk.dev/adapters/official/redis). The `ai` and `@ai-sdk/anthropic` packages are used to generate responses with Claude.
 
 ### 2\. Create a Discord app
 
@@ -56,7 +56,7 @@ The `chat` package is the Chat SDK core. The `@chat-adapter/discord` and `@chat-
 
 Then set up the Interactions endpoint:
 
-1.  In **General Information**, set the **Interactions Endpoint URL** to [`https://your-domain.com/api/webhooks/discord`](https://your-domain.com/api/webhooks/discord)
+1.  In **General Information**, set the **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`
     
 2.  Discord will send a PING to verify the endpoint. You'll need to deploy first or use a tunnel
     
@@ -128,7 +128,7 @@ The Gateway listener connects to Discord's WebSocket, receives messages, and for
     
 3.  Expose your server with a tunnel (e.g. `ngrok http 3000`)
     
-4.  Update the **Interactions Endpoint URL** in your Discord app settings to your tunnel URL (e.g. [`https://abc123.ngrok.io/api/webhooks/discord`](https://abc123.ngrok.io/api/webhooks/discord))
+4.  Update the **Interactions Endpoint URL** in your Discord app settings to your tunnel URL (e.g. `https://abc123.ngrok.io/api/webhooks/discord`)
     
 5.  @mention the bot in your Discord server. It should respond with a support card
     
@@ -174,6 +174,10 @@ The listener runs for a fixed duration (10 minutes in this guide) and must be re
 ### Redis connection errors
 
 Verify that `REDIS_URL` is reachable from your deployment environment. The state adapter uses Redis for distributed locking, so the bot won't process messages without a working connection.
+
+* * *
+
+## Build with a template or read more.
 
 ---
 

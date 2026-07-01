@@ -13,6 +13,11 @@ const { rewrite: rewriteLLM } = rewritePath(
   `/${i18n.defaultLanguage}/llms.mdx/*path`
 );
 
+const { rewrite: rewriteAdaptersLLM } = rewritePath(
+  "/adapters/*path",
+  `/${i18n.defaultLanguage}/adapters.mdx/*path`
+);
+
 const MDX_EXTENSION_PATTERN = /\.mdx?$/;
 
 const internationalizer = createI18nMiddleware(i18n);
@@ -20,11 +25,11 @@ const internationalizer = createI18nMiddleware(i18n);
 const proxy = (request: NextRequest, context: NextFetchEvent) => {
   const pathname = request.nextUrl.pathname;
 
-  // Track llms.txt requests
-  if (pathname === "/llms.txt") {
+  // Track llms.txt / llms-full.txt requests
+  if (pathname === "/llms.txt" || pathname === "/llms-full.txt") {
     context.waitUntil(
       trackMdRequest({
-        path: "/llms.txt",
+        path: pathname,
         userAgent: request.headers.get("user-agent"),
         referer: request.headers.get("referer"),
         acceptHeader: request.headers.get("accept"),
@@ -57,9 +62,29 @@ const proxy = (request: NextRequest, context: NextFetchEvent) => {
     }
   }
 
+  // Handle .md/.mdx URL requests for adapter pages before i18n runs
+  if (
+    pathname.startsWith("/adapters/") &&
+    (pathname.endsWith(".md") || pathname.endsWith(".mdx"))
+  ) {
+    const stripped = pathname.replace(MDX_EXTENSION_PATTERN, "");
+    const result = rewriteAdaptersLLM(stripped);
+    if (result) {
+      context.waitUntil(
+        trackMdRequest({
+          path: pathname,
+          userAgent: request.headers.get("user-agent"),
+          referer: request.headers.get("referer"),
+          acceptHeader: request.headers.get("accept"),
+        })
+      );
+      return NextResponse.rewrite(new URL(result, request.nextUrl));
+    }
+  }
+
   // Handle Accept header content negotiation and track the request
   if (isMarkdownPreferred(request)) {
-    const result = rewriteLLM(pathname);
+    const result = rewriteLLM(pathname) || rewriteAdaptersLLM(pathname);
     if (result) {
       context.waitUntil(
         trackMdRequest({

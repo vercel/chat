@@ -1,15 +1,31 @@
+[![Discord adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/discord/og)](https://chat-sdk.dev/adapters/official/discord)
+
 # @chat-adapter/discord
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/discord)](https://www.npmjs.com/package/@chat-adapter/discord)
+> npm package: [`@chat-adapter/discord`](https://www.npmjs.com/package/@chat-adapter/discord)
+
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Discord adapter for [Chat SDK](https://chat-sdk.dev). Configure with HTTP Interactions and Gateway WebSocket support.
+
+Documentation: [chat-sdk.dev/adapters/official/discord](https://chat-sdk.dev/adapters/official/discord) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 
 ```bash
 pnpm add @chat-adapter/discord
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Discord bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter discord memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -154,17 +170,20 @@ Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string in your environmen
 
 ## Interaction flags
 
-Discord interactions return a transient "thinking..." message, which then gets replaced with your content. Because of limitations in Discord's API, your message's ephemerality must be set on this initial response, not later  e.g. in an `onSlashCommand`. 
+Discord interactions return a transient "thinking..." message, which then gets replaced with your content. Because of Discord's API, your message's ephemerality must be set on this initial response, not later in an `onSlashCommand` handler.
 
-Use the `flags` option to make the loading state and your custom response visible only to the user who invoked the command:
+Use the `interactionFlags` option to make the loading state and your custom response visible only to the user who invoked the command:
 
 ```typescript
-import { createDiscordAdapter, DiscordMessageFlag } from "@chat-adapter/discord";
+import {
+  createDiscordAdapter,
+  DiscordInteractionResponseFlag,
+} from "@chat-adapter/discord";
 
 createDiscordAdapter({
-  flags: ({ command }) => {
+  interactionFlags: ({ command }) => {
     if (command === "/admin") {
-      return DiscordMessageFlag.Ephemeral;
+      return DiscordInteractionResponseFlag.Ephemeral;
     }
   },
 });
@@ -183,7 +202,7 @@ All options are auto-detected from environment variables when not provided.
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
-| `flags` | No | Function returning Discord message flags for the initial deferred slash command response |
+| `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
@@ -235,7 +254,7 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 | Remove reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
-| Ephemeral messages | Yes |
+| Ephemeral messages | No (DM fallback) |
 
 ### Message history
 
@@ -278,6 +297,32 @@ Update the Interactions Endpoint URL in the Discord Developer Portal to your ngr
 1. **Check public key format**: Should be a 64-character hex string (lowercase)
 2. **Verify endpoint URL**: Must exactly match what's configured in Discord Developer Portal
 3. **Check for body parsing**: Don't parse the request body before verification
+
+## Resources
+
+- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-discord&utm_content=create-a-discord-support-bot-with-nuxt-and-redis) — Walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+
+See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/resources?utm_source=chat-sdk_repo&utm_medium=readme&utm_campaign=adapter-discord&utm_content=resources).
+
+## AI Coding Agents
+
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+
+```bash
+npx skills add vercel/chat
+```
+
+The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
+
+You can also install the [Vercel Plugin](https://vercel.com/docs/agent-resources/vercel-plugin) for a broader agent toolkit — it includes the Chat SDK skill alongside specialist agents, agent slash commands, and more:
+
+```bash
+npx plugins add vercel/vercel-plugin
+```
+
+The plugin is optional; the skill alone is enough to build with Chat SDK.
+
+For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.dev/llms.txt) (page index) or [chat-sdk.dev/llms-full.txt](https://chat-sdk.dev/llms-full.txt) (full text).
 
 ## License
 

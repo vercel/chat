@@ -535,6 +535,58 @@ describe("truncateForTelegram", () => {
     const result = truncateForTelegram(input, 4096, "MarkdownV2");
     expect(result).toBe(input);
   });
+
+  describe("link URLs with raw entity-marker characters", () => {
+    it("preserves a link whose URL contains one underscore", () => {
+      const input = "[x](https://e.co/?a_b=1)";
+      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+    });
+
+    it("preserves a link whose URL contains an odd number of underscores", () => {
+      const input = "[x](https://e.co/?a_b=1&c_d=2&e_f=3)";
+      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+    });
+
+    it("preserves surrounding entities alongside an underscore-bearing URL", () => {
+      const input = "text *bold* [x](https://e.co/?a_b=1)";
+      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+    });
+
+    it("preserves a link whose URL contains * and ~", () => {
+      const input = "[x](https://e.co/?glob=*.ts&home=~user)";
+      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+    });
+
+    it("preserves a message ending with a link whose URL has odd underscores (regression)", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown:
+          "body text\n\n[Read more](https://example.com/page?first_param=a&second_param=b&third_param=c)",
+      });
+      const result = truncateForTelegram(rendered, 4096, "MarkdownV2");
+      expect(result).toBe(rendered);
+      expect(result).toContain("&third_param=c)");
+    });
+
+    it("still strips an unpaired underscore outside any link URL", () => {
+      const input = "_oops [x](https://e.co/?a_b=1)";
+      const result = truncateForTelegram(input, 4096, "MarkdownV2");
+      expect(result).toBe("");
+    });
+  });
+
+  it("trims back to before the [ when hard-truncated inside a link URL", () => {
+    const prefix = "a".repeat(80);
+    const input = `${prefix}[link](https://example.com/${"x".repeat(100)})`;
+    const result = truncateForTelegram(input, 100, "MarkdownV2");
+    expect(result).toBe(`${prefix}\\.\\.\\.`);
+  });
+
+  it("trims at the orphan * when hard-truncated inside bold", () => {
+    const input = `${"a".repeat(80)}*${"b".repeat(100)}`;
+    const result = truncateForTelegram(input, 100, "MarkdownV2");
+    expect(result).toBe(`${"a".repeat(80)}\\.\\.\\.`);
+  });
 });
 
 describe("findUnescapedPositions", () => {

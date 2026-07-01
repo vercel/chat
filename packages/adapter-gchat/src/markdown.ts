@@ -113,6 +113,16 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
       if (linkText === node.url) {
         return node.url;
       }
+      const collapsibleSchemes = ["mailto:", "tel:"];
+      for (const scheme of collapsibleSchemes) {
+        if (!node.url.startsWith(scheme)) {
+          continue;
+        }
+        const bareValue = node.url.slice(scheme.length);
+        if (bareValue === linkText) {
+          return bareValue;
+        }
+      }
       return `<${node.url}|${linkText}>`;
     }
 

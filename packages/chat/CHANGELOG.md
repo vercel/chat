@@ -1,5 +1,34 @@
 # chat
 
+## 4.31.0
+
+### Minor Changes
+
+- 778ae69: Add a zero-dependency `chat/adapters` catalog subpath for official and vendor-official adapter metadata, environment specs, and setup helpers.
+- 171657a: Adding support for stable IDs to link button action handlers
+
+## 4.30.0
+
+### Minor Changes
+
+- 5461ea9: Add native Telegram private chat draft streaming with fallback streaming elsewhere.
+
+## 4.29.0
+
+### Minor Changes
+
+- ac8a207: Add `chat/ai` subpath as the home for AI utilities, including `createChatTools` for the Vercel AI SDK and `toAiMessages` for converting chat history into AI SDK prompts.
+
+  `createChatTools` exposes Chat SDK operations as ready-to-use AI SDK tools so an agent can read messages, post replies, send DMs, react, edit, delete, and manage thread subscriptions across every adapter the supplied `Chat` instance has registered. Write operations require user approval by default and can be toggled globally or per-tool via `requireApproval`. Three presets (`reader`, `messenger`, `moderator`) scope the toolset, and tools can also be cherry-picked from the same subpath.
+
+  `toAiMessages` (and the `AiMessage` / `AiMessagePart` / `ToAiMessagesOptions` types) now ship from `chat/ai` alongside the tools — keeping the optional `ai` and `zod` peer dependencies out of bundles that don't use them. The previous `chat` re-exports continue to work, but are marked `@deprecated` so editors surface a hint pointing at `chat/ai`; existing code keeps compiling, and migrating is a single import-path change.
+
+- b75eedb: add burst concurrency strategy
+
+### Patch Changes
+
+- e60bc8c: chore: set supported Node versions in engines
+
 ## 4.28.1
 
 ### Patch Changes

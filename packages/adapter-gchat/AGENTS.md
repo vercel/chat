@@ -266,7 +266,7 @@ changed). README, sample-messages, and AGENTS.md edits are docs-only.
 
 ## Where to look next
 
-- User-facing docs: [`apps/docs/content/adapters/official/google-chat.mdx`](../../apps/docs/content/adapters/official/google-chat.mdx)
+- User-facing docs: [`apps/docs/content/adapters/official/gchat.mdx`](../../apps/docs/content/adapters/official/gchat.mdx)
 - README: [`packages/adapter-gchat/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
 - Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)

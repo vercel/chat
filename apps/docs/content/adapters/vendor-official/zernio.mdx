@@ -31,7 +31,9 @@ features:
   linkButtons:
     status: partial
     label: FB, IG, Telegram, WhatsApp
-  selectMenus: no
+  selectMenus:
+    status: partial
+    label: WhatsApp (interactive list)
   tables: no
   fields: no
   imagesInCards:
@@ -68,7 +70,7 @@ features:
 
 <PackageInstall package="@zernio/chat-sdk-adapter chat @chat-adapter/state-memory" />
 
-For production, swap `@chat-adapter/state-memory` for a persistent state adapter such as `@chat-adapter/state-redis` or `@chat-adapter/state-pg`. See [State Adapters](/docs/state) for all options.
+For production, swap `@chat-adapter/state-memory` for a persistent state adapter such as `@chat-adapter/state-redis` or `@chat-adapter/state-pg`. See [State Adapters](/docs/state-adapters) for all options.
 
 ## Quick start
 
@@ -176,7 +178,10 @@ const { accountId, conversationId } = adapter.decodeThreadId(threadId);
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Send text | Y | Y | Y | Y | Y | Y | Y |
 | Buttons | Y | Y | Y | Y | – | – | – |
-| Typing | Y | – | Y | – | – | – | – |
+| Lists | – | – | – | Y | – | – | – |
+| Location / Contacts | – | – | – | Y | – | – | – |
+| Templates / Flows | – | – | – | Y | – | – | – |
+| Typing | Y | – | Y | Y | – | – | – |
 | Delete | – | – | Y | – | Y | Self | Self |
 | Reactions | – | – | Y | Y | – | – | – |
 | Media | Y | Y | Y | Y | Y | – | – |
@@ -206,6 +211,105 @@ await thread.post(
 ```
 
 Renders as an interactive card on Facebook, Instagram, Telegram, and WhatsApp. Falls back to plain text on X, Bluesky, and Reddit.
+
+A card `Select` or `RadioSelect` maps to a WhatsApp **interactive list** (it can't coexist with reply buttons, so the list takes precedence):
+
+```typescript
+import { Actions, Card, Select, SelectOption } from "chat";
+
+await thread.post(
+  Card({
+    title: "Pick a plan",
+    children: [
+      Actions([
+        Select({
+          id: "plan",
+          placeholder: "Choose plan", // becomes the list's open button (max 20 chars)
+          options: [
+            SelectOption({ label: "Basic", value: "basic", description: "$10/mo" }),
+            SelectOption({ label: "Pro", value: "pro" }),
+          ],
+        }),
+      ]),
+    ],
+  })
+);
+```
+
+## WhatsApp rich messages
+
+WhatsApp-only message types that don't map to a Chat SDK card are sent through the exported `ZernioApiClient`, used alongside the adapter. Decode a thread ID to get the `accountId` and `conversationId`:
+
+```typescript
+import { ZernioApiClient } from "@zernio/chat-sdk-adapter";
+
+const client = new ZernioApiClient(process.env.ZERNIO_API_KEY!, "https://zernio.com/api");
+const { accountId, conversationId } = adapter.decodeThreadId(threadId);
+
+// Reply buttons / list / cta_url / flow / location-request / voice-call button
+await client.sendInteractive(conversationId, accountId, {
+  type: "cta_url",
+  body: { text: "View your order" },
+  action: { name: "cta_url", parameters: { display_text: "Open", url: "https://example.com/o/123" } },
+});
+
+// Location pin
+await client.sendLocation(conversationId, accountId, {
+  latitude: 41.3874, longitude: 2.1686, name: "HQ", address: "Barcelona",
+});
+
+// Contact cards (vCard)
+await client.sendContacts(conversationId, accountId, [
+  { name: { formatted_name: "Ana Ruiz" }, phones: [{ phone: "+34600000000", type: "WORK" }] },
+]);
+
+// Approved template (re-opens the 24h window)
+await client.sendTemplate(conversationId, accountId, { name: "order_update", language: "en_US" });
+
+// Quote / reply to a specific message
+await client.reply(conversationId, accountId, "wamid.HBg...", "Thanks, on it!");
+```
+
+`sendInteractive` accepts the full WhatsApp interactive union: `button`, `list`, `cta_url`, `flow`, `location_request_message`, and `voice_call`. Pass `{ replyTo }` as the fourth argument to quote a message.
+
+## Inbound interactive replies
+
+When a user taps a reply button, selects a list row, or submits a WhatsApp Flow, it arrives as a normal `onNewMessage` whose interactive context is on `message.raw.metadata`:
+
+```typescript
+bot.onNewMessage(/.*/, async (thread, message) => {
+  const meta = (message.raw as { metadata?: Record<string, unknown> }).metadata;
+  if (meta?.interactiveType === "button_reply" || meta?.interactiveType === "list_reply") {
+    await thread.post(`You picked: ${meta.interactiveId}`); // the id you set when sending
+  }
+  if (meta?.interactiveType === "nfm_reply") {
+    const form = meta.flowResponseData; // parsed Flow response
+  }
+  // meta.referral        -> Click-to-WhatsApp ad attribution (when the chat started from an ad)
+  // meta.quotedMessageId -> the message this one replies to
+});
+```
+
+## Opening conversations
+
+Start a chat with someone who hasn't messaged you yet. `openDM(userId)` is the standard Chat SDK method — because one Zernio account is one channel, namespace the recipient as `"{accountId}:{recipient}"` (a phone/E.164 for WhatsApp). It's resolution-only (no network call); the first `post()` opens the thread:
+
+```typescript
+const thread = await bot.openDM("507f1f77bcf86cd799439011:16505551234");
+await thread.post("Hi!"); // WhatsApp: the first message must be an approved template
+```
+
+For WhatsApp you must open with an approved template (the 24-hour-window rule). `openConversation` sends it and returns the thread ID in one step:
+
+```typescript
+const threadId = await adapter.openConversation({
+  accountId: "507f1f77bcf86cd799439011",
+  to: "16505551234",
+  template: { name: "welcome", language: "en_US", params: ["Ana"] },
+});
+// Non-WhatsApp platforms can open with a plain message instead:
+// await adapter.openConversation({ accountId, to, message: "Hi!" });
+```
 
 ## AI streaming
 
@@ -275,7 +379,17 @@ await client.sendTyping(conversationId, accountId);
 await client.addReaction(conversationId, messageId, accountId, "👍");
 
 const { url } = await client.uploadMedia(fileBuffer, "image/jpeg");
+
+// Cold-start a conversation from a recipient (WhatsApp needs a template)
+const convo = await client.createConversation({
+  accountId,
+  participantId: "16505551234",
+  templateName: "welcome",
+  templateLanguage: "en_US",
+});
 ```
+
+It also exposes the WhatsApp rich sends shown above (`sendInteractive`, `sendLocation`, `sendContacts`, `sendTemplate`, `reply`).
 
 ## Webhook verification
 

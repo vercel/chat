@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/teams",
-  "version": "4.28.1",
-  "description": "Microsoft Teams adapter for chat",
+  "version": "4.31.0",
+  "description": "Microsoft Teams adapter for Chat SDK — Bot Framework webhooks, Adaptive Cards, and Graph API",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -13,6 +13,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./cards": {
+      "types": "./dist/cards.d.ts",
+      "import": "./dist/cards.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
+    "./graph": {
+      "types": "./dist/graph.d.ts",
+      "import": "./dist/graph.js"
+    },
+    "./modals": {
+      "types": "./dist/modals.d.ts",
+      "import": "./dist/modals.js"
+    },
+    "./webhook": {
+      "types": "./dist/webhook.d.ts",
+      "import": "./dist/webhook.js"
     }
   },
   "files": [
@@ -46,7 +70,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/adapter-teams"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/adapters/official/teams",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -55,10 +79,18 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
     "teams",
+    "microsoft-teams",
     "microsoft",
     "bot",
-    "adapter"
+    "adapter",
+    "bot-framework",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
   ],
   "license": "MIT"
 }

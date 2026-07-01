@@ -1,7 +1,7 @@
 {
   "name": "chat",
-  "version": "4.28.1",
-  "description": "Unified chat abstraction for Slack, Teams, Google Chat, and Discord",
+  "version": "4.31.0",
+  "description": "Chat SDK — universal TypeScript toolkit for building multi-platform chat bots and AI agents on Slack, Teams, Google Chat, Discord, WhatsApp, and more",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -17,6 +17,10 @@
     "./ai": {
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
@@ -73,9 +77,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vercel/chat.git",
-    "directory": "packages/chat-sdk"
+    "directory": "packages/chat"
   },
-  "homepage": "https://github.com/vercel/chat#readme",
+  "homepage": "https://chat-sdk.dev/docs",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },
@@ -84,11 +88,26 @@
   },
   "keywords": [
     "chat",
+    "chat-sdk",
+    "chatbot",
+    "chat-bot",
+    "bot",
+    "bot-framework",
+    "messaging",
+    "multi-platform",
     "slack",
     "teams",
+    "microsoft-teams",
     "discord",
     "google-chat",
-    "bot"
+    "telegram",
+    "whatsapp",
+    "github",
+    "webhook",
+    "ai-agent",
+    "ai-sdk",
+    "typescript",
+    "vercel"
   ],
   "license": "MIT"
 }

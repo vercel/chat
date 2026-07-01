@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -10,7 +10,7 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { WebClient } from "@slack/web-api";
+import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -66,6 +66,7 @@ import {
   isEncryptedTokenData,
 } from "./crypto";
 import { SlackFormatConverter } from "./markdown";
+import { replaceBareMentions } from "./mentions";
 import {
   decodeModalMetadata,
   encodeModalMetadata,
@@ -73,6 +74,7 @@ import {
   type SlackModalResponse,
   selectOptionToSlackOption,
 } from "./modals";
+import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
@@ -454,6 +456,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
+  protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -573,6 +576,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     let client = this.tokenClientCache.get(token);
     if (!client) {
       client = new WebClient(token, {
+        ...this.webClientOptions,
+        ...(this.webClientOptions?.headers
+          ? { headers: { ...this.webClientOptions.headers } }
+          : {}),
         ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
       });
       this.tokenClientCache.set(token, client);
@@ -614,9 +621,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botTokenProvider = normalizeBotTokenProvider(botTokenConfig);
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.webClientOptions = config.webClientOptions;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
+      ...this.webClientOptions,
+      ...(this.webClientOptions?.headers
+        ? { headers: { ...this.webClientOptions.headers } }
+        : {}),
       ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
@@ -1133,34 +1145,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       });
     }
 
-    let body = await request.text();
-    this.logger.debug("Slack webhook raw body", { body });
-
-    // Verify request using dynamic verifier or signature.
-    if (this.webhookVerifier) {
-      try {
-        const verified = await this.webhookVerifier(request, body);
-        if (!verified) {
-          this.logger.warn("Webhook verifier rejected request");
-          return new Response("Invalid signature", { status: 401 });
-        }
-        // If the verifier returns a string, use it as the verified body for
-        // downstream parsing. Other truthy values (boolean, object) are
-        // treated as a pure verification signal.
-        if (typeof verified === "string") {
-          body = verified;
-        }
-      } catch (error) {
-        this.logger.warn("Webhook verifier rejected request", { error });
-        return new Response("Invalid signature", { status: 401 });
-      }
-    } else {
-      const timestamp = request.headers.get("x-slack-request-timestamp");
-      const signature = request.headers.get("x-slack-signature");
-      if (!this.verifySignature(body, timestamp, signature)) {
-        return new Response("Invalid signature", { status: 401 });
-      }
+    let body: string;
+    try {
+      body = await verifySlackRequest(request, {
+        signingSecret: this.signingSecret,
+        webhookVerifier: this.webhookVerifier,
+      });
+    } catch (error) {
+      this.logger.warn("Webhook verifier rejected request", { error });
+      return new Response("Invalid signature", { status: 401 });
     }
+    this.logger.debug("Slack webhook raw body", { body });
 
     // Check if this is a form-urlencoded payload
     const contentType = request.headers.get("content-type") || "";
@@ -2060,40 +2055,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
-  protected verifySignature(
-    body: string,
-    timestamp: string | null,
-    signature: string | null
-  ): boolean {
-    if (!(timestamp && signature && this.signingSecret)) {
-      return false;
-    }
-
-    // Check timestamp is recent (within 5 minutes)
-    const now = Math.floor(Date.now() / 1000);
-    if (Math.abs(now - Number.parseInt(timestamp, 10)) > 300) {
-      return false;
-    }
-
-    // Compute expected signature
-    const sigBasestring = `v0:${timestamp}:${body}`;
-    const expectedSignature =
-      "v0=" +
-      createHmac("sha256", this.signingSecret)
-        .update(sigBasestring)
-        .digest("hex");
-
-    // Compare signatures using timing-safe comparison
-    try {
-      return timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      );
-    } catch {
-      return false;
-    }
-  }
-
   /**
    * Handle message events from Slack.
    * Bot message filtering (isMe) is handled centrally by the Chat class.
@@ -2306,6 +2267,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       (this._botUserId !== null && event.user === this._botUserId) ||
       (this._botId !== null && event.user === this._botId);
 
+    const userInfo = await this.lookupUser(event.user);
+    const userName = userInfo?.displayName ?? event.user;
+    const fullName = userInfo?.realName ?? userName;
+
     // Build reaction event
     const reactionEvent: Omit<ReactionEvent, "adapter" | "thread"> = {
       emoji: normalizedEmoji,
@@ -2313,9 +2278,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       added: event.type === "reaction_added",
       user: {
         userId: event.user,
-        userName: event.user, // Will be resolved below if possible
-        fullName: event.user,
-        isBot: false, // Users add reactions, not bots typically
+        userName,
+        fullName,
+        isBot: userInfo?.isBot ?? false,
         isMe,
       },
       messageId,
@@ -3044,26 +3009,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return text;
     }
     const state = this.chat.getState();
-
-    // Find all @word patterns that aren't already wrapped in <@...>
-    const mentionPattern = /@(\w+)/g;
     const mentions = new Map<string, string[]>();
 
-    for (const match of text.matchAll(mentionPattern)) {
-      const name = match[1];
-      // Skip if already a Slack user ID format or inside <@...>
+    replaceBareMentions(text, (mention, name) => {
       if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-        continue;
-      }
-      // Check the character before @ to skip <@...> patterns
-      const idx = match.index;
-      if (idx > 0 && text[idx - 1] === "<") {
-        continue;
+        return mention;
       }
       if (!mentions.has(name.toLowerCase())) {
         mentions.set(name.toLowerCase(), []);
       }
-    }
+      return mention;
+    });
 
     if (mentions.size === 0) {
       return text;
@@ -3089,35 +3045,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       participants = new Set(participantList);
     }
 
-    // Replace mentions in text
-    return text.replace(
-      mentionPattern,
-      (match, name: string, offset: number) => {
-        if (offset > 0 && text[offset - 1] === "<") {
-          return match;
-        }
-        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-          return match;
-        }
-
-        const userIds = mentions.get(name.toLowerCase());
-        if (!userIds || userIds.length === 0) {
-          return match;
-        }
-        if (userIds.length === 1) {
-          return `<@${userIds[0]}>`;
-        }
-        // Disambiguate using thread participants
-        if (participants) {
-          const inThread = userIds.filter((id) => participants.has(id));
-          if (inThread.length === 1) {
-            return `<@${inThread[0]}>`;
-          }
-        }
-        // Still ambiguous — leave as plain text
-        return match;
+    return replaceBareMentions(text, (mention, name) => {
+      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+        return mention;
       }
-    );
+
+      const userIds = mentions.get(name.toLowerCase());
+      if (!userIds || userIds.length === 0) {
+        return mention;
+      }
+      if (userIds.length === 1) {
+        return `<@${userIds[0]}>`;
+      }
+      // Disambiguate using thread participants
+      if (participants) {
+        const inThread = userIds.filter((id) => participants.has(id));
+        if (inThread.length === 1) {
+          return `<@${inThread[0]}>`;
+        }
+      }
+      return mention;
+    });
   }
 
   /**
@@ -3173,11 +3121,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const threadTs = rawThreadTs || undefined;
 
     try {
+      let uploadedFileIds: string[] | undefined;
+
       // Check for files to upload
       const files = extractFiles(message);
       if (files.length > 0) {
         // Upload files first (they're shared to the channel automatically)
-        await this.uploadFiles(files, channel, threadTs);
+        uploadedFileIds = await this.uploadFiles(files, channel, threadTs);
 
         // If message only has files (no text/card), return early
         const hasText =
@@ -3194,7 +3144,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return {
             id: `file-${Date.now()}`,
             threadId,
-            raw: { files },
+            raw: { files, uploadedFileIds },
           };
         }
       }
@@ -3232,7 +3182,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return {
           id: result.ts as string,
           threadId,
-          raw: result,
+          raw:
+            uploadedFileIds === undefined
+              ? result
+              : { ...result, uploadedFileIds },
         };
       }
 
@@ -3262,7 +3215,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return {
         id: result.ts as string,
         threadId,
-        raw: result,
+        raw:
+          uploadedFileIds === undefined
+            ? result
+            : { ...result, uploadedFileIds },
       };
     } catch (error) {
       this.handleSlackError(error);
@@ -3993,28 +3949,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * streaming API as chunk payloads, enabling native task progress cards
    * and plan displays in the Slack AI Assistant UI.
    *
-   * Requires `recipientUserId` and `recipientTeamId` in options.
+   * Falls back to post-and-edit when the thread lacks native stream context.
    */
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<unknown>> {
-    if (!(options?.recipientUserId && options?.recipientTeamId)) {
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires recipientUserId and recipientTeamId in options"
-      );
-    }
+  ): Promise<RawMessage<unknown> | null> {
     const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
-    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
     const threadTs = rawThreadTs || undefined;
     if (!threadTs) {
-      this.logger.debug("Slack: stream skipped - no thread context");
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires a valid thread context (non-empty threadTs)"
-      );
+      this.logger.debug("Slack: using fallback stream - no thread context");
+      return null;
+    }
+    if (
+      !(
+        channel.startsWith("D") ||
+        (options?.recipientUserId && options?.recipientTeamId)
+      )
+    ) {
+      this.logger.debug("Slack: using fallback stream - no recipient context");
+      return null;
     }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
@@ -4022,35 +3977,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const streamer = this._client.chatStream({
       channel,
       thread_ts: threadTs,
-      recipient_user_id: options.recipientUserId,
-      recipient_team_id: options.recipientTeamId,
-      ...(options.taskDisplayMode && {
+      ...(options?.recipientUserId && {
+        recipient_user_id: options.recipientUserId,
+      }),
+      ...(options?.recipientTeamId && {
+        recipient_team_id: options.recipientTeamId,
+      }),
+      ...(options?.taskDisplayMode && {
         task_display_mode: options.taskDisplayMode,
       }),
     });
 
-    let first = true;
     let lastAppended = "";
     const renderer = new StreamingMarkdownRenderer({
       wrapTablesForAppend: false,
     });
 
-    /**
-     * Helper to flush markdown text delta to the stream.
-     * Handles first-append token passing and empty-delta skipping.
-     */
     const flushMarkdownDelta = async (delta: string): Promise<void> => {
       if (delta.length === 0) {
         return;
       }
-      if (first) {
-        // Pass token on first append so the streamer uses it for all subsequent calls
-        // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token
-        await streamer.append({ markdown_text: delta, token } as any);
-        first = false;
-      } else {
-        await streamer.append({ markdown_text: delta });
-      }
+      await streamer.append({ markdown_text: delta, token });
     };
 
     /**
@@ -4076,15 +4023,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       lastAppended = committable;
 
       try {
-        // Send the chunk directly — Slack's API accepts chunks array
-        if (first) {
-          // biome-ignore lint/suspicious/noExplicitAny: ChatStreamer types don't include token or chunks
-          await streamer.append({ chunks: [chunk], token } as any);
-          first = false;
-        } else {
-          // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-          await streamer.append({ chunks: [chunk] } as any);
-        }
+        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
+        await streamer.append({ chunks: [chunk], token } as any);
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
@@ -4124,10 +4064,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const finalDelta = finalCommittable.slice(lastAppended.length);
     await flushMarkdownDelta(finalDelta);
 
-    const result = await streamer.stop(
-      // biome-ignore lint/suspicious/noExplicitAny: stopBlocks are platform-specific Block Kit elements
-      options?.stopBlocks ? { blocks: options.stopBlocks as any[] } : undefined
-    );
+    const result = await streamer.stop({
+      token,
+      ...(options?.stopBlocks
+        ? {
+            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+          }
+        : {}),
+    });
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
@@ -5068,6 +5012,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
     botUserId: config?.botUserId,
+    webClientOptions: config?.webClientOptions,
     webhookVerifier,
   };
   return new SlackAdapter(resolved);

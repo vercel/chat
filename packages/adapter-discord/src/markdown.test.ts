@@ -29,6 +29,26 @@ describe("DiscordFormatConverter", () => {
       expect(result).toContain("[link text](https://example.com)");
     });
 
+    it("should render a bare URL as a bare URL, not a masked link", () => {
+      // Discord renders masked links `[text](url)` only in embeds, so wrapping
+      // a bare URL as `[url](url)` shows up as literal text in a normal message.
+      const ast = converter.toAst("https://example.com");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("https://example.com");
+      expect(result).not.toContain(
+        "[https://example.com](https://example.com)"
+      );
+    });
+
+    it("should render an autolink as a bare URL, not a masked link", () => {
+      const ast = converter.toAst("<https://example.com>");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("https://example.com");
+      expect(result).not.toContain(
+        "[https://example.com](https://example.com)"
+      );
+    });
+
     it("should preserve inline code", () => {
       const ast = converter.toAst("Use `const x = 1`");
       const result = converter.fromAst(ast);
@@ -56,6 +76,40 @@ describe("DiscordFormatConverter", () => {
       const ast = converter.toAst("Hello @someone");
       const result = converter.fromAst(ast);
       expect(result).toContain("<@someone>");
+    });
+
+    it("should not turn email addresses into mentions", () => {
+      const ast = converter.toAst("Contact me at user@example.com");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("user@example.com");
+      expect(result).not.toContain("<@example>");
+    });
+
+    it("should still convert a bare mention that follows a period", () => {
+      const ast = converter.toAst("read the docs.@everyone please");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("<@everyone>");
+    });
+  });
+
+  describe("renderPostable (mentions)", () => {
+    it("should not double-wrap an already-formatted mention in raw text", () => {
+      const result = converter.renderPostable({ raw: "ping <@123> now" });
+      expect(result).toContain("<@123>");
+      expect(result).not.toContain("<<@123>>");
+    });
+
+    it("should leave email addresses in raw text untouched", () => {
+      const result = converter.renderPostable({
+        raw: "email support@vercel.com",
+      });
+      expect(result).toContain("support@vercel.com");
+      expect(result).not.toContain("<@vercel>");
+    });
+
+    it("should convert a bare mention in raw text", () => {
+      const result = converter.renderPostable({ raw: "hey @alice" });
+      expect(result).toContain("<@alice>");
     });
   });
 
