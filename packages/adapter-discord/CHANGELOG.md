@@ -1,5 +1,24 @@
 # @chat-adapter/discord
 
+## 4.32.0
+
+### Minor Changes
+
+- 022a502: Add a Discord adapter interactionFlags callback for ephemeral slash command responses.
+
+### Patch Changes
+
+- 0d4e3ee: fix: render bare URLs and autolinks as bare URLs instead of `[url](url)` masked links, which Discord only renders inside embeds (in normal messages they showed up as literal text)
+- 490fa00: fix bare-mention conversion so it no longer mangles surrounding text: email addresses and `word@word` handles are left intact (the `@` must be at a word boundary), already-formatted mentions like `<@123>` are no longer double-wrapped into `<<@123>>`, and a real mention that follows a period (e.g. `docs.@everyone`) still converts
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
 ## 4.31.0
 
 ### Patch Changes
