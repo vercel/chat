@@ -29,6 +29,26 @@ describe("DiscordFormatConverter", () => {
       expect(result).toContain("[link text](https://example.com)");
     });
 
+    it("should render a bare URL as a bare URL, not a masked link", () => {
+      // Discord renders masked links `[text](url)` only in embeds, so wrapping
+      // a bare URL as `[url](url)` shows up as literal text in a normal message.
+      const ast = converter.toAst("https://example.com");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("https://example.com");
+      expect(result).not.toContain(
+        "[https://example.com](https://example.com)"
+      );
+    });
+
+    it("should render an autolink as a bare URL, not a masked link", () => {
+      const ast = converter.toAst("<https://example.com>");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("https://example.com");
+      expect(result).not.toContain(
+        "[https://example.com](https://example.com)"
+      );
+    });
+
     it("should preserve inline code", () => {
       const ast = converter.toAst("Use `const x = 1`");
       const result = converter.fromAst(ast);

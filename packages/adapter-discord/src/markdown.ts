@@ -155,6 +155,12 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
+      // Bare URLs / autolinks (label === url) must stay bare: Discord only
+      // renders masked links `[text](url)` inside embeds, so `[url](url)` in a
+      // normal message shows up as literal text instead of a clickable link.
+      if (linkText === node.url) {
+        return node.url;
+      }
       // Standard markdown [text](url)
       return `[${linkText}](${node.url})`;
     }
