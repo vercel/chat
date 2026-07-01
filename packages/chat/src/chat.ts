@@ -2139,7 +2139,7 @@ export class Chat<
 
     if (!lock) {
       // Lock is busy — enqueue this message for later processing
-      const effectiveMaxSize = strategy === "debounce" ? 1 : maxQueueSize;
+      const effectiveMaxSize = maxQueueSize;
       const depth = await this._stateAdapter.queueDepth(lockKey);
 
       if (
@@ -2195,7 +2195,7 @@ export class Chat<
             enqueuedAt: Date.now(),
             expiresAt: Date.now() + queueEntryTtlMs,
           },
-          1
+          maxQueueSize
         );
         this.logger.info("message-debouncing", {
           threadId,
@@ -2245,37 +2245,50 @@ export class Chat<
     lockKey: string
   ): Promise<void> {
     const { debounceMs } = this._concurrencyConfig;
+    const skipped: Message[] = [];
 
     while (true) {
       await sleep(debounceMs);
       await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
 
-      // Atomically take the pending message
-      const entry = await this._stateAdapter.dequeue(lockKey);
-      if (!entry) {
+      // Atomically take pending messages
+      const pending: Array<{ message: Message; expiresAt: number }> = [];
+      while (true) {
+        const entry = await this._stateAdapter.dequeue(lockKey);
+        if (!entry) {
+          break;
+        }
+        const msg = this.rehydrateMessage(entry.message, adapter);
+        if (Date.now() <= entry.expiresAt) {
+          pending.push({ message: msg, expiresAt: entry.expiresAt });
+        } else {
+          this.logger.info("message-expired", {
+            threadId,
+            lockKey,
+            messageId: msg.id,
+          });
+        }
+      }
+
+      if (pending.length === 0) {
         break;
       }
 
-      // Reconstruct Message instance after JSON roundtrip through state adapter
-      const msg = this.rehydrateMessage(entry.message, adapter);
-
-      if (Date.now() > entry.expiresAt) {
-        this.logger.info("message-expired", {
-          threadId,
-          lockKey,
-          messageId: msg.id,
-        });
-        continue;
+      const latest = pending.at(-1);
+      if (!latest) {
+        break;
       }
+      skipped.push(...pending.slice(0, -1).map((entry) => entry.message));
 
       // Check if anything new arrived during sleep
       const depth = await this._stateAdapter.queueDepth(lockKey);
       if (depth > 0) {
         // Newer message superseded this one — loop again
+        skipped.push(latest.message);
         this.logger.info("message-superseded", {
           threadId,
           lockKey,
-          droppedId: msg.id,
+          droppedId: latest.message.id,
         });
         continue;
       }
@@ -2284,9 +2297,12 @@ export class Chat<
       this.logger.info("message-dequeued", {
         threadId,
         lockKey,
-        messageId: msg.id,
+        messageId: latest.message.id,
       });
-      await this.dispatchToHandlers(adapter, threadId, msg);
+      await this.dispatchToHandlers(adapter, threadId, latest.message, {
+        skipped,
+        totalSinceLastHandler: skipped.length + 1,
+      });
       break;
     }
   }
@@ -2500,7 +2516,7 @@ export class Chat<
     }
 
     // Check for @-mention of bot
-    if (message.isMention || hasMention) {
+    if (message.isMention || (hasMention && this.mentionHandlers.length > 0)) {
       this.logger.debug("Bot mentioned", {
         threadId,
         text: message.text.slice(0, 100),
