@@ -1,5 +1,11 @@
 # chat
 
+## 4.32.1
+
+### Patch Changes
+
+- 076fe5d: preserve skipped mention routing for debounce and message patterns
+
 ## 4.32.0
 
 ### Minor Changes
