@@ -1,5 +1,22 @@
 # @chat-adapter/github
 
+## 4.32.0
+
+### Patch Changes
+
+- fc7df9c: Remove raw GitHub webhook payload previews from adapter logs.
+
+  Debug and error logs now report only request-shape metadata, such as body size, event type, content type, and signature presence, instead of copying provider payload content into logs.
+
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
 ## 4.31.0
 
 ### Patch Changes
