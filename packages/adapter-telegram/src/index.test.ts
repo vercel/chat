@@ -458,6 +458,61 @@ describe("TelegramAdapter", () => {
     expect(event.user).toMatchObject({ fullName: "User", userId: "456" });
   });
 
+  it("starts typing before processing private slash command updates", async () => {
+    const events: string[] = [];
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementationOnce((input) => {
+        expect(String(input)).toContain("/sendChatAction");
+        events.push("typing");
+        return Promise.resolve(telegramOk(true));
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    const processSlashCommand = chat.processSlashCommand as ReturnType<
+      typeof vi.fn
+    >;
+    processSlashCommand.mockImplementation(() => {
+      events.push("processSlashCommand");
+    });
+
+    await adapter.initialize(chat);
+
+    const waitUntil = vi.fn();
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          message: sampleMessage({
+            text: "/ping@mybot hello world",
+            entities: [{ type: "bot_command", offset: 0, length: 11 }],
+          }),
+        }),
+      }),
+      { waitUntil }
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["typing", "processSlashCommand"]);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+  });
+
   it("routes bot command captions to slash command handlers", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({

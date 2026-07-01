@@ -589,19 +589,7 @@ export class TelegramAdapter
       messageThreadId: telegramMessage.message_thread_id,
     });
 
-    if (
-      telegramMessage.chat.type === "private" &&
-      !telegramMessage.from?.is_bot
-    ) {
-      const typingTask = this.startTyping(threadId).catch((error) => {
-        this.logger.warn("Failed to send Telegram typing action", {
-          error: String(error),
-          threadId,
-        });
-      });
-
-      options?.waitUntil?.(typingTask);
-    }
+    this.startTypingForPrivateMessage(telegramMessage, threadId, options);
 
     const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
     this.cacheMessage(parsedMessage);
@@ -627,6 +615,8 @@ export class TelegramAdapter
       messageThreadId: telegramMessage.message_thread_id,
     });
 
+    this.startTypingForPrivateMessage(telegramMessage, threadId, options);
+
     const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
     this.cacheMessage(parsedMessage);
 
@@ -643,6 +633,28 @@ export class TelegramAdapter
     );
 
     return true;
+  }
+
+  protected startTypingForPrivateMessage(
+    telegramMessage: TelegramMessage,
+    threadId: string,
+    options?: WebhookOptions
+  ): void {
+    if (
+      telegramMessage.chat.type !== "private" ||
+      telegramMessage.from?.is_bot
+    ) {
+      return;
+    }
+
+    const typingTask = this.startTyping(threadId).catch((error) => {
+      this.logger.warn("Failed to send Telegram typing action", {
+        error: String(error),
+        threadId,
+      });
+    });
+
+    options?.waitUntil?.(typingTask);
   }
 
   protected parseSlashCommand(
