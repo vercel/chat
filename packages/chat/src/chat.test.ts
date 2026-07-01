@@ -1652,6 +1652,17 @@ describe("Chat", () => {
         "Hello via DM!"
       );
     });
+
+    it("should not crash on stream() from a lightweight DM thread handle", async () => {
+      const thread = await chat.openDM("U123456");
+      await expect(
+        thread.post({
+          async *[Symbol.asyncIterator]() {
+            yield "Hi";
+          },
+        })
+      ).resolves.not.toThrow();
+    });
   });
 
   describe("Options Load", () => {
