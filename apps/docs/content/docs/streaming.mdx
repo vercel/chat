@@ -217,11 +217,14 @@ await plan.addTask({ title: "Summarize findings" });
 await plan.complete({ completeMessage: "Done!" });
 ```
 
-By default `updateTask()` mutates the most recent `in_progress` task. Pass `{ id }` to target a specific task — useful when work runs in parallel or out of order:
+By default `updateTask()` mutates the most recent `in_progress` task. For parallel work, pass `autoCompletePrevious: false` to `addTask()` so earlier tasks stay in progress; then pass `{ id }` to `updateTask()` to target a specific task when updates run out of order:
 
 ```typescript
 const fetchTask = await plan.addTask({ title: "Fetch data" });
-const transformTask = await plan.addTask({ title: "Transform" });
+const transformTask = await plan.addTask({
+  title: "Transform",
+  autoCompletePrevious: false,
+});
 
 // Update a specific task by id, even if it isn't the most recent in_progress one.
 await plan.updateTask({ id: fetchTask.id, output: "Got 42 rows" });
@@ -232,7 +235,7 @@ Adapters that don't support PostableObject editing (e.g. WhatsApp) render the pl
 
 | Method | Description |
 |--------|-------------|
-| `addTask({ title, children? })` | Append a new task. The previous in-progress task is auto-completed |
+| `addTask({ title, children?, autoCompletePrevious? })` | Append a new task. When `autoCompletePrevious` is true (default), existing in-progress tasks are marked complete first; pass `false` for parallel workflows |
 | `updateTask(input)` | Mutate the current (or `{ id }`-targeted) task's `output`, `status`, or `title` |
 | `complete({ completeMessage })` | Mark all in-progress tasks complete and update the plan title |
 | `reset({ initialMessage })` | Discard all tasks and start fresh with a new initial message — useful when re-using a plan handle for a new run |
