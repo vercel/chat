@@ -114,8 +114,7 @@ export function generateBotTs(config: ProjectConfig): string {
   const adaptersBlock = adapterEntries
     ? `{\n${adapterEntries}\n${INDENT}}`
     : "{}";
-  const preamble =
-    connectHelpers.size > 0 ? `${REQUIRE_ENV_HELPER}\n\n` : "";
+  const preamble = connectHelpers.size > 0 ? `${REQUIRE_ENV_HELPER}\n\n` : "";
   const handlers = [
     "bot.onNewMention(async (thread, message) => {",
     `${INDENT}await thread.subscribe();`,

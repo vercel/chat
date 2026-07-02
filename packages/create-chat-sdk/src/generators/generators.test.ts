@@ -117,6 +117,7 @@ describe("Vercel Connect generation", () => {
     const result = generateBotTs(connectConfig(["slack"]));
     expect(result).toContain("const requireEnv = (name: string): string =>");
     expect(result).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: asserting the generated code contains this template literal verbatim
       "throw new Error(`Missing required environment variable: ${name}`);"
     );
   });
