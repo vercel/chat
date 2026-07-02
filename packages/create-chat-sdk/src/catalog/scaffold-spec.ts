@@ -88,6 +88,11 @@ export const CLI_SCAFFOLD_SPEC = {
   agentphone: {
     invocation: { kind: "empty-object" },
   },
+  // Catalog-only: hidden from the CLI via CLI_INCOMPATIBLE_ADAPTERS. Runs inside
+  // a Cloudflare Worker, so it is never scaffolded by create-chat-sdk.
+  "cloudflare-agents": {
+    invocation: { kind: "zero-arg" },
+  },
   discord: {
     invocation: { kind: "zero-arg" },
     serverExternalPackages: [

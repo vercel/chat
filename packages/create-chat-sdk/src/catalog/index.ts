@@ -1,4 +1,4 @@
-export { listCliPlatformAdapters } from "./display.js";
+export { listCliPlatformAdapters, listCliStateAdapters } from "./display.js";
 export {
   getCliScaffoldSpec,
   type ScaffoldInvocation,
