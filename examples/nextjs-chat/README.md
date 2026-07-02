@@ -55,7 +55,6 @@ src/
 ├── app/
 │   ├── api/
 │   │   ├── webhooks/[platform]/route.ts   # Main webhook entry point
-│   │   ├── slack/install/                  # Slack OAuth flow
 │   │   └── discord/gateway/route.ts        # Discord gateway cron
 │   ├── settings/page.tsx                   # Preview branch config UI
 │   └── page.tsx                            # Home page
@@ -73,8 +72,8 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | Variable | Description |
 |----------|-------------|
 | `BOT_USERNAME` | Bot display name |
-| `SLACK_BOT_TOKEN` | Slack bot token (single-workspace mode) |
-| `SLACK_SIGNING_SECRET` | Slack request verification |
+| `SLACK_CONNECTOR` | Slack [Vercel Connect](https://vercel.com/docs/connect) connector UID (e.g. `slack/acme-slack`) |
+| `VERCEL_OIDC_TOKEN` | Vercel OIDC token used by Connect (run `vercel env pull`) |
 | `TEAMS_APP_ID` | Teams app ID |
 | `TEAMS_APP_PASSWORD` | Teams app password |
 | `GOOGLE_CHAT_CREDENTIALS` | Google Chat service account JSON |

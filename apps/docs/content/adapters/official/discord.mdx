@@ -95,6 +95,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Role IDs that should trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated).",
     },
+    interactionFlags: {
+      type: "(context) => DiscordInteractionResponseFlag.Ephemeral | undefined",
+      description:
+        "Return Discord interaction flags for the initial deferred slash command response.",
+    },
     apiUrl: {
       type: "string",
       description: "Override the Discord API base URL.",
@@ -103,6 +108,34 @@ bot.onNewMention(async (thread, message) => {
 />
 
 `botToken`, `publicKey`, and `applicationId` are required.
+
+## Interaction flags
+
+Discord slash commands are acknowledged with `DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE` before your handler posts the final response. Use the `interactionFlags` option to set Discord interaction flags on that initial deferred response.
+
+Return Discord's `EPHEMERAL` flag to make the loading state and original interaction response visible only to the user who invoked the command:
+
+```typescript
+import {
+  createDiscordAdapter,
+  DiscordInteractionResponseFlag,
+} from "@chat-adapter/discord";
+
+createDiscordAdapter({
+  interactionFlags: ({ command, interaction }) => {
+    if (
+      command === "/admin" ||
+      interaction.member?.roles.includes("1457473602180878604")
+    ) {
+      return DiscordInteractionResponseFlag.Ephemeral;
+    }
+
+    return undefined;
+  },
+});
+```
+
+The callback receives the parsed command path, flattened option text, invoking user, normalized Chat SDK channel ID, and raw Discord interaction. Later calls to `event.channel.post()` continue through the normal Discord interaction response flow. Calls to `event.channel.postEphemeral()` still use the normal Chat SDK fallback behavior.
 
 ## Authentication
 

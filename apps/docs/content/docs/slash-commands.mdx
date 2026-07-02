@@ -121,6 +121,8 @@ Telegram supports bot commands such as `/status` and `/status@mybot`. Register h
 
 Discord slash commands are received via [HTTP Interactions](/adapters/official/discord#http-interactions-vs-gateway) — no Gateway connection is needed. The adapter automatically sends a deferred response to Discord, then resolves it when your handler calls `event.channel.post()`.
 
+To make selected Discord slash command responses ephemeral, return `DiscordInteractionResponseFlag.Ephemeral` from the Discord adapter's [`interactionFlags` option](/adapters/official/discord#interaction-flags).
+
 ### Subcommands
 
 Discord supports subcommand groups and subcommands. The adapter flattens these into the `event.command` path:

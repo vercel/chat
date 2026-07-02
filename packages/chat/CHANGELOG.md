@@ -1,5 +1,19 @@
 # chat
 
+## 4.32.0
+
+### Minor Changes
+
+- 2e47351: Add `autoCompletePrevious` option to `Plan.addTask()`. Defaults to `true` so sequential workflows keep auto-completing existing in-progress tasks; pass `false` to keep multiple tasks in progress for parallel execution.
+
+### Patch Changes
+
+- eccc6b9: detect bot mentions in skipped queue and burst messages
+- 438f551: Fix lightweight thread handles so streaming posts without an incoming message context no longer crash.
+- d034b8b: docs(adapters): add Linq as a vendor-official adapter (`@linqapp/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec
+- 06af3e1: docs(adapters): add Novu as a vendor-official adapter (`@novu/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec
+- efa9610: Sync bundled KB resources from Edge Config: add four new guides (Vercel Connect, the Slack Vercel Connect bot, AI Gateway + AI SDK, and the daily digest bot), refresh existing guide bodies, and regenerate `resources/templates.json`. The `sync-resources` script now fetches and validates all guides before writing (so a failed fetch leaves the tree untouched), validates the source config shape, rejects duplicate slugs, retries transient fetches, and mirrors `SKILL.md` to all four committed copies.
+
 ## 4.31.0
 
 ### Minor Changes

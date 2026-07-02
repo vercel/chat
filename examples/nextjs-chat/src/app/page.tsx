@@ -52,8 +52,8 @@ export default function Home() {
 
       <h3>Slack</h3>
       <pre>
-        {`SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...`}
+        {`SLACK_CONNECTOR=slack/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
 
       <h3>Microsoft Teams</h3>

@@ -168,6 +168,30 @@ createDiscordAdapter({
 
 Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string in your environment variables.
 
+## Interaction flags
+
+Discord interactions return a transient "thinking..." message, which then gets replaced with your content. Because of Discord's API, your message's ephemerality must be set on this initial response, not later in an `onSlashCommand` handler.
+
+Use the `interactionFlags` option to make the loading state and your custom response visible only to the user who invoked the command:
+
+```typescript
+import {
+  createDiscordAdapter,
+  DiscordInteractionResponseFlag,
+} from "@chat-adapter/discord";
+
+createDiscordAdapter({
+  interactionFlags: ({ command }) => {
+    if (command === "/admin") {
+      return DiscordInteractionResponseFlag.Ephemeral;
+    }
+  },
+});
+```
+
+Later calls to `event.channel.post()` will share the same ephemeral message.
+Calls to `event.channel.postEphemeral()` will fallback to a private DM.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided.
@@ -178,6 +202,7 @@ All options are auto-detected from environment variables when not provided.
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
