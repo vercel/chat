@@ -7212,6 +7212,7 @@ describe("socket mode - routeSocketEvent", () => {
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;
+      retry_reason?: string;
     }) => Promise<void>;
 
     return { adapter, chatInstance, slackEventHandler };
@@ -7307,11 +7308,12 @@ describe("socket mode - routeSocketEvent", () => {
     expect(ack).toHaveBeenCalled();
   });
 
-  it("skips retries", async () => {
+  it("processes retries like first deliveries (dedupe drops true duplicates)", async () => {
     const { chatInstance, slackEventHandler } = await createSocketAdapter();
+    const ack = vi.fn().mockResolvedValue(undefined);
 
     await slackEventHandler({
-      ack: vi.fn().mockResolvedValue(undefined),
+      ack,
       type: "events_api",
       body: {
         event: {
@@ -7323,9 +7325,15 @@ describe("socket mode - routeSocketEvent", () => {
         },
       },
       retry_num: 1,
+      retry_reason: "timeout",
     });
 
-    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    // A retry may be the ONLY delivery the app ever sees (e.g. the original
+    // was sent while no socket was connected during a restart), so it must be
+    // routed normally; Chat.processMessage dedupes by message id when the
+    // original WAS handled.
+    expect(ack).toHaveBeenCalled();
+    expect(chatInstance.processMessage).toHaveBeenCalled();
   });
 
   it("acks events_api before processing", async () => {
@@ -7794,6 +7802,7 @@ describe("routeSocketEvent with options", () => {
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;
+      retry_reason?: string;
     }) => Promise<void>;
 
     return { adapter, chatInstance, slackEventHandler };
