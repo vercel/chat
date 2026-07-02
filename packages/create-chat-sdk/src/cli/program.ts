@@ -1,6 +1,8 @@
-import { listStateAdapters } from "chat/adapters";
 import { Command, InvalidArgumentError, Option } from "commander";
-import { listCliPlatformAdapters } from "../catalog/index.js";
+import {
+  listCliPlatformAdapters,
+  listCliStateAdapters,
+} from "../catalog/index.js";
 import { isPackageManager } from "../prompts/validate.js";
 import type { PackageManager } from "../types.js";
 import { determineAgent } from "./agent.js";
@@ -29,7 +31,7 @@ export function buildAdapterList(): string {
     );
   }
   lines.push(
-    `  State: ${listStateAdapters()
+    `  State: ${listCliStateAdapters()
       .map((adapter) => adapter.slug)
       .join(", ")}`
   );

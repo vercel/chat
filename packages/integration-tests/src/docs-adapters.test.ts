@@ -139,6 +139,7 @@ describe("Vendor-Official adapter MDX", () => {
     expect(vendorAdapters.map((a) => a.slug).sort()).toEqual(
       [
         "agentphone",
+        "cloudflare-agents",
         "kapso",
         "lark",
         "linq",

@@ -208,6 +208,8 @@ export const VALID_DOC_PACKAGES = [
   "@kapso/chat-adapter",
   "@novu/chat-sdk-adapter",
   "@linqapp/chat-sdk-adapter",
+  "agents",
+  "agents/chat-sdk",
   "chat-adapter-baileys",
   "baileys",
   "chat-adapter-blooio",

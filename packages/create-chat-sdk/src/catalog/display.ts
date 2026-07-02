@@ -1,5 +1,5 @@
 import type { CatalogAdapter } from "chat/adapters";
-import { listPlatformAdapters } from "chat/adapters";
+import { listPlatformAdapters, listStateAdapters } from "chat/adapters";
 import { isCliCompatibleAdapter } from "./compatibility.js";
 
 type PlatformAdapterGroup = CatalogAdapter["group"];
@@ -30,4 +30,19 @@ export function listCliPlatformAdapters(
   }
 
   return adapters;
+}
+
+/**
+ * List state adapters the CLI can scaffold.
+ *
+ * Filters out catalog state adapters the generated Next.js runtime cannot host
+ * (for example, Cloudflare Agents, which runs inside a Worker with Durable
+ * Objects) so they never appear in the interactive state picker.
+ *
+ * @returns Scaffoldable state adapters in catalog order.
+ */
+export function listCliStateAdapters(): CatalogAdapter[] {
+  return listStateAdapters().filter((adapter) =>
+    isCliCompatibleAdapter(adapter.slug)
+  );
 }

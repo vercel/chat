@@ -32,6 +32,10 @@ describe("buildAdapterList", () => {
     expect(result).toContain("slack");
     expect(result).toContain("memory");
   });
+
+  it("omits CLI-incompatible state adapters", () => {
+    expect(buildAdapterList()).not.toContain("cloudflare-agents");
+  });
 });
 
 describe("createProgram", () => {
