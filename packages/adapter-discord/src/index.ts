@@ -72,7 +72,9 @@ import {
   type DiscordGatewayMessageData,
   type DiscordGatewayReactionData,
   type DiscordInteraction,
+  type DiscordInteractionFlagsContext,
   type DiscordInteractionResponse,
+  type DiscordInteractionResponseFlags,
   type DiscordMessagePayload,
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
@@ -103,6 +105,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
+  protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new DiscordFormatConverter();
@@ -149,6 +152,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
@@ -276,8 +280,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle APPLICATION_COMMAND (slash commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      this.handleApplicationCommandInteraction(interaction, options);
+      const context = this.getApplicationCommandContext(interaction);
+      const flags = this.getInteractionFlags(context);
+      this.handleApplicationCommandInteraction(context, options);
       return this.respondToInteraction({
+        ...(flags === undefined ? {} : { data: { flags } }),
         type: InteractionResponseType.DeferredChannelMessageWithSource,
       });
     }
@@ -440,31 +447,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle APPLICATION_COMMAND interactions (slash commands).
    */
-  protected handleApplicationCommandInteraction(
-    interaction: DiscordInteraction,
-    options?: WebhookOptions
-  ): void {
-    if (!this.chat) {
-      this.logger.warn("Chat instance not initialized, ignoring interaction");
-      return;
-    }
-
+  protected getApplicationCommandContext(
+    interaction: DiscordInteraction
+  ): DiscordInteractionFlagsContext | null {
     const commandName = interaction.data?.name;
     if (!commandName) {
       this.logger.warn("No command name in application command interaction");
-      return;
+      return null;
     }
 
     const user = interaction.member?.user || interaction.user;
     if (!user) {
       this.logger.warn("No user in application command interaction");
-      return;
+      return null;
     }
 
     const interactionChannelId = interaction.channel_id;
     if (!interactionChannelId) {
       this.logger.warn("Missing channel_id in application command interaction");
-      return;
+      return null;
     }
 
     const guildId = interaction.guild_id || "@me";
@@ -488,6 +489,39 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       commandName,
       interaction.data?.options
     );
+
+    return {
+      channelId,
+      command,
+      interaction,
+      text,
+      user,
+    };
+  }
+
+  protected getInteractionFlags(
+    context: DiscordInteractionFlagsContext | null
+  ): DiscordInteractionResponseFlags | undefined {
+    if (!(context && this.interactionFlags)) {
+      return undefined;
+    }
+    return this.interactionFlags(context);
+  }
+
+  protected handleApplicationCommandInteraction(
+    context: DiscordInteractionFlagsContext | null,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring interaction");
+      return;
+    }
+
+    if (!context) {
+      return;
+    }
+
+    const { channelId, command, interaction, text, user } = context;
 
     this.logger.debug("Processing Discord slash command", {
       command,
@@ -574,10 +608,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     interaction: DiscordJsInteraction
   ): Promise<void> {
     if (interaction.isChatInputCommand()) {
-      await interaction.deferReply();
-      this.handleApplicationCommandInteraction(
+      const context = this.getApplicationCommandContext(
         this.normalizeGatewaySlashCommandInteraction(interaction)
       );
+      const flags = this.getInteractionFlags(context);
+      await interaction.deferReply(flags === undefined ? undefined : { flags });
+      this.handleApplicationCommandInteraction(context);
       return;
     }
 
@@ -2671,4 +2707,10 @@ export {
   DiscordFormatConverter as DiscordMarkdownConverter,
 } from "./markdown";
 // Re-export types
-export type { DiscordAdapterConfig, DiscordThreadId } from "./types";
+export type {
+  DiscordAdapterConfig,
+  DiscordInteractionFlagsContext,
+  DiscordInteractionResponseFlags,
+  DiscordThreadId,
+} from "./types";
+export { DiscordInteractionResponseFlag } from "./types";

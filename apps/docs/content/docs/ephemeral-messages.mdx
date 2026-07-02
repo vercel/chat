@@ -32,6 +32,8 @@ The `fallbackToDM` option is required and controls behavior on platforms without
 | Discord | No | DM fallback | Persists in DM |
 | Teams | No | DM fallback | Persists in DM |
 
+Discord slash command responses can be made ephemeral with the Discord adapter's [`interactionFlags` option](/adapters/official/discord#interaction-flags). Outside that interaction flow, `postEphemeral` still follows the fallback behavior.
+
 ## Check for fallback
 
 ```typescript title="lib/bot.ts" lineNumbers

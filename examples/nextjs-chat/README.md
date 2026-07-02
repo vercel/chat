@@ -55,7 +55,6 @@ src/
 ├── app/
 │   ├── api/
 │   │   ├── webhooks/[platform]/route.ts   # Main webhook entry point
-│   │   ├── slack/install/                  # Slack OAuth flow
 │   │   └── discord/gateway/route.ts        # Discord gateway cron
 │   ├── settings/page.tsx                   # Preview branch config UI
 │   └── page.tsx                            # Home page
@@ -73,20 +72,16 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | Variable | Description |
 |----------|-------------|
 | `BOT_USERNAME` | Bot display name |
-| `SLACK_BOT_TOKEN` | Slack bot token (single-workspace mode) |
-| `SLACK_SIGNING_SECRET` | Slack request verification |
+| `SLACK_CONNECTOR` | Slack [Vercel Connect](https://vercel.com/docs/connect) connector UID (e.g. `slack/acme-slack`) |
+| `VERCEL_OIDC_TOKEN` | Vercel OIDC token used by Connect (run `vercel env pull`) |
 | `TEAMS_APP_ID` | Teams app ID |
 | `TEAMS_APP_PASSWORD` | Teams app password |
 | `GOOGLE_CHAT_CREDENTIALS` | Google Chat service account JSON |
 | `DISCORD_BOT_TOKEN` | Discord bot token |
 | `DISCORD_PUBLIC_KEY` | Discord interaction verification key |
 | `GITHUB_CONNECTOR` | GitHub [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
-| `LINEAR_API_KEY` | Linear API key |
-| `LINEAR_CLIENT_ID` | Linear OAuth app client ID for multi-tenant installs |
-| `LINEAR_CLIENT_SECRET` | Linear OAuth app client secret for multi-tenant installs |
-| `LINEAR_REDIRECT_URI` | Linear OAuth callback URL |
+| `LINEAR_CONNECTOR` | Linear [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_MODE` | Linear inbound mode: `comments` or `agent-sessions` |
-| `LINEAR_WEBHOOK_SECRET` | Linear webhook signing secret |
 | `REDIS_URL` | Redis connection string |
 
 See the [Chat SDK docs](https://chat-sdk.dev/docs) for full platform setup guides.

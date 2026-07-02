@@ -34,13 +34,22 @@ import {
   tableToAscii,
 } from "chat";
 
+/**
+ * Matches a bare `@mention` (an `@` followed by word characters), but only when
+ * the `@` is not preceded by a word character, another `@`, or `<`. The word
+ * boundary leaves email addresses and handles like `user@example.com` untouched
+ * (the `@` follows a word character), and excluding `<` avoids re-wrapping an
+ * already-formatted Discord mention such as `<@123>` into `<<@123>>`.
+ */
+const BARE_MENTION_PATTERN = /(?<![\w@<])@(\w+)/g;
+
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
    * Convert @mentions to Discord format in plain text.
    * @name → <@name>
    */
   private convertMentionsToDiscord(text: string): string {
-    return text.replace(/@(\w+)/g, "<@$1>");
+    return text.replace(BARE_MENTION_PATTERN, "<@$1>");
   }
 
   /**
@@ -107,7 +116,7 @@ export class DiscordFormatConverter extends BaseFormatConverter {
 
     if (isTextNode(node)) {
       // Convert @mentions to Discord format <@mention>
-      return node.value.replace(/@(\w+)/g, "<@$1>");
+      return node.value.replace(BARE_MENTION_PATTERN, "<@$1>");
     }
 
     if (isStrongNode(node)) {
@@ -146,6 +155,12 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
+      // Bare URLs / autolinks (label === url) must stay bare: Discord only
+      // renders masked links `[text](url)` inside embeds, so `[url](url)` in a
+      // normal message shows up as literal text instead of a clickable link.
+      if (linkText === node.url) {
+        return node.url;
+      }
       // Standard markdown [text](url)
       return `[${linkText}](${node.url})`;
     }

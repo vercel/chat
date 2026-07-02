@@ -44,6 +44,21 @@ export interface LinearOAuthCallbackOptions {
 export type LinearAdapterMode = "agent-sessions" | "comments";
 
 /**
+ * Custom webhook verifier used in place of the Linear webhook secret.
+ *
+ * Receives the incoming request and its raw body. Return a truthy value
+ * to accept the request (returning a string substitutes the verified
+ * body used for downstream parsing); throw or return a falsy value to
+ * reject it (the adapter responds `401`). Used for verifying Vercel
+ * Connect trigger-forwarded webhooks via the Vercel OIDC token Connect
+ * attaches.
+ */
+export type LinearWebhookVerifier = (
+  request: Request,
+  body: string
+) => Promise<unknown> | unknown;
+
+/**
  * Base configuration options shared by all auth methods.
  */
 interface LinearAdapterBaseConfig {
@@ -78,6 +93,14 @@ interface LinearAdapterBaseConfig {
    * Defaults to LINEAR_WEBHOOK_SECRET env var.
    */
   webhookSecret?: string;
+  /**
+   * Custom webhook verifier used in place of `webhookSecret`. When set, it
+   * takes precedence over `webhookSecret` and the `LINEAR_WEBHOOK_SECRET`
+   * env var. Useful when webhooks arrive via Vercel Connect trigger
+   * forwarding (verified with a Vercel OIDC token rather than Linear's
+   * webhook secret).
+   */
+  webhookVerifier?: LinearWebhookVerifier;
 }
 
 /**
@@ -143,6 +166,33 @@ export interface LinearAdapterClientCredentialsConfig
 }
 
 /**
+ * Configuration backed by Vercel Connect.
+ *
+ * Supplies the Linear access token directly (as a string or a resolver
+ * invoked per API call) and verifies inbound webhooks with a custom
+ * `webhookVerifier` instead of a webhook secret. Pair with
+ * `connectLinearAdapter()` from `@vercel/connect/chat`.
+ *
+ * @see https://vercel.com/docs/connect
+ */
+export interface LinearAdapterConnectConfig extends LinearAdapterBaseConfig {
+  /**
+   * Linear access token, or a resolver invoked per API call. The function
+   * form composes with Vercel Connect's short-lived tokens (`getToken`).
+   */
+  accessToken: string | (() => string | Promise<string>);
+  apiKey?: never;
+  clientCredentials?: never;
+  clientId?: never;
+  clientSecret?: never;
+  /**
+   * Required. Connect-forwarded webhooks are verified with a Vercel OIDC
+   * token rather than Linear's webhook secret.
+   */
+  webhookVerifier: LinearWebhookVerifier;
+}
+
+/**
  * Configuration with no auth fields - will auto-detect from env vars.
  */
 export interface LinearAdapterAutoConfig extends LinearAdapterBaseConfig {
@@ -154,13 +204,15 @@ export interface LinearAdapterAutoConfig extends LinearAdapterBaseConfig {
 }
 
 /**
- * Linear adapter configuration - API Key, OAuth token, multi-tenant OAuth app, or explicit client credentials.
+ * Linear adapter configuration - API Key, OAuth token, multi-tenant OAuth app,
+ * explicit client credentials, or Vercel Connect.
  */
 export type LinearAdapterConfig =
   | LinearAdapterAPIKeyConfig
   | LinearAdapterOAuthConfig
   | LinearAdapterMultiTenantConfig
   | LinearAdapterClientCredentialsConfig
+  | LinearAdapterConnectConfig
   | LinearAdapterAutoConfig;
 
 // =============================================================================

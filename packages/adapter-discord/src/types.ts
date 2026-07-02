@@ -21,6 +21,10 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
+  /** Return interaction flags for the initial deferred slash command response. */
+  interactionFlags?: (
+    context: DiscordInteractionFlagsContext
+  ) => DiscordInteractionResponseFlags | undefined;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Role IDs that should trigger mention handlers (in addition to direct user mentions). Defaults to DISCORD_MENTION_ROLE_IDS env var (comma-separated). */
@@ -29,6 +33,22 @@ export interface DiscordAdapterConfig {
   publicKey?: string;
   /** Override bot username (optional) */
   userName?: string;
+}
+
+/**
+ * Context passed to the Discord adapter interactionFlags callback for slash commands.
+ */
+export interface DiscordInteractionFlagsContext {
+  /** Chat SDK channel ID where the command was invoked. */
+  channelId: string;
+  /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
+  command: string;
+  /** Raw Discord interaction payload. */
+  interaction: DiscordInteraction;
+  /** Flattened slash command option text. */
+  text: string;
+  /** User who invoked the command. */
+  user: DiscordUser;
 }
 
 /**
@@ -171,11 +191,19 @@ export interface DiscordMessagePayload {
   components?: DiscordActionRow[];
   content?: string;
   embeds?: APIEmbed[];
+  flags?: number;
   message_reference?: {
     message_id: string;
     fail_if_not_exists?: boolean;
   };
 }
+
+export const DiscordInteractionResponseFlag = {
+  Ephemeral: 64,
+} as const;
+
+export type DiscordInteractionResponseFlags =
+  (typeof DiscordInteractionResponseFlag)[keyof typeof DiscordInteractionResponseFlag];
 
 /**
  * Discord interaction response types.
