@@ -11,6 +11,7 @@
     "lark",
     "velt",
     "kapso",
-    "linq"
+    "linq",
+    "photon"
   ]
 }

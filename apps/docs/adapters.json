@@ -341,6 +341,17 @@
     "vendorOfficial": true
   },
   {
+    "name": "Photon",
+    "slug": "photon",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (macOS) iMessage over spectrum-ts.",
+    "packageName": "@photon-ai/chat-adapter-imessage",
+    "author": "Photon",
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "vendorOfficial": true
+  },
+  {
     "name": "Weixin",
     "slug": "weixin",
     "type": "platform",

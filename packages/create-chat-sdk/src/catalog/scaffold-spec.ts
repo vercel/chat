@@ -172,6 +172,17 @@ export const CLI_SCAFFOLD_SPEC = {
   novu: {
     invocation: { kind: "zero-arg" },
   },
+  photon: {
+    invocation: {
+      kind: "object",
+      properties: [
+        { key: "local", value: literal("false") },
+        { key: "projectId", value: env("IMESSAGE_PROJECT_ID") },
+        { key: "projectSecret", value: env("IMESSAGE_PROJECT_SECRET") },
+        { key: "webhookSecret", value: env("IMESSAGE_WEBHOOK_SECRET") },
+      ],
+    },
+  },
   postgres: {
     invocation: { kind: "zero-arg" },
     stateHint: "production - PostgreSQL",
