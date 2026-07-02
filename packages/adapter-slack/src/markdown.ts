@@ -10,6 +10,7 @@
  * (`*bold*`, `<@U123>`, `<url|text>`), so the toAst parser stays.
  */
 
+import { replaceBareMentions } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -33,7 +34,6 @@ import {
   tableToAscii,
 } from "chat";
 import { slackMrkdwnToMarkdown } from "./format";
-import { replaceBareMentions } from "./mentions";
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 

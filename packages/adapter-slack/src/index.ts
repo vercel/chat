@@ -6,6 +6,7 @@ import {
   extractCard,
   extractFiles,
   NetworkError,
+  replaceBareMentions,
   toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
@@ -66,7 +67,6 @@ import {
   isEncryptedTokenData,
 } from "./crypto";
 import { SlackFormatConverter } from "./markdown";
-import { replaceBareMentions } from "./mentions";
 import {
   decodeModalMetadata,
   encodeModalMetadata,
