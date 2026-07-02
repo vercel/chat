@@ -37,6 +37,16 @@ Adapter values come from the `chat/adapters` catalog. The default interactive pr
 
 When the CLI detects a coding agent environment, it announces the detection and automatically runs in non-interactive mode. Pass at least one platform adapter with `--adapter`; the state adapter defaults to `memory`. If no project name is provided, the default name is `my-bot`. Pass `--interactive` to force prompts.
 
+## Vercel Connect
+
+The Slack, GitHub, and Linear adapters can authenticate with [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) instead of stored provider secrets. Pass `--connect`, or choose **Vercel Connect** at the interactive auth-mode prompt:
+
+```bash
+npm create chat-sdk@latest -- my-bot --adapter slack --connect -y
+```
+
+The generated bot spreads the matching helper from `@vercel/connect/chat` into the adapter factory, adds `@vercel/connect` to dependencies, and lists each connector UID (such as `SLACK_CONNECTOR`) in `.env.example` instead of native secrets.
+
 ## Options
 
 ```txt
@@ -50,6 +60,8 @@ Options:
   --adapter <values...>     platform or state adapters to include
   --vendor                  list vendor-official adapters in the interactive
                             prompt
+  --connect                 authenticate Slack, GitHub, and Linear adapters
+                            with Vercel Connect
   --pm <manager>            package manager to use (npm, yarn, pnpm, bun)
   -y, --yes                 skip prompts and accept defaults
   --interactive             always prompt, even when a coding agent

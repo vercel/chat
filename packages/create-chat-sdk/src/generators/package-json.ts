@@ -1,4 +1,8 @@
-import { getCliScaffoldSpec } from "../catalog/index.js";
+import {
+  CONNECT_PACKAGE,
+  getAdapterConnectSpec,
+  getCliScaffoldSpec,
+} from "../catalog/index.js";
 import type { ProjectConfig } from "../types.js";
 
 /**
@@ -70,6 +74,17 @@ export function generatePackageJson(
       []) {
       dependencies[extra] = "latest";
     }
+  }
+
+  // Connect helpers ship from @vercel/connect, which is not a dependency of any
+  // adapter package, so the generated app must install it itself.
+  const usesConnect =
+    config.useConnect === true &&
+    config.platformAdapters.some((adapter) =>
+      getAdapterConnectSpec(adapter.slug)
+    );
+  if (usesConnect) {
+    dependencies[CONNECT_PACKAGE] = "latest";
   }
 
   pkg.dependencies = sortedRecord(dependencies);

@@ -262,6 +262,10 @@ export const ADAPTERS = {
           "Installation ID for single-installation app deployments."
         ),
         env("GITHUB_BOT_USERNAME", "Bot username for mention detection."),
+        env(
+          "GITHUB_BOT_USER_ID",
+          "Numeric bot user ID for self-message detection; recommended on serverless and with Vercel Connect to prevent reply loops."
+        ),
         urlEnv("GITHUB_API_URL", "Override the GitHub API base URL."),
       ],
       required: [secretEnv("GITHUB_WEBHOOK_SECRET", "Webhook signing secret.")],
@@ -624,6 +628,59 @@ export const ADAPTERS = {
     packageName: "@novu/chat-sdk-adapter",
     peerDeps: [],
     slug: "novu",
+    type: "platform",
+  },
+  photon: {
+    description:
+      "iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (macOS) iMessage over spectrum-ts.",
+    env: {
+      config: ["clients", "logger"],
+      credentialModes: [
+        {
+          label: "Spectrum Cloud",
+          vars: [
+            env("IMESSAGE_PROJECT_ID", "Spectrum Cloud project ID."),
+            secretEnv(
+              "IMESSAGE_PROJECT_SECRET",
+              "Spectrum Cloud project secret."
+            ),
+          ],
+        },
+        {
+          label: "Self-hosted",
+          vars: [
+            urlEnv(
+              "IMESSAGE_SERVER_URL",
+              "gRPC host:port of a self-hosted iMessage server (not an https URL)."
+            ),
+            secretEnv(
+              "IMESSAGE_API_KEY",
+              "Auth token for the self-hosted server."
+            ),
+          ],
+        },
+      ],
+      optional: [
+        env(
+          "IMESSAGE_LOCAL",
+          'Set to "false" for cloud/self-host; on-device (local, macOS) mode is the default.'
+        ),
+        secretEnv(
+          "IMESSAGE_WEBHOOK_SECRET",
+          "Per-webhook signing secret for verifying Spectrum Cloud deliveries."
+        ),
+        env(
+          "IMESSAGE_PHONE",
+          "Routing/identity phone for multi-number setups."
+        ),
+      ],
+    },
+    factoryExport: "createiMessageAdapter",
+    group: "vendor-official",
+    name: "Photon",
+    packageName: "@photon-ai/chat-adapter-imessage",
+    peerDeps: [],
+    slug: "photon",
     type: "platform",
   },
   postgres: {

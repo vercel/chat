@@ -1,4 +1,9 @@
 export {
+  type ConnectWebhookContractDescriptor,
+  type ConnectWebhookVerifier,
+  connectWebhookContract,
+} from "./connect-contract";
+export {
   createMockAdapter,
   createMockChatInstance,
   createMockLogger,

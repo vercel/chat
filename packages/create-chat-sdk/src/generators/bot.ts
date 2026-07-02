@@ -1,5 +1,7 @@
 import type { CatalogAdapter } from "chat/adapters";
 import {
+  type AdapterConnectSpec,
+  CONNECT_CHAT_IMPORT,
   getCliScaffoldSpec,
   type ScaffoldInvocation,
 } from "../catalog/index.js";
@@ -55,6 +57,14 @@ const renderFactoryCall = (
   return renderObjectInvocation(adapter.factoryExport, invocation);
 };
 
+const renderConnectCall = (
+  adapter: CatalogAdapter,
+  connect: AdapterConnectSpec
+): string =>
+  `${adapter.factoryExport}({\n${INDENT.repeat(3)}...${connect.helper}(requireEnv(${quote(connect.connectorEnvVar)})),\n${INDENT.repeat(2)}})`;
+
+const REQUIRE_ENV_HELPER = `const requireEnv = (name: string): string => {\n${INDENT}const value = process.env[name];\n${INDENT}if (!value) {\n${INDENT.repeat(2)}throw new Error(\`Missing required environment variable: \${name}\`);\n${INDENT}}\n${INDENT}return value;\n};`;
+
 const importLine = (adapter: CatalogAdapter): string =>
   `import { ${adapter.factoryExport} } from ${quote(adapter.packageName)};`;
 
@@ -65,8 +75,28 @@ const importLine = (adapter: CatalogAdapter): string =>
  * @returns TypeScript source for the bot entry point.
  */
 export function generateBotTs(config: ProjectConfig): string {
+  const useConnect = config.useConnect === true;
+  const connectHelpers = new Set<string>();
+
+  const adapterEntries = config.platformAdapters
+    .map((adapter) => {
+      const spec = getCliScaffoldSpec(adapter.slug);
+      if (useConnect && spec.connect) {
+        connectHelpers.add(spec.connect.helper);
+        return `${INDENT.repeat(2)}${adapter.slug}: ${renderConnectCall(adapter, spec.connect)},`;
+      }
+      const call = renderFactoryCall(adapter, spec.invocation);
+      return `${INDENT.repeat(2)}${adapter.slug}: ${call},`;
+    })
+    .join("\n");
+
   const selectedAdapters = [...config.platformAdapters, config.stateAdapter];
   const imports = selectedAdapters.map(importLine);
+  if (connectHelpers.size > 0) {
+    imports.push(
+      `import { ${[...connectHelpers].sort().join(", ")} } from ${quote(CONNECT_CHAT_IMPORT)};`
+    );
+  }
   imports.push('import { Chat } from "chat";');
 
   const usesWeb = config.platformAdapters.some(
@@ -76,14 +106,6 @@ export function generateBotTs(config: ProjectConfig): string {
     imports.push('import { getUser } from "./auth-stub";');
   }
 
-  const adapterEntries = config.platformAdapters
-    .map((adapter) => {
-      const spec = getCliScaffoldSpec(adapter.slug);
-      const call = renderFactoryCall(adapter, spec.invocation);
-      return `${INDENT.repeat(2)}${adapter.slug}: ${call},`;
-    })
-    .join("\n");
-
   const stateSpec = getCliScaffoldSpec(config.stateAdapter.slug);
   const stateCall = renderFactoryCall(
     config.stateAdapter,
@@ -92,6 +114,8 @@ export function generateBotTs(config: ProjectConfig): string {
   const adaptersBlock = adapterEntries
     ? `{\n${adapterEntries}\n${INDENT}}`
     : "{}";
+  const preamble =
+    connectHelpers.size > 0 ? `${REQUIRE_ENV_HELPER}\n\n` : "";
   const handlers = [
     "bot.onNewMention(async (thread, message) => {",
     `${INDENT}await thread.subscribe();`,
@@ -112,5 +136,5 @@ export function generateBotTs(config: ProjectConfig): string {
     );
   }
 
-  return `${imports.join("\n")}\n\nexport const bot = new Chat({\n${INDENT}userName: process.env.BOT_USERNAME ?? ${quote(config.name)},\n${INDENT}adapters: ${adaptersBlock},\n${INDENT}state: ${stateCall},\n});\n\n${handlers.join("\n")}\n`;
+  return `${imports.join("\n")}\n\n${preamble}export const bot = new Chat({\n${INDENT}userName: process.env.BOT_USERNAME ?? ${quote(config.name)},\n${INDENT}adapters: ${adaptersBlock},\n${INDENT}state: ${stateCall},\n});\n\n${handlers.join("\n")}\n`;
 }

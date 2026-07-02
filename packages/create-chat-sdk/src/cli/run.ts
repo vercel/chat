@@ -5,6 +5,10 @@ import { scaffold } from "../scaffold/run.js";
 import type { PackageManager } from "../types.js";
 
 interface RunCliOptions {
+  /**
+   * Authenticate Connect-capable adapters with Vercel Connect.
+   */
+  connect?: boolean;
   description?: string;
   /**
    * Coding agent name when detection (not an explicit flag) enabled yes mode.
@@ -39,6 +43,7 @@ export async function runCli(options: RunCliOptions): Promise<void> {
 
   try {
     const config = await runPrompts({
+      connect: options.connect,
       description: options.description,
       initializeGit: options.initializeGit,
       install: options.install,
@@ -76,14 +81,20 @@ export async function runCli(options: RunCliOptions): Promise<void> {
     }
 
     if (!options.quiet) {
-      note(
-        [
-          `cd ${config.name}`,
-          "cp .env.example .env.local",
-          `${config.packageManager} run dev`,
-        ].join("\n"),
-        "Next steps"
-      );
+      const nextSteps = config.useConnect
+        ? [
+            `cd ${config.name}`,
+            "vercel link",
+            "vercel env pull .env.local",
+            "# set your connector UIDs (see .env.example)",
+            `${config.packageManager} run dev`,
+          ]
+        : [
+            `cd ${config.name}`,
+            "cp .env.example .env.local",
+            `${config.packageManager} run dev`,
+          ];
+      note(nextSteps.join("\n"), "Next steps");
 
       outro(
         `${pc.green("Done!")} Visit ${pc.cyan("https://chat-sdk.dev/docs")} for the docs. Use the Chat SDK skill for agent guidance.`

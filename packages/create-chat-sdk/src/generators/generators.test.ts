@@ -93,6 +93,105 @@ describe("generateBotTs", () => {
   });
 });
 
+describe("Vercel Connect generation", () => {
+  const connectConfig = (
+    platformSlugs: readonly string[],
+    stateSlug = "memory"
+  ): ProjectConfig => ({
+    ...makeConfig(platformSlugs, stateSlug),
+    useConnect: true,
+  });
+
+  it("spreads the Connect helper into the adapter factory", () => {
+    const result = generateBotTs(connectConfig(["slack"]));
+    expect(result).toContain(
+      'import { connectSlackAdapter } from "@vercel/connect/chat";'
+    );
+    expect(result).toContain("slack: createSlackAdapter({");
+    expect(result).toContain(
+      '...connectSlackAdapter(requireEnv("SLACK_CONNECTOR")),'
+    );
+  });
+
+  it("fails loudly on a missing connector via requireEnv", () => {
+    const result = generateBotTs(connectConfig(["slack"]));
+    expect(result).toContain("const requireEnv = (name: string): string =>");
+    expect(result).toContain(
+      "throw new Error(`Missing required environment variable: ${name}`);"
+    );
+  });
+
+  it("omits the requireEnv helper when Connect is not used", () => {
+    expect(generateBotTs(makeConfig(["slack"]))).not.toContain(
+      "const requireEnv ="
+    );
+  });
+
+  it("imports every selected Connect helper, sorted", () => {
+    const result = generateBotTs(connectConfig(["slack", "github", "linear"]));
+    expect(result).toContain(
+      'import { connectGitHubAdapter, connectLinearAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
+    );
+  });
+
+  it("leaves non-Connect adapters on their native factory calls", () => {
+    const result = generateBotTs(connectConfig(["slack", "discord"]));
+    expect(result).toContain("discord: createDiscordAdapter(),");
+    expect(result).toContain("slack: createSlackAdapter({");
+  });
+
+  it("ignores Connect helpers when useConnect is false", () => {
+    const result = generateBotTs(makeConfig(["slack"]));
+    expect(result).not.toContain("@vercel/connect/chat");
+    expect(result).toContain("slack: createSlackAdapter(),");
+  });
+
+  it("adds the @vercel/connect dependency for Connect adapters", () => {
+    const result = generatePackageJson(
+      { dependencies: {} },
+      connectConfig(["slack"])
+    );
+    expect(result.dependencies?.["@vercel/connect"]).toBe("latest");
+  });
+
+  it("does not add @vercel/connect without a Connect-capable adapter", () => {
+    const result = generatePackageJson(
+      { dependencies: {} },
+      { ...makeConfig(["discord"]), useConnect: true }
+    );
+    expect(result.dependencies?.["@vercel/connect"]).toBeUndefined();
+  });
+
+  it("writes the connector env var and omits native secrets", () => {
+    const result = generateEnvExample(connectConfig(["slack"]));
+    expect(result).toContain("SLACK_CONNECTOR=");
+    expect(result).toContain("VERCEL_OIDC_TOKEN");
+    expect(result).not.toContain("SLACK_SIGNING_SECRET=");
+    expect(result).not.toContain("SLACK_BOT_TOKEN=");
+  });
+
+  it("documents GITHUB_BOT_USER_ID for serverless GitHub Connect", () => {
+    const result = generateEnvExample(connectConfig(["github"]));
+    expect(result).toContain("GITHUB_CONNECTOR=");
+    expect(result).toContain("GITHUB_BOT_USER_ID=");
+  });
+
+  it("documents Connect setup in the README", () => {
+    const result = generateReadme(connectConfig(["slack"]));
+    expect(result).toContain("Authentication (Vercel Connect)");
+    expect(result).toContain("vercel env pull");
+    expect(result).toContain("SLACK_CONNECTOR");
+  });
+
+  it("omits the README Connect section without a Connect-capable adapter", () => {
+    const result = generateReadme({
+      ...makeConfig(["discord"]),
+      useConnect: true,
+    });
+    expect(result).not.toContain("Authentication (Vercel Connect)");
+  });
+});
+
 describe("generateEnvExample", () => {
   it("includes env vars for selected adapters", () => {
     const result = generateEnvExample(makeConfig(["slack"], "redis"));

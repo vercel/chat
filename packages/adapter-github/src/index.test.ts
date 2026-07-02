@@ -32,6 +32,7 @@ const mockUsersGetByUsername = vi.fn();
 const mockAppsGetAuthenticated = vi.fn();
 const mockReposGet = vi.fn();
 const mockRequest = vi.fn();
+const mockHookBefore = vi.fn();
 
 vi.mock("@octokit/rest", () => {
   class MockOctokit {
@@ -71,6 +72,7 @@ vi.mock("@octokit/rest", () => {
       get: mockReposGet,
     };
     request = mockRequest;
+    hook = { before: mockHookBefore };
   }
   return { Octokit: MockOctokit };
 });
@@ -90,6 +92,7 @@ const mockLogger = {
 
 const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
+const EMPTY_INSTALLATION_TOKEN_PATTERN = /empty installation token/i;
 const WEBHOOK_LOG_SENTINELS = [
   "secret-access-token",
   "secret-refresh-token",
@@ -2569,6 +2572,206 @@ describe("GitHubAdapter", () => {
   });
 });
 
+describe("GitHubAdapter - Vercel Connect mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("constructs with installationToken + webhookVerifier (no secret)", () => {
+    const adapter = new GitHubAdapter({
+      installationToken: "ghs_connect_token",
+      webhookVerifier: () => true,
+      userName: "connect-bot",
+      botUserId: 123,
+      logger: mockLogger,
+    });
+    expect(adapter.name).toBe("github");
+    expect(adapter.isMultiTenant).toBe(false);
+    expect(adapter.botUserId).toBe("123");
+  });
+
+  it("registers a before-hook that resolves the token per request", async () => {
+    const resolver = vi.fn(() => Promise.resolve("ghs_fresh"));
+    new GitHubAdapter({
+      installationToken: resolver,
+      webhookVerifier: () => true,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+
+    expect(mockHookBefore).toHaveBeenCalledWith(
+      "request",
+      expect.any(Function)
+    );
+    const hookCb = mockHookBefore.mock.calls[0][1] as (options: {
+      headers?: Record<string, string>;
+    }) => Promise<void>;
+
+    const first = { headers: {} as Record<string, string> };
+    await hookCb(first);
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(first.headers.authorization).toBe("token ghs_fresh");
+
+    // Resolved again on the next request (short-lived tokens).
+    const second = { headers: {} as Record<string, string> };
+    await hookCb(second);
+    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(second.headers.authorization).toBe("token ghs_fresh");
+  });
+
+  it("accepts a static installationToken string", async () => {
+    new GitHubAdapter({
+      installationToken: "ghs_static",
+      webhookVerifier: () => true,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    const hookCb = mockHookBefore.mock.calls[0][1] as (options: {
+      headers?: Record<string, string>;
+    }) => Promise<void>;
+    const opts = { headers: {} as Record<string, string> };
+    await hookCb(opts);
+    expect(opts.headers.authorization).toBe("token ghs_static");
+  });
+
+  it("uses webhookVerifier instead of the signature check", async () => {
+    const verifier = vi.fn(() => true);
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: verifier,
+      userName: "connect-bot",
+      botUserId: 999,
+      logger: mockLogger,
+    });
+    const mockChat = {
+      getLogger: vi.fn(),
+      getState: vi.fn(),
+      getUserName: vi.fn(),
+      handleIncomingMessage: vi.fn(),
+      processMessage: vi.fn(),
+    };
+    await adapter.initialize(mockChat as never);
+
+    const body = JSON.stringify(makeIssueCommentPayload());
+    // No x-hub-signature-256 header — verifier is the only gate.
+    const request = makeWebhookRequest(body, "issue_comment");
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(verifier).toHaveBeenCalledTimes(1);
+    expect(mockChat.processMessage).toHaveBeenCalled();
+  });
+
+  it("returns 401 when the webhookVerifier throws", async () => {
+    const verifier = vi.fn(() => {
+      throw new Error("bad oidc token");
+    });
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: verifier,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    const request = makeWebhookRequest(
+      JSON.stringify(makeIssueCommentPayload()),
+      "issue_comment"
+    );
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 401 when the webhookVerifier returns falsy", async () => {
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => false,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    const request = makeWebhookRequest(
+      JSON.stringify(makeIssueCommentPayload()),
+      "issue_comment"
+    );
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects mixing Connect installationToken with App auth at the type level", () => {
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => true,
+      // @ts-expect-error installationToken is mutually exclusive with appId/privateKey
+      appId: "123",
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    expect(adapter.name).toBe("github");
+  });
+
+  it("returns 400 for invalid JSON on the verifier path", async () => {
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => true,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    const request = makeWebhookRequest("not-json{{{", "issue_comment");
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(400);
+  });
+
+  it("throws when the installationToken resolver returns an empty token", async () => {
+    new GitHubAdapter({
+      installationToken: () => "",
+      webhookVerifier: () => true,
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    const hookCb = mockHookBefore.mock.calls[0][1] as (options: {
+      headers?: Record<string, string>;
+    }) => Promise<void>;
+    await expect(hookCb({ headers: {} })).rejects.toThrow(
+      EMPTY_INSTALLATION_TOKEN_PATTERN
+    );
+  });
+
+  it("rejects mixing Connect installationToken with a webhookSecret at the type level", () => {
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => true,
+      // @ts-expect-error webhookSecret is not allowed in Connect mode (verifier-only)
+      webhookSecret: "secret",
+      botUserId: 1,
+      logger: mockLogger,
+    });
+    expect(adapter.name).toBe("github");
+  });
+
+  it("learns the bot user id from the first posted comment", async () => {
+    mockIssuesCreateComment.mockResolvedValueOnce({
+      data: {
+        id: 100,
+        body: "hi",
+        user: { id: 4242, login: "chat-sdk-example[bot]", type: "Bot" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+        html_url: "https://github.com/acme/app/issues/42#issuecomment-100",
+      },
+    });
+    const adapter = new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    // Auto-detection can't work in Connect mode, so it starts unset...
+    expect(adapter.botUserId).toBeUndefined();
+
+    await adapter.postMessage("github:acme/app:42", "hi");
+
+    // ...and is learned from the comment the bot just posted.
+    expect(adapter.botUserId).toBe("4242");
+  });
+});
+
 describe("createGitHubAdapter", () => {
   const originalEnv = process.env;
 
@@ -2583,6 +2786,7 @@ describe("createGitHubAdapter", () => {
       "GITHUB_PRIVATE_KEY",
       "GITHUB_INSTALLATION_ID",
       "GITHUB_BOT_USERNAME",
+      "GITHUB_BOT_USER_ID",
       "GITHUB_API_URL",
     ]) {
       delete process.env[key];
@@ -2601,6 +2805,22 @@ describe("createGitHubAdapter", () => {
     });
     expect(a).toBeInstanceOf(GitHubAdapter);
     expect(a.userName).toBe("bot");
+  });
+
+  it("auto-detects botUserId from the GITHUB_BOT_USER_ID env var", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_BOT_USER_ID = "4242";
+    const a = createGitHubAdapter();
+    expect(a.botUserId).toBe("4242");
+  });
+
+  it("prefers an explicit botUserId over GITHUB_BOT_USER_ID", () => {
+    process.env.GITHUB_WEBHOOK_SECRET = "env-secret";
+    process.env.GITHUB_TOKEN = "env-token";
+    process.env.GITHUB_BOT_USER_ID = "4242";
+    const a = createGitHubAdapter({ botUserId: 99 });
+    expect(a.botUserId).toBe("99");
   });
 
   it("should create adapter with explicit app config (single-tenant)", () => {
@@ -2630,7 +2850,7 @@ describe("createGitHubAdapter", () => {
 
   it("should throw when webhookSecret is missing", () => {
     expect(() => createGitHubAdapter({ token: "ghp_test" })).toThrow(
-      "webhookSecret is required"
+      "webhookSecret or webhookVerifier is required"
     );
   });
 
