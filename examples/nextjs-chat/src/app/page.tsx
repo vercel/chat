@@ -80,14 +80,8 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN=...`}
 
       <h3>GitHub</h3>
       <pre>
-        {`# PAT auth (simple)
-GITHUB_TOKEN=ghp_...
-GITHUB_WEBHOOK_SECRET=...
-
-# OR GitHub App auth (recommended)
-GITHUB_APP_ID=...
-GITHUB_PRIVATE_KEY=...
-GITHUB_WEBHOOK_SECRET=...`}
+        {`GITHUB_CONNECTOR=github/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
 
       <h3>Linear</h3>

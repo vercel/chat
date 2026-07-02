@@ -80,7 +80,7 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | `GOOGLE_CHAT_CREDENTIALS` | Google Chat service account JSON |
 | `DISCORD_BOT_TOKEN` | Discord bot token |
 | `DISCORD_PUBLIC_KEY` | Discord interaction verification key |
-| `GITHUB_TOKEN` | GitHub PAT or App credentials |
+| `GITHUB_CONNECTOR` | GitHub [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_API_KEY` | Linear API key |
 | `LINEAR_CLIENT_ID` | Linear OAuth app client ID for multi-tenant installs |
 | `LINEAR_CLIENT_SECRET` | Linear OAuth app client secret for multi-tenant installs |

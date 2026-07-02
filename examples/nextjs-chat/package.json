@@ -25,6 +25,7 @@
     "@chat-adapter/web": "workspace:*",
     "@chat-adapter/whatsapp": "workspace:*",
     "@tailwindcss/postcss": "^4.1.18",
+    "@vercel/connect": "^0.3.0",
     "@vercel/oidc": "^3.7.0",
     "ai": "^6.0.182",
     "chat": "workspace:*",
