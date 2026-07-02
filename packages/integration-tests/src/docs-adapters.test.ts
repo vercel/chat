@@ -145,6 +145,7 @@ describe("Vendor-Official adapter MDX", () => {
         "liveblocks",
         "matrix",
         "novu",
+        "photon",
         "resend",
         "sendblue",
         "velt",
