@@ -126,6 +126,8 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/tests",
   "@chat-adapter/tests/matchers",
   "@chat-adapter/tests/setup",
+  "@vercel/connect",
+  "@vercel/connect/chat",
   "vitest/config",
   "@ai-sdk/react",
   "ai",
