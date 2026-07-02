@@ -672,13 +672,10 @@ export class GitHubAdapter
       }
     }
 
-    // Vercel Connect mode uses a single default Octokit, so the multi-tenant
-    // block above is skipped. Init-time detection may have failed silently
-    // (best-effort), so lazily re-detect here before dispatch — otherwise
-    // self-message detection stays disabled and the bot can self-reply-loop.
-    if (this.installationTokenProvider && this._botUserId === null) {
-      await this.detectBotUserId(this.getOctokit());
-    }
+    // In Vercel Connect mode the bot user ID cannot be auto-detected from an
+    // installation token (see detectBotUserId), so it comes from
+    // `config.botUserId` / `GITHUB_BOT_USER_ID` or is learned from the first
+    // comment the bot posts (see captureBotUserId).
 
     // Handle events
     const ctx = { installationId };
