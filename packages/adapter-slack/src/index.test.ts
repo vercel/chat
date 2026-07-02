@@ -17,6 +17,16 @@ import { createSlackAdapter, SlackAdapter } from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
 
+function createStreamExpiredError(): Error & {
+  code: string;
+  data: { error: string; ok: false };
+} {
+  return Object.assign(new Error("message_not_in_streaming_state"), {
+    code: "slack_webapi_platform_error",
+    data: { error: "message_not_in_streaming_state", ok: false as const },
+  });
+}
+
 // Mock @slack/socket-mode
 const mockSocketStart = vi.fn().mockResolvedValue({});
 const mockSocketDisconnect = vi.fn().mockResolvedValue(undefined);
@@ -3643,8 +3653,10 @@ interface MockableClient {
     postEphemeral: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    startStream: ReturnType<typeof vi.fn>;
+    appendStream: ReturnType<typeof vi.fn>;
+    stopStream: ReturnType<typeof vi.fn>;
   };
-  chatStream: ReturnType<typeof vi.fn>;
   conversations: {
     open: ReturnType<typeof vi.fn>;
     replies: ReturnType<typeof vi.fn>;
@@ -7918,6 +7930,37 @@ describe("routeSocketEvent with options", () => {
 // ============================================================================
 
 describe("stream with empty threadTs", () => {
+  function mockStreamMethods(
+    adapter: SlackAdapter,
+    options?: {
+      startStream?: ReturnType<typeof vi.fn>;
+      appendStream?: ReturnType<typeof vi.fn>;
+      stopStream?: ReturnType<typeof vi.fn>;
+      update?: ReturnType<typeof vi.fn>;
+    }
+  ) {
+    const startStream =
+      options?.startStream ??
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.111111" });
+    const appendStream =
+      options?.appendStream ??
+      vi.fn().mockResolvedValue({ ok: true, ts: "1234567890.111111" });
+    const stopStream =
+      options?.stopStream ??
+      vi.fn().mockResolvedValue({
+        ok: true,
+        ts: "1234567890.111111",
+      });
+    const update = options?.update ?? vi.fn();
+
+    mockClientMethod(adapter, "chat.startStream", startStream);
+    mockClientMethod(adapter, "chat.appendStream", appendStream);
+    mockClientMethod(adapter, "chat.stopStream", stopStream);
+    mockClientMethod(adapter, "chat.update", update);
+
+    return { appendStream, startStream, stopStream, update };
+  }
+
   it("delegates to fallback before consuming the stream", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
@@ -7962,13 +8005,7 @@ describe("stream with empty threadTs", () => {
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
-    const append = vi.fn().mockResolvedValue(null);
-    const stop = vi.fn().mockResolvedValue({
-      ok: true,
-      ts: "1234567890.111111",
-    });
-    const chatStream = vi.fn().mockReturnValue({ append, stop });
-    mockClientMethod(adapter, "chatStream", chatStream);
+    const { startStream } = mockStreamMethods(adapter);
 
     async function* stream() {
       yield "hello";
@@ -7976,28 +8013,27 @@ describe("stream with empty threadTs", () => {
 
     await adapter.stream("slack:D123:1234567890.000000", stream());
 
-    expect(chatStream).toHaveBeenCalledWith({
-      channel: "D123",
-      thread_ts: "1234567890.000000",
-    });
+    expect(startStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "D123",
+        thread_ts: "1234567890.000000",
+        token: "xoxb-test-token",
+      })
+    );
   });
 
-  it("passes token on stream stop", async () => {
+  it("passes token on direct stream start, append, and stop", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
-    const append = vi.fn().mockResolvedValue(null);
-    const stop = vi.fn().mockResolvedValue({
-      ok: true,
-      ts: "1234567890.111111",
-    });
-    const chatStream = vi.fn().mockReturnValue({ append, stop });
-    mockClientMethod(adapter, "chatStream", chatStream);
+    const { appendStream, startStream, stopStream } =
+      mockStreamMethods(adapter);
 
     async function* shortStream() {
-      yield "hello";
+      yield "hello\n";
+      yield "world\n";
     }
 
     await adapter.stream("slack:C123:1234567890.000000", shortStream(), {
@@ -8005,29 +8041,24 @@ describe("stream with empty threadTs", () => {
       recipientTeamId: "T123",
     });
 
-    expect(stop).toHaveBeenCalledWith(
-      expect.objectContaining({
-        token: "xoxb-test-token",
-      })
+    expect(startStream).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(appendStream).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(stopStream).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
     );
   });
 
-  it("passes token on every stream append", async () => {
+  it("passes token on every structured stream append", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
-    const append = vi.fn().mockResolvedValue({ ok: true });
-    const stop = vi.fn().mockResolvedValue({
-      ok: true,
-      ts: "1234567890.111111",
-    });
-    mockClientMethod(
-      adapter,
-      "chatStream",
-      vi.fn().mockReturnValue({ append, stop })
-    );
+    const { appendStream, startStream } = mockStreamMethods(adapter);
 
     async function* chunkStream() {
       yield {
@@ -8051,15 +8082,290 @@ describe("stream with empty threadTs", () => {
       recipientTeamId: "T123",
     });
 
-    expect(append).toHaveBeenCalledTimes(2);
-    expect(append).toHaveBeenNthCalledWith(
+    expect(startStream).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+    expect(appendStream).toHaveBeenCalledTimes(1);
+    expect(appendStream).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-test-token" })
+    );
+  });
+
+  it("rolls to a fresh stream and retries only the pending markdown delta", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const startStream = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.222222" });
+    const appendStream = vi
+      .fn()
+      .mockRejectedValueOnce(createStreamExpiredError());
+    const stopStream = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.222222",
+    });
+    mockStreamMethods(adapter, { appendStream, startStream, stopStream });
+
+    async function* textStream() {
+      yield "first\n";
+      yield "second\n";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      textStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(startStream).toHaveBeenCalledTimes(2);
+    expect(startStream).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ token: "xoxb-test-token" })
+      expect.objectContaining({
+        chunks: [{ type: "markdown_text", text: "first\n" }],
+      })
     );
-    expect(append).toHaveBeenNthCalledWith(
+    expect(appendStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chunks: [{ type: "markdown_text", text: "second\n" }],
+        ts: "1234567890.111111",
+      })
+    );
+    expect(startStream).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ token: "xoxb-test-token" })
+      expect.objectContaining({
+        chunks: [{ type: "markdown_text", text: "second\n" }],
+      })
     );
+    expect(stopStream).toHaveBeenCalledWith(
+      expect.objectContaining({ ts: "1234567890.222222" })
+    );
+    expect(result?.id).toBe("1234567890.222222");
+  });
+
+  it("falls back to updating the current message when rollovers are exhausted", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const startStream = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockRejectedValue(createStreamExpiredError());
+    const appendStream = vi.fn().mockRejectedValue(createStreamExpiredError());
+    const update = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.111111" });
+    mockStreamMethods(adapter, { appendStream, startStream, update });
+
+    async function* textStream() {
+      yield "first\n";
+      yield "second\n";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      textStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "C123",
+        text: "first\nsecond\n",
+        token: "xoxb-test-token",
+        ts: "1234567890.111111",
+      })
+    );
+    expect(result?.id).toBe("1234567890.111111");
+  });
+
+  it("updates only the latest stream segment after a successful rollover", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const startStream = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.222222" });
+    const appendStream = vi
+      .fn()
+      .mockRejectedValueOnce(createStreamExpiredError())
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.222222" });
+    const stopStream = vi.fn().mockRejectedValue(createStreamExpiredError());
+    const update = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.222222" });
+    mockStreamMethods(adapter, {
+      appendStream,
+      startStream,
+      stopStream,
+      update,
+    });
+
+    async function* textStream() {
+      yield "first\n";
+      yield "second\n";
+      yield "third\n";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", textStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+      stopBlocks: [
+        {
+          text: { text: "done", type: "plain_text" },
+          type: "section",
+        },
+      ],
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blocks: [
+          {
+            text: { text: "done", type: "plain_text" },
+            type: "section",
+          },
+        ],
+        text: "second\nthird\n",
+        ts: "1234567890.222222",
+      })
+    );
+  });
+
+  it("re-seeds the latest structured chunks when rolling streams", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const taskChunk = {
+      details: "working",
+      id: "task-1",
+      status: "in_progress" as const,
+      title: "Task one",
+      type: "task_update" as const,
+    };
+    const startStream = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.222222" });
+    const appendStream = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.111111" })
+      .mockRejectedValueOnce(createStreamExpiredError())
+      .mockResolvedValueOnce({ ok: true, ts: "1234567890.222222" });
+    const stopStream = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.222222",
+    });
+    mockStreamMethods(adapter, { appendStream, startStream, stopStream });
+
+    async function* chunkStream() {
+      yield taskChunk;
+      yield "hello\n";
+      yield "world\n";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", chunkStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    expect(startStream).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ chunks: [taskChunk] })
+    );
+    expect(appendStream).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        chunks: [{ type: "markdown_text", text: "world\n" }],
+        ts: "1234567890.222222",
+      })
+    );
+  });
+
+  it("does not reject when Slack expires the stream before stop", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const stopStream = vi.fn().mockRejectedValue(createStreamExpiredError());
+    const update = vi.fn();
+    mockStreamMethods(adapter, { stopStream, update });
+
+    async function* textStream() {
+      yield "hello\n";
+    }
+
+    const result = await adapter.stream(
+      "slack:C123:1234567890.000000",
+      textStream(),
+      {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      }
+    );
+
+    expect(stopStream).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
+    expect(result?.id).toBe("1234567890.111111");
+  });
+
+  it("still rejects non-expiry stream append errors", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const appendStream = vi.fn().mockRejectedValue(new Error("boom"));
+    mockStreamMethods(adapter, { appendStream });
+
+    async function* textStream() {
+      yield "first\n";
+      yield "second\n";
+    }
+
+    await expect(
+      adapter.stream("slack:C123:1234567890.000000", textStream(), {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      })
+    ).rejects.toThrow("boom");
+  });
+
+  it("still rejects non-expiry stream stop errors", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const stopStream = vi.fn().mockRejectedValue(new Error("boom"));
+    mockStreamMethods(adapter, { stopStream });
+
+    async function* textStream() {
+      yield "hello\n";
+    }
+
+    await expect(
+      adapter.stream("slack:C123:1234567890.000000", textStream(), {
+        recipientUserId: "U123",
+        recipientTeamId: "T123",
+      })
+    ).rejects.toThrow("boom");
   });
 });
 

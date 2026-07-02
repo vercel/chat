@@ -113,8 +113,8 @@ describe("Streaming Replay Tests", () => {
       // Verify initial message was sent
       expectSentMessage(ctx.mockClient, "AI Mode Enabled!");
 
-      // Verify native streaming was used (chatStream called for the AI response)
-      expect(ctx.mockClient.chatStream).toHaveBeenCalled();
+      // Verify native streaming was used for the AI response.
+      expect(ctx.mockClient.chat.startStream).toHaveBeenCalled();
     });
 
     it("should stream response to follow-up message in AI mode", async () => {
@@ -131,7 +131,7 @@ describe("Streaming Replay Tests", () => {
       });
 
       // Verify native streaming was used for the response
-      expect(ctx.mockClient.chatStream).toHaveBeenCalled();
+      expect(ctx.mockClient.chat.startStream).toHaveBeenCalled();
     });
 
     it("should handle AI mention with file attachment", async () => {
@@ -144,7 +144,7 @@ describe("Streaming Replay Tests", () => {
       });
 
       expect(aiModeEnabled).toBe(true);
-      expect(ctx.mockClient.chatStream).toHaveBeenCalled();
+      expect(ctx.mockClient.chat.startStream).toHaveBeenCalled();
     });
 
     it("should ignore a prompt message posted by the bot", async () => {
@@ -153,7 +153,7 @@ describe("Streaming Replay Tests", () => {
       expect(ctx.captured.mentionMessage).toBeNull();
       expect(ctx.captured.followUpMessage).toBeNull();
       expect(ctx.mockClient.chat.postMessage).not.toHaveBeenCalled();
-      expect(ctx.mockClient.chatStream).not.toHaveBeenCalled();
+      expect(ctx.mockClient.chat.startStream).not.toHaveBeenCalled();
     });
 
     it("should stream structured chunks for a block_actions continuation", async () => {
@@ -183,7 +183,7 @@ describe("Streaming Replay Tests", () => {
       );
       expect(capturedAction.thread?.channelId).toBe("slack:C08REALCHAN1");
 
-      expect(ctx.mockClient.chatStream).toHaveBeenCalledWith(
+      expect(ctx.mockClient.chat.startStream).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: "C08REALCHAN1",
           recipient_team_id: "T08REALTEAM1",
@@ -192,10 +192,11 @@ describe("Streaming Replay Tests", () => {
         })
       );
 
-      const streamer = ctx.mockClient.chatStream.mock.results.at(-1)?.value as {
-        append: ReturnType<typeof vi.fn>;
-      };
-      const hasStructuredAppend = streamer.append.mock.calls.some((call) => {
+      const streamCalls = [
+        ...ctx.mockClient.chat.startStream.mock.calls,
+        ...ctx.mockClient.chat.appendStream.mock.calls,
+      ];
+      const hasStructuredAppend = streamCalls.some((call) => {
         const [payload] = call as [{ chunks?: Array<{ type?: string }> }];
         return (
           Array.isArray(payload.chunks) &&
@@ -226,7 +227,7 @@ describe("Streaming Replay Tests", () => {
       });
       expect(ctx.captured.followUpMessage?.author.userId).toBe("U08REALUSER1");
 
-      expect(ctx.mockClient.chatStream).toHaveBeenCalledWith(
+      expect(ctx.mockClient.chat.startStream).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: "C08REALCHAN1",
           recipient_team_id: "T08REALTEAM1",

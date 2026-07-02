@@ -114,8 +114,10 @@ interface MockSlackClientShape {
     postEphemeral: MockFn;
     update: MockFn;
     delete: MockFn;
+    startStream: MockFn;
+    appendStream: MockFn;
+    stopStream: MockFn;
   };
-  chatStream: MockFn;
   clearMocks: () => void;
   conversations: {
     info: MockFn;
@@ -158,17 +160,23 @@ export function createMockSlackClient(): MockSlackClientShape {
         channel: "C123456",
       }),
       delete: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    // Mock chatStream for streaming support - returns streamer object with append/stop
-    chatStream: vi.fn().mockImplementation(() => ({
-      append: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn().mockResolvedValue({
+      startStream: vi.fn().mockResolvedValue({
+        ok: true,
+        ts: "1234567890.123456",
+        channel: "C123456",
+      }),
+      appendStream: vi.fn().mockResolvedValue({
+        ok: true,
+        ts: "1234567890.123456",
+        channel: "C123456",
+      }),
+      stopStream: vi.fn().mockResolvedValue({
         ok: true,
         ts: "1234567890.123456",
         channel: "C123456",
         message: { ts: "1234567890.123456" },
       }),
-    })),
+    },
     reactions: {
       add: vi.fn().mockResolvedValue({ ok: true }),
       remove: vi.fn().mockResolvedValue({ ok: true }),
@@ -221,7 +229,9 @@ export function createMockSlackClient(): MockSlackClientShape {
       client.chat.postEphemeral.mockClear();
       client.chat.update.mockClear();
       client.chat.delete.mockClear();
-      client.chatStream.mockClear();
+      client.chat.startStream.mockClear();
+      client.chat.appendStream.mockClear();
+      client.chat.stopStream.mockClear();
       client.reactions.add.mockClear();
       client.reactions.remove.mockClear();
       client.conversations.info.mockClear();

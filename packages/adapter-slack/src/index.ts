@@ -11,7 +11,12 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
+import {
+  type ChatAppendStreamArguments,
+  type ChatStartStreamArguments,
+  type ChatStopStreamArguments,
+  WebClient,
+} from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -78,6 +83,17 @@ import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+const SLACK_STREAM_EXPIRED_ERROR = "message_not_in_streaming_state";
+const MAX_SLACK_STREAM_ROLLOVERS = 5;
+
+function isSlackStreamExpiredError(error: unknown): boolean {
+  const slackError = error as { code?: string; data?: { error?: string } };
+
+  return (
+    slackError.code === "slack_webapi_platform_error" &&
+    slackError.data?.error === SLACK_STREAM_EXPIRED_ERROR
+  );
+}
 
 // Slack expects block_suggestion responses within 3s. Leave headroom for
 // network latency so the HTTP response lands before Slack gives up.
@@ -3989,9 +4005,30 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
-    const streamer = this._client.chatStream({
+    let currentStreamTs: string | undefined;
+    let lastKnownMessageTs: string | undefined;
+    let currentMessageStartOffset = 0;
+    let lastConfirmedOffset = 0;
+    let rolloverCount = 0;
+    let fallbackToUpdate = false;
+    let structuredChunksSupported = true;
+    const latestStructuredChunks = new Map<string, StreamChunk>();
+    const renderer = new StreamingMarkdownRenderer({
+      wrapTablesForAppend: false,
+    });
+
+    type StreamPayload = Pick<
+      ChatAppendStreamArguments,
+      "chunks" | "markdown_text"
+    >;
+
+    const baseStartStreamArgs = (): Omit<
+      ChatStartStreamArguments,
+      "chunks" | "markdown_text"
+    > => ({
       channel,
       thread_ts: threadTs,
+      token,
       ...(options?.recipientUserId && {
         recipient_user_id: options.recipientUserId,
       }),
@@ -4003,16 +4040,164 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }),
     });
 
-    let lastAppended = "";
-    const renderer = new StreamingMarkdownRenderer({
-      wrapTablesForAppend: false,
-    });
+    const getMessageTs = (): string => {
+      const messageTs = currentStreamTs ?? lastKnownMessageTs;
+      if (!messageTs) {
+        throw new Error(
+          "Slack stream expired before a message timestamp was available"
+        );
+      }
+      return messageTs;
+    };
 
-    const flushMarkdownDelta = async (delta: string): Promise<void> => {
-      if (delta.length === 0) {
+    const updateCurrentStreamMessage = async (
+      markdownText: string
+    ): Promise<RawMessage<unknown>> => {
+      const messageTs = getMessageTs();
+      const currentMessageText = markdownText.slice(currentMessageStartOffset);
+      const payload = options?.stopBlocks
+        ? {
+            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+            text: currentMessageText,
+          }
+        : { text: currentMessageText };
+
+      try {
+        const result = await this._client.chat.update({
+          channel,
+          ts: messageTs,
+          token,
+          ...payload,
+        });
+
+        this.logger.debug("Slack: stream completed via chat.update fallback", {
+          messageId: result.ts,
+        });
+
+        return {
+          id: result.ts as string,
+          threadId,
+          raw: result,
+        };
+      } catch (error) {
+        this.handleSlackError(error);
+      }
+    };
+
+    const startStream = async (payload: StreamPayload): Promise<void> => {
+      const result = await this._client.chat.startStream({
+        ...baseStartStreamArgs(),
+        ...payload,
+      } as ChatStartStreamArguments);
+      currentStreamTs = result.ts as string;
+      lastKnownMessageTs = currentStreamTs;
+      currentMessageStartOffset = lastConfirmedOffset;
+    };
+
+    const appendToStream = async (payload: StreamPayload): Promise<void> => {
+      if (!currentStreamTs) {
+        await startStream(payload);
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+
+      const result = await this._client.chat.appendStream({
+        channel,
+        ts: currentStreamTs,
+        token,
+        ...payload,
+      } as ChatAppendStreamArguments);
+      lastKnownMessageTs =
+        (result.ts as string | undefined) ?? lastKnownMessageTs;
+    };
+
+    const rememberStructuredChunk = (chunk: StreamChunk): void => {
+      if (chunk.type === "markdown_text") {
+        return;
+      }
+      const key =
+        chunk.type === "task_update" ? `${chunk.type}:${chunk.id}` : chunk.type;
+      latestStructuredChunks.set(key, chunk);
+    };
+
+    const appendLatestStructuredChunks = async (): Promise<void> => {
+      if (!structuredChunksSupported || latestStructuredChunks.size === 0) {
+        return;
+      }
+
+      try {
+        await appendToStream({
+          chunks: [
+            ...latestStructuredChunks.values(),
+          ] as ChatAppendStreamArguments["chunks"],
+        });
+      } catch (error) {
+        if (isSlackStreamExpiredError(error)) {
+          fallbackToUpdate = true;
+          this.logger.warn(
+            "Slack stream expired while re-seeding structured chunks; falling back to chat.update",
+            { error }
+          );
+          return;
+        }
+
+        structuredChunksSupported = false;
+        this.logger.warn(
+          "Structured streaming chunk failed while re-seeding a rolled Slack stream. " +
+            "Continuing with text-only streaming.",
+          { error }
+        );
+      }
+    };
+
+    const rollStream = async (error: unknown): Promise<void> => {
+      if (fallbackToUpdate) {
+        return;
+      }
+
+      if (rolloverCount >= MAX_SLACK_STREAM_ROLLOVERS) {
+        fallbackToUpdate = true;
+        this.logger.warn(
+          "Slack stream expired after the rollover limit; falling back to chat.update",
+          { error, maxRollovers: MAX_SLACK_STREAM_ROLLOVERS }
+        );
+        return;
+      }
+
+      const expiredMessageTs = getMessageTs();
+      lastKnownMessageTs = expiredMessageTs;
+      currentStreamTs = undefined;
+      rolloverCount++;
+      this.logger.warn("Slack stream expired; rolling to a fresh stream", {
+        error,
+        expiredMessageTs,
+        rolloverCount,
+      });
+
+      await appendLatestStructuredChunks();
+    };
+
+    const appendMarkdownDelta = async (delta: string): Promise<boolean> => {
+      if (delta.length === 0 || fallbackToUpdate) {
+        return !fallbackToUpdate;
+      }
+
+      while (!fallbackToUpdate) {
+        try {
+          await appendToStream({
+            chunks: [{ type: "markdown_text", text: delta }],
+          } as StreamPayload);
+          lastConfirmedOffset += delta.length;
+          return true;
+        } catch (error) {
+          if (!isSlackStreamExpiredError(error)) {
+            this.handleSlackError(error);
+          }
+
+          await rollStream(error);
+        }
+      }
+
+      return false;
     };
 
     /**
@@ -4025,22 +4210,32 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * app manifest), the error is logged and the chunk is silently skipped.
      * Text streaming continues unaffected.
      */
-    let structuredChunksSupported = true;
     const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
-      if (!structuredChunksSupported) {
+      rememberStructuredChunk(chunk);
+
+      if (!structuredChunksSupported || fallbackToUpdate) {
         return;
       }
 
       // Flush any buffered markdown before sending the structured chunk
       const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
+      const delta = committable.slice(lastConfirmedOffset);
+      await appendMarkdownDelta(delta);
+
+      if (fallbackToUpdate) {
+        return;
+      }
 
       try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
+        await appendToStream({
+          chunks: [chunk] as ChatAppendStreamArguments["chunks"],
+        });
       } catch (error) {
+        if (isSlackStreamExpiredError(error)) {
+          await rollStream(error);
+          return;
+        }
+
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
         // to avoid repeated failures and log once.
@@ -4048,7 +4243,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         this.logger.warn(
           "Structured streaming chunk failed, falling back to text-only streaming. " +
             "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
-            "and @slack/web-api >= 7.14.0",
+            "and @slack/web-api >= 7.17.0",
           { chunkType: chunk.type, error }
         );
       }
@@ -4057,9 +4252,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const pushTextAndFlush = async (text: string): Promise<void> => {
       renderer.push(text);
       const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
+      const delta = committable.slice(lastConfirmedOffset);
+      await appendMarkdownDelta(delta);
     };
 
     for await (const chunk of textStream) {
@@ -4076,26 +4270,61 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Flush any remaining buffered content (e.g. held table rows at end of stream).
     renderer.finish();
     const finalCommittable = renderer.getCommittableText();
-    const finalDelta = finalCommittable.slice(lastAppended.length);
-    await flushMarkdownDelta(finalDelta);
+    const finalDelta = finalCommittable.slice(lastConfirmedOffset);
+    await appendMarkdownDelta(finalDelta);
 
-    const result = await streamer.stop({
-      token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
-        : {}),
-    });
-    const messageTs = (result.message?.ts ?? result.ts) as string;
+    if (fallbackToUpdate) {
+      return updateCurrentStreamMessage(finalCommittable);
+    }
 
-    this.logger.debug("Slack: stream complete", { messageId: messageTs });
+    try {
+      const messageTs = getMessageTs();
+      const result = await this._client.chat.stopStream({
+        channel,
+        ts: messageTs,
+        token,
+        ...(options?.stopBlocks
+          ? {
+              blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
+            }
+          : {}),
+      });
+      const resultMessageTs = (result.message?.ts ?? result.ts) as string;
+      lastKnownMessageTs = resultMessageTs;
+      currentStreamTs = resultMessageTs;
 
-    return {
-      id: messageTs,
-      threadId,
-      raw: result,
-    };
+      this.logger.debug("Slack: stream complete", {
+        messageId: resultMessageTs,
+      });
+
+      return {
+        id: resultMessageTs,
+        threadId,
+        raw: result,
+      };
+    } catch (error) {
+      if (!isSlackStreamExpiredError(error)) {
+        this.handleSlackError(error);
+      }
+
+      if (
+        options?.stopBlocks ||
+        finalCommittable.length > lastConfirmedOffset
+      ) {
+        return updateCurrentStreamMessage(finalCommittable);
+      }
+
+      const messageTs = getMessageTs();
+      this.logger.debug("Slack: stream complete after Slack finalized it", {
+        messageId: messageTs,
+      });
+
+      return {
+        id: messageTs,
+        threadId,
+        raw: { ok: true, ts: messageTs },
+      };
+    }
   }
 
   /**
