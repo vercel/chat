@@ -328,7 +328,7 @@ describe("Chat", () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it("should use default dedupe TTL of 5 minutes", async () => {
+    it("should use default dedupe TTL of 10 minutes", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
       chat.onNewMention(handler);
 
@@ -342,7 +342,7 @@ describe("Chat", () => {
       expect(mockState.setIfNotExists).toHaveBeenCalledWith(
         "dedupe:slack:msg-1",
         true,
-        300_000
+        600_000
       );
     });
 
