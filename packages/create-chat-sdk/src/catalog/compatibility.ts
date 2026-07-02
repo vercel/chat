@@ -10,6 +10,8 @@ import type { AdapterSlug } from "chat/adapters";
  * are hidden from the CLI prompts and rejected when passed via `--adapter`.
  */
 const CLI_INCOMPATIBLE_ADAPTERS = {
+  "cloudflare-agents":
+    "it runs inside a Cloudflare Worker with Durable Objects, not the generated Next.js runtime",
   lark: "it requires a long-running WebSocket connection",
   matrix: "it requires a long-running sync process",
 } as const satisfies Partial<Record<AdapterSlug, string>>;

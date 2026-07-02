@@ -12,6 +12,7 @@
     "velt",
     "kapso",
     "linq",
-    "photon"
+    "photon",
+    "cloudflare-agents"
   ]
 }

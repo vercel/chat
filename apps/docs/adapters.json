@@ -160,6 +160,17 @@
     "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do/tree/13ebf545b302b7c8fdabf7de9c5de678e047ce5e"
   },
   {
+    "name": "Cloudflare Agents",
+    "slug": "cloudflare-agents",
+    "type": "state",
+    "community": true,
+    "description": "Cloudflare Agents state adapter for Chat SDK. Stores subscriptions, locks, queues, and history in Durable Object SQLite via ChatSdkStateAgent sub-agents.",
+    "packageName": "agents",
+    "author": "Cloudflare",
+    "readme": "https://github.com/cloudflare/agents",
+    "vendorOfficial": true
+  },
+  {
     "name": "MySQL",
     "slug": "mysql",
     "type": "state",

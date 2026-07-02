@@ -6,11 +6,11 @@ import {
   select,
   text,
 } from "@clack/prompts";
-import { listStateAdapters } from "chat/adapters";
 import {
   getAdapterConnectSpec,
   getCliScaffoldSpec,
   listCliPlatformAdapters,
+  listCliStateAdapters,
 } from "../catalog/index.js";
 import { resolveAdapterSelection } from "../catalog/selection.js";
 import type { PackageManager, ProjectConfig } from "../types.js";
@@ -116,7 +116,7 @@ export async function runPrompts(
       ? "memory"
       : await select({
           message: "Select state adapter:",
-          options: listStateAdapters().map((adapter) => ({
+          options: listCliStateAdapters().map((adapter) => ({
             hint: getCliScaffoldSpec(adapter.slug).stateHint,
             label: adapter.name,
             value: adapter.slug,

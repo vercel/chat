@@ -198,6 +198,22 @@ export const ADAPTERS = {
     slug: "agentphone",
     type: "platform",
   },
+  "cloudflare-agents": {
+    description:
+      "Cloudflare Agents state adapter for Chat SDK. Stores subscriptions, locks, queues, and history in Durable Object SQLite via ChatSdkStateAgent sub-agents.",
+    env: {
+      config: ["parent", "agent", "name", "shardKey", "keyShard"],
+      notes:
+        "No environment variables are required. State is stored in Durable Object SQLite via ChatSdkStateAgent sub-agents; add the parent Agent to your Durable Object migration and re-export ChatSdkStateAgent from the Worker entry point.",
+    },
+    factoryExport: "createChatSdkState",
+    group: "vendor-official",
+    name: "Cloudflare Agents",
+    packageName: "agents",
+    peerDeps: [],
+    slug: "cloudflare-agents",
+    type: "state",
+  },
   discord: {
     description:
       "Create Discord bots with slash commands, threads, and rich embeds.",

@@ -34,6 +34,9 @@ describe("resolveAdapterValue", () => {
   it("rejects adapters incompatible with the webhook-only scaffold", () => {
     expect(() => resolveAdapterValue("matrix")).toThrow("not supported");
     expect(() => resolveAdapterValue("lark")).toThrow("not supported");
+    expect(() => resolveAdapterValue("cloudflare-agents")).toThrow(
+      "not supported"
+    );
   });
 });
 
