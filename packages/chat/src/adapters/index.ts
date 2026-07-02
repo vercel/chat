@@ -246,6 +246,10 @@ export const ADAPTERS = {
           "Installation ID for single-installation app deployments."
         ),
         env("GITHUB_BOT_USERNAME", "Bot username for mention detection."),
+        env(
+          "GITHUB_BOT_USER_ID",
+          "Numeric bot user ID for self-message detection; recommended on serverless and with Vercel Connect to prevent reply loops."
+        ),
         urlEnv("GITHUB_API_URL", "Override the GitHub API base URL."),
       ],
       required: [secretEnv("GITHUB_WEBHOOK_SECRET", "Webhook signing secret.")],
