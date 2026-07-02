@@ -109,7 +109,21 @@ describe("Vercel Connect generation", () => {
     );
     expect(result).toContain("slack: createSlackAdapter({");
     expect(result).toContain(
-      '...connectSlackAdapter(process.env.SLACK_CONNECTOR ?? ""),'
+      '...connectSlackAdapter(requireEnv("SLACK_CONNECTOR")),'
+    );
+  });
+
+  it("fails loudly on a missing connector via requireEnv", () => {
+    const result = generateBotTs(connectConfig(["slack"]));
+    expect(result).toContain("const requireEnv = (name: string): string =>");
+    expect(result).toContain(
+      "throw new Error(`Missing required environment variable: ${name}`);"
+    );
+  });
+
+  it("omits the requireEnv helper when Connect is not used", () => {
+    expect(generateBotTs(makeConfig(["slack"]))).not.toContain(
+      "const requireEnv ="
     );
   });
 

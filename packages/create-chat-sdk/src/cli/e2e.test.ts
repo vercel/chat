@@ -104,7 +104,7 @@ describe("CLI Vercel Connect mode", () => {
       'import { connectSlackAdapter } from "@vercel/connect/chat";'
     );
     expect(botTs).toContain(
-      '...connectSlackAdapter(process.env.SLACK_CONNECTOR ?? ""),'
+      '...connectSlackAdapter(requireEnv("SLACK_CONNECTOR")),'
     );
 
     const packageJson = JSON.parse(

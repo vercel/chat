@@ -61,7 +61,9 @@ const renderConnectCall = (
   adapter: CatalogAdapter,
   connect: AdapterConnectSpec
 ): string =>
-  `${adapter.factoryExport}({\n${INDENT.repeat(3)}...${connect.helper}(process.env.${connect.connectorEnvVar} ?? ""),\n${INDENT.repeat(2)}})`;
+  `${adapter.factoryExport}({\n${INDENT.repeat(3)}...${connect.helper}(requireEnv(${quote(connect.connectorEnvVar)})),\n${INDENT.repeat(2)}})`;
+
+const REQUIRE_ENV_HELPER = `const requireEnv = (name: string): string => {\n${INDENT}const value = process.env[name];\n${INDENT}if (!value) {\n${INDENT.repeat(2)}throw new Error(\`Missing required environment variable: \${name}\`);\n${INDENT}}\n${INDENT}return value;\n};`;
 
 const importLine = (adapter: CatalogAdapter): string =>
   `import { ${adapter.factoryExport} } from ${quote(adapter.packageName)};`;
@@ -112,6 +114,8 @@ export function generateBotTs(config: ProjectConfig): string {
   const adaptersBlock = adapterEntries
     ? `{\n${adapterEntries}\n${INDENT}}`
     : "{}";
+  const preamble =
+    connectHelpers.size > 0 ? `${REQUIRE_ENV_HELPER}\n\n` : "";
   const handlers = [
     "bot.onNewMention(async (thread, message) => {",
     `${INDENT}await thread.subscribe();`,
@@ -132,5 +136,5 @@ export function generateBotTs(config: ProjectConfig): string {
     );
   }
 
-  return `${imports.join("\n")}\n\nexport const bot = new Chat({\n${INDENT}userName: process.env.BOT_USERNAME ?? ${quote(config.name)},\n${INDENT}adapters: ${adaptersBlock},\n${INDENT}state: ${stateCall},\n});\n\n${handlers.join("\n")}\n`;
+  return `${imports.join("\n")}\n\n${preamble}export const bot = new Chat({\n${INDENT}userName: process.env.BOT_USERNAME ?? ${quote(config.name)},\n${INDENT}adapters: ${adaptersBlock},\n${INDENT}state: ${stateCall},\n});\n\n${handlers.join("\n")}\n`;
 }
