@@ -68,6 +68,10 @@ export function createProgram(): Command {
       ).conflicts(["adapter", "yes"])
     )
     .option(
+      "--connect",
+      "authenticate Slack, GitHub, and Linear adapters with Vercel Connect"
+    )
+    .option(
       "--pm <manager>",
       "package manager to use (npm, yarn, pnpm, bun)",
       parsePackageManager
@@ -100,6 +104,7 @@ export function createProgram(): Command {
         name: string | undefined,
         opts: {
           adapter?: string[];
+          connect?: boolean;
           description?: string;
           force?: boolean;
           git?: boolean;
@@ -120,6 +125,7 @@ export function createProgram(): Command {
           ? agentResult.agent.name
           : undefined;
         await runCli({
+          connect: opts.connect === true,
           description: opts.description,
           detectedAgent,
           force: opts.force ?? false,
