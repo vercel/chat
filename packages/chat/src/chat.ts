@@ -80,8 +80,13 @@ const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
 const LINEAR_UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NUMERIC_REGEX = /^\d+$/;
-/** TTL for message deduplication entries */
-const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * TTL for message deduplication entries. Must outlive the longest platform
+ * redelivery window so a retried event still hits the dedupe entry from its
+ * first processing — Slack's Events API retries up to ~5 minutes after the
+ * original delivery.
+ */
+const DEDUPE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Server-side stored modal context */

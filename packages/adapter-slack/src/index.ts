@@ -1766,11 +1766,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.socketClient.on(
       "slack_event",
-      async ({ ack, body, type, retry_num }) => {
+      async ({ ack, body, type, retry_num, retry_reason }) => {
         if (retry_num && retry_num > 0) {
-          await ack();
-          this.logger.debug("Skipping socket mode retry", { retry_num });
-          return;
+          // Slack redelivers an event when a prior delivery wasn't acked —
+          // including events sent while the app had no open socket (restart,
+          // deploy, connection refresh). Route it like a first delivery:
+          // processMessage() dedupes by message id, so an already-handled
+          // duplicate is dropped there, while a genuinely missed event is
+          // recovered instead of being lost.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
         }
 
         await this.routeSocketEvent(
@@ -1930,35 +1938,42 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const client = new SocketModeClient({ appToken });
     let isShuttingDown = false;
 
-    client.on("slack_event", async ({ ack, body, type, retry_num }) => {
-      if (isShuttingDown) {
-        return;
-      }
+    client.on(
+      "slack_event",
+      async ({ ack, body, type, retry_num, retry_reason }) => {
+        if (isShuttingDown) {
+          return;
+        }
 
-      if (retry_num && retry_num > 0) {
-        await ack();
-        this.logger.debug("Skipping socket mode retry", { retry_num });
-        return;
-      }
+        if (retry_num && retry_num > 0) {
+          // See startSocketMode: retries are routed like first deliveries and
+          // deduped downstream, so missed-while-disconnected events recover.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
+        }
 
-      const eventType = type as string;
-      if (webhookUrl) {
-        await ack();
-        await this.forwardSocketEvent(webhookUrl, {
-          type: "socket_event",
-          eventType,
-          body: body as Record<string, unknown>,
-          timestamp: Date.now(),
-        });
-      } else {
-        await this.routeSocketEvent(
-          body as Record<string, unknown>,
-          eventType,
-          ack,
-          options
-        );
+        const eventType = type as string;
+        if (webhookUrl) {
+          await ack();
+          await this.forwardSocketEvent(webhookUrl, {
+            type: "socket_event",
+            eventType,
+            body: body as Record<string, unknown>,
+            timestamp: Date.now(),
+          });
+        } else {
+          await this.routeSocketEvent(
+            body as Record<string, unknown>,
+            eventType,
+            ack,
+            options
+          );
+        }
       }
-    });
+    );
 
     try {
       await client.start();
