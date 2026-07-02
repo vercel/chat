@@ -23,7 +23,10 @@ import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
 } from "@chat-adapter/whatsapp";
-import { connectSlackAdapter } from "@vercel/connect/chat";
+import {
+  connectLinearAdapter,
+  connectSlackAdapter,
+} from "@vercel/connect/chat";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -244,9 +247,13 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET).
-  // Set LINEAR_MODE=agent-sessions for app-actor installs with Agent session events + app:mentionable.
-  if (process.env.LINEAR_WEBHOOK_SECRET) {
+  // Linear adapter (optional) - Vercel Connect.
+  // env vars: LINEAR_CONNECTOR (the connector UID, e.g. "linear/acme-linear")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectLinearAdapter()
+  // resolves a short-lived access token from Vercel Connect at runtime and
+  // verifies Connect-forwarded webhooks via the Vercel OIDC token instead of a
+  // webhook secret. Set LINEAR_MODE=agent-sessions for app-actor installs.
+  if (process.env.LINEAR_CONNECTOR) {
     try {
       adapters.linear = withRecording(
         createLinearAdapter({
@@ -255,13 +262,14 @@ export function buildAdapters(): Adapters {
             process.env.LINEAR_MODE === "agent-sessions"
               ? "agent-sessions"
               : "comments",
+          ...connectLinearAdapter(process.env.LINEAR_CONNECTOR),
         }),
         "linear",
         LINEAR_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create linear adapter (check LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)"
+        "[chat] Failed to create linear adapter (check LINEAR_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }
