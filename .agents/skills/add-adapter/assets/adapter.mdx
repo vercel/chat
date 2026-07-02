@@ -1,0 +1,104 @@
+---
+title: Foo
+description: One-to-two sentence summary of what the Foo adapter connects to and its headline capabilities. Shown in search and listings.
+packageName: "@foo/chat-sdk-adapter"
+slug: foo
+type: platform
+tagline: One-line pitch shown on the adapter card — what it does and for whom.
+community: true
+# vendor-official only — delete both lines for a community adapter:
+vendorOfficial: true
+author: Foo
+mdxBody: true
+# Feature matrix. Use `yes` / `no`, or `{ status: partial|yes, label: "…" }`.
+# PLATFORM adapters use these keys:
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads: no
+  streaming: no
+  scheduledMessages: no
+  cardFormat: no
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables: no
+  fields: no
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions: no
+  addReactions: no
+  removeReactions: no
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint: no
+  fetchMessages: no
+  fetchSingleMessage: no
+  fetchThreadInfo: no
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+# STATE adapters (type: state) use these keys instead of the platform set above:
+#   persistence, multiInstance, subscriptions, distributedLocking, keyValueCache,
+#   lists, queues, automaticReconnect, cluster, sentinel, keyPrefix
+---
+
+## Install
+
+{/* Only the adapter package + chat (+ optional state adapter). Extra imports
+    used below go in code blocks, NOT here — see the peerDeps invariant. */}
+<PackageInstall package="@foo/chat-sdk-adapter chat @chat-adapter/state-memory" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createFooAdapter } from "@foo/chat-sdk-adapter";
+
+export const bot = new Chat({
+  userName: "mybot",
+  state: createMemoryState(),
+  adapters: {
+    foo: createFooAdapter({
+      apiKey: process.env.FOO_API_KEY,
+      webhookSecret: process.env.FOO_WEBHOOK_SECRET,
+    }),
+  },
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    apiKey: { type: "string", description: "Foo API key. Falls back to `FOO_API_KEY`." },
+    webhookSecret: { type: "string", description: "Signing secret for inbound webhook verification. Falls back to `FOO_WEBHOOK_SECRET`." },
+  }}
+/>
+
+## Webhooks
+
+```typescript title="app/api/webhooks/foo/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.foo(request);
+}
+```
+
+{/* Add the sections that apply: sending, reactions, attachments, thread IDs,
+    limitations, links. Keep it faithful to the adapter's real behavior. */}
+
+## Feature support
+
+<FeatureSupport />
