@@ -1,40 +1,6 @@
-import type { Logger, StateAdapter } from "chat";
-import { describe, expect, it, vi } from "vitest";
+import { createMockState, mockLogger } from "@chat-adapter/tests";
+import { describe, expect, it } from "vitest";
 import { UserInfoCache } from "./user-info";
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: () => mockLogger,
-};
-
-function createMockState() {
-  const cache = new Map<string, unknown>();
-  return {
-    cache,
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    subscribe: vi.fn(),
-    unsubscribe: vi.fn(),
-    isSubscribed: vi.fn(),
-    acquireLock: vi.fn(),
-    releaseLock: vi.fn(),
-    extendLock: vi.fn(),
-    get: vi.fn().mockImplementation((key: string) => {
-      return Promise.resolve(cache.get(key) ?? null);
-    }),
-    set: vi.fn().mockImplementation((key: string, value: unknown) => {
-      cache.set(key, value);
-      return Promise.resolve();
-    }),
-    delete: vi.fn().mockImplementation((key: string) => {
-      cache.delete(key);
-      return Promise.resolve();
-    }),
-  } as unknown as StateAdapter & { cache: Map<string, unknown> };
-}
 
 describe("UserInfoCache", () => {
   describe("set", () => {
