@@ -1,5 +1,9 @@
 import { createHmac } from "node:crypto";
-import { createMockChatInstance, createMockLogger } from "@chat-adapter/tests";
+import {
+  createMockChatInstance,
+  createMockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import {
   afterEach,
   beforeEach,
@@ -9,7 +13,12 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import { createWhatsAppAdapter, splitMessage, WhatsAppAdapter } from "./index";
+import {
+  createWhatsAppAdapter,
+  splitMessage,
+  WhatsAppAdapter,
+  type WhatsAppThreadId,
+} from "./index";
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
@@ -30,36 +39,38 @@ function createTestAdapter(): WhatsAppAdapter {
   });
 }
 
-describe("encodeThreadId", () => {
-  it("should encode a thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-    expect(result).toBe("whatsapp:123456789:15551234567");
-  });
+// `encodeThreadId`/`decodeThreadId` are pure, so a single adapter instance (no
+// init, no network) is enough to exercise the shared thread-id codec contract.
+const threadIdAdapter = createTestAdapter();
 
-  it("should encode with different phone numbers", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "987654321",
-      userWaId: "44771234567",
-    });
-    expect(result).toBe("whatsapp:987654321:44771234567");
-  });
+// Encode/decode/round-trip coverage lives in the shared `threadIdContract`.
+// WhatsApp threads are always 1:1 DMs, so `isDM` has no non-DM case to feed the
+// contract's optional check — that edge stays in the local `isDM` suite below.
+threadIdContract<WhatsAppThreadId>({
+  name: "whatsapp",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { phoneNumberId: "123456789", userWaId: "15551234567" },
+      encoded: "whatsapp:123456789:15551234567",
+    },
+    {
+      decoded: { phoneNumberId: "987654321", userWaId: "44771234567" },
+      encoded: "whatsapp:987654321:44771234567",
+    },
+    {
+      // international numbers must survive the round-trip untouched.
+      decoded: { phoneNumberId: "999888777", userWaId: "919876543210" },
+      encoded: "whatsapp:999888777:919876543210",
+    },
+  ],
 });
 
 describe("decodeThreadId", () => {
-  it("should decode a valid thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.decodeThreadId("whatsapp:123456789:15551234567");
-    expect(result).toEqual({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-  });
-
+  // Valid decode + round-trip coverage lives in the shared `threadIdContract`
+  // above; only the malformed-id and invalid-prefix errors it does not cover
+  // are kept here.
   it("should throw on invalid prefix", () => {
     const adapter = createTestAdapter();
     expect(() => adapter.decodeThreadId("slack:C123:ts123")).toThrow(
@@ -93,30 +104,6 @@ describe("decodeThreadId", () => {
     expect(() => adapter.decodeThreadId("whatsapp:123:456:extra")).toThrow(
       "Invalid WhatsApp thread ID format"
     );
-  });
-});
-
-describe("encodeThreadId / decodeThreadId roundtrip", () => {
-  it("should round-trip a thread ID", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
-  });
-
-  it("should round-trip with international numbers", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "999888777",
-      userWaId: "919876543210",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
   });
 });
 
