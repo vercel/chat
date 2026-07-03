@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { createMockChatInstance, createMockLogger } from "@chat-adapter/tests";
 import {
   afterEach,
   beforeEach,
@@ -25,12 +26,7 @@ function createTestAdapter(): WhatsAppAdapter {
     phoneNumberId: "123456789",
     verifyToken: "test-verify-token",
     userName: "test-bot",
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
+    logger: createMockLogger(),
   });
 }
 
@@ -650,24 +646,7 @@ function makeWebhookPayload(overrides?: {
   };
 }
 
-const mockChat = {
-  processMessage: vi.fn(),
-  processReaction: vi.fn(),
-  processAction: vi.fn(),
-  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-  processModalSubmit: vi.fn(),
-  processModalClose: vi.fn(),
-  processSlashCommand: vi.fn(),
-  processMemberJoinedChannel: vi.fn(),
-  getState: vi.fn(),
-  getUserName: () => "test-bot",
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-};
+const mockChat = createMockChatInstance();
 
 // ---------------------------------------------------------------------------
 // handleWebhook - POST with signature verification
@@ -768,7 +747,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("text message calls chat.processMessage with correct thread and message", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload();
     const body = JSON.stringify(payload);
@@ -792,7 +771,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("non-messages field change is skipped", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload({
       field: "statuses",
@@ -811,7 +790,7 @@ describe("handleWebhook - POST message processing", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(mockChat.processMessage).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveDispatched("processMessage");
   });
 });
 
@@ -1193,12 +1172,7 @@ describe("createWhatsAppAdapter", () => {
       verifyToken: "test-verify-token",
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v25.0"
@@ -1237,12 +1211,7 @@ describe("createWhatsAppAdapter", () => {
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
       apiVersion: "v19.0",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v19.0"
