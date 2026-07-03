@@ -7,7 +7,8 @@ import {
   ValidationError as SharedValidationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
+import { createMockChatInstance, createMockLogger } from "@chat-adapter/tests";
+import type { ChatInstance } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMessengerAdapter,
@@ -26,13 +27,7 @@ function signPayload(body: string): string {
   return `sha256=${hash}`;
 }
 
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
+const mockLogger = createMockLogger();
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -53,21 +48,7 @@ function graphApiOk(result: unknown): Response {
 }
 
 function createMockChat(): ChatInstance {
-  return {
-    getLogger: vi.fn().mockReturnValue(mockLogger),
-    getState: vi.fn(),
-    getUserName: vi.fn().mockReturnValue("TestBot"),
-    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
-    processMessage: vi.fn(),
-    processReaction: vi.fn(),
-    processAction: vi.fn(),
-    processModalClose: vi.fn(),
-    processModalSubmit: vi.fn().mockResolvedValue(undefined),
-    processSlashCommand: vi.fn(),
-    processAssistantThreadStarted: vi.fn(),
-    processAssistantContextChanged: vi.fn(),
-    processAppHomeOpened: vi.fn(),
-  } as unknown as ChatInstance;
+  return createMockChatInstance({ logger: mockLogger, userName: "TestBot" });
 }
 
 function sampleMessagingEvent(
@@ -529,7 +510,7 @@ describe("MessengerAdapter", () => {
         });
 
         await adapter.handleWebhook(request);
-        expect(chat.processMessage).not.toHaveBeenCalled();
+        expect(chat).not.toHaveDispatched("processMessage");
       });
 
       it("caches echo messages", async () => {
@@ -559,7 +540,7 @@ describe("MessengerAdapter", () => {
         });
 
         await adapter.handleWebhook(request);
-        expect(chat.processMessage).not.toHaveBeenCalled();
+        expect(chat).not.toHaveDispatched("processMessage");
         const cached = await adapter.fetchMessage(
           "messenger:USER_123",
           "mid.echo1"
