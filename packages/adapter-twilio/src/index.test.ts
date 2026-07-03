@@ -1,4 +1,4 @@
-import type { ChatInstance } from "chat";
+import { createMockChatInstance } from "@chat-adapter/tests";
 import { Message } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createTwilioAdapter } from "./index";
@@ -31,7 +31,7 @@ describe("TwilioAdapter", () => {
   });
 
   it("routes incoming message webhooks to chat processing", async () => {
-    const chat = mockChat();
+    const chat = createMockChatInstance();
     const adapter = createTwilioAdapter({
       fetch: mockFetch("media"),
       webhookVerifier: () => true,
@@ -259,15 +259,6 @@ function formRequest(fields: Record<string, string>): Request {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     method: "POST",
   });
-}
-
-function mockChat() {
-  return {
-    getLogger: () => ({ child: () => console }),
-    processMessage: vi.fn(),
-  } as unknown as ChatInstance & {
-    processMessage: ReturnType<typeof vi.fn>;
-  };
 }
 
 function mockFetch(body: unknown) {
