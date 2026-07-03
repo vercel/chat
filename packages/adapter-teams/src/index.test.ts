@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import { createMockChatInstance, createMockState } from "@chat-adapter/tests";
 import { ConsoleLogger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
@@ -788,18 +789,8 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockChat = {
-        getState: vi.fn(),
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-        processReaction: vi.fn(),
-      };
-
       // initialize() calls app.initialize() which registers the bridge route handler
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(createMockChatInstance());
 
       expect(adapter.name).toBe("teams");
     });
@@ -1002,27 +993,12 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async () => null),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-        processReaction: vi.fn(),
-      };
-
       // Mock app.initialize to avoid real HTTP setup
       const mockApp = (
         adapter as unknown as { app: { initialize: ReturnType<typeof vi.fn> } }
       ).app;
       mockApp.initialize = vi.fn(async () => undefined);
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(createMockChatInstance());
 
       await expect(adapter.openDM("user-123")).rejects.toThrow(ValidationError);
     });
@@ -1040,22 +1016,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1075,9 +1038,7 @@ describe("TeamsAdapter", () => {
         })),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
@@ -1095,17 +1056,7 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async () => null),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       const mockApp = (
         adapter as unknown as {
@@ -1114,9 +1065,7 @@ describe("TeamsAdapter", () => {
       ).app;
       mockApp.initialize = vi.fn(async () => undefined);
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:unknown-user");
       expect(user).toBeNull();
@@ -1129,22 +1078,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1161,9 +1097,7 @@ describe("TeamsAdapter", () => {
         }),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).toBeNull();
@@ -1176,22 +1110,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1211,9 +1132,7 @@ describe("TeamsAdapter", () => {
         })),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
