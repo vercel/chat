@@ -1,6 +1,11 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
-import { connectWebhookContract } from "@chat-adapter/tests";
+import {
+  connectWebhookContract,
+  createMockChatInstance,
+  createMockState,
+  mockLogger,
+} from "@chat-adapter/tests";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
 import type {
@@ -83,13 +88,6 @@ vi.mock("@octokit/auth-app", () => ({
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const mockLogger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
 
 const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
@@ -193,25 +191,12 @@ function makeWebhookRequest(
   });
 }
 
-function createMockState() {
-  const cache = new Map<string, unknown>();
-
-  return {
-    get: vi.fn(async <T>(key: string) => {
-      return (cache.get(key) as T | undefined) ?? null;
-    }),
-    set: vi.fn(async (key: string, value: unknown) => {
-      cache.set(key, value);
-    }),
-  };
-}
-
 function stringifyLoggerCalls(): string {
   return JSON.stringify({
-    debug: mockLogger.debug.mock.calls,
-    error: mockLogger.error.mock.calls,
-    info: mockLogger.info.mock.calls,
-    warn: mockLogger.warn.mock.calls,
+    debug: vi.mocked(mockLogger.debug).mock.calls,
+    error: vi.mocked(mockLogger.error).mock.calls,
+    info: vi.mocked(mockLogger.info).mock.calls,
+    warn: vi.mocked(mockLogger.warn).mock.calls,
   });
 }
 
@@ -403,13 +388,7 @@ describe("GitHubAdapter", () => {
         data: { id: 777, login: "test-bot" },
       });
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await adapter.initialize(mockChat);
 
@@ -425,13 +404,7 @@ describe("GitHubAdapter", () => {
         new Error("Bad credentials")
       );
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await adapter.initialize(mockChat);
 
@@ -451,13 +424,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await a.initialize(mockChat);
 
@@ -516,13 +483,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const chat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const chat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(chat);
 
       const payload = makeIssueCommentPayload({
@@ -549,13 +510,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const chat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const chat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(chat);
 
       await expect(
@@ -708,13 +663,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should not log raw payload content for valid webhooks", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -768,13 +717,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should process issue_comment on PR with valid signature", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
@@ -797,13 +740,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should process issue_comment on a plain issue", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -830,13 +767,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should ignore issue_comment with action other than created", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -849,17 +780,11 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should process pull_request_review_comment event", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -886,13 +811,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should use in_reply_to_id as root for review comment replies", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -925,13 +844,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should ignore review_comment with action other than created", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -948,7 +861,7 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should return ok for unrecognized event types", async () => {
@@ -971,13 +884,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(mockChat);
 
       const body = JSON.stringify({
@@ -1027,13 +934,7 @@ describe("GitHubAdapter", () => {
 
   describe("self-message detection", () => {
     it("should ignore messages from the bot itself (issue comment)", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       // Set bot user ID to 777
       mockUsersGetAuthenticated.mockResolvedValueOnce({
@@ -1055,17 +956,11 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should ignore messages from the bot itself (review comment)", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
@@ -1085,7 +980,7 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
@@ -1096,13 +991,7 @@ describe("GitHubAdapter", () => {
       // always false and the bot would re-process its own replies in an
       // unbounded loop.
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
 
       const multiTenantAdapter = new GitHubAdapter({
         appId: "12345",
@@ -1139,7 +1028,7 @@ describe("GitHubAdapter", () => {
       // botUserId must be set after the first webhook so isMe works.
       expect(multiTenantAdapter.botUserId).toBe("777");
       // The bot's own reply must NOT be dispatched to handlers.
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should fall back to apps.getAuthenticated when users.getAuthenticated rejects (multi-tenant App)", async () => {
@@ -1147,13 +1036,7 @@ describe("GitHubAdapter", () => {
       // available with installation tokens depending on permissions. Fall
       // back to /app + /users/{slug}[bot] to recover the bot user ID.
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
 
       const multiTenantAdapter = new GitHubAdapter({
         appId: "12345",
