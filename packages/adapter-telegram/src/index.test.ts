@@ -5,7 +5,8 @@ import {
   PermissionError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
+import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
+import type { ChatInstance } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -20,14 +21,6 @@ import {
   TELEGRAM_MESSAGE_LIMIT,
   TelegramFormatConverter,
 } from "./markdown";
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
 
 const mockFetch = vi.fn<typeof fetch>();
 const SERVERLESS_ENV_KEYS = [
@@ -89,22 +82,12 @@ function telegramError(
 }
 
 function createMockChat(options?: { userName?: unknown }): ChatInstance {
-  return {
-    getLogger: vi.fn().mockReturnValue(mockLogger),
-    getState: vi.fn(),
-    getUserName: vi.fn().mockReturnValue(options?.userName ?? "mybot"),
-    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
-    processMessage: vi.fn(),
-    processReaction: vi.fn(),
-    processAction: vi.fn(),
-    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-    processModalClose: vi.fn(),
-    processModalSubmit: vi.fn().mockResolvedValue(undefined),
-    processSlashCommand: vi.fn(),
-    processAssistantThreadStarted: vi.fn(),
-    processAssistantContextChanged: vi.fn(),
-    processAppHomeOpened: vi.fn(),
-  } as unknown as ChatInstance;
+  // Thin wrapper over the shared factory that preserves this adapter's
+  // "mybot" default bot username (the shared factory defaults to "test-bot").
+  return createMockChatInstance({
+    logger: mockLogger,
+    userName: (options?.userName as string | undefined) ?? "mybot",
+  });
 }
 
 function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
@@ -441,7 +424,7 @@ describe("TelegramAdapter", () => {
       typeof vi.fn
     >;
     expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processMessage");
 
     const [event] = processSlashCommand.mock.calls[0] as [
       {
@@ -561,7 +544,7 @@ describe("TelegramAdapter", () => {
       typeof vi.fn
     >;
     expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processMessage");
 
     const [event] = processSlashCommand.mock.calls[0] as [
       {
@@ -609,7 +592,7 @@ describe("TelegramAdapter", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(chat.processSlashCommand).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processSlashCommand");
     expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -648,7 +631,7 @@ describe("TelegramAdapter", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(chat.processSlashCommand).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processSlashCommand");
     expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
