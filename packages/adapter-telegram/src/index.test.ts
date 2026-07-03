@@ -5,7 +5,11 @@ import {
   PermissionError,
   ValidationError,
 } from "@chat-adapter/shared";
-import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
+import {
+  createMockChatInstance,
+  mockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import type { ChatInstance } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
@@ -15,6 +19,7 @@ import {
   TelegramAdapter,
   type TelegramMessage,
   type TelegramReactionType,
+  type TelegramThreadId,
 } from "./index";
 import {
   TELEGRAM_CAPTION_LIMIT,
@@ -249,33 +254,39 @@ describe("constructor env var resolution", () => {
   });
 });
 
+// ============================================================================
+// Thread ID Encoding/Decoding Tests
+// ============================================================================
+
+const threadIdAdapter = createTelegramAdapter({
+  botToken: "token",
+  mode: "webhook",
+  logger: mockLogger,
+});
+
+threadIdContract<TelegramThreadId>({
+  name: "telegram",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    // Private chat / DM (positive chat ID).
+    { decoded: { chatId: "456" }, encoded: "telegram:456" },
+    // Group / supergroup chat (negative chat ID).
+    { decoded: { chatId: "-100123" }, encoded: "telegram:-100123" },
+    // Forum topic thread inside a supergroup.
+    {
+      decoded: { chatId: "-100123", messageThreadId: 42 },
+      encoded: "telegram:-100123:42",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "telegram:456",
+    nonDmThreadId: "telegram:-100123",
+  },
+});
+
 describe("TelegramAdapter", () => {
-  it("encodes and decodes thread IDs", () => {
-    const adapter = createTelegramAdapter({
-      botToken: "token",
-      mode: "webhook",
-      logger: mockLogger,
-    });
-
-    expect(
-      adapter.encodeThreadId({
-        chatId: "-100123",
-      })
-    ).toBe("telegram:-100123");
-
-    expect(
-      adapter.encodeThreadId({
-        chatId: "-100123",
-        messageThreadId: 42,
-      })
-    ).toBe("telegram:-100123:42");
-
-    expect(adapter.decodeThreadId("telegram:-100123:42")).toEqual({
-      chatId: "-100123",
-      messageThreadId: 42,
-    });
-  });
-
   it("handles webhook message updates and marks mentions", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
@@ -3383,7 +3394,7 @@ describe("TelegramAdapter", () => {
     expect(attachment?.size).toBe(512000);
   });
 
-  it("isDM returns true for private chats (positive chat ID)", async () => {
+  it("isDM returns false for forum topic thread IDs", async () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
       mode: "webhook",
@@ -3391,8 +3402,8 @@ describe("TelegramAdapter", () => {
       userName: "mybot",
     });
 
-    expect(adapter.isDM("telegram:456")).toBe(true);
-    expect(adapter.isDM("telegram:-100123")).toBe(false);
+    // Edge case beyond the shared threadIdContract's single DM/non-DM check:
+    // a three-part forum topic thread ID still resolves to a non-DM chat.
     expect(adapter.isDM("telegram:-100123:42")).toBe(false);
   });
 
