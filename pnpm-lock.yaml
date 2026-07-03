@@ -343,6 +343,9 @@ importers:
         specifier: ^14.25.1
         version: 14.25.1
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -371,6 +374,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -452,6 +458,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -536,6 +545,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@microsoft/teams.graph':
         specifier: ^2.0.8
         version: 2.0.8
@@ -561,6 +573,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -583,6 +598,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -617,6 +635,9 @@ importers:
       '@chat-adapter/state-memory':
         specifier: workspace:*
         version: link:../state-memory
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
@@ -657,6 +678,9 @@ importers:
         specifier: workspace:*
         version: link:../chat
     devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2

@@ -76,6 +76,7 @@
     "@ai-sdk/svelte": "^4.0.182",
     "@ai-sdk/vue": "^3.0.182",
     "@chat-adapter/state-memory": "workspace:*",
+    "@chat-adapter/tests": "workspace:*",
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@vitest/coverage-v8": "^4.0.18",
