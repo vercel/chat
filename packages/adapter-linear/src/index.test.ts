@@ -1,5 +1,6 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import { connectWebhookContract } from "@chat-adapter/tests";
 import type { LinearClient } from "@linear/sdk";
 import type { ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1103,17 +1104,30 @@ describe("handleWebhook - invalid JSON", () => {
 // Webhook - comment created handling
 // =============================================================================
 
-describe("Vercel Connect mode", () => {
-  it("constructs with a function accessToken + webhookVerifier (no secret)", () => {
+connectWebhookContract({
+  name: "linear",
+  createAdapter: ({ webhookVerifier }) => {
     const adapter = new LinearAdapter({
-      accessToken: () => Promise.resolve("lin_connect_token"),
-      webhookVerifier: () => true,
-      userName: "connect-bot",
+      accessToken: () => Promise.resolve("t"),
+      webhookVerifier,
+      userName: "test-bot",
       logger: createMockLogger(),
     });
-    expect(adapter.name).toBe("linear");
-  });
+    setBotUserId(adapter, "bot-user-id");
+    setDefaultOrganizationId(adapter, "org-123");
+    // initialize() resolves Connect identity over the network; stub it since the
+    // contract only exercises inbound verification.
+    vi.spyOn(
+      adapter as unknown as { resolveConnectIdentity: () => Promise<void> },
+      "resolveConnectIdentity"
+    ).mockResolvedValue(undefined);
+    return adapter;
+  },
+  makeWebhookRequest: () =>
+    buildWebhookRequest(JSON.stringify(createCommentPayload())),
+});
 
+describe("Vercel Connect mode", () => {
   it("verifies via webhookVerifier and dispatches comment events", async () => {
     const logger = createMockLogger();
     const verifier = vi.fn(() => true);
@@ -1148,32 +1162,6 @@ describe("Vercel Connect mode", () => {
       }),
       undefined
     );
-  });
-
-  it("returns 401 when the webhookVerifier throws", async () => {
-    const adapter = new LinearAdapter({
-      accessToken: () => Promise.resolve("t"),
-      webhookVerifier: () => {
-        throw new Error("bad oidc token");
-      },
-      userName: "test-bot",
-      logger: createMockLogger(),
-    });
-    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-  });
-
-  it("returns 401 when the webhookVerifier returns falsy", async () => {
-    const adapter = new LinearAdapter({
-      accessToken: () => Promise.resolve("t"),
-      webhookVerifier: () => false,
-      userName: "test-bot",
-      logger: createMockLogger(),
-    });
-    const request = buildWebhookRequest(JSON.stringify(createCommentPayload()));
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
   });
 
   it("returns 400 when the verified body is not valid JSON", async () => {

@@ -1,5 +1,6 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import { connectWebhookContract } from "@chat-adapter/tests";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
 import type {
@@ -2572,6 +2573,22 @@ describe("GitHubAdapter", () => {
   });
 });
 
+connectWebhookContract({
+  name: "github",
+  createAdapter: ({ webhookVerifier }) =>
+    new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier,
+      botUserId: 999,
+      logger: mockLogger,
+    }),
+  makeWebhookRequest: () =>
+    makeWebhookRequest(
+      JSON.stringify(makeIssueCommentPayload()),
+      "issue_comment"
+    ),
+});
+
 describe("GitHubAdapter - Vercel Connect mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2632,67 +2649,6 @@ describe("GitHubAdapter - Vercel Connect mode", () => {
     const opts = { headers: {} as Record<string, string> };
     await hookCb(opts);
     expect(opts.headers.authorization).toBe("token ghs_static");
-  });
-
-  it("uses webhookVerifier instead of the signature check", async () => {
-    const verifier = vi.fn(() => true);
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: verifier,
-      userName: "connect-bot",
-      botUserId: 999,
-      logger: mockLogger,
-    });
-    const mockChat = {
-      getLogger: vi.fn(),
-      getState: vi.fn(),
-      getUserName: vi.fn(),
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
-    await adapter.initialize(mockChat as never);
-
-    const body = JSON.stringify(makeIssueCommentPayload());
-    // No x-hub-signature-256 header — verifier is the only gate.
-    const request = makeWebhookRequest(body, "issue_comment");
-    const response = await adapter.handleWebhook(request);
-
-    expect(response.status).toBe(200);
-    expect(verifier).toHaveBeenCalledTimes(1);
-    expect(mockChat.processMessage).toHaveBeenCalled();
-  });
-
-  it("returns 401 when the webhookVerifier throws", async () => {
-    const verifier = vi.fn(() => {
-      throw new Error("bad oidc token");
-    });
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: verifier,
-      botUserId: 1,
-      logger: mockLogger,
-    });
-    const request = makeWebhookRequest(
-      JSON.stringify(makeIssueCommentPayload()),
-      "issue_comment"
-    );
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-  });
-
-  it("returns 401 when the webhookVerifier returns falsy", async () => {
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: () => false,
-      botUserId: 1,
-      logger: mockLogger,
-    });
-    const request = makeWebhookRequest(
-      JSON.stringify(makeIssueCommentPayload()),
-      "issue_comment"
-    );
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
   });
 
   it("rejects mixing Connect installationToken with App auth at the type level", () => {
