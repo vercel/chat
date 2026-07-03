@@ -5,7 +5,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
+import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
 import { Actions, Button, Card } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
@@ -18,14 +18,6 @@ import {
 import { DiscordFormatConverter } from "./markdown";
 
 const AT_ME_REGEX = /\/@me$/;
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
 
 // ============================================================================
 // Test Helpers
@@ -582,10 +574,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
   });
 
   it("dispatches slash command to chat core", async () => {
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      processSlashCommand,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -627,8 +617,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/test",
         text: "status true",
@@ -646,10 +636,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
   });
 
   it("expands subcommand path into event.command", async () => {
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      processSlashCommand,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -695,8 +683,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/project issue create",
         text: "Login fails high",
@@ -739,11 +727,14 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     try {
       let replyTask: Promise<unknown> | undefined;
 
-      await adapter.initialize({
-        processSlashCommand: (event: { channelId: string }) => {
-          replyTask = adapter.postChannelMessage(event.channelId, "Pong!");
+      const chat = createMockChatInstance({
+        overrides: {
+          processSlashCommand: (event) => {
+            replyTask = adapter.postChannelMessage(event.channelId, "Pong!");
+          },
         },
-      } as unknown as ChatInstance);
+      });
+      await adapter.initialize(chat);
 
       const body = JSON.stringify({
         type: InteractionType.ApplicationCommand,
@@ -3310,7 +3301,6 @@ describe("legacy gateway interactions", () => {
   }
 
   it("handles slash command interactions from the gateway", async () => {
-    const processSlashCommand = vi.fn();
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3318,12 +3308,8 @@ describe("legacy gateway interactions", () => {
       logger: mockLogger,
     });
 
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand,
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const client = createGatewayClient();
     const deferReply = vi.fn().mockResolvedValue(undefined);
@@ -3363,7 +3349,7 @@ describe("legacy gateway interactions", () => {
     await waitForGatewayHandlers();
 
     expect(deferReply).toHaveBeenCalled();
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/test",
         text: "status true",
@@ -3379,7 +3365,6 @@ describe("legacy gateway interactions", () => {
   });
 
   it("sets gateway deferred slash command interaction flags from config", async () => {
-    const processSlashCommand = vi.fn();
     const interactionFlags = vi
       .fn()
       .mockReturnValue(DiscordInteractionResponseFlag.Ephemeral);
@@ -3391,12 +3376,8 @@ describe("legacy gateway interactions", () => {
       interactionFlags,
     });
 
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand,
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const client = createGatewayClient();
     const deferReply = vi.fn().mockResolvedValue(undefined);
@@ -3443,7 +3424,7 @@ describe("legacy gateway interactions", () => {
         user: expect.objectContaining({ id: "user789" }),
       })
     );
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/test",
         text: "status",
@@ -3453,7 +3434,6 @@ describe("legacy gateway interactions", () => {
   });
 
   it("handles component interactions from the gateway", async () => {
-    const processAction = vi.fn();
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3461,12 +3441,8 @@ describe("legacy gateway interactions", () => {
       logger: mockLogger,
     });
 
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction,
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const client = createGatewayClient();
     const deferUpdate = vi.fn().mockResolvedValue(undefined);
@@ -3503,7 +3479,7 @@ describe("legacy gateway interactions", () => {
     await waitForGatewayHandlers();
 
     expect(deferUpdate).toHaveBeenCalled();
-    expect(processAction).toHaveBeenCalledWith(
+    expect(chat.processAction).toHaveBeenCalledWith(
       expect.objectContaining({
         actionId: "approve_btn",
         value: "approve_btn",
@@ -3582,14 +3558,8 @@ describe("handleWebhook - forwarded gateway events", () => {
   });
 
   it("handles GATEWAY_MESSAGE_CREATE event", async () => {
-    const processMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: processMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -3621,18 +3591,12 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processMessage).toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalled();
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -3663,7 +3627,7 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         added: true,
         messageId: "msg123",
@@ -3672,14 +3636,8 @@ describe("handleWebhook - forwarded gateway events", () => {
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_REMOVE event", async () => {
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_REMOVE",
@@ -3710,7 +3668,7 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         added: false,
         messageId: "msg123",
@@ -3732,13 +3690,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -3774,7 +3727,7 @@ describe("handleForwardedMessage - thread handling", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
       expect.anything()
@@ -3789,13 +3742,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     // Mock discordFetch to return parent channel info
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
@@ -3837,7 +3785,7 @@ describe("handleForwardedMessage - thread handling", () => {
     await adapter.handleWebhook(request);
 
     expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
       expect.anything()
@@ -3854,13 +3802,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const fetchSpy = vi
       .spyOn(adapter as any, "discordFetch")
@@ -3926,13 +3869,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
       new Response(JSON.stringify({ parent_id: "channel456" }), {
@@ -3971,14 +3909,14 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     // Should have fetched parent channel
     expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "discord:guild1:channel456:thread789",
       })
     );
 
     fetchSpy.mockClear();
-    processReaction.mockClear();
+    vi.mocked(chat.processReaction).mockClear();
 
     // Second reaction on same thread - should use cache
     const body2 = JSON.stringify({
@@ -4010,7 +3948,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     // Should NOT have fetched again (used cache)
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "discord:guild1:channel456:thread789",
       })
@@ -4027,13 +3965,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -4060,7 +3993,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
     // Should not call processReaction since there's no user info
-    expect(processReaction).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processReaction");
   });
 
   it("handles custom emoji with ID in reaction", async () => {
@@ -4071,13 +4004,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -4105,7 +4033,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         rawEmoji: "<:custom_emoji:emoji123>",
       })
@@ -4126,12 +4054,7 @@ describe("initialize", () => {
       logger: mockLogger,
     });
 
-    const mockChat = {
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance;
+    const mockChat = createMockChatInstance();
 
     await adapter.initialize(mockChat);
 
@@ -4179,13 +4102,8 @@ describe("handleWebhook - component interaction edge cases", () => {
       logger: mockLogger,
     });
 
-    const processAction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction,
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.MessageComponent,
@@ -4234,7 +4152,7 @@ describe("handleWebhook - component interaction edge cases", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processAction).toHaveBeenCalledWith(
+    expect(chat.processAction).toHaveBeenCalledWith(
       expect.objectContaining({
         actionId: "approve_btn",
         threadId: "discord:guild123:channel789:thread456",
@@ -4251,13 +4169,8 @@ describe("handleWebhook - component interaction edge cases", () => {
       logger: mockLogger,
     });
 
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand,
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -4290,7 +4203,7 @@ describe("handleWebhook - component interaction edge cases", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/status",
         channelId: "discord:guild123:channel789:thread456",
@@ -4313,13 +4226,8 @@ describe("handleForwardedMessage - DM messages", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -4351,7 +4259,7 @@ describe("handleForwardedMessage - DM messages", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:@me:dm456",
       expect.anything()
@@ -4373,7 +4281,6 @@ describe("mentionRoleIds handling", () => {
       mentionRoleIds: ["role123"],
     });
 
-    const handleIncomingMessage = vi.fn();
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
       new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
         status: 200,
@@ -4381,12 +4288,8 @@ describe("mentionRoleIds handling", () => {
       })
     );
 
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
