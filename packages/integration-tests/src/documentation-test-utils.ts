@@ -216,6 +216,8 @@ export const VALID_DOC_PACKAGES = [
   "agents/chat-sdk",
   "@photon-ai/chat-adapter-imessage",
   "chat-adapter-baileys",
+  "chat-adapter-zaileys",
+  "zaileys",
   "baileys",
   "chat-adapter-blooio",
   "chat-state-cloudflare-do",

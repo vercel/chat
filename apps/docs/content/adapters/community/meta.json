@@ -8,6 +8,7 @@
     "zalo",
     "mattermost",
     "weixin",
+    "zaileys",
     "---State---",
     "cloudflare-do",
     "mysql"

@@ -103,7 +103,7 @@
     "name": "Web",
     "slug": "web",
     "type": "platform",
-    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol — works out of the box with @ai-sdk/react and ai-elements.",
+    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol \u2014 works out of the box with @ai-sdk/react and ai-elements.",
     "packageName": "@chat-adapter/web",
     "icon": "web",
     "beta": true,
@@ -254,6 +254,16 @@
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
     "readme": "https://github.com/rama-adi/chat-adapter-baileys/tree/b5454e7c04c75d91b06213f16a4af82ddb4a120f"
+  },
+  {
+    "name": "Zaileys WhatsApp",
+    "slug": "zaileys",
+    "type": "platform",
+    "community": true,
+    "description": "WhatsApp adapter powered by Zaileys \u2014 real message history, native buttons from Cards, decrypted poll votes, and scheduling.",
+    "packageName": "chat-adapter-zaileys",
+    "author": "zeative",
+    "readme": "https://github.com/zeative/chat-adapter-zaileys"
   },
   {
     "name": "Blooio iMessage",
