@@ -155,6 +155,21 @@ export interface DiscordEmoji {
   name: string;
 }
 
+export const DiscordComponentType = {
+  ActionRow: 1,
+  Button: 2,
+  StringSelect: 3,
+  Section: 9,
+  TextDisplay: 10,
+  Thumbnail: 11,
+  MediaGallery: 12,
+  Separator: 14,
+  Container: 17,
+} as const;
+
+export type DiscordComponentTypeValue =
+  (typeof DiscordComponentType)[keyof typeof DiscordComponentType];
+
 /**
  * Discord button component.
  */
@@ -164,7 +179,7 @@ export interface DiscordButton {
   emoji?: DiscordEmoji;
   label?: string;
   style: ButtonStyle;
-  type: 2; // Component type for button
+  type: typeof DiscordComponentType.Button;
   url?: string;
 }
 
@@ -184,7 +199,7 @@ export interface DiscordStringSelect {
     value: string;
   }[];
   placeholder?: string;
-  type: 3; // Component type for string select
+  type: typeof DiscordComponentType.StringSelect;
 }
 
 export type DiscordActionRowComponent = DiscordButton | DiscordStringSelect;
@@ -194,12 +209,12 @@ export type DiscordActionRowComponent = DiscordButton | DiscordStringSelect;
  */
 export interface DiscordActionRow {
   components: DiscordActionRowComponent[];
-  type: 1; // Component type for action row
+  type: typeof DiscordComponentType.ActionRow;
 }
 
 export interface DiscordTextDisplay {
   content: string;
-  type: 10; // Component type for text display
+  type: typeof DiscordComponentType.TextDisplay;
 }
 
 export interface DiscordThumbnail {
@@ -208,7 +223,7 @@ export interface DiscordThumbnail {
     url: string;
   };
   spoiler?: boolean;
-  type: 11; // Component type for thumbnail
+  type: typeof DiscordComponentType.Thumbnail;
 }
 
 export interface DiscordMediaGallery {
@@ -219,19 +234,19 @@ export interface DiscordMediaGallery {
     };
     spoiler?: boolean;
   }[];
-  type: 12; // Component type for media gallery
+  type: typeof DiscordComponentType.MediaGallery;
 }
 
 export interface DiscordSeparator {
   divider?: boolean;
   spacing?: 1 | 2;
-  type: 14; // Component type for separator
+  type: typeof DiscordComponentType.Separator;
 }
 
 export interface DiscordSection {
   accessory: DiscordButton | DiscordThumbnail;
   components: DiscordTextDisplay[];
-  type: 9; // Component type for section
+  type: typeof DiscordComponentType.Section;
 }
 
 export type DiscordContainerChild =
@@ -245,7 +260,7 @@ export interface DiscordContainer {
   accent_color?: number;
   components: DiscordContainerChild[];
   spoiler?: boolean;
-  type: 17; // Component type for container
+  type: typeof DiscordComponentType.Container;
 }
 
 export type DiscordMessageComponent =

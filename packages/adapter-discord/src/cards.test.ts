@@ -24,7 +24,7 @@ import {
   decodeDiscordCustomId,
   encodeDiscordCustomId,
 } from "./cards";
-import { DiscordMessageFlag } from "./types";
+import { DiscordComponentType, DiscordMessageFlag } from "./types";
 
 describe("cardToDiscordPayload", () => {
   it("converts a simple card with title", () => {
@@ -124,27 +124,27 @@ describe("cardToDiscordPayload", () => {
     const { components } = cardToDiscordPayload(card);
 
     expect(components).toHaveLength(1);
-    expect(components[0].type).toBe(1); // Action Row
+    expect(components[0].type).toBe(DiscordComponentType.ActionRow);
 
     const buttons = components[0].components;
     expect(buttons).toHaveLength(3);
 
     expect(buttons[0]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Primary,
       label: "Approve",
       custom_id: "approve",
     });
 
     expect(buttons[1]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Danger,
       label: "Reject",
       custom_id: "reject\ndata-123",
     });
 
     expect(buttons[2]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Secondary,
       label: "Skip",
       custom_id: "skip",
@@ -171,7 +171,7 @@ describe("cardToDiscordPayload", () => {
     expect(buttons).toHaveLength(2);
 
     expect(buttons[0]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Danger,
       label: "Cancelled",
       custom_id: "cancel",
@@ -179,7 +179,7 @@ describe("cardToDiscordPayload", () => {
     });
 
     expect(buttons[1]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Secondary,
       label: "Retry",
       custom_id: "retry",
@@ -200,13 +200,13 @@ describe("cardToDiscordPayload", () => {
     const { components } = cardToDiscordPayload(card);
 
     expect(components).toHaveLength(1);
-    expect(components[0].type).toBe(1); // Action Row
+    expect(components[0].type).toBe(DiscordComponentType.ActionRow);
 
     const buttons = components[0].components;
     expect(buttons).toHaveLength(1);
 
     expect(buttons[0]).toEqual({
-      type: 2,
+      type: DiscordComponentType.Button,
       style: ButtonStyle.Link,
       label: "View Docs",
       url: "https://example.com/docs",
@@ -365,42 +365,46 @@ describe("cardToDiscordPayload with Components v2", () => {
 
     const container = payload.components[0];
     expect(container).toMatchObject({
-      type: 17,
+      type: DiscordComponentType.Container,
       accent_color: 0x5865f2,
     });
-    if (!(container && container.type === 17)) {
+    if (!(container && container.type === DiscordComponentType.Container)) {
       throw new Error("Expected a Discord Components v2 container");
     }
 
     const containerChildren = container.components;
     expect(containerChildren).toEqual(
       expect.arrayContaining([
-        { type: 10, content: "# User Profile" },
-        { type: 10, content: "Account details" },
+        { type: DiscordComponentType.TextDisplay, content: "# User Profile" },
+        { type: DiscordComponentType.TextDisplay, content: "Account details" },
         {
-          type: 12,
+          type: DiscordComponentType.MediaGallery,
           items: [{ media: { url: "https://example.com/header.png" } }],
         },
-        { type: 10, content: "Regular text" },
-        { type: 10, content: "**Bold text**" },
+        { type: DiscordComponentType.TextDisplay, content: "Regular text" },
+        { type: DiscordComponentType.TextDisplay, content: "**Bold text**" },
         {
-          type: 10,
+          type: DiscordComponentType.TextDisplay,
           content: "**Status**\nActive\n\n**Team**\nPlatform",
         },
         {
-          type: 10,
+          type: DiscordComponentType.TextDisplay,
           content: "[View profile](https://example.com/profile)",
         },
-        { type: 14, divider: true, spacing: 1 },
+        { type: DiscordComponentType.Separator, divider: true, spacing: 1 },
       ])
     );
 
-    const section = containerChildren.find((child) => child.type === 9);
+    const section = containerChildren.find(
+      (child) => child.type === DiscordComponentType.Section
+    );
     expect(section).toEqual({
-      type: 9,
-      components: [{ type: 10, content: "Section content" }],
+      type: DiscordComponentType.Section,
+      components: [
+        { type: DiscordComponentType.TextDisplay, content: "Section content" },
+      ],
       accessory: {
-        type: 11,
+        type: DiscordComponentType.Thumbnail,
         media: { url: "https://example.com/avatar.png" },
         description: "User avatar",
       },
@@ -409,7 +413,7 @@ describe("cardToDiscordPayload with Components v2", () => {
     expect(
       containerChildren.some(
         (child) =>
-          child.type === 10 &&
+          child.type === DiscordComponentType.TextDisplay &&
           child.content ===
             "| Name | Role |\n| --- | --- |\n| Jane | Engineer |"
       )
@@ -418,7 +422,7 @@ describe("cardToDiscordPayload with Components v2", () => {
     expect(
       containerChildren.some(
         (child) =>
-          child.type === 12 &&
+          child.type === DiscordComponentType.MediaGallery &&
           child.items[0]?.media.url === "https://example.com/chart.png" &&
           child.items[0]?.description === "Chart"
       )
@@ -426,14 +430,17 @@ describe("cardToDiscordPayload with Components v2", () => {
 
     const selectRows = containerChildren.filter(
       (child) =>
-        child.type === 1 && child.components.some((item) => item.type === 3)
+        child.type === DiscordComponentType.ActionRow &&
+        child.components.some(
+          (item) => item.type === DiscordComponentType.StringSelect
+        )
     );
     expect(selectRows).toHaveLength(2);
     expect(selectRows[0]).toEqual({
-      type: 1,
+      type: DiscordComponentType.ActionRow,
       components: [
         {
-          type: 3,
+          type: DiscordComponentType.StringSelect,
           custom_id: "priority",
           placeholder: "Choose priority",
           min_values: 0,
@@ -451,10 +458,10 @@ describe("cardToDiscordPayload with Components v2", () => {
       ],
     });
     expect(selectRows[1]).toEqual({
-      type: 1,
+      type: DiscordComponentType.ActionRow,
       components: [
         {
-          type: 3,
+          type: DiscordComponentType.StringSelect,
           custom_id: "status",
           placeholder: "Status",
           max_values: 1,
@@ -468,19 +475,22 @@ describe("cardToDiscordPayload with Components v2", () => {
 
     const buttonRow = containerChildren.find(
       (child) =>
-        child.type === 1 && child.components.some((item) => item.type === 2)
+        child.type === DiscordComponentType.ActionRow &&
+        child.components.some(
+          (item) => item.type === DiscordComponentType.Button
+        )
     );
     expect(buttonRow).toEqual({
-      type: 1,
+      type: DiscordComponentType.ActionRow,
       components: [
         {
-          type: 2,
+          type: DiscordComponentType.Button,
           style: ButtonStyle.Primary,
           label: "Edit",
           custom_id: "edit",
         },
         {
-          type: 2,
+          type: DiscordComponentType.Button,
           style: ButtonStyle.Link,
           label: "Open",
           url: "https://example.com",

@@ -40,7 +40,7 @@ import type {
   DiscordTextDisplay,
   DiscordThumbnail,
 } from "./types";
-import { DiscordMessageFlag } from "./types";
+import { DiscordComponentType, DiscordMessageFlag } from "./types";
 
 const DISCORD_CUSTOM_ID_DELIMITER = "\n";
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
@@ -212,7 +212,7 @@ function cardToDiscordComponentsV2Payload(
     flags: DiscordMessageFlag.IsComponentsV2,
     components: [
       {
-        type: 17,
+        type: DiscordComponentType.Container,
         accent_color: DISCORD_BLURPLE,
         components: components.length > 0 ? components : [toTextDisplay(" ")],
       },
@@ -274,7 +274,9 @@ function cardChildToComponentsV2(child: CardChild): DiscordContainerChild[] {
     case "image":
       return [toMediaGallery(child)];
     case "divider":
-      return [{ type: 14, divider: true, spacing: 1 }];
+      return [
+        { type: DiscordComponentType.Separator, divider: true, spacing: 1 },
+      ];
     case "actions":
       return convertActionsToV2Rows(child);
     case "section":
@@ -311,7 +313,7 @@ function convertTextElement(element: TextElement): string {
 
 function toTextDisplay(content: string): DiscordTextDisplay {
   return {
-    type: 10,
+    type: DiscordComponentType.TextDisplay,
     content,
   };
 }
@@ -320,7 +322,7 @@ function toMediaGallery(
   image: ImageElement | { url: string }
 ): DiscordMediaGallery {
   return {
-    type: 12,
+    type: DiscordComponentType.MediaGallery,
     items: [
       {
         media: {
@@ -336,7 +338,7 @@ function toMediaGallery(
 
 function toThumbnail(image: ImageElement): DiscordThumbnail {
   return {
-    type: 11,
+    type: DiscordComponentType.Thumbnail,
     media: {
       url: image.url,
     },
@@ -369,7 +371,7 @@ function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
   const rows: DiscordActionRow[] = [];
   for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
     rows.push({
-      type: 1, // Action Row
+      type: DiscordComponentType.ActionRow,
       components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
     });
   }
@@ -383,7 +385,7 @@ function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
   const flushButtons = () => {
     for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
       rows.push({
-        type: 1,
+        type: DiscordComponentType.ActionRow,
         components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
       });
     }
@@ -403,7 +405,7 @@ function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
 
     flushButtons();
     rows.push({
-      type: 1,
+      type: DiscordComponentType.ActionRow,
       components: [convertSelectElement(child)],
     });
   }
@@ -417,7 +419,7 @@ function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
  */
 function convertButtonElement(button: ButtonElement): DiscordButton {
   const discordButton: DiscordButton = {
-    type: 2, // Button
+    type: DiscordComponentType.Button,
     style: getButtonStyle(button.style),
     label: button.label,
     custom_id: encodeDiscordCustomId(button.id, button.value),
@@ -435,7 +437,7 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
  */
 function convertLinkButtonElement(button: LinkButtonElement): DiscordButton {
   return {
-    type: 2, // Button
+    type: DiscordComponentType.Button,
     style: ButtonStyle.Link,
     label: button.label,
     url: button.url,
@@ -457,7 +459,7 @@ function convertSelectElement(
     }));
 
   return {
-    type: 3,
+    type: DiscordComponentType.StringSelect,
     custom_id: encodeDiscordCustomId(select.id),
     options,
     max_values: 1,
@@ -534,7 +536,11 @@ function convertSectionElementToV2(
         break;
       }
       case "divider":
-        extraComponents.push({ type: 14, divider: true, spacing: 1 });
+        extraComponents.push({
+          type: DiscordComponentType.Separator,
+          divider: true,
+          spacing: 1,
+        });
         break;
       case "section":
         extraComponents.push(...convertSectionElementToV2(child));
@@ -554,7 +560,7 @@ function convertSectionElementToV2(
   }
 
   const section: DiscordSection = {
-    type: 9,
+    type: DiscordComponentType.Section,
     components: textDisplays.slice(0, DISCORD_MAX_SECTION_TEXT_DISPLAYS),
     accessory,
   };

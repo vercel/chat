@@ -2700,10 +2700,15 @@ export {
 // Re-export types
 export type {
   DiscordAdapterConfig,
+  DiscordComponentTypeValue,
   DiscordInteractionFlagsContext,
   DiscordInteractionResponseFlags,
   DiscordMessageFlags,
   DiscordMessageFlagValue,
   DiscordThreadId,
 } from "./types";
-export { DiscordInteractionResponseFlag, DiscordMessageFlag } from "./types";
+export {
+  DiscordComponentType,
+  DiscordInteractionResponseFlag,
+  DiscordMessageFlag,
+} from "./types";
