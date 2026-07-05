@@ -209,6 +209,7 @@ export const VALID_DOC_PACKAGES = [
   "@veltdev/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
   "@agentphone/chat-sdk-adapter",
+  "@getdial/chat-sdk-adapter",
   "@kapso/chat-adapter",
   "@novu/chat-sdk-adapter",
   "@linqapp/chat-sdk-adapter",

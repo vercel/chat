@@ -13,6 +13,7 @@
     "kapso",
     "linq",
     "photon",
-    "cloudflare-agents"
+    "cloudflare-agents",
+    "dial"
   ]
 }
