@@ -17,6 +17,7 @@ import type {
   ActionEvent,
   Adapter,
   AdapterPostableMessage,
+  Attachment,
   ChannelInfo,
   ChatInstance,
   EmojiValue,
@@ -1749,6 +1750,39 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return "audio";
     }
     return "file";
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!url) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: () => this.downloadAttachment(url),
+    };
+  }
+
+  protected async downloadAttachment(url: string): Promise<Buffer> {
+    let response: Response;
+    try {
+      response = await fetch(url);
+    } catch (error) {
+      throw new NetworkError(
+        "discord",
+        "Failed to download Discord attachment",
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    if (!response.ok) {
+      throw new NetworkError(
+        "discord",
+        `Failed to download Discord attachment: ${response.status}`
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
 
   /**

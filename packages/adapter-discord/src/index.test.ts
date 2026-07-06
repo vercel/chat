@@ -1210,6 +1210,36 @@ describe("renderFormatted", () => {
   });
 });
 
+describe("rehydrateAttachment", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("rebuilds fetchData to download the attachment from its CDN url", async () => {
+    const url =
+      "https://cdn.discordapp.com/attachments/1/2/photo.png?ex=abc&is=def&hm=123";
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("photo", { status: 200 }));
+
+    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+    const data = await attachment.fetchData?.();
+
+    expect(data?.toString()).toBe("photo");
+    expect(fetch).toHaveBeenCalledWith(url);
+  });
+
+  it("returns the attachment unchanged when it has no url", () => {
+    const attachment = { type: "image" as const };
+    const rehydrated = adapter.rehydrateAttachment(attachment);
+    expect(rehydrated).toBe(attachment);
+    expect(rehydrated.fetchData).toBeUndefined();
+  });
+});
+
 // ============================================================================
 // Edge Cases
 // ============================================================================
