@@ -14,6 +14,8 @@ import type {
 /**
  * Discord adapter configuration.
  */
+export type DiscordContentFormat = "componentsv2" | "embeds";
+
 export interface DiscordAdapterConfig {
   /** Override the Discord API base URL. Defaults to DISCORD_API_URL env var or "https://discord.com/api/v10". */
   apiUrl?: string;
@@ -21,8 +23,8 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
-  /** Render cards with Discord Components v2 instead of embeds. Defaults to false. */
-  componentsV2?: boolean;
+  /** Render Discord card content as embeds or Components v2. Defaults to "embeds". */
+  contentFormat?: DiscordContentFormat;
   /** Return interaction flags for the initial deferred slash command response. */
   interactionFlags?: (
     context: DiscordInteractionFlagsContext

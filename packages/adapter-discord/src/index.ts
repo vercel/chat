@@ -68,6 +68,7 @@ import {
   DiscordComponentType,
   type DiscordContainer,
   type DiscordContainerChild,
+  type DiscordContentFormat,
   type DiscordFileComponent,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
@@ -115,7 +116,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
-  protected readonly componentsV2: boolean;
+  protected readonly contentFormat: DiscordContentFormat;
   protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -162,8 +163,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       (process.env.DISCORD_MENTION_ROLE_IDS
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
+    const contentFormat = config.contentFormat ?? "embeds";
+    if (!(contentFormat === "embeds" || contentFormat === "componentsv2")) {
+      throw new ValidationError(
+        "discord",
+        'contentFormat must be either "embeds" or "componentsv2".'
+      );
+    }
+
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
-    this.componentsV2 = config.componentsV2 ?? false;
+    this.contentFormat = contentFormat;
     this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
@@ -997,7 +1006,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     if (card) {
       const cardPayload = cardToDiscordPayload(card, {
-        componentsV2: this.componentsV2,
+        contentFormat: this.contentFormat,
       });
 
       if (cardPayload.embeds.length > 0) {
@@ -1014,7 +1023,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       }
 
       if (options.clearContentForCard) {
-        if (this.componentsV2) {
+        if (this.contentFormat === "componentsv2") {
           payload.content = null;
           payload.embeds = [];
         } else {
@@ -2766,6 +2775,7 @@ export {
 export type {
   DiscordAdapterConfig,
   DiscordComponentTypeValue,
+  DiscordContentFormat,
   DiscordInteractionFlagsContext,
   DiscordInteractionResponseFlags,
   DiscordMessageFlags,

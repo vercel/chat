@@ -2840,13 +2840,13 @@ describe("postChannelMessage", () => {
   });
 });
 
-describe("componentsV2 card payloads", () => {
+describe("componentsv2 content format card payloads", () => {
   const adapter = createDiscordAdapter({
     botToken: "test-token",
     publicKey: testPublicKey,
     applicationId: "test-app-id",
     logger: mockLogger,
-    componentsV2: true,
+    contentFormat: "componentsv2",
   });
 
   const cardMessage = {

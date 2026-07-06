@@ -195,11 +195,11 @@ Calls to `event.channel.postEphemeral()` will fallback to a private DM.
 ## Components v2 cards
 
 Discord cards render as embeds by default. To render Chat SDK cards with
-[Discord Components v2](https://docs.discord.com/developers/components/reference) instead, enable `componentsV2`:
+[Discord Components v2](https://docs.discord.com/developers/components/reference) instead, set `contentFormat`:
 
 ```typescript
 createDiscordAdapter({
-  componentsV2: true,
+  contentFormat: "componentsv2",
 });
 ```
 
@@ -217,7 +217,7 @@ All options are auto-detected from environment variables when not provided.
 | `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
-| `componentsV2` | No | Render Chat SDK cards with Discord Components v2 instead of embeds. Defaults to `false` |
+| `contentFormat` | No | Render Chat SDK cards as `"embeds"` or `"componentsv2"`. Defaults to `"embeds"` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |

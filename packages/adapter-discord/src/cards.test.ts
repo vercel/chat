@@ -357,7 +357,9 @@ describe("cardToDiscordPayload with Components v2", () => {
       ],
     });
 
-    const payload = cardToDiscordPayload(card, { componentsV2: true });
+    const payload = cardToDiscordPayload(card, {
+      contentFormat: "componentsv2",
+    });
 
     expect(payload.embeds).toEqual([]);
     expect(payload.flags).toBe(DiscordMessageFlag.IsComponentsV2);

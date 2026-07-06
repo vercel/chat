@@ -33,6 +33,7 @@ import type {
   DiscordActionRow,
   DiscordButton,
   DiscordContainerChild,
+  DiscordContentFormat,
   DiscordMediaGallery,
   DiscordMessageComponent,
   DiscordSection,
@@ -50,7 +51,7 @@ const DISCORD_MAX_SELECT_OPTIONS = 25;
 const DISCORD_MAX_SECTION_TEXT_DISPLAYS = 3;
 
 interface DiscordCardPayloadOptions {
-  componentsV2?: boolean;
+  contentFormat?: DiscordContentFormat;
 }
 
 interface DiscordEmbedCardPayload {
@@ -122,7 +123,7 @@ export function cardToDiscordPayload(
 ): DiscordEmbedCardPayload;
 export function cardToDiscordPayload(
   card: CardElement,
-  options: { componentsV2: true }
+  options: { contentFormat: "componentsv2" }
 ): DiscordComponentsV2CardPayload;
 export function cardToDiscordPayload(
   card: CardElement,
@@ -132,7 +133,7 @@ export function cardToDiscordPayload(
   card: CardElement,
   options: DiscordCardPayloadOptions = {}
 ): DiscordCardPayload {
-  if (options.componentsV2) {
+  if (options.contentFormat === "componentsv2") {
     return cardToDiscordComponentsV2Payload(card);
   }
 
