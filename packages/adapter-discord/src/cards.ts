@@ -560,7 +560,31 @@ function convertSectionElementToV2(
   }
 
   if (!(accessory && textDisplays.length > 0)) {
-    return [...textDisplays, ...extraComponents];
+    // A Discord Section requires text components to hold an accessory. When
+    // there are no text displays, fall back to rendering the accessory as a
+    // standalone component so its content isn't silently dropped.
+    const accessoryComponents: DiscordContainerChild[] = [];
+    if (accessory) {
+      if (accessory.type === DiscordComponentType.Thumbnail) {
+        accessoryComponents.push({
+          type: DiscordComponentType.MediaGallery,
+          items: [
+            {
+              media: { url: accessory.media.url },
+              ...(accessory.description
+                ? { description: accessory.description }
+                : {}),
+            },
+          ],
+        });
+      } else {
+        accessoryComponents.push({
+          type: DiscordComponentType.ActionRow,
+          components: [accessory],
+        });
+      }
+    }
+    return [...textDisplays, ...accessoryComponents, ...extraComponents];
   }
 
   const section: DiscordSection = {
