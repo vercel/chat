@@ -65,6 +65,10 @@ import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordAdapterConfig,
   type DiscordCommandOption,
+  DiscordComponentType,
+  type DiscordContainer,
+  type DiscordContainerChild,
+  type DiscordFileComponent,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
   type DiscordGatewayMessageData,
@@ -73,6 +77,8 @@ import {
   type DiscordInteractionFlagsContext,
   type DiscordInteractionResponse,
   type DiscordInteractionResponseFlags,
+  type DiscordMediaGallery,
+  DiscordMessageFlag,
   type DiscordMessagePayload,
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
@@ -91,6 +97,12 @@ interface GatewayCommandOption {
   options?: readonly GatewayCommandOption[];
   type: number;
   value?: boolean | number | string;
+}
+
+interface DiscordFileUpload {
+  data: Buffer | Blob | ArrayBuffer;
+  filename: string;
+  mimeType?: string;
 }
 
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
@@ -1001,8 +1013,13 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         payload.flags = (payload.flags ?? 0) | cardPayload.flags;
       }
 
-      if (options.clearContentForCard && !this.componentsV2) {
-        payload.content = "";
+      if (options.clearContentForCard) {
+        if (this.componentsV2) {
+          payload.content = null;
+          payload.embeds = [];
+        } else {
+          payload.content = "";
+        }
       }
 
       return {
@@ -1026,6 +1043,68 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
+  protected addComponentsV2FileReferences(
+    payload: DiscordMessagePayload,
+    files: DiscordFileUpload[]
+  ): void {
+    if (files.length === 0) {
+      return;
+    }
+
+    const isComponentsV2 =
+      // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+      ((payload.flags ?? 0) & DiscordMessageFlag.IsComponentsV2) !== 0;
+    if (!isComponentsV2) {
+      return;
+    }
+
+    const uploadComponents = files.map((file) =>
+      this.fileUploadToComponentsV2Component(file)
+    );
+
+    const container = payload.components?.find(
+      (component): component is DiscordContainer =>
+        component.type === DiscordComponentType.Container
+    );
+
+    if (container) {
+      container.components.push(...uploadComponents);
+      return;
+    }
+
+    payload.components = [...(payload.components ?? []), ...uploadComponents];
+  }
+
+  protected fileUploadToComponentsV2Component(
+    file: DiscordFileUpload
+  ): DiscordContainerChild {
+    const url = `attachment://${file.filename}`;
+
+    if (this.isMediaGalleryUpload(file)) {
+      return {
+        type: DiscordComponentType.MediaGallery,
+        items: [
+          {
+            media: { url },
+            description: file.filename,
+          },
+        ],
+      } satisfies DiscordMediaGallery;
+    }
+
+    return {
+      type: DiscordComponentType.File,
+      file: { url },
+    } satisfies DiscordFileComponent;
+  }
+
+  protected isMediaGalleryUpload(file: DiscordFileUpload): boolean {
+    return (
+      file.mimeType?.startsWith("image/") === true ||
+      file.mimeType?.startsWith("video/") === true
+    );
+  }
+
   /**
    * Post a message to a Discord channel or thread.
    */
@@ -1047,6 +1126,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle file uploads
     const files = extractFiles(message);
+    this.addComponentsV2FileReferences(payload, files);
     const slashResponse = this.tryPostSlashResponse(
       actualThreadId,
       payload,
@@ -1093,11 +1173,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected tryPostSlashResponse(
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> | undefined {
     const slashContext = this.requestContext.getStore()?.slashCommand;
     if (!slashContext || slashContext.channelId !== threadId) {
@@ -1115,11 +1191,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     slashContext: DiscordSlashCommandContext,
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> {
     const isInitialResponse = !slashContext.initialResponseSent;
     // Set flag before awaiting to prevent concurrent post() calls from both
@@ -1240,11 +1312,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     channelId: string,
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> {
     const formData = new FormData();
 
@@ -1329,11 +1397,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     path: string,
     method: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<Response> {
     const formData = new FormData();
     formData.append("payload_json", JSON.stringify(payload));
@@ -2610,6 +2674,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const { payload } = this.buildMessagePayload(message);
 
     const files = extractFiles(message);
+    this.addComponentsV2FileReferences(payload, files);
     const slashResponse = this.tryPostSlashResponse(channelId, payload, files);
     if (slashResponse) {
       return slashResponse;

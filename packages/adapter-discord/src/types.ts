@@ -163,6 +163,7 @@ export const DiscordComponentType = {
   TextDisplay: 10,
   Thumbnail: 11,
   MediaGallery: 12,
+  File: 13,
   Separator: 14,
   Container: 17,
 } as const;
@@ -237,6 +238,14 @@ export interface DiscordMediaGallery {
   type: typeof DiscordComponentType.MediaGallery;
 }
 
+export interface DiscordFileComponent {
+  file: {
+    url: string;
+  };
+  spoiler?: boolean;
+  type: typeof DiscordComponentType.File;
+}
+
 export interface DiscordSeparator {
   divider?: boolean;
   spacing?: 1 | 2;
@@ -251,6 +260,7 @@ export interface DiscordSection {
 
 export type DiscordContainerChild =
   | DiscordActionRow
+  | DiscordFileComponent
   | DiscordMediaGallery
   | DiscordSection
   | DiscordSeparator
@@ -266,6 +276,7 @@ export interface DiscordContainer {
 export type DiscordMessageComponent =
   | DiscordActionRow
   | DiscordContainer
+  | DiscordFileComponent
   | DiscordMediaGallery
   | DiscordSection
   | DiscordSeparator
@@ -287,7 +298,7 @@ export interface DiscordMessagePayload {
     description?: string;
   }[];
   components?: DiscordMessageComponent[];
-  content?: string;
+  content?: string | null;
   embeds?: APIEmbed[];
   flags?: number;
   message_reference?: {

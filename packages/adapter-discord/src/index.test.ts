@@ -2912,12 +2912,12 @@ describe("componentsV2 card payloads", () => {
 
     const calledPayload = spy.mock.calls[0]?.[2] as {
       components?: { type: number }[];
-      content?: string;
+      content?: string | null;
       embeds?: unknown[];
       flags?: number;
     };
-    expect(calledPayload.content).toBeUndefined();
-    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.content).toBeNull();
+    expect(calledPayload.embeds).toEqual([]);
     expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
     expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
 
@@ -2941,6 +2941,84 @@ describe("componentsV2 card payloads", () => {
     expect(calledPayload.embeds).toBeUndefined();
     expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
     expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("renders Components v2 card file uploads as components", async () => {
+    const mockRawMessage = {
+      id: "msg-v2-files",
+      threadId: "discord:guild1:channel456",
+      raw: {},
+    };
+    const spy = vi
+      .spyOn(adapter as any, "postMessageWithFiles")
+      .mockResolvedValue(mockRawMessage);
+    const cardWithFiles = {
+      ...cardMessage,
+      files: [
+        {
+          data: Buffer.from("image"),
+          filename: "chart.png",
+          mimeType: "image/png",
+        },
+        {
+          data: Buffer.from("hello"),
+          filename: "test.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    };
+
+    const threadResult = await adapter.postMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+    const channelResult = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+
+    expect(threadResult).toEqual(mockRawMessage);
+    expect(channelResult).toEqual(mockRawMessage);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: Array<{
+        components?: Array<{
+          file?: { url: string };
+          items?: Array<{ media: { url: string } }>;
+          type: number;
+        }>;
+        type: number;
+      }>;
+      flags?: number;
+    };
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]?.components).toEqual(
+      expect.arrayContaining([
+        {
+          type: 12,
+          items: [
+            {
+              media: { url: "attachment://chart.png" },
+              description: "chart.png",
+            },
+          ],
+        },
+        {
+          type: 13,
+          file: { url: "attachment://test.txt" },
+        },
+      ])
+    );
+
+    const uploadedFiles = spy.mock.calls[0]?.[3] as Array<{ filename: string }>;
+    expect(uploadedFiles.map((file) => file.filename)).toEqual([
+      "chart.png",
+      "test.txt",
+    ]);
+    expect(spy.mock.calls[1]?.[2]).toEqual(calledPayload);
 
     spy.mockRestore();
   });
