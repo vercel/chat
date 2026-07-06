@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDiscordAdapter,
   DiscordAdapter,
+  DiscordContentFormat,
   DiscordInteractionResponseFlag,
   DiscordMessageFlag,
 } from "./index";
@@ -2846,7 +2847,7 @@ describe("componentsv2 content format card payloads", () => {
     publicKey: testPublicKey,
     applicationId: "test-app-id",
     logger: mockLogger,
-    contentFormat: "componentsv2",
+    contentFormat: DiscordContentFormat.ComponentsV2,
   });
 
   const cardMessage = {

@@ -93,9 +93,9 @@ bot.onNewMention(async (thread, message) => {
         "Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID`.",
     },
     contentFormat: {
-      type: '"embeds" | "componentsv2"',
+      type: "DiscordContentFormat",
       description:
-        "Render Chat SDK cards as embeds or Discord Components v2. Defaults to `\"embeds\"`.",
+        "Render Chat SDK cards as embeds or Discord Components v2. Defaults to `DiscordContentFormat.Embeds`.",
     },
     mentionRoleIds: {
       type: "string[]",
@@ -121,10 +121,13 @@ bot.onNewMention(async (thread, message) => {
 Discord cards render as embeds by default. Set `contentFormat` to render Chat SDK cards with [Discord Components](https://docs.discord.com/developers/components/reference):
 
 ```typescript
-import { createDiscordAdapter } from "@chat-adapter/discord";
+import {
+  createDiscordAdapter,
+  DiscordContentFormat,
+} from "@chat-adapter/discord";
 
 createDiscordAdapter({
-  contentFormat: "componentsv2",
+  contentFormat: DiscordContentFormat.ComponentsV2,
 });
 ```
 

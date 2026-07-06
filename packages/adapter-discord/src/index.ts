@@ -68,7 +68,7 @@ import {
   DiscordComponentType,
   type DiscordContainer,
   type DiscordContainerChild,
-  type DiscordContentFormat,
+  DiscordContentFormat,
   type DiscordFileComponent,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
@@ -163,11 +163,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       (process.env.DISCORD_MENTION_ROLE_IDS
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
-    const contentFormat = config.contentFormat ?? "embeds";
-    if (!(contentFormat === "embeds" || contentFormat === "componentsv2")) {
+    const contentFormat = config.contentFormat ?? DiscordContentFormat.Embeds;
+    if (
+      contentFormat !== DiscordContentFormat.Embeds &&
+      contentFormat !== DiscordContentFormat.ComponentsV2
+    ) {
       throw new ValidationError(
         "discord",
-        'contentFormat must be either "embeds" or "componentsv2".'
+        "contentFormat must be a DiscordContentFormat value."
       );
     }
 
@@ -1023,7 +1026,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       }
 
       if (options.clearContentForCard) {
-        if (this.contentFormat === "componentsv2") {
+        if (this.contentFormat === DiscordContentFormat.ComponentsV2) {
           payload.content = null;
           payload.embeds = [];
         } else {
@@ -2775,7 +2778,6 @@ export {
 export type {
   DiscordAdapterConfig,
   DiscordComponentTypeValue,
-  DiscordContentFormat,
   DiscordInteractionFlagsContext,
   DiscordInteractionResponseFlags,
   DiscordMessageFlags,
@@ -2784,6 +2786,7 @@ export type {
 } from "./types";
 export {
   DiscordComponentType,
+  DiscordContentFormat,
   DiscordInteractionResponseFlag,
   DiscordMessageFlag,
 } from "./types";

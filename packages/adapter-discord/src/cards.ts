@@ -33,7 +33,6 @@ import type {
   DiscordActionRow,
   DiscordButton,
   DiscordContainerChild,
-  DiscordContentFormat,
   DiscordMediaGallery,
   DiscordMessageComponent,
   DiscordSection,
@@ -41,7 +40,11 @@ import type {
   DiscordTextDisplay,
   DiscordThumbnail,
 } from "./types";
-import { DiscordComponentType, DiscordMessageFlag } from "./types";
+import {
+  DiscordComponentType,
+  DiscordContentFormat,
+  DiscordMessageFlag,
+} from "./types";
 
 const DISCORD_CUSTOM_ID_DELIMITER = "\n";
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
@@ -123,7 +126,7 @@ export function cardToDiscordPayload(
 ): DiscordEmbedCardPayload;
 export function cardToDiscordPayload(
   card: CardElement,
-  options: { contentFormat: "componentsv2" }
+  options: { contentFormat: DiscordContentFormat.ComponentsV2 }
 ): DiscordComponentsV2CardPayload;
 export function cardToDiscordPayload(
   card: CardElement,
@@ -133,7 +136,7 @@ export function cardToDiscordPayload(
   card: CardElement,
   options: DiscordCardPayloadOptions = {}
 ): DiscordCardPayload {
-  if (options.contentFormat === "componentsv2") {
+  if (options.contentFormat === DiscordContentFormat.ComponentsV2) {
     return cardToDiscordComponentsV2Payload(card);
   }
 

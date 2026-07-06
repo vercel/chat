@@ -24,7 +24,11 @@ import {
   decodeDiscordCustomId,
   encodeDiscordCustomId,
 } from "./cards";
-import { DiscordComponentType, DiscordMessageFlag } from "./types";
+import {
+  DiscordComponentType,
+  DiscordContentFormat,
+  DiscordMessageFlag,
+} from "./types";
 
 describe("cardToDiscordPayload", () => {
   it("converts a simple card with title", () => {
@@ -358,7 +362,7 @@ describe("cardToDiscordPayload with Components v2", () => {
     });
 
     const payload = cardToDiscordPayload(card, {
-      contentFormat: "componentsv2",
+      contentFormat: DiscordContentFormat.ComponentsV2,
     });
 
     expect(payload.embeds).toEqual([]);

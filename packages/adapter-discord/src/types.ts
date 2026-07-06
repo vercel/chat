@@ -14,7 +14,11 @@ import type {
 /**
  * Discord adapter configuration.
  */
-export type DiscordContentFormat = "componentsv2" | "embeds";
+// biome-ignore lint/style/noEnum: Public config uses an enum so callers do not pass raw string literals.
+export enum DiscordContentFormat {
+  ComponentsV2 = "componentsv2",
+  Embeds = "embeds",
+}
 
 export interface DiscordAdapterConfig {
   /** Override the Discord API base URL. Defaults to DISCORD_API_URL env var or "https://discord.com/api/v10". */
@@ -23,7 +27,7 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
-  /** Render Discord card content as embeds or Components v2. Defaults to "embeds". */
+  /** Render Discord card content as embeds or Components v2. Defaults to DiscordContentFormat.Embeds. */
   contentFormat?: DiscordContentFormat;
   /** Return interaction flags for the initial deferred slash command response. */
   interactionFlags?: (

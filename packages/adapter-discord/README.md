@@ -198,8 +198,10 @@ Discord cards render as embeds by default. To render Chat SDK cards with
 [Discord Components v2](https://docs.discord.com/developers/components/reference) instead, set `contentFormat`:
 
 ```typescript
+import { DiscordContentFormat } from "@chat-adapter/discord";
+
 createDiscordAdapter({
-  contentFormat: "componentsv2",
+  contentFormat: DiscordContentFormat.ComponentsV2,
 });
 ```
 
@@ -217,7 +219,7 @@ All options are auto-detected from environment variables when not provided.
 | `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
-| `contentFormat` | No | Render Chat SDK cards as `"embeds"` or `"componentsv2"`. Defaults to `"embeds"` |
+| `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
