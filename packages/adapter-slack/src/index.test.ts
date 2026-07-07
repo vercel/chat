@@ -9,11 +9,12 @@ import {
   createMockChatInstance,
   createMockState,
   mockLogger,
+  threadIdContract,
 } from "@chat-adapter/tests";
 import { WebClient } from "@slack/web-api";
 import type { AdapterPostableMessage, ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SlackInstallation } from "./index";
+import type { SlackInstallation, SlackThreadId } from "./index";
 import { createSlackAdapter, SlackAdapter } from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
@@ -196,51 +197,36 @@ describe("constructor env var resolution", () => {
 // Thread ID Encoding/Decoding Tests
 // ============================================================================
 
-describe("encodeThreadId", () => {
-  const adapter = createSlackAdapter({
-    botToken: "xoxb-test-token",
-    signingSecret: "test-secret",
-    logger: mockLogger,
-  });
-
-  it("encodes channel and threadTs correctly", () => {
-    const threadId = adapter.encodeThreadId({
-      channel: "C12345",
-      threadTs: "1234567890.123456",
-    });
-    expect(threadId).toBe("slack:C12345:1234567890.123456");
-  });
-
-  it("handles empty threadTs", () => {
-    const threadId = adapter.encodeThreadId({
-      channel: "C12345",
-      threadTs: "",
-    });
-    expect(threadId).toBe("slack:C12345:");
-  });
+const threadIdAdapter = createSlackAdapter({
+  botToken: "xoxb-test-token",
+  signingSecret: "test-secret",
+  logger: mockLogger,
 });
 
-describe("decodeThreadId", () => {
+threadIdContract<SlackThreadId>({
+  name: "slack",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { channel: "C12345", threadTs: "1234567890.123456" },
+      encoded: "slack:C12345:1234567890.123456",
+    },
+    // Top-level (non-threaded) messages encode with an empty threadTs.
+    { decoded: { channel: "C12345", threadTs: "" }, encoded: "slack:C12345:" },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "slack:D12345:1234567890.123456",
+    nonDmThreadId: "slack:C12345:1234567890.123456",
+  },
+});
+
+describe("decodeThreadId edge cases", () => {
   const adapter = createSlackAdapter({
     botToken: "xoxb-test-token",
     signingSecret: "test-secret",
     logger: mockLogger,
-  });
-
-  it("decodes valid thread ID", () => {
-    const result = adapter.decodeThreadId("slack:C12345:1234567890.123456");
-    expect(result).toEqual({
-      channel: "C12345",
-      threadTs: "1234567890.123456",
-    });
-  });
-
-  it("decodes thread ID with empty threadTs", () => {
-    const result = adapter.decodeThreadId("slack:C12345:");
-    expect(result).toEqual({
-      channel: "C12345",
-      threadTs: "",
-    });
   });
 
   it("decodes channel-only ID (no threadTs)", () => {
@@ -263,19 +249,11 @@ describe("decodeThreadId", () => {
   });
 });
 
-describe("isDM", () => {
+describe("isDM edge cases", () => {
   const adapter = createSlackAdapter({
     botToken: "xoxb-test-token",
     signingSecret: "test-secret",
     logger: mockLogger,
-  });
-
-  it("returns true for DM channels (D prefix)", () => {
-    expect(adapter.isDM("slack:D12345:1234567890.123456")).toBe(true);
-  });
-
-  it("returns false for public channels (C prefix)", () => {
-    expect(adapter.isDM("slack:C12345:1234567890.123456")).toBe(false);
   });
 
   it("returns false for private channels (G prefix)", () => {

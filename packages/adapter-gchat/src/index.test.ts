@@ -3,6 +3,7 @@ import {
   createMockChatInstance,
   createMockLogger,
   mockLogger,
+  threadIdContract,
 } from "@chat-adapter/tests";
 import { auth } from "@googleapis/chat";
 import type { ChatInstance, Lock, StateAdapter } from "chat";
@@ -12,13 +13,13 @@ import {
   GoogleChatAdapter,
   type GoogleChatEvent,
   type GoogleChatMessage,
+  type GoogleChatThreadId,
 } from "./index";
 import type {
   PubSubPushMessage,
   WorkspaceEventNotification,
 } from "./workspace-events";
 
-const GCHAT_PREFIX_PATTERN = /^gchat:/;
 const DM_SUFFIX_PATTERN = /:dm$/;
 const VERIFICATION_REQUIRED_PATTERN =
   /Webhook signature verification is required/;
@@ -160,6 +161,43 @@ async function createInitializedAdapter(opts?: {
   return { adapter, mockState, mockChat };
 }
 
+// encodeThreadId/decodeThreadId/isDM are pure and need no init or network, so a
+// single synchronously-constructed adapter is enough for the shared contract.
+const threadIdAdapter = createGoogleChatAdapter({
+  credentials: TEST_CREDENTIALS,
+  logger: mockLogger,
+});
+
+threadIdContract<GoogleChatThreadId>({
+  name: "gchat",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { spaceName: "spaces/ABC123", isDM: false },
+      encoded: "gchat:spaces/ABC123",
+    },
+    {
+      decoded: {
+        spaceName: "spaces/ABC123",
+        threadName: "spaces/ABC123/threads/XYZ789",
+        isDM: false,
+      },
+      // base64url of the thread name segment
+      encoded: "gchat:spaces/ABC123:c3BhY2VzL0FCQzEyMy90aHJlYWRzL1hZWjc4OQ",
+    },
+    {
+      decoded: { spaceName: "spaces/DM123", isDM: true },
+      encoded: "gchat:spaces/DM123:dm",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "gchat:spaces/DM123:dm",
+    nonDmThreadId: "gchat:spaces/ROOM456",
+  },
+});
+
 describe("GoogleChatAdapter", () => {
   it("should export createGoogleChatAdapter function", () => {
     expect(typeof createGoogleChatAdapter).toBe("function");
@@ -175,60 +213,6 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("thread ID encoding", () => {
-    it("should encode and decode thread IDs without thread name", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/ABC123",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(GCHAT_PREFIX_PATTERN);
-
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-    });
-
-    it("should encode and decode thread IDs with thread name", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/ABC123",
-        threadName: "spaces/ABC123/threads/XYZ789",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.threadName).toBe(original.threadName);
-    });
-
-    it("should encode and decode DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/DM123",
-        isDM: true,
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(DM_SUFFIX_PATTERN);
-
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.isDM).toBe(true);
-    });
-
     it("should throw on invalid thread ID", () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
@@ -399,31 +383,6 @@ describe("GoogleChatAdapter", () => {
         apiUrl: "https://custom-chat.googleapis.com",
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
-    });
-  });
-
-  describe("isDM", () => {
-    it("should return true for DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-      const threadId = adapter.encodeThreadId({
-        spaceName: "spaces/DM123",
-        isDM: true,
-      });
-      expect(adapter.isDM(threadId)).toBe(true);
-    });
-
-    it("should return false for non-DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-      const threadId = adapter.encodeThreadId({
-        spaceName: "spaces/ROOM456",
-      });
-      expect(adapter.isDM(threadId)).toBe(false);
     });
   });
 

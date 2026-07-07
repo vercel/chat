@@ -7,13 +7,19 @@ import {
   ValidationError as SharedValidationError,
   ValidationError,
 } from "@chat-adapter/shared";
-import { createMockChatInstance, createMockLogger } from "@chat-adapter/tests";
+import {
+  createMockChatInstance,
+  createMockLogger,
+  selfMessageContract,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import type { ChatInstance } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMessengerAdapter,
   MessengerAdapter,
   type MessengerMessagingEvent,
+  type MessengerThreadId,
 } from "./index";
 
 const APP_SECRET = "test-app-secret";
@@ -132,18 +138,9 @@ describe("MessengerAdapter", () => {
   });
 
   describe("thread ID encoding", () => {
-    it("encodes and decodes thread IDs", () => {
-      const adapter = createAdapter();
-
-      expect(adapter.encodeThreadId({ recipientId: "USER_123" })).toBe(
-        "messenger:USER_123"
-      );
-
-      expect(adapter.decodeThreadId("messenger:USER_123")).toEqual({
-        recipientId: "USER_123",
-      });
-    });
-
+    // encode/decode round-trip + pinned-string coverage lives in the shared
+    // `threadIdContract` at the bottom of this file; only the malformed-id and
+    // raw-resolution edge cases the contract does not cover are kept here.
     it("throws on invalid thread IDs", () => {
       const adapter = createAdapter();
 
@@ -458,61 +455,9 @@ describe("MessengerAdapter", () => {
     });
 
     describe("message processing", () => {
-      it("handles incoming messages", async () => {
-        const adapter = createAdapter();
-        const chat = createMockChat();
-
-        mockFetch.mockResolvedValueOnce(
-          graphApiOk({ id: "PAGE_456", name: "Test Page" })
-        );
-        await adapter.initialize(chat);
-
-        const event = sampleMessagingEvent();
-        const payload = createWebhookPayload([event]);
-        const body = JSON.stringify(payload);
-
-        const request = new Request("https://example.com/webhook", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-hub-signature-256": signPayload(body),
-          },
-          body,
-        });
-
-        const response = await adapter.handleWebhook(request);
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe("EVENT_RECEIVED");
-      });
-
-      it("ignores echo messages", async () => {
-        const adapter = createAdapter();
-        const chat = createMockChat();
-
-        mockFetch.mockResolvedValueOnce(
-          graphApiOk({ id: "PAGE_456", name: "Test Page" })
-        );
-        await adapter.initialize(chat);
-
-        const event = sampleMessagingEvent({
-          message: { mid: "mid.echo", text: "echo", is_echo: true },
-        });
-        const payload = createWebhookPayload([event]);
-        const body = JSON.stringify(payload);
-
-        const request = new Request("https://example.com/webhook", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-hub-signature-256": signPayload(body),
-          },
-          body,
-        });
-
-        await adapter.handleWebhook(request);
-        expect(chat).not.toHaveDispatched("processMessage");
-      });
-
+      // The happy-path dispatch of another user's message and the ignore of the
+      // bot's own echo are covered by the shared `selfMessageContract` at the
+      // bottom of this file. Echo caching (below) is Messenger-specific and kept.
       it("caches echo messages", async () => {
         const adapter = createAdapter();
         const chat = createMockChat();
@@ -2123,4 +2068,67 @@ describe("subclass extensibility", () => {
     }
     expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
+});
+
+// `encodeThreadId`/`decodeThreadId` are pure, so a single adapter instance (no
+// init, no network) is enough to exercise the shared thread-id codec contract.
+const threadIdAdapter = createAdapter();
+
+threadIdContract<MessengerThreadId>({
+  name: "messenger",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    { decoded: { recipientId: "USER_123" }, encoded: "messenger:USER_123" },
+    { decoded: { recipientId: "1234567890" }, encoded: "messenger:1234567890" },
+  ],
+  // `isDM` is intentionally omitted: every Messenger thread is a 1:1 DM, so
+  // there is no non-DM thread id to distinguish. The always-true behaviour is
+  // asserted locally in the "DM operations" suite instead.
+});
+
+selfMessageContract({
+  name: "messenger",
+  dispatchHandler: "processMessage",
+  setup: async () => {
+    const chat = createMockChat();
+    // The mocked /me lookup seeds a known page identity with no real network,
+    // exactly like the other webhook tests.
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ id: "PAGE_456", name: "Test Page" })
+    );
+    const adapter = createAdapter();
+    await adapter.initialize(chat);
+    return { adapter, chat };
+  },
+  makeOtherMessageRequest: () => {
+    const body = JSON.stringify(createWebhookPayload([sampleMessagingEvent()]));
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": signPayload(body),
+      },
+      body,
+    });
+  },
+  makeSelfMessageRequest: () => {
+    const body = JSON.stringify(
+      createWebhookPayload([
+        sampleMessagingEvent({
+          sender: { id: "PAGE_456" },
+          recipient: { id: "USER_123" },
+          message: { mid: "mid.echo", text: "bot reply", is_echo: true },
+        }),
+      ])
+    );
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": signPayload(body),
+      },
+      body,
+    });
+  },
 });

@@ -5,7 +5,11 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
-import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
+import {
+  createMockChatInstance,
+  mockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import { Actions, Button, Card } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
@@ -14,6 +18,7 @@ import {
   createDiscordAdapter,
   DiscordAdapter,
   DiscordInteractionResponseFlag,
+  type DiscordThreadId,
 } from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
@@ -216,106 +221,61 @@ describe("constructor env var resolution", () => {
 // Thread ID Encoding/Decoding Tests
 // ============================================================================
 
-describe("encodeThreadId", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("encodes guild and channel correctly", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "guild123",
-      channelId: "channel456",
-    });
-    expect(threadId).toBe("discord:guild123:channel456");
-  });
-
-  it("encodes with thread ID", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: "thread789",
-    });
-    expect(threadId).toBe("discord:guild123:channel456:thread789");
-  });
-
-  it("encodes DM channel", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "@me",
-      channelId: "dm123",
-    });
-    expect(threadId).toBe("discord:@me:dm123");
-  });
+const threadIdAdapter = createDiscordAdapter({
+  botToken: "test-token",
+  publicKey: testPublicKey,
+  applicationId: "test-app-id",
+  logger: mockLogger,
 });
 
-describe("decodeThreadId", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
+threadIdContract<DiscordThreadId>({
+  name: "discord",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { guildId: "guild123", channelId: "channel456" },
+      encoded: "discord:guild123:channel456",
+    },
+    {
+      decoded: {
+        guildId: "guild123",
+        channelId: "channel456",
+        threadId: "thread789",
+      },
+      encoded: "discord:guild123:channel456:thread789",
+    },
+    {
+      decoded: { guildId: "@me", channelId: "dm123" },
+      encoded: "discord:@me:dm123",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "discord:@me:dm123",
+    nonDmThreadId: "discord:guild123:channel456",
+  },
+});
 
-  it("decodes valid thread ID", () => {
-    const result = adapter.decodeThreadId("discord:guild123:channel456");
-    expect(result).toEqual({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: undefined,
-    });
-  });
-
-  it("decodes thread ID with thread", () => {
-    const result = adapter.decodeThreadId(
-      "discord:guild123:channel456:thread789"
-    );
-    expect(result).toEqual({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: "thread789",
-    });
-  });
-
-  it("decodes DM thread ID", () => {
-    const result = adapter.decodeThreadId("discord:@me:dm123");
-    expect(result).toEqual({
-      guildId: "@me",
-      channelId: "dm123",
-      threadId: undefined,
-    });
-  });
-
+describe("decodeThreadId (edge cases)", () => {
   it("throws on invalid thread ID format", () => {
-    expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
-    expect(() => adapter.decodeThreadId("discord:channel")).toThrow(
+    expect(() => threadIdAdapter.decodeThreadId("invalid")).toThrow(
       ValidationError
     );
-    expect(() => adapter.decodeThreadId("slack:C12345:123")).toThrow(
+    expect(() => threadIdAdapter.decodeThreadId("discord:channel")).toThrow(
+      ValidationError
+    );
+    expect(() => threadIdAdapter.decodeThreadId("slack:C12345:123")).toThrow(
       ValidationError
     );
   });
 });
 
-describe("isDM", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("returns true for DM channels (@me prefix)", () => {
-    expect(adapter.isDM("discord:@me:dm123")).toBe(true);
-  });
-
-  it("returns false for guild channels", () => {
-    expect(adapter.isDM("discord:guild123:channel456")).toBe(false);
-  });
-
+describe("isDM (edge cases not covered by contract)", () => {
   it("returns false for threads in guilds", () => {
-    expect(adapter.isDM("discord:guild123:channel456:thread789")).toBe(false);
+    expect(threadIdAdapter.isDM("discord:guild123:channel456:thread789")).toBe(
+      false
+    );
   });
 });
 
