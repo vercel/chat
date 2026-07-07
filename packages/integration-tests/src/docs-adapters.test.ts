@@ -261,6 +261,7 @@ describe("Official platform adapter OG images", () => {
         "twilio",
         "web",
         "whatsapp",
+        "x",
       ].sort()
     );
   });
