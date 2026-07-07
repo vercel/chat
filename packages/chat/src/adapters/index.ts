@@ -214,6 +214,41 @@ export const ADAPTERS = {
     slug: "cloudflare-agents",
     type: "state",
   },
+  dial: {
+    description:
+      "SMS, MMS, iMessage, and inbound voice-call transcripts for Chat SDK, built and maintained by Dial. One handler answers phone traffic the same way it answers Slack/Teams/Discord, with HMAC-signed webhooks and replies over @getdial/sdk.",
+    env: {
+      config: ["apiBaseUrl", "botName", "logger"],
+      optional: [
+        secretEnv(
+          "DIAL_WEBHOOK_SECRET",
+          "HMAC-SHA256 signing secret from the Dial webhook subscription; enables signature verification of inbound requests."
+        ),
+        env(
+          "DIAL_API_URL",
+          "Override the Dial API host. Defaults to https://api.getdial.ai."
+        ),
+        env(
+          "BOT_USERNAME",
+          'Display name Chat SDK uses for the bot. Defaults to "bot".'
+        ),
+      ],
+      required: [
+        secretEnv("DIAL_API_KEY", "Dial API key (sk_live_…)."),
+        env(
+          "DIAL_FROM_NUMBER_ID",
+          "Dial's ID of the phone number the bot sends from."
+        ),
+      ],
+    },
+    factoryExport: "createDialAdapter",
+    group: "vendor-official",
+    name: "Dial",
+    packageName: "@getdial/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "dial",
+    type: "platform",
+  },
   discord: {
     description:
       "Create Discord bots with slash commands, threads, and rich embeds.",

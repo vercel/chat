@@ -140,6 +140,7 @@ describe("Vendor-Official adapter MDX", () => {
       [
         "agentphone",
         "cloudflare-agents",
+        "dial",
         "kapso",
         "lark",
         "linq",
