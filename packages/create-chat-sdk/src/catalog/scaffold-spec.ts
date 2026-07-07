@@ -326,6 +326,9 @@ export const CLI_SCAFFOLD_SPEC = {
   whatsapp: {
     invocation: { kind: "zero-arg" },
   },
+  x: {
+    invocation: { kind: "zero-arg" },
+  },
   zernio: {
     invocation: { kind: "zero-arg" },
   },
