@@ -343,7 +343,8 @@ export function convertEmojiPlaceholders(
     | "messenger"
     | "github"
     | "linear"
-    | "whatsapp",
+    | "whatsapp"
+    | "x",
   resolver: EmojiResolver = defaultEmojiResolver
 ): string {
   return text.replace(EMOJI_PLACEHOLDER_REGEX, (_, emojiName: string) => {
@@ -369,6 +370,9 @@ export function convertEmojiPlaceholders(
         return resolver.toGChat(emojiName);
       case "whatsapp":
         // WhatsApp uses unicode emoji
+        return resolver.toGChat(emojiName);
+      case "x":
+        // X uses unicode emoji
         return resolver.toGChat(emojiName);
       default:
         return resolver.toGChat(emojiName);

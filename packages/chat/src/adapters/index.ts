@@ -1026,6 +1026,65 @@ export const ADAPTERS = {
     slug: "whatsapp",
     type: "platform",
   },
+  x: {
+    description:
+      "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+    env: {
+      credentialModes: [
+        {
+          label: "Static access token",
+          vars: [
+            secretEnv(
+              "X_USER_ACCESS_TOKEN",
+              "OAuth 2.0 user-context access token for outbound API calls."
+            ),
+          ],
+        },
+        {
+          label: "Managed OAuth refresh",
+          vars: [
+            env("X_CLIENT_ID", "OAuth 2.0 client ID."),
+            secretEnv(
+              "X_REFRESH_TOKEN",
+              "OAuth 2.0 refresh token (requires the offline.access scope)."
+            ),
+          ],
+        },
+      ],
+      optional: [
+        secretEnv(
+          "X_CLIENT_SECRET",
+          "OAuth 2.0 client secret for confidential clients."
+        ),
+        secretEnv(
+          "X_ENCRYPTION_KEY",
+          "AES-256-GCM key for encrypting stored OAuth tokens."
+        ),
+        env(
+          "X_USER_ID",
+          "Bot account user ID. Fetched from /2/users/me when omitted."
+        ),
+        env(
+          "X_USERNAME",
+          "Bot account handle used for mention detection. Fetched when omitted."
+        ),
+        urlEnv("X_API_BASE_URL", "Override the X API base URL."),
+      ],
+      required: [
+        secretEnv(
+          "X_CONSUMER_SECRET",
+          "App API key secret used for webhook CRC and signature verification."
+        ),
+      ],
+    },
+    factoryExport: "createXAdapter",
+    group: "official",
+    name: "X",
+    packageName: "@chat-adapter/x",
+    peerDeps: [],
+    slug: "x",
+    type: "platform",
+  },
   zernio: {
     description:
       "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",
