@@ -138,7 +138,7 @@ export async function POST(request: Request) {
     userId: {
       type: "string",
       description:
-        "Bot account user ID. Auto-detected from `X_USER_ID`, otherwise fetched from `GET /2/users/me`.",
+        "Bot account user ID, used for DM threading and self-detection. Auto-detected from `X_USER_ID`, otherwise fetched from `GET /2/users/me`. The adapter requires a resolvable bot id and fails initialization if neither is available.",
     },
     userName: {
       type: "string",

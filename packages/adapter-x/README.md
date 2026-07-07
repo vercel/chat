@@ -83,7 +83,7 @@ X_REFRESH_TOKEN=...        # OAuth 2.0 refresh token (requires the offline.acces
 X_CLIENT_SECRET=...        # Optional, only for confidential clients
 X_ENCRYPTION_KEY=...       # Optional, base64 32-byte key to encrypt persisted tokens
 
-X_USER_ID=...              # Optional, bot account user ID (fetched from /2/users/me when omitted)
+X_USER_ID=...              # Bot account user ID. Optional if omitted it is fetched from /2/users/me; the adapter requires a resolvable bot id and fails init otherwise
 X_USERNAME=...             # Optional, bot @handle for mention detection (fetched when omitted)
 X_API_BASE_URL=...         # Optional, override the X API base URL
 ```

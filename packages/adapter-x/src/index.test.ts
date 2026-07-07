@@ -245,6 +245,22 @@ describe("XAdapter", () => {
       await createInitializedAdapter();
       expect(mockFetch).not.toHaveBeenCalled();
     });
+
+    it("throws when the bot id cannot be resolved (no userId and /me fails)", async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ errors: [{ title: "Unauthorized" }] }), {
+          status: 401,
+        })
+      );
+      const adapter = new XAdapter({
+        consumerSecret: CONSUMER_SECRET,
+        logger: mockLogger,
+        userAccessToken: ACCESS_TOKEN,
+      });
+      await expect(adapter.initialize(createMockChat())).rejects.toThrow(
+        ValidationError
+      );
+    });
   });
 
   describe("CRC challenge", () => {
@@ -405,8 +421,10 @@ describe("XAdapter", () => {
       expect(message.author.isMe).toBe(true);
     });
 
-    it("does not mark untracked account DMs as isMe", async () => {
+    it("marks bot-sent DMs as isMe even when untracked (stateless)", async () => {
       const { adapter, chat } = await createInitializedAdapter();
+      // A dm.sent echo arriving on a fresh instance (id never tracked here):
+      // still self because the sender is the bot, so no reply loop.
       await adapter.handleWebhook(
         webhookRequest(
           dmEnvelope({
@@ -414,12 +432,58 @@ describe("XAdapter", () => {
             id: "9500",
             recipientId: "111",
             senderId: BOT_USER_ID,
-            text: "manually typed",
+            text: "cold-start echo",
           })
         )
       );
-      // Same contract as posts: only adapter-tracked sends are isMe.
-      expect(lastProcessedMessage(chat).author.isMe).toBe(false);
+      expect(lastProcessedMessage(chat).author.isMe).toBe(true);
+    });
+
+    it("routes every message_create in a batched DM delivery", async () => {
+      const { adapter, chat } = await createInitializedAdapter();
+      const envelope = {
+        data: {
+          event_type: "dm.received",
+          filter: { user_id: BOT_USER_ID },
+          payload: {
+            direct_message_events: [
+              {
+                created_timestamp: "1735689600000",
+                id: "9101",
+                message_create: {
+                  message_data: { text: "first of batch" },
+                  sender_id: "111",
+                  target: { recipient_id: BOT_USER_ID },
+                },
+                type: "message_create",
+              },
+              {
+                created_timestamp: "1735689600001",
+                id: "9102",
+                message_create: {
+                  message_data: { text: "second of batch" },
+                  sender_id: "111",
+                  target: { recipient_id: BOT_USER_ID },
+                },
+                type: "message_create",
+              },
+            ],
+            users: {
+              "111": {
+                data: { id: "111", name: "Ada Lovelace", username: "ada" },
+              },
+            },
+          },
+        },
+      };
+      await adapter.handleWebhook(webhookRequest(envelope));
+      const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+      expect(processMessage).toHaveBeenCalledTimes(2);
+      expect(
+        processMessage.mock.calls.map(
+          (c) => (c[2] as Message<XRawMessage>).text
+        )
+      ).toEqual(["first of batch", "second of batch"]);
     });
 
     it("ignores unknown event types", async () => {

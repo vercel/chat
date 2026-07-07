@@ -179,6 +179,16 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
         error: String(error),
       });
     }
+
+    // The bot id is required: DM threading keys on the other participant and
+    // self-detection compares against it, so a missing id silently misroutes
+    // the bot's own DMs. Fail fast rather than degrade in production.
+    if (!this._botUserId) {
+      throw new ValidationError(
+        "x",
+        "Could not resolve the bot user id. Set X_USER_ID, or ensure the access token has the users.read scope so it can be fetched from /2/users/me."
+      );
+    }
   }
 
   async handleWebhook(
@@ -282,12 +292,15 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       }
       case "dm.received":
       case "dm.sent": {
-        const extracted = extractDmEvent(event.payload, users);
-        if (!extracted) {
+        const extracted = extractDmEvents(event.payload, users);
+        if (extracted.length === 0) {
           this.logger.warn("Unrecognized X DM payload shape");
           return;
         }
-        this.handleIncomingDm(extracted.dmEvent, extracted.sender, options);
+        // A delivery can batch multiple message_create events; route each.
+        for (const { dmEvent, sender } of extracted) {
+          this.handleIncomingDm(dmEvent, sender, options);
+        }
         return;
       }
       default:
@@ -861,10 +874,11 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   ): Message<XRawMessage> {
     const { dmEvent, sender } = raw;
     const text = dmEvent.text ?? "";
-    // Only adapter-created events are isMe (same contract as posts): a tracked
-    // dm.sent echo is filtered by core, avoiding reply loops, while other
-    // account-owned events still route by source.
-    const isMe = this.isSelf(dmEvent.id);
+    // A DM is self when this adapter sent it (tracked id) or when the sender is
+    // the bot account. The latter is stateless, so dm.sent echoes are filtered
+    // even on a cold start or a different serverless instance, avoiding reply
+    // loops where the bot's own DM would otherwise route as inbound.
+    const isMe = this.isSelf(dmEvent.id) || this.isBotSender(dmEvent.sender_id);
     return new Message<XRawMessage>({
       attachments: [],
       author: this.buildAuthor(dmEvent.sender_id, sender, isMe),
@@ -888,6 +902,11 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    */
   protected isSelf(messageId: string): boolean {
     return this.sentIds.has(messageId);
+  }
+
+  /** Whether a sender id is the bot account (stateless self-detection). */
+  protected isBotSender(senderId: string | undefined): boolean {
+    return Boolean(this._botUserId && senderId === this._botUserId);
   }
 
   protected buildAuthor(
@@ -1387,48 +1406,51 @@ function unwrapPost(payload: unknown): XPost | null {
 }
 
 /**
- * Extract the first message and its sender from a DM Activity payload.
+ * Extract every message and its sender from a DM Activity payload.
  *
  * DMs use the legacy Account Activity shape: `direct_message_events[]` of
  * `message_create` items, with hydrated users in a `users` map keyed by id.
- * There is no conversation id on the wire, so callers thread by participant.
- * The `users` argument (mention-style `includes.users`) is accepted as a
- * fallback for any delivery that uses the v2 expansion shape instead.
+ * A single delivery can batch multiple events, so all `message_create` items
+ * are returned in order. There is no conversation id on the wire, so callers
+ * thread by participant. The `users` argument (mention-style `includes.users`)
+ * is accepted as a fallback for any delivery that uses the v2 expansion shape.
  */
-export function extractDmEvent(
+export function extractDmEvents(
   payload: unknown,
   users?: readonly XUser[]
-): { dmEvent: XDmEvent; sender?: XUser } | null {
+): { dmEvent: XDmEvent; sender?: XUser }[] {
   if (!isRecord(payload)) {
-    return null;
+    return [];
   }
   const events = payload.direct_message_events;
   if (!Array.isArray(events)) {
-    return null;
+    return [];
   }
-  const wire = (events as XDmWireEvent[]).find(
-    (event) => event?.message_create
-  );
-  if (!wire?.message_create) {
-    return null;
-  }
-  const create = wire.message_create;
-  const dmEvent: XDmEvent = {
-    created_timestamp: wire.created_timestamp,
-    id: wire.id,
-    recipient_id: create.target?.recipient_id,
-    sender_id: create.sender_id,
-    text: create.message_data?.text,
-  };
-
   const map = isRecord(payload.users)
     ? (payload.users as Record<string, { data?: XUser }>)
     : undefined;
-  const mapped =
-    dmEvent.sender_id && map ? map[dmEvent.sender_id]?.data : undefined;
-  const sender = mapped ?? findUser(users, dmEvent.sender_id);
 
-  return { dmEvent, sender };
+  const results: { dmEvent: XDmEvent; sender?: XUser }[] = [];
+  for (const wire of events as XDmWireEvent[]) {
+    if (!wire?.message_create) {
+      continue;
+    }
+    const create = wire.message_create;
+    const dmEvent: XDmEvent = {
+      created_timestamp: wire.created_timestamp,
+      id: wire.id,
+      recipient_id: create.target?.recipient_id,
+      sender_id: create.sender_id,
+      text: create.message_data?.text,
+    };
+    const mapped =
+      dmEvent.sender_id && map ? map[dmEvent.sender_id]?.data : undefined;
+    results.push({
+      dmEvent,
+      sender: mapped ?? findUser(users, dmEvent.sender_id),
+    });
+  }
+  return results;
 }
 
 export function createXAdapter(config?: XAdapterConfig): XAdapter {
