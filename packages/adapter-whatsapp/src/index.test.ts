@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { createMockChatInstance, createMockLogger } from "@chat-adapter/tests";
 import {
   createMockChatInstance,
   createMockLogger,
