@@ -6,6 +6,7 @@ import {
   extractCard,
   extractFiles,
   NetworkError,
+  replaceBareMentions,
   toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
@@ -455,6 +456,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
+  protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -574,6 +576,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     let client = this.tokenClientCache.get(token);
     if (!client) {
       client = new WebClient(token, {
+        ...this.webClientOptions,
+        ...(this.webClientOptions?.headers
+          ? { headers: { ...this.webClientOptions.headers } }
+          : {}),
         ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
       });
       this.tokenClientCache.set(token, client);
@@ -615,9 +621,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const botTokenProvider = normalizeBotTokenProvider(botTokenConfig);
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
+    this.webClientOptions = config.webClientOptions;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
+      ...this.webClientOptions,
+      ...(this.webClientOptions?.headers
+        ? { headers: { ...this.webClientOptions.headers } }
+        : {}),
       ...(this.slackApiUrl ? { slackApiUrl: this.slackApiUrl } : {}),
     });
     // webhookVerifier takes precedence; signingSecret is only used when no
@@ -1755,11 +1766,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.socketClient.on(
       "slack_event",
-      async ({ ack, body, type, retry_num }) => {
+      async ({ ack, body, type, retry_num, retry_reason }) => {
         if (retry_num && retry_num > 0) {
-          await ack();
-          this.logger.debug("Skipping socket mode retry", { retry_num });
-          return;
+          // Slack redelivers an event when a prior delivery wasn't acked —
+          // including events sent while the app had no open socket (restart,
+          // deploy, connection refresh). Route it like a first delivery:
+          // processMessage() dedupes by message id, so an already-handled
+          // duplicate is dropped there, while a genuinely missed event is
+          // recovered instead of being lost.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
         }
 
         await this.routeSocketEvent(
@@ -1919,35 +1938,42 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const client = new SocketModeClient({ appToken });
     let isShuttingDown = false;
 
-    client.on("slack_event", async ({ ack, body, type, retry_num }) => {
-      if (isShuttingDown) {
-        return;
-      }
+    client.on(
+      "slack_event",
+      async ({ ack, body, type, retry_num, retry_reason }) => {
+        if (isShuttingDown) {
+          return;
+        }
 
-      if (retry_num && retry_num > 0) {
-        await ack();
-        this.logger.debug("Skipping socket mode retry", { retry_num });
-        return;
-      }
+        if (retry_num && retry_num > 0) {
+          // See startSocketMode: retries are routed like first deliveries and
+          // deduped downstream, so missed-while-disconnected events recover.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
+        }
 
-      const eventType = type as string;
-      if (webhookUrl) {
-        await ack();
-        await this.forwardSocketEvent(webhookUrl, {
-          type: "socket_event",
-          eventType,
-          body: body as Record<string, unknown>,
-          timestamp: Date.now(),
-        });
-      } else {
-        await this.routeSocketEvent(
-          body as Record<string, unknown>,
-          eventType,
-          ack,
-          options
-        );
+        const eventType = type as string;
+        if (webhookUrl) {
+          await ack();
+          await this.forwardSocketEvent(webhookUrl, {
+            type: "socket_event",
+            eventType,
+            body: body as Record<string, unknown>,
+            timestamp: Date.now(),
+          });
+        } else {
+          await this.routeSocketEvent(
+            body as Record<string, unknown>,
+            eventType,
+            ack,
+            options
+          );
+        }
       }
-    });
+    );
 
     try {
       await client.start();
@@ -2998,26 +3024,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return text;
     }
     const state = this.chat.getState();
-
-    // Find all @word patterns that aren't already wrapped in <@...>
-    const mentionPattern = /@(\w+)/g;
     const mentions = new Map<string, string[]>();
 
-    for (const match of text.matchAll(mentionPattern)) {
-      const name = match[1];
-      // Skip if already a Slack user ID format or inside <@...>
+    replaceBareMentions(text, (mention, name) => {
       if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-        continue;
-      }
-      // Check the character before @ to skip <@...> patterns
-      const idx = match.index;
-      if (idx > 0 && text[idx - 1] === "<") {
-        continue;
+        return mention;
       }
       if (!mentions.has(name.toLowerCase())) {
         mentions.set(name.toLowerCase(), []);
       }
-    }
+      return mention;
+    });
 
     if (mentions.size === 0) {
       return text;
@@ -3043,35 +3060,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       participants = new Set(participantList);
     }
 
-    // Replace mentions in text
-    return text.replace(
-      mentionPattern,
-      (match, name: string, offset: number) => {
-        if (offset > 0 && text[offset - 1] === "<") {
-          return match;
-        }
-        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-          return match;
-        }
-
-        const userIds = mentions.get(name.toLowerCase());
-        if (!userIds || userIds.length === 0) {
-          return match;
-        }
-        if (userIds.length === 1) {
-          return `<@${userIds[0]}>`;
-        }
-        // Disambiguate using thread participants
-        if (participants) {
-          const inThread = userIds.filter((id) => participants.has(id));
-          if (inThread.length === 1) {
-            return `<@${inThread[0]}>`;
-          }
-        }
-        // Still ambiguous — leave as plain text
-        return match;
+    return replaceBareMentions(text, (mention, name) => {
+      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+        return mention;
       }
-    );
+
+      const userIds = mentions.get(name.toLowerCase());
+      if (!userIds || userIds.length === 0) {
+        return mention;
+      }
+      if (userIds.length === 1) {
+        return `<@${userIds[0]}>`;
+      }
+      // Disambiguate using thread participants
+      if (participants) {
+        const inThread = userIds.filter((id) => participants.has(id));
+        if (inThread.length === 1) {
+          return `<@${inThread[0]}>`;
+        }
+      }
+      return mention;
+    });
   }
 
   /**
@@ -3955,28 +3964,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * streaming API as chunk payloads, enabling native task progress cards
    * and plan displays in the Slack AI Assistant UI.
    *
-   * Requires `recipientUserId` and `recipientTeamId` in options.
+   * Falls back to post-and-edit when the thread lacks native stream context.
    */
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<unknown>> {
-    if (!(options?.recipientUserId && options?.recipientTeamId)) {
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires recipientUserId and recipientTeamId in options"
-      );
-    }
+  ): Promise<RawMessage<unknown> | null> {
     const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
-    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
     const threadTs = rawThreadTs || undefined;
     if (!threadTs) {
-      this.logger.debug("Slack: stream skipped - no thread context");
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires a valid thread context (non-empty threadTs)"
-      );
+      this.logger.debug("Slack: using fallback stream - no thread context");
+      return null;
+    }
+    if (
+      !(
+        channel.startsWith("D") ||
+        (options?.recipientUserId && options?.recipientTeamId)
+      )
+    ) {
+      this.logger.debug("Slack: using fallback stream - no recipient context");
+      return null;
     }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
@@ -3984,9 +3992,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const streamer = this._client.chatStream({
       channel,
       thread_ts: threadTs,
-      recipient_user_id: options.recipientUserId,
-      recipient_team_id: options.recipientTeamId,
-      ...(options.taskDisplayMode && {
+      ...(options?.recipientUserId && {
+        recipient_user_id: options.recipientUserId,
+      }),
+      ...(options?.recipientTeamId && {
+        recipient_team_id: options.recipientTeamId,
+      }),
+      ...(options?.taskDisplayMode && {
         task_display_mode: options.taskDisplayMode,
       }),
     });
@@ -5015,6 +5027,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
     botUserId: config?.botUserId,
+    webClientOptions: config?.webClientOptions,
     webhookVerifier,
   };
   return new SlackAdapter(resolved);

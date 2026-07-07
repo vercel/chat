@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/slack`](https://www.npmjs.com/package/@chat-adapter/slack)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Slack adapter for [Chat SDK](https://chat-sdk.dev). Configure single-workspace or multi-workspace OAuth deployments.
 
@@ -16,6 +16,16 @@ Documentation: [chat-sdk.dev/adapters/official/slack](https://chat-sdk.dev/adapt
 ```bash
 pnpm add @chat-adapter/slack
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Slack bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Single-workspace mode
 
@@ -136,6 +146,21 @@ openssl rand -base64 32
 ```
 
 When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts it transparently.
+
+### Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the bot token at runtime instead of storing one. The `connectSlackAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires both a `botToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { connectSlackAdapter } from "@vercel/connect/chat";
+
+createSlackAdapter({
+  ...connectSlackAdapter("slack/acme-slack"),
+});
+```
+
+This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
 
 ### External installation provider
 
@@ -333,6 +358,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
 | `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
 | `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
+| `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.

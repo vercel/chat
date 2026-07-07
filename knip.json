@@ -1,8 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": ["@biomejs/biome"],
+  "ignoreDependencies": ["@biomejs/biome", "@vercel/oidc"],
   "ignore": [
     "apps/docs/**/*",
+    "packages/create-chat-sdk/_template/next.config.ts",
+    "packages/create-chat-sdk/_template/src/app/api/webhooks/[platform]/route.ts",
     "examples/nextjs-chat/src/app/.well-known/workflow/**/*"
   ],
   "workspaces": {

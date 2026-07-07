@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@changesets/config": "^3.1.2",
     "@emulators/core": "^0.6.0",
     "@emulators/github": "^0.6.0",
     "@emulators/slack": "^0.6.0",
     "@hono/node-server": "^2.0.2",
+    "@manypkg/get-packages": "^1.1.3",
     "@types/node": "^25.3.2",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"

@@ -21,11 +21,11 @@
   },
   {
     "name": "Google Chat",
-    "slug": "google-chat",
+    "slug": "gchat",
     "type": "platform",
     "description": "Integrate with Google Chat spaces for team collaboration and automated workflows.",
     "packageName": "@chat-adapter/gchat",
-    "icon": "google-chat",
+    "icon": "gchat",
     "beta": true,
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gchat"
   },
@@ -103,7 +103,7 @@
     "name": "Web",
     "slug": "web",
     "type": "platform",
-    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol — works out of the box with @ai-sdk/react and ai-elements.",
+    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol \u2014 works out of the box with @ai-sdk/react and ai-elements.",
     "packageName": "@chat-adapter/web",
     "icon": "web",
     "beta": true,
@@ -160,6 +160,17 @@
     "readme": "https://github.com/dcartertwo/chat-state-cloudflare-do/tree/13ebf545b302b7c8fdabf7de9c5de678e047ce5e"
   },
   {
+    "name": "Cloudflare Agents",
+    "slug": "cloudflare-agents",
+    "type": "state",
+    "community": true,
+    "description": "Cloudflare Agents state adapter for Chat SDK. Stores subscriptions, locks, queues, and history in Durable Object SQLite via ChatSdkStateAgent sub-agents.",
+    "packageName": "agents",
+    "author": "Cloudflare",
+    "readme": "https://github.com/cloudflare/agents",
+    "vendorOfficial": true
+  },
+  {
     "name": "MySQL",
     "slug": "mysql",
     "type": "state",
@@ -168,16 +179,6 @@
     "packageName": "chat-state-mysql",
     "author": "DivyanshGolyan",
     "readme": "https://github.com/DivyanshGolyan/chat-state-mysql/tree/26502f2c43e2aee16b0b58f2066a81e01b2c289b"
-  },
-  {
-    "name": "QQ Bot",
-    "slug": "qq-bot",
-    "type": "platform",
-    "community": true,
-    "description": "Community QQ Bot adapter for Chat SDK with OpenAPI v2 webhooks, Gateway WebSocket events, c2c messaging, buttons, rich media, and live verification tooling.",
-    "packageName": "@youglin/adapter-qq-bot",
-    "author": "YougLin",
-    "readme": "https://github.com/YougLin-dev/adapter-qq-bot/tree/46e76e8e6965d5dc1ee1446bbea76feb23cf7733"
   },
   {
     "name": "Liveblocks",
@@ -235,17 +236,6 @@
     "vendorOfficial": true
   },
   {
-    "name": "Photon iMessage",
-    "slug": "imessage",
-    "type": "platform",
-    "community": true,
-    "description": "iMessage adapter for Chat SDK. Supports both local (on-device) and Photon iMessage integration.",
-    "packageName": "chat-adapter-imessage",
-    "author": "Photon",
-    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage/tree/8e6ae8f1b824db798664c98be91138f083e02262",
-    "vendorOfficial": true
-  },
-  {
     "name": "Webex",
     "slug": "webex",
     "type": "platform",
@@ -264,6 +254,16 @@
     "packageName": "chat-adapter-baileys",
     "author": "rama-adi",
     "readme": "https://github.com/rama-adi/chat-adapter-baileys/tree/b5454e7c04c75d91b06213f16a4af82ddb4a120f"
+  },
+  {
+    "name": "Zaileys WhatsApp",
+    "slug": "zaileys",
+    "type": "platform",
+    "community": true,
+    "description": "WhatsApp adapter powered by Zaileys \u2014 real message history, native buttons from Cards, decrypted poll votes, and scheduling.",
+    "packageName": "chat-adapter-zaileys",
+    "author": "zeative",
+    "readme": "https://github.com/zeative/chat-adapter-zaileys"
   },
   {
     "name": "Blooio iMessage",
@@ -322,14 +322,14 @@
     "slug": "velt",
     "type": "platform",
     "community": true,
-    "description": "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
+    "description": "Velt Comments adapter for bots that read, reply, mention, and start threads in anchored comments across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
     "packageName": "@veltdev/chat-sdk-adapter",
     "author": "Velt",
-    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/a30c5e0fdfb1ac07c4efca1a0f3834d313e6eac3/packages/chat-sdk-adapter",
+    "readme": "https://github.com/velt-js/velt-chat-sdk-adapter/tree/9974db6ee24dc378987decc5c56cce95a12e7805/packages/chat-sdk-adapter",
     "vendorOfficial": true
   },
   {
-    "name": "Kapso WhatsApp",
+    "name": "Kapso",
     "slug": "kapso",
     "type": "platform",
     "community": true,
@@ -338,5 +338,59 @@
     "author": "Kapso",
     "readme": "https://github.com/gokapso/chat-sdk-adapter/tree/7c7e9b349323b8cfa060cc64b15d97bcb9f906b3",
     "vendorOfficial": true
+  },
+  {
+    "name": "Novu",
+    "slug": "novu",
+    "type": "platform",
+    "community": true,
+    "description": "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    "packageName": "@novu/chat-sdk-adapter",
+    "author": "Novu",
+    "readme": "https://github.com/novuhq/novu/blob/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Linq",
+    "slug": "linq",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    "packageName": "@linqapp/chat-sdk-adapter",
+    "author": "Linq",
+    "readme": "https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Photon",
+    "slug": "photon",
+    "type": "platform",
+    "community": true,
+    "description": "iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (macOS) iMessage over spectrum-ts.",
+    "packageName": "@photon-ai/chat-adapter-imessage",
+    "author": "Photon",
+    "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Dial",
+    "slug": "dial",
+    "type": "platform",
+    "community": true,
+    "description": "SMS, MMS, iMessage, and inbound voice-call transcripts for Chat SDK, built and maintained by Dial. One handler answers phone traffic the same way it answers Slack/Teams/Discord, with HMAC-signed webhooks and replies over @getdial/sdk.",
+    "packageName": "@getdial/chat-sdk-adapter",
+    "author": "Dial",
+    "readme": "https://github.com/GetDial-AI/chat-sdk-adapter",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Weixin",
+    "slug": "weixin",
+    "type": "platform",
+    "community": true,
+    "description": "Community Weixin (WeChat) iLink bot adapter for Chat SDK with long polling, QR login, media uploads, and typing indicators.",
+    "packageName": "chat-adapter-weixin",
+    "author": "wong2",
+    "readme": "https://github.com/wong2/weixin-chat-adapter"
   }
 ]

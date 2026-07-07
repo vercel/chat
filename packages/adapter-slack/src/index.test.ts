@@ -2845,6 +2845,66 @@ describe("direct WebClient access via adapter.client", () => {
     ).toBe("https://slack-gov.com/api/");
   });
 
+  it("forwards webClientOptions to the internal WebClient", () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-static-token",
+      signingSecret: secret,
+      webClientOptions: { timeout: 15_000 },
+      logger: mockLogger,
+    });
+
+    expect(
+      (
+        adapter as unknown as {
+          _client: { axios: { defaults: { timeout: number } } };
+        }
+      )._client.axios.defaults.timeout
+    ).toBe(15_000);
+  });
+
+  it("forwards webClientOptions to token-bound WebClients", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      webClientOptions: { timeout: 15_000 },
+      logger: mockLogger,
+    });
+
+    await adapter.withBotToken("xoxb-context-token", () => {
+      expect(
+        (
+          adapter.webClient as unknown as {
+            axios: { defaults: { timeout: number } };
+          }
+        ).axios.defaults.timeout
+      ).toBe(15_000);
+    });
+  });
+
+  it("isolates custom headers between token-bound WebClients", async () => {
+    const headers = { "X-Test": "value" };
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      webClientOptions: { headers },
+      logger: mockLogger,
+    });
+
+    const authorizations: Array<string | undefined> = [];
+    for (const token of ["xoxb-first", "xoxb-second"]) {
+      await adapter.withBotToken(token, () => {
+        authorizations.push(
+          (
+            adapter.webClient as unknown as {
+              axios: { defaults: { headers: { Authorization?: string } } };
+            }
+          ).axios.defaults.headers.Authorization
+        );
+      });
+    }
+
+    expect(authorizations).toEqual(["Bearer xoxb-first", "Bearer xoxb-second"]);
+    expect(headers).toEqual({ "X-Test": "value" });
+  });
+
   it("throws when no token is available (multi-workspace, outside context)", () => {
     const adapter = createSlackAdapter({
       clientId: "test-client-id",
@@ -6496,6 +6556,25 @@ describe("reverse user lookup", () => {
       expect(result).toBe("Hey <@U_DOM_123>!");
     });
 
+    it("does not resolve @handles inside URLs", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:jkyang", "U_URL_123");
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:example", "U_EMAIL_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "See https://hackmd.io/@jkyang/abc, https://example.com/p?user=@jkyang, https://example.com/docs#@jkyang, hackmd.io/@jkyang/abc, <https://example.com/@jkyang|profile>, and user@example.com cc @dominik",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "See https://hackmd.io/@jkyang/abc, https://example.com/p?user=@jkyang, https://example.com/docs#@jkyang, hackmd.io/@jkyang/abc, <https://example.com/@jkyang|profile>, and user@example.com cc <@U_DOM_123>"
+      );
+    });
+
     it("deduplicates user IDs from reverse index", async () => {
       const { adapter, state } = createAdapterWithState();
 
@@ -6614,6 +6693,166 @@ describe("reverse user lookup", () => {
       ).resolveOutgoingMentions("Hey @dominik", "slack:C123:1234567890.123456");
 
       expect(result).toBe("Hey @dominik");
+    });
+
+    it("skips mentions inside inline code (backticks)", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Use `@vercel/postgres` for the database",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Use `@vercel/postgres` for the database");
+    });
+
+    it("skips mentions inside code blocks (triple backticks)", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Install:\n```\nnpm install @vercel/postgres\n```",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Install:\n```\nnpm install @vercel/postgres\n```");
+    });
+
+    it("resolves mentions outside code but skips those inside", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Hey @dominik, use `@vercel/postgres` for this",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Hey <@U_DOM_123>, use `@vercel/postgres` for this");
+    });
+
+    it("handles multiple inline code spans with mentions", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:neondatabase", "U_NEON_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Use `@neondatabase/serverless` or `@vercel/postgres`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Use `@neondatabase/serverless` or `@vercel/postgres`"
+      );
+    });
+
+    it("resolves the same name outside code while skipping it inside code", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Ping @vercel, but don't link `@vercel/postgres`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Ping <@U_VER_123>, but don't link `@vercel/postgres`"
+      );
+    });
+
+    it("resolves a mention immediately following an inline code span", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Run `npm i` then ping @dominik",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Run `npm i` then ping <@U_DOM_123>");
+    });
+
+    it("resolves a mention immediately preceding an inline code span", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "@dominik try `npm i`",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("<@U_DOM_123> try `npm i`");
+    });
+
+    it("resolves mentions surrounding a multiline fenced code block", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+      await state.appendToList("slack:user-by-name:george", "U_GEO_123");
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Hey @dominik:\n```bash\nnpm install @vercel/postgres\n```\ncc @george",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe(
+        "Hey <@U_DOM_123>:\n```bash\nnpm install @vercel/postgres\n```\ncc <@U_GEO_123>"
+      );
+    });
+
+    it("does not skip a mention after an unbalanced single backtick", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:dominik", "U_DOM_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "Cost is `5 and @dominik should know",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("Cost is `5 and <@U_DOM_123> should know");
+    });
+
+    it("skips a mention inside inline code at the start of the text", async () => {
+      const { adapter, state } = createAdapterWithState();
+
+      await state.appendToList("slack:user-by-name:vercel", "U_VER_123");
+
+      const result = await (
+        adapter as unknown as MentionAdapter
+      ).resolveOutgoingMentions(
+        "`@vercel/postgres` is the package",
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(result).toBe("`@vercel/postgres` is the package");
     });
   });
 
@@ -6973,6 +7212,7 @@ describe("socket mode - routeSocketEvent", () => {
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;
+      retry_reason?: string;
     }) => Promise<void>;
 
     return { adapter, chatInstance, slackEventHandler };
@@ -7068,11 +7308,12 @@ describe("socket mode - routeSocketEvent", () => {
     expect(ack).toHaveBeenCalled();
   });
 
-  it("skips retries", async () => {
+  it("processes retries like first deliveries (dedupe drops true duplicates)", async () => {
     const { chatInstance, slackEventHandler } = await createSocketAdapter();
+    const ack = vi.fn().mockResolvedValue(undefined);
 
     await slackEventHandler({
-      ack: vi.fn().mockResolvedValue(undefined),
+      ack,
       type: "events_api",
       body: {
         event: {
@@ -7084,9 +7325,15 @@ describe("socket mode - routeSocketEvent", () => {
         },
       },
       retry_num: 1,
+      retry_reason: "timeout",
     });
 
-    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    // A retry may be the ONLY delivery the app ever sees (e.g. the original
+    // was sent while no socket was connected during a restart), so it must be
+    // routed normally; Chat.processMessage dedupes by message id when the
+    // original WAS handled.
+    expect(ack).toHaveBeenCalled();
+    expect(chatInstance.processMessage).toHaveBeenCalled();
   });
 
   it("acks events_api before processing", async () => {
@@ -7555,6 +7802,7 @@ describe("routeSocketEvent with options", () => {
       body: Record<string, unknown>;
       type: string;
       retry_num?: number;
+      retry_reason?: string;
     }) => Promise<void>;
 
     return { adapter, chatInstance, slackEventHandler };
@@ -7670,23 +7918,68 @@ describe("routeSocketEvent with options", () => {
 // ============================================================================
 
 describe("stream with empty threadTs", () => {
-  it("throws ValidationError when threadTs is empty", async () => {
+  it("delegates to fallback before consuming the stream", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
 
-    async function* emptyStream() {
-      yield "hello";
-    }
+    const next = vi.fn();
+    const stream = {
+      [Symbol.asyncIterator]: () => ({ next }),
+    };
 
     await expect(
-      adapter.stream("slack:C123:", emptyStream(), {
+      adapter.stream("slack:C123:", stream, {
         recipientUserId: "U123",
         recipientTeamId: "T123",
       })
-    ).rejects.toThrow(ValidationError);
+    ).resolves.toBeNull();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("delegates channel streams without recipient context to fallback", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const next = vi.fn();
+    const stream = {
+      [Symbol.asyncIterator]: () => ({ next }),
+    };
+
+    await expect(
+      adapter.stream("slack:C123:1234567890.000000", stream)
+    ).resolves.toBeNull();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("allows DM streams without recipient context", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    const chatStream = vi.fn().mockReturnValue({ append, stop });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    async function* stream() {
+      yield "hello";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(chatStream).toHaveBeenCalledWith({
+      channel: "D123",
+      thread_ts: "1234567890.000000",
+    });
   });
 
   it("passes token on stream stop", async () => {

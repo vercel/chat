@@ -8,6 +8,7 @@ import { mono, sans } from "@/lib/geistdocs/fonts";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://chat-sdk.dev"),
   title: {
     template: "%s | Chat SDK",
     default: "Chat SDK",
@@ -17,6 +18,7 @@ export const metadata: Metadata = {
       template: "%s | Chat SDK",
       default: "Chat SDK",
     },
+    images: "/opengraph-image.png",
   },
 };
 
@@ -25,7 +27,7 @@ const Layout = async ({ children, params }: LayoutProps<"/[lang]">) => {
 
   return (
     <html
-      className={cn(sans.variable, mono.variable, "antialiased")}
+      className={cn(sans.variable, sans.className, mono.variable, "antialiased")}
       lang={lang}
       suppressHydrationWarning
     >

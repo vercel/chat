@@ -2,8 +2,8 @@
 
 > npm package: [`@chat-adapter/tests`](https://www.npmjs.com/package/@chat-adapter/tests)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/tests)](https://www.npmjs.com/package/@chat-adapter/tests)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/tests)](https://www.npmjs.com/package/@chat-adapter/tests)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Vitest factories, matchers, and setup utilities for testing [Chat SDK](https://chat-sdk.dev) adapters and bots.
 

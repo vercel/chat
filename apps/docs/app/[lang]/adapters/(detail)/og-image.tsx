@@ -22,7 +22,7 @@ const ADAPTER_LOGOS: Record<
     height: Math.round(LOGO_SIZE * (2074 / 2229)),
   },
   linear: { component: logos.linear, width: LOGO_SIZE, height: LOGO_SIZE },
-  "google-chat": {
+  gchat: {
     component: logos.gchat,
     width: Math.round(LOGO_SIZE * (311 / 320)),
     height: LOGO_SIZE,
