@@ -90,6 +90,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-twilio"
   },
   {
+    "name": "X",
+    "slug": "x",
+    "type": "platform",
+    "description": "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+    "packageName": "@chat-adapter/x",
+    "icon": "x",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-x"
+  },
+  {
     "name": "Messenger",
     "slug": "messenger",
     "type": "platform",
