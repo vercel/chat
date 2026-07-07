@@ -1,5 +1,20 @@
 # @chat-adapter/slack
 
+## 4.33.0
+
+### Patch Changes
+
+- 0b63791: Process Slack Socket Mode retry envelopes instead of discarding them. Slack redelivers an event (immediately, +1 min, +5 min) when a prior delivery wasn't acknowledged — including events sent while the app had no open socket, e.g. during a restart or a routine connection refresh. The adapter previously acked and dropped every envelope with `retry_num > 0`, so such events were permanently lost even though Slack redelivered them. Retries are now routed like first deliveries (logged at info with `retry_num`/`retry_reason`); `Chat.processMessage`'s message-id dedupe drops true duplicates.
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
 ## 4.32.0
 
 ### Patch Changes
