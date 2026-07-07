@@ -164,4 +164,139 @@ describe("Twilio webhook parsing", () => {
       messageStatus: "delivered",
     });
   });
+
+  it("parses ButtonPayload as action kind", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        ButtonPayload: 'chat:{"a":"approve","v":"yes"}',
+        ButtonText: "Approve",
+        From: "rcs:+15550000002",
+        MessageSid: "SM789",
+        To: "rcs:+15550000001",
+      })
+    );
+
+    expect(payload).toMatchObject({
+      kind: "action",
+      buttonPayload: 'chat:{"a":"approve","v":"yes"}',
+      buttonText: "Approve",
+      from: "rcs:+15550000002",
+    });
+  });
+
+  it("parses location share with latitude and longitude", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        Address: "123 Main St",
+        Body: "",
+        From: "rcs:+15550000002",
+        Label: "Home",
+        Latitude: "37.7749",
+        Longitude: "-122.4194",
+        MessageSid: "SM456",
+        NumMedia: "0",
+        To: "rcs:+15550000001",
+      })
+    );
+
+    expect(payload).toMatchObject({
+      kind: "text",
+      latitude: "37.7749",
+      longitude: "-122.4194",
+      address: "123 Main St",
+      label: "Home",
+    });
+  });
+
+  it("parses MessagingServiceSid on inbound payloads", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        Body: "hello",
+        From: "+15550000002",
+        MessageSid: "SM123",
+        MessagingServiceSid: "MG123",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload.kind).toBe("text");
+    if (payload.kind === "text") {
+      expect(payload.messagingServiceSid).toBe("MG123");
+    }
+  });
+
+  it("parses ChannelMetadata JSON", () => {
+    const metadata = JSON.stringify({ type: "rcs" });
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        Body: "hello",
+        ChannelMetadata: metadata,
+        From: "+15550000002",
+        MessageSid: "SM123",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload.kind).toBe("text");
+    if (payload.kind === "text") {
+      expect(payload.channelMetadata).toEqual({ type: "rcs" });
+    }
+  });
+
+  it("includes ChannelMetadata in action payloads", () => {
+    const metadata = JSON.stringify({ type: "rcs" });
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        ButtonPayload: "approve",
+        ChannelMetadata: metadata,
+        From: "+15550000002",
+        MessageSid: "SM123",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload.kind).toBe("action");
+    if (payload.kind === "action") {
+      expect(payload.channelMetadata).toEqual({ type: "rcs" });
+    }
+  });
+
+  it("parses status with EventType and ChannelPrefix", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        ChannelPrefix: "rcs",
+        EventType: "READ",
+        From: "+15550000002",
+        MessageSid: "SM123",
+        MessageStatus: "delivered",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload).toMatchObject({
+      kind: "status",
+      eventType: "READ",
+      channelPrefix: "rcs",
+      messageStatus: "delivered",
+    });
+  });
+
+  it("parses location-only messages without body", () => {
+    const payload = parseTwilioWebhookBody(
+      new URLSearchParams({
+        From: "+15550000002",
+        Latitude: "40.7128",
+        Longitude: "-74.0060",
+        MessageSid: "SM789",
+        To: "+15550000001",
+      })
+    );
+
+    expect(payload.kind).toBe("text");
+    if (payload.kind === "text") {
+      expect(payload.latitude).toBe("40.7128");
+      expect(payload.longitude).toBe("-74.0060");
+      expect(payload.body).toBe("");
+    }
+  });
 });
