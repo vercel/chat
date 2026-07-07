@@ -1,5 +1,13 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import {
+  connectWebhookContract,
+  createMockChatInstance,
+  createMockState,
+  mockLogger,
+  selfMessageContract,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
 import type {
@@ -82,13 +90,6 @@ vi.mock("@octokit/auth-app", () => ({
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const mockLogger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
 
 const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
@@ -192,25 +193,12 @@ function makeWebhookRequest(
   });
 }
 
-function createMockState() {
-  const cache = new Map<string, unknown>();
-
-  return {
-    get: vi.fn(async <T>(key: string) => {
-      return (cache.get(key) as T | undefined) ?? null;
-    }),
-    set: vi.fn(async (key: string, value: unknown) => {
-      cache.set(key, value);
-    }),
-  };
-}
-
 function stringifyLoggerCalls(): string {
   return JSON.stringify({
-    debug: mockLogger.debug.mock.calls,
-    error: mockLogger.error.mock.calls,
-    info: mockLogger.info.mock.calls,
-    warn: mockLogger.warn.mock.calls,
+    debug: vi.mocked(mockLogger.debug).mock.calls,
+    error: vi.mocked(mockLogger.error).mock.calls,
+    info: vi.mocked(mockLogger.info).mock.calls,
+    warn: vi.mocked(mockLogger.warn).mock.calls,
   });
 }
 
@@ -402,13 +390,7 @@ describe("GitHubAdapter", () => {
         data: { id: 777, login: "test-bot" },
       });
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await adapter.initialize(mockChat);
 
@@ -424,13 +406,7 @@ describe("GitHubAdapter", () => {
         new Error("Bad credentials")
       );
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await adapter.initialize(mockChat);
 
@@ -450,13 +426,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
 
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       await a.initialize(mockChat);
 
@@ -515,13 +485,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const chat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const chat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(chat);
 
       const payload = makeIssueCommentPayload({
@@ -548,13 +512,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const chat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const chat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(chat);
 
       await expect(
@@ -707,13 +665,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should not log raw payload content for valid webhooks", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -766,43 +718,14 @@ describe("GitHubAdapter", () => {
       expect(stringifyLoggerCalls()).not.toContain("GitHub webhook raw body");
     });
 
-    it("should process issue_comment on PR with valid signature", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
-
-      mockUsersGetAuthenticated.mockResolvedValueOnce({
-        data: { id: 777, login: "test-bot" },
-      });
-      await adapter.initialize(mockChat);
-
-      const payload = makeIssueCommentPayload();
-      const body = JSON.stringify(payload);
-      const signature = signPayload(body);
-      const request = makeWebhookRequest(body, "issue_comment", signature);
-
-      const response = await adapter.handleWebhook(request);
-      expect(response.status).toBe(200);
-      expect(mockChat.processMessage).toHaveBeenCalledWith(
-        adapter,
-        "github:acme/app:42",
-        expect.objectContaining({ id: "100" }),
-        undefined
-      );
-    });
+    // The valid-signature issue_comment happy path (a non-bot author dispatches
+    // `processMessage`) is covered by the shared `selfMessageContract` below.
+    // The exact PR-level thread id + message id are still asserted by
+    // "should not log raw payload content for valid webhooks" and the plain-issue
+    // dispatch test.
 
     it("should process issue_comment on a plain issue", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -829,13 +752,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should ignore issue_comment with action other than created", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -848,17 +765,11 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should process pull_request_review_comment event", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -885,13 +796,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should use in_reply_to_id as root for review comment replies", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -924,13 +829,7 @@ describe("GitHubAdapter", () => {
     });
 
     it("should ignore review_comment with action other than created", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
       });
@@ -947,7 +846,7 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should return ok for unrecognized event types", async () => {
@@ -970,13 +869,7 @@ describe("GitHubAdapter", () => {
         logger: mockLogger,
       });
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
       await multiTenantAdapter.initialize(mockChat);
 
       const body = JSON.stringify({
@@ -1025,46 +918,13 @@ describe("GitHubAdapter", () => {
   });
 
   describe("self-message detection", () => {
-    it("should ignore messages from the bot itself (issue comment)", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
-
-      // Set bot user ID to 777
-      mockUsersGetAuthenticated.mockResolvedValueOnce({
-        data: { id: 777, login: "test-bot" },
-      });
-      await adapter.initialize(mockChat);
-
-      // Sender.id matches bot user ID
-      const payload = makeIssueCommentPayload({
-        sender: { id: 777, login: "test-bot", type: "Bot" },
-        comment: {
-          ...makeIssueCommentPayload().comment,
-          user: { id: 777, login: "test-bot", type: "Bot" },
-        },
-      });
-      const body = JSON.stringify(payload);
-      const signature = signPayload(body);
-      const request = makeWebhookRequest(body, "issue_comment", signature);
-
-      const response = await adapter.handleWebhook(request);
-      expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
-    });
-
+    // The issue_comment self-ignore path (bot author is dropped) and its
+    // matching other-user dispatch are covered by the shared
+    // `selfMessageContract` below. The review-comment self path and the
+    // multi-tenant bot-id detection regressions are GitHub-specific and stay
+    // local.
     it("should ignore messages from the bot itself (review comment)", async () => {
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       mockUsersGetAuthenticated.mockResolvedValueOnce({
         data: { id: 777, login: "test-bot" },
@@ -1084,7 +944,7 @@ describe("GitHubAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should auto-detect botUserId on first webhook in multi-tenant mode (regression for self-reply loop)", async () => {
@@ -1095,13 +955,7 @@ describe("GitHubAdapter", () => {
       // always false and the bot would re-process its own replies in an
       // unbounded loop.
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
 
       const multiTenantAdapter = new GitHubAdapter({
         appId: "12345",
@@ -1138,7 +992,7 @@ describe("GitHubAdapter", () => {
       // botUserId must be set after the first webhook so isMe works.
       expect(multiTenantAdapter.botUserId).toBe("777");
       // The bot's own reply must NOT be dispatched to handlers.
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should fall back to apps.getAuthenticated when users.getAuthenticated rejects (multi-tenant App)", async () => {
@@ -1146,13 +1000,7 @@ describe("GitHubAdapter", () => {
       // available with installation tokens depending on permissions. Fall
       // back to /app + /users/{slug}[bot] to recover the bot user ID.
       const state = createMockState();
-      const mockChat = {
-        getLogger: vi.fn(),
-        getState: vi.fn(() => state),
-        getUserName: vi.fn(),
-        handleIncomingMessage: vi.fn(),
-        processMessage: vi.fn(),
-      };
+      const mockChat = createMockChatInstance({ state });
 
       const multiTenantAdapter = new GitHubAdapter({
         appId: "12345",
@@ -2393,44 +2241,9 @@ describe("GitHubAdapter", () => {
   });
 
   describe("encodeThreadId", () => {
-    it("should encode PR-level thread ID", () => {
-      const result = adapter.encodeThreadId({
-        owner: "acme",
-        repo: "app",
-        prNumber: 123,
-      });
-      expect(result).toBe("github:acme/app:123");
-    });
-
-    it("should encode review comment thread ID", () => {
-      const result = adapter.encodeThreadId({
-        owner: "acme",
-        repo: "app",
-        prNumber: 123,
-        reviewCommentId: 456789,
-      });
-      expect(result).toBe("github:acme/app:123:rc:456789");
-    });
-
-    it("should handle special characters in repo names", () => {
-      const result = adapter.encodeThreadId({
-        owner: "my-org",
-        repo: "my-cool-app",
-        prNumber: 42,
-      });
-      expect(result).toBe("github:my-org/my-cool-app:42");
-    });
-
-    it("should encode issue thread ID", () => {
-      const result = adapter.encodeThreadId({
-        owner: "acme",
-        repo: "app",
-        prNumber: 10,
-        type: "issue",
-      });
-      expect(result).toBe("github:acme/app:issue:10");
-    });
-
+    // Round-trip + pinned-encoding coverage lives in the shared
+    // `threadIdContract` at the bottom of this file; only the encode-specific
+    // validation that the contract does not cover is kept here.
     it("should throw for issue thread with reviewCommentId", () => {
       expect(() =>
         adapter.encodeThreadId({
@@ -2445,37 +2258,9 @@ describe("GitHubAdapter", () => {
   });
 
   describe("decodeThreadId", () => {
-    it("should decode PR-level thread ID", () => {
-      const result = adapter.decodeThreadId("github:acme/app:123");
-      expect(result).toEqual({
-        owner: "acme",
-        repo: "app",
-        prNumber: 123,
-        type: "pr",
-      });
-    });
-
-    it("should decode review comment thread ID", () => {
-      const result = adapter.decodeThreadId("github:acme/app:123:rc:456789");
-      expect(result).toEqual({
-        owner: "acme",
-        repo: "app",
-        prNumber: 123,
-        type: "pr",
-        reviewCommentId: 456789,
-      });
-    });
-
-    it("should decode issue thread ID", () => {
-      const result = adapter.decodeThreadId("github:acme/app:issue:10");
-      expect(result).toEqual({
-        owner: "acme",
-        repo: "app",
-        prNumber: 10,
-        type: "issue",
-      });
-    });
-
+    // PR/issue/review-comment decode + round-trip coverage lives in the shared
+    // `threadIdContract` at the bottom of this file; only the malformed-id and
+    // invalid-prefix errors the contract does not cover are kept here.
     it("should throw for invalid thread ID prefix", () => {
       expect(() => adapter.decodeThreadId("slack:C123:ts")).toThrow(
         "Invalid GitHub thread ID"
@@ -2486,53 +2271,6 @@ describe("GitHubAdapter", () => {
       expect(() => adapter.decodeThreadId("github:invalid")).toThrow(
         "Invalid GitHub thread ID format"
       );
-    });
-
-    it("should handle repo names with hyphens", () => {
-      const result = adapter.decodeThreadId("github:my-org/my-cool-app:42");
-      expect(result).toEqual({
-        owner: "my-org",
-        repo: "my-cool-app",
-        prNumber: 42,
-        type: "pr",
-      });
-    });
-
-    it("should roundtrip PR-level thread ID", () => {
-      const original: GitHubThreadId = {
-        owner: "vercel",
-        repo: "next.js",
-        prNumber: 99999,
-        type: "pr",
-      };
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded).toEqual(original);
-    });
-
-    it("should roundtrip review comment thread ID", () => {
-      const original: GitHubThreadId = {
-        owner: "vercel",
-        repo: "next.js",
-        prNumber: 99999,
-        type: "pr",
-        reviewCommentId: 123456789,
-      };
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded).toEqual(original);
-    });
-
-    it("should roundtrip issue thread ID", () => {
-      const original: GitHubThreadId = {
-        owner: "vercel",
-        repo: "next.js",
-        prNumber: 42,
-        type: "issue",
-      };
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded).toEqual(original);
     });
   });
 
@@ -2570,6 +2308,101 @@ describe("GitHubAdapter", () => {
       expect(result).toBe("**bold**");
     });
   });
+});
+
+connectWebhookContract({
+  name: "github",
+  createAdapter: ({ webhookVerifier }) =>
+    new GitHubAdapter({
+      installationToken: "t",
+      webhookVerifier,
+      botUserId: 999,
+      logger: mockLogger,
+    }),
+  makeWebhookRequest: () =>
+    makeWebhookRequest(
+      JSON.stringify(makeIssueCommentPayload()),
+      "issue_comment"
+    ),
+});
+
+// `encodeThreadId`/`decodeThreadId` are pure, so one Connect-mode adapter (no
+// network, no init) is enough to exercise the shared thread-id codec contract.
+const threadIdAdapter = new GitHubAdapter({
+  installationToken: "t",
+  webhookVerifier: () => true,
+  botUserId: 1,
+  logger: mockLogger,
+});
+
+threadIdContract<GitHubThreadId>({
+  name: "github",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { owner: "acme", repo: "app", prNumber: 123, type: "pr" },
+      encoded: "github:acme/app:123",
+    },
+    {
+      decoded: {
+        owner: "acme",
+        repo: "app",
+        prNumber: 123,
+        type: "pr",
+        reviewCommentId: 456_789,
+      },
+      encoded: "github:acme/app:123:rc:456789",
+    },
+    {
+      decoded: { owner: "acme", repo: "app", prNumber: 10, type: "issue" },
+      encoded: "github:acme/app:issue:10",
+    },
+    {
+      // owners/repos with hyphens must survive the round-trip untouched.
+      decoded: {
+        owner: "my-org",
+        repo: "my-cool-app",
+        prNumber: 42,
+        type: "pr",
+      },
+      encoded: "github:my-org/my-cool-app:42",
+    },
+  ],
+});
+
+selfMessageContract({
+  name: "github",
+  setup: async () => {
+    const chat = createMockChatInstance();
+    // A known bot user id makes self-detection network-free: `initialize`
+    // skips the users.getAuthenticated lookup when `botUserId` is preset.
+    const selfAdapter = new GitHubAdapter({
+      token: "test-token",
+      webhookSecret: WEBHOOK_SECRET,
+      userName: "test-bot",
+      botUserId: 777,
+      logger: mockLogger,
+    });
+    await selfAdapter.initialize(chat);
+    return { adapter: selfAdapter, chat };
+  },
+  makeOtherMessageRequest: () => {
+    const body = JSON.stringify(makeIssueCommentPayload());
+    return makeWebhookRequest(body, "issue_comment", signPayload(body));
+  },
+  makeSelfMessageRequest: () => {
+    const body = JSON.stringify(
+      makeIssueCommentPayload({
+        sender: { id: 777, login: "test-bot", type: "Bot" },
+        comment: {
+          ...makeIssueCommentPayload().comment,
+          user: { id: 777, login: "test-bot", type: "Bot" },
+        },
+      })
+    );
+    return makeWebhookRequest(body, "issue_comment", signPayload(body));
+  },
 });
 
 describe("GitHubAdapter - Vercel Connect mode", () => {
@@ -2632,67 +2465,6 @@ describe("GitHubAdapter - Vercel Connect mode", () => {
     const opts = { headers: {} as Record<string, string> };
     await hookCb(opts);
     expect(opts.headers.authorization).toBe("token ghs_static");
-  });
-
-  it("uses webhookVerifier instead of the signature check", async () => {
-    const verifier = vi.fn(() => true);
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: verifier,
-      userName: "connect-bot",
-      botUserId: 999,
-      logger: mockLogger,
-    });
-    const mockChat = {
-      getLogger: vi.fn(),
-      getState: vi.fn(),
-      getUserName: vi.fn(),
-      handleIncomingMessage: vi.fn(),
-      processMessage: vi.fn(),
-    };
-    await adapter.initialize(mockChat as never);
-
-    const body = JSON.stringify(makeIssueCommentPayload());
-    // No x-hub-signature-256 header — verifier is the only gate.
-    const request = makeWebhookRequest(body, "issue_comment");
-    const response = await adapter.handleWebhook(request);
-
-    expect(response.status).toBe(200);
-    expect(verifier).toHaveBeenCalledTimes(1);
-    expect(mockChat.processMessage).toHaveBeenCalled();
-  });
-
-  it("returns 401 when the webhookVerifier throws", async () => {
-    const verifier = vi.fn(() => {
-      throw new Error("bad oidc token");
-    });
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: verifier,
-      botUserId: 1,
-      logger: mockLogger,
-    });
-    const request = makeWebhookRequest(
-      JSON.stringify(makeIssueCommentPayload()),
-      "issue_comment"
-    );
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
-  });
-
-  it("returns 401 when the webhookVerifier returns falsy", async () => {
-    const adapter = new GitHubAdapter({
-      installationToken: "t",
-      webhookVerifier: () => false,
-      botUserId: 1,
-      logger: mockLogger,
-    });
-    const request = makeWebhookRequest(
-      JSON.stringify(makeIssueCommentPayload()),
-      "issue_comment"
-    );
-    const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(401);
   });
 
   it("rejects mixing Connect installationToken with App auth at the type level", () => {

@@ -1,31 +1,30 @@
 import { AdapterRateLimitError } from "@chat-adapter/shared";
+import {
+  createMockChatInstance,
+  createMockLogger,
+  mockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import { auth } from "@googleapis/chat";
-import type { ChatInstance, Lock, Logger, StateAdapter } from "chat";
+import type { ChatInstance, Lock, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGoogleChatAdapter,
   GoogleChatAdapter,
   type GoogleChatEvent,
   type GoogleChatMessage,
+  type GoogleChatThreadId,
 } from "./index";
 import type {
   PubSubPushMessage,
   WorkspaceEventNotification,
 } from "./workspace-events";
 
-const GCHAT_PREFIX_PATTERN = /^gchat:/;
 const DM_SUFFIX_PATTERN = /:dm$/;
 const VERIFICATION_REQUIRED_PATTERN =
   /Webhook signature verification is required/;
 
 // Test credentials
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
-
 const TEST_CREDENTIALS = {
   client_email: "test@test.iam.gserviceaccount.com",
   private_key: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
@@ -66,23 +65,6 @@ function createMockStateAdapter(): StateAdapter & {
       return Promise.resolve();
     }),
   };
-}
-
-// Mock ChatInstance for testing
-function createMockChatInstance(state: StateAdapter): ChatInstance {
-  return {
-    getState: () => state,
-    getLogger: () => ({
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    }),
-    processMessage: vi.fn(),
-    processReaction: vi.fn(),
-    processAction: vi.fn(),
-    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-  } as unknown as ChatInstance;
 }
 
 /** Helper: build a minimal GoogleChatEvent with a message payload */
@@ -174,10 +156,47 @@ async function createInitializedAdapter(opts?: {
     pubsubAudience: opts?.pubsubAudience,
   });
   const mockState = createMockStateAdapter();
-  const mockChat = createMockChatInstance(mockState);
+  const mockChat = createMockChatInstance({ state: mockState });
   await adapter.initialize(mockChat);
   return { adapter, mockState, mockChat };
 }
+
+// encodeThreadId/decodeThreadId/isDM are pure and need no init or network, so a
+// single synchronously-constructed adapter is enough for the shared contract.
+const threadIdAdapter = createGoogleChatAdapter({
+  credentials: TEST_CREDENTIALS,
+  logger: mockLogger,
+});
+
+threadIdContract<GoogleChatThreadId>({
+  name: "gchat",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { spaceName: "spaces/ABC123", isDM: false },
+      encoded: "gchat:spaces/ABC123",
+    },
+    {
+      decoded: {
+        spaceName: "spaces/ABC123",
+        threadName: "spaces/ABC123/threads/XYZ789",
+        isDM: false,
+      },
+      // base64url of the thread name segment
+      encoded: "gchat:spaces/ABC123:c3BhY2VzL0FCQzEyMy90aHJlYWRzL1hZWjc4OQ",
+    },
+    {
+      decoded: { spaceName: "spaces/DM123", isDM: true },
+      encoded: "gchat:spaces/DM123:dm",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "gchat:spaces/DM123:dm",
+    nonDmThreadId: "gchat:spaces/ROOM456",
+  },
+});
 
 describe("GoogleChatAdapter", () => {
   it("should export createGoogleChatAdapter function", () => {
@@ -194,60 +213,6 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("thread ID encoding", () => {
-    it("should encode and decode thread IDs without thread name", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/ABC123",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(GCHAT_PREFIX_PATTERN);
-
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-    });
-
-    it("should encode and decode thread IDs with thread name", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/ABC123",
-        threadName: "spaces/ABC123/threads/XYZ789",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.threadName).toBe(original.threadName);
-    });
-
-    it("should encode and decode DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-
-      const original = {
-        spaceName: "spaces/DM123",
-        isDM: true,
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(DM_SUFFIX_PATTERN);
-
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.isDM).toBe(true);
-    });
-
     it("should throw on invalid thread ID", () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
@@ -323,7 +288,7 @@ describe("GoogleChatAdapter", () => {
       });
       const mockState = createMockStateAdapter();
       mockState.storage.set("gchat:botUserId", "users/BOT999");
-      const mockChat = createMockChatInstance(mockState);
+      const mockChat = createMockChatInstance({ state: mockState });
 
       await adapter.initialize(mockChat);
 
@@ -339,7 +304,7 @@ describe("GoogleChatAdapter", () => {
 
       const mockState = createMockStateAdapter();
       mockState.storage.set("gchat:botUserId", "users/OTHERFROMSTATE");
-      const mockChat = createMockChatInstance(mockState);
+      const mockChat = createMockChatInstance({ state: mockState });
 
       await adapter.initialize(mockChat);
 
@@ -418,31 +383,6 @@ describe("GoogleChatAdapter", () => {
         apiUrl: "https://custom-chat.googleapis.com",
       });
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
-    });
-  });
-
-  describe("isDM", () => {
-    it("should return true for DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-      const threadId = adapter.encodeThreadId({
-        spaceName: "spaces/DM123",
-        isDM: true,
-      });
-      expect(adapter.isDM(threadId)).toBe(true);
-    });
-
-    it("should return false for non-DM thread IDs", () => {
-      const adapter = createGoogleChatAdapter({
-        credentials: TEST_CREDENTIALS,
-        logger: mockLogger,
-      });
-      const threadId = adapter.encodeThreadId({
-        spaceName: "spaces/ROOM456",
-      });
-      expect(adapter.isDM(threadId)).toBe(false);
     });
   });
 
@@ -785,7 +725,7 @@ describe("GoogleChatAdapter", () => {
       const response = await adapter.handleWebhook(request);
 
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).toHaveBeenCalled();
+      expect(mockChat).toHaveDispatched("processMessage");
     });
 
     it("should handle ADDED_TO_SPACE events", async () => {
@@ -866,7 +806,7 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body).toEqual({});
-      expect(mockChat.processAction).toHaveBeenCalled();
+      expect(mockChat).toHaveDispatched("processAction");
     });
 
     it("should handle non-message events gracefully", async () => {
@@ -936,7 +876,7 @@ describe("GoogleChatAdapter", () => {
       const response = await adapter.handleWebhook(request);
 
       expect(response.status).toBe(200);
-      expect(mockChat.processMessage).toHaveBeenCalled();
+      expect(mockChat).toHaveDispatched("processMessage");
     });
 
     it("should skip unsupported Pub/Sub event types", async () => {
@@ -961,7 +901,7 @@ describe("GoogleChatAdapter", () => {
 
       expect(response.status).toBe(200);
       // Updated event not in allowed list, should not process
-      expect(mockChat.processMessage).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processMessage");
     });
 
     it("should handle malformed Pub/Sub data gracefully", async () => {
@@ -1059,7 +999,7 @@ describe("GoogleChatAdapter", () => {
       });
 
       await adapter.handleWebhook(request);
-      expect(mockChat.processAction).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processAction");
     });
 
     it("should use invokedFunction as actionId", async () => {
@@ -1213,7 +1153,7 @@ describe("GoogleChatAdapter", () => {
       });
 
       await adapter.handleWebhook(request);
-      expect(mockChat.processAction).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveDispatched("processAction");
     });
   });
 
@@ -1247,7 +1187,7 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      expect(mockChat.processMessage).toHaveBeenCalled();
+      expect(mockChat).toHaveDispatched("processMessage");
       const call = (mockChat.processMessage as any).mock.calls[0];
       // threadId for DM should end with :dm and not include thread name
       expect(call[1]).toMatch(DM_SUFFIX_PATTERN);
@@ -1266,7 +1206,7 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      expect(mockChat.processMessage).toHaveBeenCalled();
+      expect(mockChat).toHaveDispatched("processMessage");
       const call = (mockChat.processMessage as any).mock.calls[0];
       // threadId should NOT end with :dm
       expect(call[1]).not.toMatch(DM_SUFFIX_PATTERN);
@@ -1752,12 +1692,7 @@ describe("GoogleChatAdapter", () => {
     });
 
     it("should log context information", () => {
-      const localLogger: Logger = {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-      };
+      const localLogger = createMockLogger();
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
         logger: localLogger,
@@ -1835,18 +1770,13 @@ describe("GoogleChatAdapter", () => {
 
   describe("onThreadSubscribe", () => {
     it("should warn when no pubsubTopic configured", async () => {
-      const localLogger: Logger = {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-      };
+      const localLogger = createMockLogger();
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
         logger: localLogger,
       });
       const mockState = createMockStateAdapter();
-      const mockChat = createMockChatInstance(mockState);
+      const mockChat = createMockChatInstance({ state: mockState });
       await adapter.initialize(mockChat);
 
       const threadId = adapter.encodeThreadId({
@@ -2687,7 +2617,7 @@ describe("GoogleChatAdapter", () => {
         logger: mockLogger,
       });
       mockState = createMockStateAdapter();
-      mockChat = createMockChatInstance(mockState);
+      mockChat = createMockChatInstance({ state: mockState });
       await adapter.initialize(mockChat);
     });
 
@@ -2960,7 +2890,7 @@ describe("GoogleChatAdapter", () => {
         disableSignatureVerification: true,
       });
       const mockState = createMockStateAdapter();
-      const mockChat = createMockChatInstance(mockState);
+      const mockChat = createMockChatInstance({ state: mockState });
       await adapter.initialize(mockChat);
 
       const event = makeMessageEvent({ messageText: "Hello" });
@@ -2991,7 +2921,7 @@ describe("GoogleChatAdapter", () => {
           googleChatProjectNumber: "123456789",
         });
         const mockState = createMockStateAdapter();
-        const mockChat = createMockChatInstance(mockState);
+        const mockChat = createMockChatInstance({ state: mockState });
         await adapter.initialize(mockChat);
 
         const pubsubMessage = makePubSubPushMessage({
@@ -3029,7 +2959,7 @@ describe("GoogleChatAdapter", () => {
           pubsubAudience: "https://example.com/webhook/pubsub",
         });
         const mockState = createMockStateAdapter();
-        const mockChat = createMockChatInstance(mockState);
+        const mockChat = createMockChatInstance({ state: mockState });
         await adapter.initialize(mockChat);
 
         const event = makeMessageEvent({ messageText: "Hello" });
@@ -3080,7 +3010,7 @@ describe("GoogleChatAdapter", () => {
         disableSignatureVerification: true,
       });
       const mockState = createMockStateAdapter();
-      const mockChat = createMockChatInstance(mockState);
+      const mockChat = createMockChatInstance({ state: mockState });
       await adapter.initialize(mockChat);
 
       const pubsubMessage = makePubSubPushMessage({

@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@microsoft/teams.graph": "^2.0.8",
+    "@chat-adapter/tests": "workspace:*",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

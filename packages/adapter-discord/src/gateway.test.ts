@@ -5,6 +5,7 @@
  * intents and partials for receiving DM events.
  */
 
+import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
 import { GatewayIntentBits, Partials } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter } from "./index";
@@ -33,30 +34,6 @@ vi.mock("discord.js", async () => {
   };
 });
 
-const mockLogger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
-
-const mockChat = {
-  getLogger: vi.fn().mockReturnValue(mockLogger),
-  getState: vi.fn(),
-  getUserName: vi.fn().mockReturnValue("bot"),
-  handleIncomingMessage: vi.fn(),
-  processAction: vi.fn(),
-  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-  processAppHomeOpened: vi.fn(),
-  processAssistantContextChanged: vi.fn(),
-  processAssistantThreadStarted: vi.fn(),
-  processMessage: vi.fn(),
-  processModalClose: vi.fn(),
-  processModalSubmit: vi.fn(),
-  processReaction: vi.fn(),
-};
-
 describe("Gateway client configuration", () => {
   it("includes Partials.Channel for DM support", async () => {
     MockClient.mockClear();
@@ -71,7 +48,7 @@ describe("Gateway client configuration", () => {
       logger: mockLogger,
     });
 
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(createMockChatInstance());
 
     // Use a pre-aborted signal so the listener resolves immediately
     const controller = new AbortController();

@@ -7,6 +7,28 @@
     "packages/create-chat-sdk/_template/src/app/api/webhooks/[platform]/route.ts",
     "examples/nextjs-chat/src/app/.well-known/workflow/**/*"
   ],
+  "workspaces": {
+    "examples/nuxt-chat": {
+      "nuxt": {
+        "entry": [
+          "nuxt.config.ts",
+          "app/app.vue",
+          "app/error.vue",
+          "app/pages/**/*.{vue,jsx,tsx}",
+          "app/layouts/**/*.{vue,jsx,tsx}",
+          "app/middleware/**/*.ts",
+          "app/plugins/**/*.ts",
+          "app/assets/css/**/*.css",
+          "server/api/**/*.ts",
+          "server/middleware/**/*.ts",
+          "server/plugins/**/*.ts",
+          "server/routes/**/*.ts",
+          "server/lib/**/*.ts"
+        ]
+      },
+      "ignoreDependencies": ["vue-tsc"]
+    }
+  },
   "rules": {
     "duplicates": "off",
     "types": "off",
