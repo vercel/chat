@@ -632,6 +632,11 @@ export interface ChatInstance {
     options: WebhookOptions | undefined
   ): Promise<void>;
 
+  processAppContextChanged(
+    event: AppContextChangedEvent,
+    options?: WebhookOptions
+  ): void;
+
   processAppHomeOpened(
     event: AppHomeOpenedEvent,
     options?: WebhookOptions
@@ -2374,11 +2379,55 @@ export type AssistantContextChangedHandler = (
 export interface AppHomeOpenedEvent {
   adapter: Adapter;
   channelId: string;
+  /** Folded active-view context (agent_view only); omitted otherwise. */
+  entities?: AppContextEntity[];
   userId: string;
 }
 
 export type AppHomeOpenedHandler = (
   event: AppHomeOpenedEvent
+) => void | Promise<void>;
+
+/** A single entity from a Slack active-view context, normalized from the wire tokens. */
+export type AppContextEntity =
+  | {
+      kind: "channel";
+      channelId: string;
+      teamId?: string;
+      enterpriseId?: string;
+    }
+  | { kind: "canvas"; canvasId: string; teamId?: string; enterpriseId?: string }
+  | { kind: "list"; listId: string; teamId?: string; enterpriseId?: string }
+  | {
+      kind: "message";
+      messageTs: string;
+      channelId: string;
+      teamId?: string;
+      enterpriseId?: string;
+    }
+  | {
+      kind: "unknown";
+      type: string;
+      value: unknown;
+      teamId?: string;
+      enterpriseId?: string;
+    };
+
+/** Reports what the user is currently viewing (Slack `app_context_changed`, agent_view only). */
+export interface AppContextChangedEvent {
+  adapter: Adapter;
+  /** The agent conversation channel. */
+  channelId: string;
+  /** Entities the user is viewing, ordered by relevance. Empty when Slack sends `context: {}`. */
+  entities: AppContextEntity[];
+  /** Platform-specific raw payload (escape hatch). */
+  raw: unknown;
+  /** The user whose active view changed. */
+  userId: string;
+}
+
+export type AppContextChangedHandler = (
+  event: AppContextChangedEvent
 ) => void | Promise<void>;
 
 export interface MemberJoinedChannelEvent {

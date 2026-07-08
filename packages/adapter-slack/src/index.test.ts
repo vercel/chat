@@ -4329,6 +4329,289 @@ describe("updateModal", () => {
 });
 
 // ============================================================================
+// Agent view: app_home_opened + app_context_changed Tests
+// ============================================================================
+
+describe("agent_view app_home_opened", () => {
+  const secret = "test-secret";
+
+  it("dispatches app_home_opened for a non-home tab when agentView is enabled", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_home_opened",
+        user: "U1",
+        channel: "D1",
+        tab: "messages",
+        event_ts: "1.2",
+      },
+    });
+
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockChat.processAppHomeOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores app_home_opened for a non-home tab by default (assistant_view)", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_home_opened",
+        user: "U1",
+        channel: "D1",
+        tab: "messages",
+        event_ts: "1.2",
+      },
+    });
+
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    expect(mockChat.processAppHomeOpened).not.toHaveBeenCalled();
+  });
+
+  it("normalizes folded app_home_opened context into entities", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_home_opened",
+        user: "U1",
+        channel: "D1",
+        tab: "home",
+        event_ts: "1.2",
+        context: {
+          entities: [{ type: "slack#/types/channel_id", value: "C9" }],
+        },
+      },
+    });
+
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const [event] = vi.mocked(mockChat.processAppHomeOpened).mock.calls[0];
+    expect(event).toMatchObject({
+      channelId: "D1",
+      userId: "U1",
+      entities: [{ kind: "channel", channelId: "C9" }],
+    });
+  });
+});
+
+describe("app_context_changed", () => {
+  const secret = "test-secret";
+
+  it("routes app_context_changed with normalized entities", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_context_changed",
+        channel: "D1",
+        user: "U1",
+        context: {
+          entities: [{ type: "slack#/types/channel_id", value: "C9" }],
+        },
+        event_ts: "1.2",
+      },
+    });
+
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockChat.processAppContextChanged).toHaveBeenCalledTimes(1);
+    const [event] = vi.mocked(mockChat.processAppContextChanged).mock.calls[0];
+    expect(event).toMatchObject({
+      channelId: "D1",
+      userId: "U1",
+      entities: [{ kind: "channel", channelId: "C9" }],
+    });
+  });
+
+  it("passes empty entities for an empty context object", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_context_changed",
+        channel: "D1",
+        user: "U1",
+        context: {},
+        event_ts: "1.2",
+      },
+    });
+
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const [event] = vi.mocked(mockChat.processAppContextChanged).mock.calls[0];
+    expect(event).toMatchObject({ entities: [] });
+  });
+});
+
+describe("setSuggestedPrompts thread_ts optional", () => {
+  const secret = "test-signing-secret";
+
+  it("omits thread_ts when not provided", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setSuggestedPrompts",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    await adapter.setSuggestedPrompts("C1", undefined, [
+      { title: "t", message: "m" },
+    ]);
+
+    const client = getClient(adapter);
+    const [arg] = client.assistant.threads.setSuggestedPrompts.mock.calls[0];
+    expect(arg.channel_id).toBe("C1");
+    expect(arg).not.toHaveProperty("thread_ts");
+  });
+
+  it("includes thread_ts when provided", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setSuggestedPrompts",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    await adapter.setSuggestedPrompts("C1", "111.222", [
+      { title: "t", message: "m" },
+    ]);
+
+    const client = getClient(adapter);
+    expect(client.assistant.threads.setSuggestedPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: "111.222" })
+    );
+  });
+});
+
+// ============================================================================
+// Agent view: DM message threading (B) Tests
+// ============================================================================
+
+describe("agent_view DM threading", () => {
+  const secret = "test-secret";
+
+  function dmMessageBody() {
+    return JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "D1",
+        channel_type: "im",
+        user: "U1",
+        text: "hi",
+        ts: "1771.99",
+        event_ts: "1771.99",
+      },
+    });
+  }
+
+  it("threads a top-level agent_view DM message under its own ts", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret));
+
+    const [, threadId] = vi.mocked(mockChat.processMessage).mock.calls[0];
+    expect(threadId).toBe("slack:D1:1771.99");
+  });
+
+  it("keeps DM top-level messages conversation-scoped without agentView", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance(createMockState());
+    await adapter.initialize(mockChat);
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret));
+
+    const [, threadId] = vi.mocked(mockChat.processMessage).mock.calls[0];
+    expect(threadId).toBe("slack:D1:");
+  });
+
+  it("sets status on an agent_view DM thread", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setStatus",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    await adapter.startTyping("slack:D1:1771.99", "Thinking...");
+
+    const client = getClient(adapter);
+    expect(client.assistant.threads.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel_id: "D1",
+        thread_ts: "1771.99",
+        status: "Thinking...",
+      })
+    );
+  });
+});
+
+// ============================================================================
 // Typing Indicator Tests
 // ============================================================================
 

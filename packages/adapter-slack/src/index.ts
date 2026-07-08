@@ -58,6 +58,11 @@ import {
   toModalElement,
   toPlainText,
 } from "chat";
+import {
+  normalizeAppContextEntities,
+  type SlackAppContext,
+  type SlackAppContextChangedEvent,
+} from "./agent-context";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
@@ -292,6 +297,7 @@ interface SlackAssistantContextChangedEvent {
 /** Slack app_home_opened event payload */
 interface SlackAppHomeOpenedEvent {
   channel: string;
+  context?: SlackAppContext;
   event_ts: string;
   tab: string;
   type: "app_home_opened";
@@ -481,6 +487,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   // Socket mode support
   protected readonly appToken: string | undefined;
+  protected readonly agentView: boolean;
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
@@ -641,6 +648,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this._botUserId = config.botUserId || null;
 
     this.appToken = config.appToken;
+    this.agentView = config.agentView ?? false;
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -1318,11 +1326,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event as SlackAssistantContextChangedEvent,
           options
         );
-      } else if (
-        event.type === "app_home_opened" &&
-        (event as SlackAppHomeOpenedEvent).tab === "home"
-      ) {
-        this.handleAppHomeOpened(event as SlackAppHomeOpenedEvent, options);
+      } else if (event.type === "app_context_changed") {
+        this.handleAppContextChanged(
+          event as SlackAppContextChangedEvent,
+          options
+        );
+      } else if (event.type === "app_home_opened") {
+        const homeEvent = event as SlackAppHomeOpenedEvent;
+        if (this.agentView || homeEvent.tab === "home") {
+          this.handleAppHomeOpened(homeEvent, options);
+        }
       } else if (event.type === "member_joined_channel") {
         this.handleMemberJoinedChannel(
           event as SlackMemberJoinedChannelEvent,
@@ -2127,11 +2140,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs: top-level messages use empty threadTs (matches openDM subscriptions),
-    // thread replies use thread_ts for per-conversation isolation.
+    // For DMs under assistant_view (legacy): top-level messages use empty threadTs
+    // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
+    // isolation.
+    // Under agent_view the Messages-tab conversation is threaded per Slack's model —
+    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`.
     // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
-    const threadTs = isDM ? event.thread_ts || "" : event.thread_ts || event.ts;
+    const threadTs =
+      isDM && !this.agentView
+        ? event.thread_ts || ""
+        : event.thread_ts || event.ts;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -2421,6 +2440,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId: event.user,
         channelId: event.channel,
         adapter: this,
+        ...(event.context
+          ? { entities: normalizeAppContextEntities(event.context) }
+          : {}),
+      },
+      options
+    );
+  }
+
+  /**
+   * Handle app_context_changed events (Slack Agent messaging experience).
+   * Reports the user's current active view via normalized entities.
+   */
+  protected handleAppContextChanged(
+    event: SlackAppContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring app_context_changed"
+      );
+      return;
+    }
+
+    this.chat.processAppContextChanged(
+      {
+        channelId: event.channel,
+        userId: event.user,
+        entities: normalizeAppContextEntities(event.context),
+        raw: event,
+        adapter: this,
       },
       options
     );
@@ -2485,21 +2534,23 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Set suggested prompts for an assistant thread.
-   * Slack Assistants API: assistant.threads.setSuggestedPrompts
+   * Set suggested prompts for an assistant/agent thread.
+   * Slack Assistants API: assistant.threads.setSuggestedPrompts.
+   * `threadTs` is optional under the Agent messaging experience (agent_view),
+   * where prompts can sit at the top of the agent conversation without a thread.
    */
   async setSuggestedPrompts(
     channelId: string,
-    threadTs: string,
+    threadTs: string | undefined,
     prompts: Array<{ title: string; message: string }>,
     title?: string
   ): Promise<void> {
     await this._client.assistant.threads.setSuggestedPrompts(
       await this.withToken({
         channel_id: channelId,
-        thread_ts: threadTs,
         prompts,
-        title,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(title ? { title } : {}),
       })
     );
   }
@@ -5005,6 +5056,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   const zeroConfig = !config;
 
   const resolved: SlackAdapterConfig = {
+    agentView: config?.agentView,
     apiUrl: config?.apiUrl,
     appToken,
     mode,
@@ -5033,6 +5085,13 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   return new SlackAdapter(resolved);
 }
 
+export type {
+  SlackAppContext,
+  SlackAppContextChangedEvent,
+  SlackAppContextEntity,
+} from "./agent-context";
+// Re-export agent active-view context helpers for advanced use
+export { getAppContext, normalizeAppContextEntities } from "./agent-context";
 // Re-export card converter for advanced use
 export { cardToBlockKit, cardToFallbackText } from "./cards";
 export type { EncryptedTokenData } from "./crypto";
