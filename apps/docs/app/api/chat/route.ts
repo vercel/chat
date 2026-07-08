@@ -83,7 +83,7 @@ User question: ${userQuestion}`,
       originalMessages: messages,
       execute: ({ writer }) => {
         const result = streamText({
-          model: "openai/gpt-4.1-mini",
+          model: "xai/grok-4.5",
           messages: convertToModelMessages(processedMessages),
           stopWhen: stepCountIs(10),
           tools: createTools(writer),

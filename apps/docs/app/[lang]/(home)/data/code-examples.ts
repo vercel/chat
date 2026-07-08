@@ -70,7 +70,7 @@ bot.onNewMention(async (thread) => {
     code: `import { ToolLoopAgent } from "ai";
 
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-4.5-sonnet",
+  model: "xai/grok-4.5",
   instructions: "You are a helpful assistant.",
 });
 
@@ -86,7 +86,7 @@ bot.onNewMention(async (thread, message) => {
 import { generateText } from "ai";
 
 const result = await generateText({
-  model: "anthropic/claude-sonnet-4.6",
+  model: "xai/grok-4.5",
   tools: createChatTools({
     chat: bot,
     preset: "messenger",
