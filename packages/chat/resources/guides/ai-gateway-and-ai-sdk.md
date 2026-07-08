@@ -84,7 +84,7 @@ When you deploy to Vercel, OIDC tokens are provisioned automatically, so no furt
 
 Start with the simplest request: generate a single block of text. Create an API route at `app/api/chat/route.ts`. Pass a plain string model ID to `generateText` and the AI Gateway resolves the provider and routes the request. With OIDC authentication, you don't reference a key anywhere in your code:
 
-`import { generateText } from 'ai'; export async function GET() { const { text } = await generateText({ model: 'anthropic/claude-opus-4.8', prompt: 'Explain quantum computing in one paragraph.', }); return Response.json({ text }); }`
+`import { generateText } from 'ai'; export async function GET() { const { text } = await generateText({ model: 'xai/grok-4.5', prompt: 'Explain quantum computing in one paragraph.', }); return Response.json({ text }); }`
 
 Start the dev server and visit the route to see the response:
 
@@ -94,7 +94,7 @@ Start the dev server and visit the route to see the response:
 
 For real-time output, use `streamText` and return a streamed response. This is the pattern you'll use for chat interfaces and any response long enough that waiting for the full result would hurt the experience:
 
-`import { streamText } from 'ai'; export async function POST(request: Request) { const { prompt } = await request.json(); const result = streamText({ model: 'openai/gpt-5.5', prompt, }); return result.toUIMessageStreamResponse(); }`
+`import { streamText } from 'ai'; export async function POST(request: Request) { const { prompt } = await request.json(); const result = streamText({ model: 'xai/grok-4.5', prompt, }); return result.toUIMessageStreamResponse(); }`
 
 To switch models, change the model string. No other code changes are required.
 
@@ -102,7 +102,7 @@ To switch models, change the model string. No other code changes are required.
 
 Use `generateObject` with a [Zod](https://zod.dev/) schema to get type-safe structured data instead of free text:
 
-`import { generateObject } from 'ai'; import { z } from 'zod'; export async function GET() { const { object } = await generateObject({ model: 'anthropic/claude-opus-4.8', schema: z.object({ name: z.string(), age: z.number(), city: z.string(), }), prompt: 'Extract: John is 30 years old and lives in NYC.', }); return Response.json(object); // { name: 'John', age: 30, city: 'NYC' } }`
+`import { generateObject } from 'ai'; import { z } from 'zod'; export async function GET() { const { object } = await generateObject({ model: 'xai/grok-4.5', schema: z.object({ name: z.string(), age: z.number(), city: z.string(), }), prompt: 'Extract: John is 30 years old and lives in NYC.', }); return Response.json(object); // { name: 'John', age: 30, city: 'NYC' } }`
 
 ### 7\. Give your agent tools
 
@@ -110,7 +110,7 @@ So far, the model has produced text and data, but it hasn't done anything. Tools
 
 Define a tool with a description, an input schema, and an `execute` function:
 
-`import { generateText, tool } from 'ai'; import { z } from 'zod'; export async function GET() { const { text } = await generateText({ model: 'anthropic/claude-opus-4.8', tools: { getWeather: tool({ description: 'Get the current weather for a location', parameters: z.object({ location: z.string().describe('City name, e.g. San Francisco'), }), execute: async ({ location }) => ({ location, temperature: 72, condition: 'sunny', }), }), }, prompt: "What's the weather in Tokyo?", }); return Response.json({ text }); }`
+`import { generateText, tool } from 'ai'; import { z } from 'zod'; export async function GET() { const { text } = await generateText({ model: 'xai/grok-4.5', tools: { getWeather: tool({ description: 'Get the current weather for a location', parameters: z.object({ location: z.string().describe('City name, e.g. San Francisco'), }), execute: async ({ location }) => ({ location, temperature: 72, condition: 'sunny', }), }), }, prompt: "What's the weather in Tokyo?", }); return Response.json({ text }); }`
 
 You now have a working agent. Everything that follows makes it more capable and more reliable: fallbacks keep it available, Sandbox lets it run code safely, Chat SDK puts it in front of users, and the Workflow SDK makes it durable.
 
@@ -118,9 +118,9 @@ You now have a working agent. Everything that follows makes it more capable and 
 
 An agent makes many model calls over the course of a task, so it has many chances to hit a provider outage or error. That makes failover matter more for agents, not less. Pass a `models` array in `providerOptions.gateway` to list backup models, which the Gateway tries in order when the primary model fails:
 
-`import { streamText } from 'ai'; export async function POST(request: Request) { const { prompt } = await request.json(); const result = streamText({ model: 'openai/gpt-5.5', // Primary model prompt, providerOptions: { gateway: { models: ['anthropic/claude-opus-4.8', 'google/gemini-3.1-pro-preview'], // Fallbacks }, }, }); return result.toUIMessageStreamResponse(); }`
+`import { streamText } from 'ai'; export async function POST(request: Request) { const { prompt } = await request.json(); const result = streamText({ model: 'xai/grok-4.5', // Primary model prompt, providerOptions: { gateway: { models: ['anthropic/claude-opus-4.8', 'google/gemini-3.1-pro-preview'], // Fallbacks }, }, }); return result.toUIMessageStreamResponse(); }`
 
-In this example, the Gateway first attempts the primary model. If that fails, it tries `anthropic/claude-opus-4.7`, then `google/gemini-3.1-pro-preview`. The response comes from the first model that succeeds, and failover happens automatically without changes to your application logic.
+In this example, the Gateway first attempts the primary model. If that fails, it tries `anthropic/claude-opus-4.8`, then `google/gemini-3.1-pro-preview`. The response comes from the first model that succeeds, and failover happens automatically without changes to your application logic.
 
 ## Let your agent run code safely
 
@@ -134,7 +134,7 @@ Add the Sandbox SDK to your project:
 
 The pattern has two parts: generate code with the model via the AI Gateway, then write it to a fresh sandbox and run it. The sandbox is created, used, and stopped within a single request:
 
-``import ms from 'ms'; import { generateText } from 'ai'; import { Sandbox } from '@vercel/sandbox'; const SYSTEM_PROMPT = `You are a code generator. Write JavaScript that runs in Node.js. Output only the code, with no explanations or markdown.`; async function generateCode(task: string): Promise<string> { const { text } = await generateText({ model: 'anthropic/claude-sonnet-4.6', system: SYSTEM_PROMPT, prompt: `Write JavaScript code to: ${task}`, }); return text .replace(/^\s*```(?:javascript|js)?\s*/i, '') .replace(/\s*```\s*$/i, '') .trim(); } async function executeCode(code: string) { const sandbox = await Sandbox.create({ resources: { vcpus: 2 }, timeout: ms('2m'), runtime: 'node22', }); try { await sandbox.writeFiles([ { path: '/vercel/sandbox/code.mjs', content: Buffer.from(code) }, ]); const result = await sandbox.runCommand({ cmd: 'node', args: ['code.mjs'] }); const stdout = await result.stdout(); const stderr = await result.stderr(); return { output: stdout || stderr || '(no output)', exitCode: result.exitCode }; } finally { await sandbox.stop(); } }``
+``import ms from 'ms'; import { generateText } from 'ai'; import { Sandbox } from '@vercel/sandbox'; const SYSTEM_PROMPT = `You are a code generator. Write JavaScript that runs in Node.js. Output only the code, with no explanations or markdown.`; async function generateCode(task: string): Promise<string> { const { text } = await generateText({ model: 'xai/grok-4.5', system: SYSTEM_PROMPT, prompt: `Write JavaScript code to: ${task}`, }); return text .replace(/^\s*```(?:javascript|js)?\s*/i, '') .replace(/\s*```\s*$/i, '') .trim(); } async function executeCode(code: string) { const sandbox = await Sandbox.create({ resources: { vcpus: 2 }, timeout: ms('2m'), runtime: 'node22', }); try { await sandbox.writeFiles([ { path: '/vercel/sandbox/code.mjs', content: Buffer.from(code) }, ]); const result = await sandbox.runCommand({ cmd: 'node', args: ['code.mjs'] }); const stdout = await result.stdout(); const stderr = await result.stderr(); return { output: stdout || stderr || '(no output)', exitCode: result.exitCode }; } finally { await sandbox.stop(); } }``
 
 This gives the agent two layers of safety: the system prompt steers the model away from dangerous operations, and the sandbox enforces isolation regardless of what the model produces. The sandbox captures both `stdout` and `stderr`, so the agent can read failures and retry without those failures affecting your host. For a complete walkthrough, see [How to execute AI-generated code safely with Vercel Sandbox](https://vercel.com/kb/guide/how-to-execute-ai-generated-code-safely).
 
@@ -156,7 +156,7 @@ Two helpers from the `chat/ai` subpath connect the two SDKs. Importing from `cha
 
 `createChatTools` provides the agent with a set of AI SDK tools for posting messages, adding reactions, and performing other platform actions. Pass it to your Chat instance alongside an AI SDK call:
 
-`import { Chat } from 'chat'; import { createChatTools } from 'chat/ai'; import { createSlackAdapter } from '@chat-adapter/slack'; import { createMemoryState } from '@chat-adapter/state-memory'; import { generateText } from 'ai'; const chat = new Chat({ userName: 'mybot', adapters: { slack: createSlackAdapter() }, state: createMemoryState(), }); const result = await generateText({ model: 'anthropic/claude-opus-4.8', tools: createChatTools({ chat, preset: 'messenger' }), prompt: 'Post a friendly hello in slack:C0123ABC and react to it with a thumbs up.', });`
+`import { Chat } from 'chat'; import { createChatTools } from 'chat/ai'; import { createSlackAdapter } from '@chat-adapter/slack'; import { createMemoryState } from '@chat-adapter/state-memory'; import { generateText } from 'ai'; const chat = new Chat({ userName: 'mybot', adapters: { slack: createSlackAdapter() }, state: createMemoryState(), }); const result = await generateText({ model: 'xai/grok-4.5', tools: createChatTools({ chat, preset: 'messenger' }), prompt: 'Post a friendly hello in slack:C0123ABC and react to it with a thumbs up.', });`
 
 Each tool resolves the right adapter from the id prefix you give it (`slack:`, `discord:`, `gchat:`), so one agent can drive any platform your Chat instance is wired up to. Because the model string still routes through AI Gateway, you keep the provider failover and unified billing from the earlier steps while reaching users wherever they already work.
 
@@ -184,7 +184,7 @@ The agents you've built so far run in memory. If the process crashes, the functi
 
 To get durability, the agent runs inside a function marked `'use workflow'`, and each tool's `execute` function is marked `'use step'`:
 
-``import { WorkflowAgent, type ModelCallStreamPart } from '@ai-sdk/workflow'; import { convertToModelMessages, tool, type UIMessage } from 'ai'; import { getWritable } from 'workflow'; import { z } from 'zod'; async function searchFlightsStep(input: { origin: string; destination: string; date: string; }) { 'use step'; const response = await fetch(`https://api.flights.example/search?...`); return response.json(); } export async function chat(messages: UIMessage[]) { 'use workflow'; const modelMessages = await convertToModelMessages(messages); const agent = new WorkflowAgent({ model: 'anthropic/claude-sonnet-4-6', instructions: 'You are a flight booking assistant.', tools: { searchFlights: tool({ description: 'Search for available flights', inputSchema: z.object({ origin: z.string(), destination: z.string(), date: z.string(), }), execute: searchFlightsStep, }), }, }); const result = await agent.stream({ messages: modelMessages, writable: getWritable<ModelCallStreamPart>(), }); return { messages: result.messages }; }``
+``import { WorkflowAgent, type ModelCallStreamPart } from '@ai-sdk/workflow'; import { convertToModelMessages, tool, type UIMessage } from 'ai'; import { getWritable } from 'workflow'; import { z } from 'zod'; async function searchFlightsStep(input: { origin: string; destination: string; date: string; }) { 'use step'; const response = await fetch(`https://api.flights.example/search?...`); return response.json(); } export async function chat(messages: UIMessage[]) { 'use workflow'; const modelMessages = await convertToModelMessages(messages); const agent = new WorkflowAgent({ model: 'xai/grok-4.5', instructions: 'You are a flight booking assistant.', tools: { searchFlights: tool({ description: 'Search for available flights', inputSchema: z.object({ origin: z.string(), destination: z.string(), date: z.string(), }), execute: searchFlightsStep, }), }, }); const result = await agent.stream({ messages: modelMessages, writable: getWritable<ModelCallStreamPart>(), }); return { messages: result.messages }; }``
 
 The model string is the same `creator/model-name` form you've used throughout, so the request still routes through AI Gateway with its failover and unified billing. What changes is the runtime: tool calls now persist, retry, and appear as discrete steps in the workflow dashboard. To add human approval, set `needsApproval: true` on a tool definition, which suspends the durable workflow until the user responds.
 
