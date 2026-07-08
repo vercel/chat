@@ -3,6 +3,8 @@ import type { Adapter, ChatInstance, StateAdapter } from "chat";
 
 const PROCESS_HANDLERS = [
   "processMessage",
+  "processMessageUpdated",
+  "processMessageDeleted",
   "processReaction",
   "processAction",
   "processSlashCommand",
