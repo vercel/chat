@@ -11,6 +11,7 @@ import {
   telegram,
   twilio,
   whatsapp,
+  x,
 } from "@/lib/logos";
 
 const platforms: {
@@ -25,6 +26,7 @@ const platforms: {
   { icon: whatsapp, name: "WhatsApp", slug: "whatsapp" },
   { icon: twilio, name: "Twilio", slug: "twilio" },
   { icon: messenger, name: "Messenger", slug: "messenger" },
+  { icon: x, name: "X", slug: "x" },
   { icon: github, name: "GitHub", slug: "github" },
   { icon: linear, name: "Linear", slug: "linear" },
   { icon: telegram, name: "Telegram", slug: "telegram" },
@@ -58,7 +60,7 @@ export const SupportedPlatforms = () => (
         The open-source chat toolkit designed to help developers build chat bots
         that run on Slack, Teams, Google Chat, Discord, WhatsApp, and more.
       </p>
-      <div className="mx-auto mt-2 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+      <div className="mx-auto mt-2 flex max-w-64 flex-wrap items-center justify-center gap-3 sm:max-w-none sm:gap-4">
         {platforms.map((platform) => (
           <Link
             aria-label={platform.name}
