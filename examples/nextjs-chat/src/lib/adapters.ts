@@ -12,6 +12,7 @@ import {
   createMessengerAdapter,
   type MessengerAdapter,
 } from "@chat-adapter/messenger";
+import { createNotionAdapter, type NotionAdapter } from "@chat-adapter/notion";
 import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
@@ -40,6 +41,7 @@ export interface Adapters {
   github?: GitHubAdapter;
   linear?: LinearAdapter;
   messenger?: MessengerAdapter;
+  notion?: NotionAdapter;
   slack?: SlackAdapter;
   teams?: TeamsAdapter;
   telegram?: TelegramAdapter;
@@ -101,6 +103,13 @@ const LINEAR_METHODS = [
   "editMessage",
   "deleteMessage",
   "addReaction",
+  "fetchMessages",
+];
+const NOTION_METHODS = [
+  "postMessage",
+  "editMessage",
+  "deleteMessage",
+  "stream",
   "fetchMessages",
 ];
 const MESSENGER_METHODS = [
@@ -281,6 +290,30 @@ export function buildAdapters(): Adapters {
     } catch {
       console.warn(
         "[chat] Failed to create linear adapter (check LINEAR_CONNECTOR and VERCEL_OIDC_TOKEN)"
+      );
+    }
+  }
+
+  // Notion adapter (optional) - env vars: NOTION_TOKEN, NOTION_VERIFICATION_TOKEN
+  // Optional: NOTION_MENTION_MODE, NOTION_KEYWORDS, NOTION_BOT_USERNAME, NOTION_VERSION
+  // Setup: https://app.notion.com/developers/connections → Access token connection,
+  // enable Read/Insert comments, Content access for target pages, Webhooks → Comment
+  // events at https://<ngrok>/api/webhooks/notion. Paste logged verification_token into
+  // Notion Verify + NOTION_VERIFICATION_TOKEN, then restart. For easy local testing
+  // without @-mentions, set NOTION_MENTION_MODE=all-comments.
+  if (process.env.NOTION_TOKEN) {
+    try {
+      adapters.notion = withRecording(
+        createNotionAdapter({
+          logger: logger.child("notion"),
+        }),
+        "notion",
+        NOTION_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create notion adapter:",
+        err instanceof Error ? err.message : err
       );
     }
   }

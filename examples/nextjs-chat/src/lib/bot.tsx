@@ -47,6 +47,8 @@ const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /^dm\s*me$/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
 const SLACK_PREFIX_REGEX = /^slack:/;
+/** Exact Notion comment body to demo `message.subject` (page metadata). */
+const NOTION_SUBJECT_COMMAND = "SUBJECT";
 
 // Hardcoded user key for testing the Transcripts API — every inbound message
 // is persisted under this single key, so you can exercise append/list/delete
@@ -102,9 +104,64 @@ function transcriptToAiMessages(entries: TranscriptEntry[]): AiMessage[] {
   }));
 }
 
+type MentionHandler = Parameters<typeof bot.onNewMention>[0];
+type MentionThread = Parameters<MentionHandler>[0];
+type MentionMessage = Parameters<MentionHandler>[1];
+
+/** Notion demo: comment body exactly `SUBJECT` → post `message.subject` page info. */
+async function maybeReplyNotionSubject(
+  thread: MentionThread,
+  message: MentionMessage
+): Promise<boolean> {
+  if (
+    thread.adapter.name !== "notion" ||
+    message.text.trim() !== NOTION_SUBJECT_COMMAND
+  ) {
+    return false;
+  }
+
+  await thread.startTyping();
+  const subject = await message.subject;
+  if (!subject) {
+    await thread.post(
+      `${emoji.warning} Could not resolve \`message.subject\` for this comment (missing page access or API error).`
+    );
+    return true;
+  }
+
+  await thread.post(
+    <Card title={`${emoji.memo} Page subject`}>
+      <Text>{`Resolved via \`message.subject\` (\`${subject.type}\`)`}</Text>
+      <Divider />
+      <Fields>
+        <Field label="Title" value={subject.title ?? "(untitled)"} />
+        <Field label="ID" value={subject.id} />
+        <Field label="Status" value={subject.status ?? "active"} />
+        <Field
+          label="Author"
+          value={
+            subject.author
+              ? `${subject.author.name} (${subject.author.id})`
+              : "(unknown)"
+          }
+        />
+        <Field label="URL" value={subject.url ?? "(none)"} />
+      </Fields>
+      {subject.url ? (
+        <CardLink url={subject.url}>Open page in Notion</CardLink>
+      ) : null}
+    </Card>
+  );
+  return true;
+}
+
 // Handle new @mentions of the bot
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();
+
+  if (await maybeReplyNotionSubject(thread, message)) {
+    return;
+  }
 
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
@@ -1153,9 +1210,15 @@ bot.onNewMessage(/help/i, async (thread, message) => {
 
 // Handle messages in subscribed threads
 bot.onSubscribedMessage(async (thread, message) => {
+  // Notion demo: exact "SUBJECT" works without an @-mention once subscribed
+  if (await maybeReplyNotionSubject(thread, message)) {
+    return;
+  }
+
   if (!(thread.adapter.name === "telegram" || message.isMention)) {
     return;
   }
+
   // Get thread state to check AI mode
   const threadState = await thread.state;
 
