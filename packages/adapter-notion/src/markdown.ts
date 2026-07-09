@@ -20,7 +20,10 @@ const FENCED_CODE = /```[\w]*\n?([\s\S]*?)```/g;
 const BLOCKQUOTE_PREFIX = /^>\s?/gm;
 const UNORDERED_LIST = /^[\t ]*[-*+]\s+/gm;
 const ORDERED_LIST = /^[\t ]*\d+\.\s+/gm;
-const TABLE_SEPARATOR = /^\|[-:| ]+\|$/gm;
+// Whole-line class with a single quantifier — no trailing `\|` literal, so the
+// `|` inside the class can't overlap an adjacent literal and force backtracking
+// (avoids polynomial ReDoS on lines of many spaces).
+const TABLE_SEPARATOR = /^\|[-:| ]+$/gm;
 const TABLE_ROW = /^\|(.+)\|$/gm;
 
 export class NotionFormatConverter extends BaseFormatConverter {
