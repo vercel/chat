@@ -343,6 +343,7 @@ export function convertEmojiPlaceholders(
     | "messenger"
     | "github"
     | "linear"
+    | "notion"
     | "whatsapp"
     | "x",
   resolver: EmojiResolver = defaultEmojiResolver
@@ -367,6 +368,9 @@ export function convertEmojiPlaceholders(
         return resolver.toGChat(emojiName);
       case "linear":
         // Linear uses unicode emoji
+        return resolver.toGChat(emojiName);
+      case "notion":
+        // Notion comments use unicode emoji
         return resolver.toGChat(emojiName);
       case "whatsapp":
         // WhatsApp uses unicode emoji
