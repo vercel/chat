@@ -113,6 +113,18 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/*
+ * Restore the site's dark-mode background scale. The package inverts it
+ * (background-100 = pure black over a near-black background-200), which
+ * flattens elevated surfaces — e.g. the homepage code window and the active
+ * code-showcase tab become indistinguishable from the page. chat-sdk.dev
+ * uses an elevated background-100 over a pure-black background-200.
+ */
+.dark {
+  --ds-background-100: oklch(0.145 0 0);
+  --ds-background-200: oklch(0 0 0);
+}
+
 /* The Chat SDK site body uses the raised background tint */
 @layer base {
   body {
