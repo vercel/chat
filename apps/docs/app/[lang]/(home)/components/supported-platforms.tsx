@@ -6,6 +6,7 @@ import {
   github,
   linear,
   messenger,
+  notion,
   slack,
   teams,
   telegram,
@@ -29,6 +30,7 @@ const platforms: {
   { icon: x, name: "X", slug: "x" },
   { icon: github, name: "GitHub", slug: "github" },
   { icon: linear, name: "Linear", slug: "linear" },
+  { icon: notion, name: "Notion", slug: "notion" },
   { icon: telegram, name: "Telegram", slug: "telegram" },
 ];
 

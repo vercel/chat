@@ -58,9 +58,12 @@ Each adapter factory auto-detects credentials from environment variables (`SLACK
 | Telegram | `@chat-adapter/telegram` | Yes | Yes | Partial | No | Rich drafts / Post+Edit | Yes |
 | GitHub | `@chat-adapter/github` | Yes | Yes | No | No | Buffered | No |
 | Linear | `@chat-adapter/linear` | Yes | Yes | No | No | Agent sessions / Post+Edit | No |
+| Notion | `@chat-adapter/notion` | Yes* | No | Fallback | No | Post+Edit | No |
 | WhatsApp | `@chat-adapter/whatsapp` | N/A | Yes | Partial | No | Buffered | Yes |
 | Twilio | `@chat-adapter/twilio` | N/A | No | Fallback | No | Buffered | Yes |
 | Messenger | `@chat-adapter/messenger` | Yes | Receive-only | Partial | No | Buffered | Yes |
+
+\* Notion mentions depend on `mentionMode` (`"mention"` | `"all-comments"` | `"keyword"`). Default `"mention"` matches plain-text `@userName` / `@botUserId` (Notion connections are not @-mentionable in the comment composer).
 
 ## AI coding agent support
 
@@ -87,6 +90,7 @@ The SDK is distributed as a set of packages you install based on your needs:
 | `@chat-adapter/telegram` | Telegram adapter |
 | `@chat-adapter/github` | GitHub Issues adapter |
 | `@chat-adapter/linear` | Linear Issues adapter |
+| `@chat-adapter/notion` | Notion comments adapter |
 | `@chat-adapter/whatsapp` | WhatsApp Business adapter |
 | `@chat-adapter/twilio` | Twilio SMS and MMS adapter |
 | `@chat-adapter/messenger` | Facebook Messenger adapter |

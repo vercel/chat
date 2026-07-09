@@ -60,6 +60,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-linear"
   },
   {
+    "name": "Notion",
+    "slug": "notion",
+    "type": "platform",
+    "description": "Participate in Notion page and block comment discussions via webhooks and the Comments API.",
+    "packageName": "@chat-adapter/notion",
+    "icon": "notion",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-notion"
+  },
+  {
     "name": "Telegram",
     "slug": "telegram",
     "type": "platform",
