@@ -7,6 +7,7 @@ const chatProxyToken = process.env.GEISTDOCS_CHAT_PROXY_TOKEN;
 
 export const { POST, maxDuration } = createChatRoute({
   config,
+  model: "xai/grok-4.5",
   proxy: chatProxyUrl
     ? {
         url: chatProxyUrl,
