@@ -63,7 +63,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 });
 
 const agent = new ToolLoopAgent({
-  model: "xai/grok-4.5",
+  model: "anthropic/claude-sonnet-5",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -488,7 +488,7 @@ bot.onAction("agent-demo", async (event) => {
   await thread.startTyping("Running agent...");
   try {
     const result = await generateText({
-      model: "xai/grok-4.5",
+      model: "anthropic/claude-sonnet-5",
       tools,
       stopWhen: ({ steps }) => steps.length >= 6,
       system: [
@@ -582,7 +582,7 @@ bot.onSlashCommand("/agent", async (event) => {
   });
 
   const toolAgent = new ToolLoopAgent({
-    model: "xai/grok-4.5",
+    model: "anthropic/claude-sonnet-5",
     tools,
     stopWhen: ({ steps }) => steps.length >= 8,
     instructions: [
