@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 import { getAppContext, normalizeAppContextEntities } from "./agent-context";
 
 describe("normalizeAppContextEntities", () => {
-  it("returns [] for undefined context", () => {
-    expect(normalizeAppContextEntities(undefined)).toEqual([]);
-  });
-
   it("returns [] for an empty context object", () => {
     expect(normalizeAppContextEntities({})).toEqual([]);
   });

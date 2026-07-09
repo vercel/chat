@@ -2388,30 +2388,44 @@ export type AppHomeOpenedHandler = (
   event: AppHomeOpenedEvent
 ) => void | Promise<void>;
 
-/** A single entity from a Slack active-view context, normalized from the wire tokens. */
+export interface AppContextEntityBase {
+  enterpriseId?: string;
+  teamId?: string;
+}
+
+export interface AppContextChannelEntity extends AppContextEntityBase {
+  channelId: string;
+  kind: "channel";
+}
+
+export interface AppContextCanvasEntity extends AppContextEntityBase {
+  canvasId: string;
+  kind: "canvas";
+}
+
+export interface AppContextListEntity extends AppContextEntityBase {
+  kind: "list";
+  listId: string;
+}
+
+export interface AppContextMessageEntity extends AppContextEntityBase {
+  channelId: string;
+  kind: "message";
+  messageTs: string;
+}
+
+export interface AppContextUnknownEntity extends AppContextEntityBase {
+  kind: "unknown";
+  type: string;
+  value: unknown;
+}
+
 export type AppContextEntity =
-  | {
-      kind: "channel";
-      channelId: string;
-      teamId?: string;
-      enterpriseId?: string;
-    }
-  | { kind: "canvas"; canvasId: string; teamId?: string; enterpriseId?: string }
-  | { kind: "list"; listId: string; teamId?: string; enterpriseId?: string }
-  | {
-      kind: "message";
-      messageTs: string;
-      channelId: string;
-      teamId?: string;
-      enterpriseId?: string;
-    }
-  | {
-      kind: "unknown";
-      type: string;
-      value: unknown;
-      teamId?: string;
-      enterpriseId?: string;
-    };
+  | AppContextChannelEntity
+  | AppContextCanvasEntity
+  | AppContextListEntity
+  | AppContextMessageEntity
+  | AppContextUnknownEntity;
 
 /** Reports what the user is currently viewing (Slack `app_context_changed`, agent_view only). */
 export interface AppContextChangedEvent {

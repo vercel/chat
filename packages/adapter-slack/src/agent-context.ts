@@ -30,13 +30,12 @@ const MESSAGE_TOKEN = "slack#/types/message_context";
 /**
  * Normalize Slack active-view context entities into the core `AppContextEntity` union.
  * Unrecognized entity types map to `{ kind: "unknown" }` for forward-compatibility.
- * @param context - The Slack context object, or `undefined` when absent.
- * @returns Relevance-ordered normalized entities; empty when the context is empty/absent.
+ * @param context - The Slack context object.
+ * @returns Relevance-ordered normalized entities; empty when the context has none.
  */
-export function normalizeAppContextEntities(
-  context: SlackAppContext | undefined
-): AppContextEntity[] {
-  const entities = context?.entities;
+export function normalizeAppContextEntities({
+  entities,
+}: SlackAppContext): AppContextEntity[] {
   if (!entities) {
     return [];
   }
@@ -101,5 +100,7 @@ export function normalizeAppContextEntities(
  */
 export function getAppContext(message: Message): AppContextEntity[] {
   const raw = message.raw as { app_context?: SlackAppContext } | undefined;
-  return normalizeAppContextEntities(raw?.app_context);
+  const context = raw?.app_context;
+
+  return context ? normalizeAppContextEntities(context) : [];
 }
