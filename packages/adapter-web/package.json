@@ -43,10 +43,10 @@
     "chat": "workspace:*"
   },
   "peerDependencies": {
-    "@ai-sdk/react": "^3",
-    "@ai-sdk/svelte": "^4",
-    "@ai-sdk/vue": "^3",
-    "ai": "^6",
+    "@ai-sdk/react": "^3 || ^4",
+    "@ai-sdk/svelte": "^4 || ^5",
+    "@ai-sdk/vue": "^3 || ^4",
+    "ai": "^6 || ^7",
     "react": "^19",
     "svelte": "^5",
     "vue": "^3"
@@ -72,15 +72,15 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/react": "^3.0.184",
-    "@ai-sdk/svelte": "^4.0.182",
-    "@ai-sdk/vue": "^3.0.182",
+    "@ai-sdk/react": "^4.0.0",
+    "@ai-sdk/svelte": "^5.0.0",
+    "@ai-sdk/vue": "^4.0.0",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/tests": "workspace:*",
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
     "@vitest/coverage-v8": "^4.0.18",
-    "ai": "^6.0.182",
+    "ai": "^7.0.0",
     "react": "^19.0.0",
     "svelte": "^5.55.7",
     "tsup": "^8.3.5",
