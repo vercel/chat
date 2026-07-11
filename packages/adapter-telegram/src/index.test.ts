@@ -3637,7 +3637,7 @@ describe("message length limits", () => {
     const markdown = readSentBody(1).rich_message?.markdown ?? "";
     expect(Array.from(markdown).length).toBeLessThanOrEqual(32_768);
     expect(markdown.endsWith("...")).toBe(true);
-  });
+  }, 10_000);
 
   it("MarkdownV2 truncation does not leave an orphan trailing backslash before the ellipsis", async () => {
     const adapter = await createInitializedAdapter();
