@@ -378,11 +378,7 @@ function tableToBlocks(
   ) {
     return [
       {
-        text: mrkdwn(
-          `\`\`\`\n${tableToAscii(element)}\n\`\`\``,
-          (value) => value,
-          LIMITS.sectionText
-        ),
+        text: fencedFallbackText(tableToAscii(element)),
         type: "section",
       },
     ];
@@ -441,13 +437,24 @@ function chartToBlock(
   // Slack rejects invalid charts (and >2 charts per message) outright
   // rather than truncating them, so render the underlying data as text.
   return {
-    text: mrkdwn(
-      `\`\`\`\n${chartToAscii(element)}\n\`\`\``,
-      (value) => value,
-      LIMITS.sectionText
-    ),
+    text: fencedFallbackText(chartToAscii(element)),
     type: "section",
   };
+}
+
+/**
+ * Wrap ASCII fallback content in a fenced code block, truncating the content
+ * so the section text stays within Slack's limit while keeping the closing
+ * fence intact.
+ */
+function fencedFallbackText(content: string): SlackTextObject {
+  const fence = (body: string) => `\`\`\`\n${body}\n\`\`\``;
+  const budget = LIMITS.sectionText - fence("").length;
+  const text =
+    content.length > budget
+      ? fence(`${content.slice(0, budget - 1)}…`)
+      : fence(content);
+  return { text, type: "mrkdwn" };
 }
 
 function chartToDataVisualization(

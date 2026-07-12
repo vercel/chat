@@ -367,6 +367,24 @@ function convertRadioSelectToElement(
   return element;
 }
 
+// Slack's section text object limit
+const SECTION_TEXT_MAX_CHARS = 3000;
+
+/**
+ * Wrap ASCII fallback content in a fenced code block inside a section,
+ * truncating the content so the section text stays within Slack's
+ * 3,000-character limit while keeping the closing fence intact.
+ */
+function asciiFallbackBlock(content: string): SlackBlock {
+  const fence = (body: string) => `\`\`\`\n${body}\n\`\`\``;
+  const budget = SECTION_TEXT_MAX_CHARS - fence("").length;
+  const text =
+    content.length > budget
+      ? fence(`${content.slice(0, budget - 1)}…`)
+      : fence(content);
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
 const DATA_TABLE_MAX_ROWS = 100;
 const DATA_TABLE_MAX_COLS = 20;
 // A single table (all cells combined) can't exceed 10,000 characters
@@ -400,13 +418,7 @@ function convertTableToBlocks(
   ) {
     // Fall back to ASCII table in a code block
     return [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `\`\`\`\n${tableElementToAscii(element.headers, element.rows)}\n\`\`\``,
-        },
-      },
+      asciiFallbackBlock(tableElementToAscii(element.headers, element.rows)),
     ];
   }
 
@@ -478,13 +490,7 @@ function convertChartToBlock(
     state.chartCount += 1;
     return block;
   }
-  return {
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `\`\`\`\n${chartElementToFallbackText(element)}\n\`\`\``,
-    },
-  };
+  return asciiFallbackBlock(chartElementToFallbackText(element));
 }
 
 /**

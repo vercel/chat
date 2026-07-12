@@ -403,6 +403,10 @@ describe("Slack Block Kit primitives", () => {
     );
 
     expect(blocks[0].type).toBe("section");
+    const text = (blocks[0] as { text: { text: string } }).text.text;
+    expect(text.length).toBeLessThanOrEqual(3000);
+    // Closing code fence survives truncation
+    expect(text.endsWith("\n```")).toBe(true);
   });
 
   it("converts pie charts to data_visualization blocks", () => {

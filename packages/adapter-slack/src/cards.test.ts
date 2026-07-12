@@ -891,6 +891,19 @@ describe("cardToBlockKit with data tables", () => {
     expect(blocks[0].type).toBe("section");
     expect(blocks[0].text.text).toContain("```");
   });
+
+  it("truncates ASCII fallback to Slack's 3,000-char section limit", () => {
+    const bigCell = "x".repeat(5001);
+    const card = Card({
+      children: [Table({ headers: ["A"], rows: [[bigCell], [bigCell]] })],
+    });
+
+    const text = (cardToBlockKit(card)[0] as { text: { text: string } }).text
+      .text;
+    expect(text.length).toBeLessThanOrEqual(3000);
+    // Closing code fence survives truncation
+    expect(text.endsWith("\n```")).toBe(true);
+  });
 });
 
 describe("cardToBlockKit with charts", () => {
