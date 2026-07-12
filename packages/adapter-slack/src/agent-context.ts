@@ -30,64 +30,61 @@ const MESSAGE_TOKEN = "slack#/types/message_context";
 /**
  * Normalize Slack active-view context entities into the core `AppContextEntity` union.
  * Unrecognized entity types map to `{ kind: "unknown" }` for forward-compatibility.
- * @param context - The Slack context object.
+ * @param context - The Slack context object; tolerates a missing/malformed one.
  * @returns Relevance-ordered normalized entities; empty when the context has none.
  */
-export function normalizeAppContextEntities({
-  entities,
-}: SlackAppContext): AppContextEntity[] {
+export function normalizeAppContextEntities(
+  context: SlackAppContext | undefined
+): AppContextEntity[] {
+  const entities = context?.entities;
   if (!entities) {
     return [];
   }
 
   return entities.map((entity) => {
-    const teamId = entity.team_id;
-    const enterpriseId = entity.enterprise_id;
+    const base = {
+      teamId: entity.team_id,
+      enterpriseId: entity.enterprise_id,
+    };
 
     if (entity.type === CHANNEL_TOKEN) {
-      return {
-        kind: "channel",
-        channelId: entity.value as string,
-        teamId,
-        enterpriseId,
-      };
+      return { ...base, kind: "channel", channelId: entity.value as string };
     }
 
     if (entity.type === CANVAS_TOKEN) {
-      return {
-        kind: "canvas",
-        canvasId: entity.value as string,
-        teamId,
-        enterpriseId,
-      };
+      return { ...base, kind: "canvas", canvasId: entity.value as string };
     }
 
     if (entity.type === LIST_TOKEN) {
-      return {
-        kind: "list",
-        listId: entity.value as string,
-        teamId,
-        enterpriseId,
-      };
+      return { ...base, kind: "list", listId: entity.value as string };
     }
 
     if (entity.type === MESSAGE_TOKEN) {
-      const value = entity.value as { message_ts: string; channel_id: string };
-      return {
-        kind: "message",
-        messageTs: value.message_ts,
-        channelId: value.channel_id,
-        teamId,
-        enterpriseId,
-      };
+      const value = entity.value as
+        | { message_ts?: unknown; channel_id?: unknown }
+        | null
+        | undefined;
+      // A malformed value falls through to kind "unknown" instead of crashing
+      // the webhook: one odd entity must not turn into a 500 + Slack retry loop.
+      if (
+        value &&
+        typeof value.message_ts === "string" &&
+        typeof value.channel_id === "string"
+      ) {
+        return {
+          ...base,
+          kind: "message",
+          messageTs: value.message_ts,
+          channelId: value.channel_id,
+        };
+      }
     }
 
     return {
+      ...base,
       kind: "unknown",
       type: entity.type,
       value: entity.value,
-      teamId,
-      enterpriseId,
     };
   });
 }

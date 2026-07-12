@@ -161,6 +161,41 @@ describe("constructor env var resolution", () => {
     expect(adapter).toBeInstanceOf(SlackAdapter);
   });
 
+  it("keeps SLACK_BOT_TOKEN env fallback when only non-auth config is passed", async () => {
+    process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
+    process.env.SLACK_BOT_TOKEN = "xoxb-env-token";
+    const adapter = createSlackAdapter({ agentView: true });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setSuggestedPrompts",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+
+    await adapter.setSuggestedPrompts("C1", undefined, [
+      { title: "t", message: "m" },
+    ]);
+
+    const client = getClient(adapter);
+    expect(client.assistant.threads.setSuggestedPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "xoxb-env-token" })
+    );
+  });
+
+  it("disables SLACK_BOT_TOKEN env fallback when another auth field is passed", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-env-token";
+    const adapter = createSlackAdapter({
+      signingSecret: "config-secret",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      logger: mockLogger,
+    });
+
+    // Multi-workspace mode: no bot token resolvable outside a request context.
+    await expect(
+      adapter.setSuggestedPrompts("C1", undefined, [])
+    ).rejects.toThrow();
+  });
+
   it("should default logger when not provided", () => {
     process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
     const adapter = new SlackAdapter();
@@ -4342,7 +4377,7 @@ describe("agent_view app_home_opened", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
     const body = JSON.stringify({
       type: "event_callback",
@@ -4361,6 +4396,12 @@ describe("agent_view app_home_opened", () => {
 
     expect(response.status).toBe(200);
     expect(mockChat.processAppHomeOpened).toHaveBeenCalledTimes(1);
+    const [event] = vi.mocked(mockChat.processAppHomeOpened).mock.calls[0];
+    expect(event).toMatchObject({
+      channelId: "D1",
+      userId: "U1",
+      tab: "messages",
+    });
   });
 
   it("ignores app_home_opened for a non-home tab by default (assistant_view)", async () => {
@@ -4369,7 +4410,7 @@ describe("agent_view app_home_opened", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
     const body = JSON.stringify({
       type: "event_callback",
@@ -4393,7 +4434,7 @@ describe("agent_view app_home_opened", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
     const body = JSON.stringify({
       type: "event_callback",
@@ -4429,7 +4470,7 @@ describe("app_context_changed", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
     const body = JSON.stringify({
       type: "event_callback",
@@ -4464,7 +4505,7 @@ describe("app_context_changed", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
     const body = JSON.stringify({
       type: "event_callback",
@@ -4479,6 +4520,33 @@ describe("app_context_changed", () => {
 
     await adapter.handleWebhook(createWebhookRequest(body, secret));
 
+    const [event] = vi.mocked(mockChat.processAppContextChanged).mock.calls[0];
+    expect(event).toMatchObject({ entities: [] });
+  });
+
+  it("returns 200 with empty entities when the payload has no context field", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance({ state: createMockState() });
+    await adapter.initialize(mockChat);
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "app_context_changed",
+        channel: "D1",
+        user: "U1",
+        event_ts: "1.2",
+      },
+    });
+
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
     const [event] = vi.mocked(mockChat.processAppContextChanged).mock.calls[0];
     expect(event).toMatchObject({ entities: [] });
   });
@@ -4561,13 +4629,43 @@ describe("agent_view DM threading", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
 
-    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret));
+    const tasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (p) => {
+        tasks.push(p);
+      },
+    });
+    await Promise.all(tasks);
 
     const [, threadId] = vi.mocked(mockChat.processMessage).mock.calls[0];
     expect(threadId).toBe("slack:D1:1771.99");
+  });
+
+  it("routes a top-level agent_view DM message to the conversation-scoped thread when it is subscribed (openDM flow)", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const state = createMockState();
+    await state.subscribe("slack:D1:");
+    const mockChat = createMockChatInstance({ state });
+    await adapter.initialize(mockChat);
+
+    const tasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (p) => {
+        tasks.push(p);
+      },
+    });
+    await Promise.all(tasks);
+
+    const [, threadId] = vi.mocked(mockChat.processMessage).mock.calls[0];
+    expect(threadId).toBe("slack:D1:");
   });
 
   it("keeps DM top-level messages conversation-scoped without agentView", async () => {
@@ -4576,7 +4674,7 @@ describe("agent_view DM threading", () => {
       botUserId: "U_BOT",
       logger: mockLogger,
     });
-    const mockChat = createMockChatInstance(createMockState());
+    const mockChat = createMockChatInstance({ state: createMockState() });
     await adapter.initialize(mockChat);
 
     await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret));

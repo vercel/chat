@@ -2381,6 +2381,12 @@ export interface AppHomeOpenedEvent {
   channelId: string;
   /** Folded active-view context (agent_view only); omitted otherwise. */
   entities?: AppContextEntity[];
+  /**
+   * The opened tab as reported by the platform (Slack: "home" or "messages").
+   * Under agent_view the event fires for every tab, so use this to distinguish
+   * a Home-tab open from the Messages-tab DM-open signal.
+   */
+  tab?: string;
   userId: string;
 }
 

@@ -377,6 +377,8 @@ The `event` object includes:
 |----------|------|-------------|
 | `userId` | `string` | User who opened the Home tab |
 | `channelId` | `string` | Channel context |
+| `tab` | `string \| undefined` | The opened tab (`"home"` or `"messages"`). Under `agentView` the event fires for every tab — branch on this to tell a Home-tab open from the DM-open signal |
+| `entities` | `AppContextEntity[] \| undefined` | Folded active-view context (`agentView` only) |
 | `adapter` | `Adapter` | The Slack adapter |
 
 ### Handling active-view context (Agent messaging)

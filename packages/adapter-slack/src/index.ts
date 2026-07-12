@@ -2144,7 +2144,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
     // isolation.
     // Under agent_view the Messages-tab conversation is threaded per Slack's model —
-    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`.
+    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`
+    // (except when the conversation-scoped openDM ID is subscribed; see bridge below).
     // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
     const threadTs =
@@ -2166,15 +2167,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
     const isMention = event.type === "app_mention";
-    const factory = async (): Promise<Message<unknown>> => {
-      const msg = await this.parseSlackMessage(event, threadId);
+    const makeFactory = (id: string) => async (): Promise<Message<unknown>> => {
+      const msg = await this.parseSlackMessage(event, id);
       if (isMention) {
         msg.isMention = true;
       }
       return msg;
     };
 
-    this.chat.processMessage(this, threadId, factory, options);
+    // Under agent_view each top-level DM message is its own thread root, which
+    // would silently bypass subscriptions created on the conversation-scoped
+    // thread ID that openDM() returns (slack:{D…}:). Bridge: when that
+    // conversation-scoped ID is subscribed, route the message to it so
+    // onSubscribedMessage and per-thread state keep working for proactive flows.
+    if (this.agentView && isDM && !event.thread_ts) {
+      const chat = this.chat;
+      const conversationThreadId = this.encodeThreadId({
+        channel: event.channel,
+        threadTs: "",
+      });
+      const task = (async () => {
+        let routedThreadId = threadId;
+        try {
+          if (await chat.getState().isSubscribed(conversationThreadId)) {
+            routedThreadId = conversationThreadId;
+          }
+        } catch (error) {
+          this.logger.warn(
+            "agent_view DM subscription check failed; using per-message thread",
+            { error: String(error), threadId }
+          );
+        }
+        chat.processMessage(
+          this,
+          routedThreadId,
+          makeFactory(routedThreadId),
+          options
+        );
+      })();
+      options?.waitUntil?.(task);
+      return;
+    }
+
+    this.chat.processMessage(this, threadId, makeFactory(threadId), options);
   }
 
   protected handleMessageChanged(
@@ -2439,6 +2474,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       {
         userId: event.user,
         channelId: event.channel,
+        tab: event.tab,
         adapter: this,
         ...(event.context
           ? { entities: normalizeAppContextEntities(event.context) }
@@ -5049,11 +5085,18 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     );
   }
 
-  // Auth fields (botToken, clientId, clientSecret) are modal: botToken's
-  // presence selects single-workspace mode, its absence selects multi-workspace
-  // (per-team token lookup via installations). Only fall back to env vars
-  // in zero-config mode (no config provided at all).
-  const zeroConfig = !config;
+  // Auth fields (botToken, clientId, clientSecret, installationProvider) are
+  // modal: botToken's presence selects single-workspace mode, its absence
+  // selects multi-workspace (per-team token lookup via installations). Fall
+  // back to env vars only when the caller passed no auth-related field, so an
+  // explicit auth setup can't be silently mixed with env auth — while non-auth
+  // options (agentView, mode, logger, …) keep env auth detection working.
+  const noAuthConfig = !(
+    config?.botToken ||
+    config?.clientId ||
+    config?.clientSecret ||
+    config?.installationProvider
+  );
 
   const resolved: SlackAdapterConfig = {
     agentView: config?.agentView,
@@ -5063,13 +5106,13 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     signingSecret,
     botToken:
       config?.botToken ??
-      (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined),
+      (noAuthConfig ? process.env.SLACK_BOT_TOKEN : undefined),
     clientId:
       config?.clientId ??
-      (zeroConfig ? process.env.SLACK_CLIENT_ID : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_ID : undefined),
     clientSecret:
       config?.clientSecret ??
-      (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
     installationProvider: config?.installationProvider,

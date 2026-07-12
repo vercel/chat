@@ -7,6 +7,10 @@ describe("normalizeAppContextEntities", () => {
     expect(normalizeAppContextEntities({})).toEqual([]);
   });
 
+  it("returns [] for a missing context", () => {
+    expect(normalizeAppContextEntities(undefined)).toEqual([]);
+  });
+
   it("maps channel_id", () => {
     expect(
       normalizeAppContextEntities({
@@ -48,6 +52,30 @@ describe("normalizeAppContextEntities", () => {
         entities: [{ type: "slack#/types/future", value: 42 }],
       })
     ).toEqual([{ kind: "unknown", type: "slack#/types/future", value: 42 }]);
+  });
+
+  it("maps a message_context with a malformed value to kind unknown instead of throwing", () => {
+    expect(
+      normalizeAppContextEntities({
+        entities: [
+          { type: "slack#/types/message_context", value: null },
+          { type: "slack#/types/message_context", value: "not-an-object" },
+          { type: "slack#/types/message_context", value: { message_ts: 1 } },
+        ],
+      })
+    ).toEqual([
+      { kind: "unknown", type: "slack#/types/message_context", value: null },
+      {
+        kind: "unknown",
+        type: "slack#/types/message_context",
+        value: "not-an-object",
+      },
+      {
+        kind: "unknown",
+        type: "slack#/types/message_context",
+        value: { message_ts: 1 },
+      },
+    ]);
   });
 
   it("preserves team_id/enterprise_id and relevance order", () => {
