@@ -103,6 +103,46 @@ function timingSafeStringEqual(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
+/**
+ * Surface Slack's per-block validation details on invalid_blocks errors.
+ * The @slack/web-api error message is just "An API error occurred:
+ * invalid_blocks"; the actionable details (which block, which field) live in
+ * `data.errors` and `data.response_metadata.messages`.
+ */
+function enrichInvalidBlocksError(
+  error: unknown,
+  blocks: unknown[],
+  logger: Logger
+): unknown {
+  const slackError = error as {
+    code?: string;
+    data?: {
+      error?: string;
+      errors?: unknown[];
+      response_metadata?: { messages?: string[] };
+    };
+  };
+  if (
+    slackError.code !== "slack_webapi_platform_error" ||
+    slackError.data?.error !== "invalid_blocks"
+  ) {
+    return error;
+  }
+  const details = [
+    ...(slackError.data.errors ?? []),
+    ...(slackError.data.response_metadata?.messages ?? []),
+  ];
+  logger.error("Slack rejected blocks (invalid_blocks)", {
+    details,
+    blocks: JSON.stringify(blocks),
+  });
+  const enriched = new Error(
+    `Slack rejected blocks (invalid_blocks): ${JSON.stringify(details)}`
+  );
+  (enriched as { cause?: unknown }).cause = error;
+  return enriched;
+}
+
 /** Find the next `<@` or `<#` mention in text. */
 function findNextMention(text: string): number {
   const atIdx = text.indexOf("<@");
@@ -3265,16 +3305,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this._client.chat.postMessage(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            text: fallbackText, // Fallback for notifications
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-          })
-        );
+        let result: Awaited<ReturnType<typeof this._client.chat.postMessage>>;
+        try {
+          result = await this._client.chat.postMessage(
+            await this.withToken({
+              channel,
+              thread_ts: threadTs,
+              text: fallbackText, // Fallback for notifications
+              blocks,
+              unfurl_links: false,
+              unfurl_media: false,
+            })
+          );
+        } catch (error) {
+          throw enrichInvalidBlocksError(error, blocks, this.logger);
+        }
 
         this.logger.debug("Slack API: chat.postMessage response", {
           messageId: result.ts,
