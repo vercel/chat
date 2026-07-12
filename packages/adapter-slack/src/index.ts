@@ -5088,14 +5088,18 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   // Auth fields (botToken, clientId, clientSecret, installationProvider) are
   // modal: botToken's presence selects single-workspace mode, its absence
   // selects multi-workspace (per-team token lookup via installations). Fall
-  // back to env vars only when the caller passed no auth-related field, so an
-  // explicit auth setup can't be silently mixed with env auth — while non-auth
-  // options (agentView, mode, logger, …) keep env auth detection working.
+  // back to env vars only when the caller passed no auth or verification
+  // field, so an explicit auth setup (including signingSecret-only
+  // multi-workspace configs) can't be silently mixed with ambient env auth —
+  // while non-auth options (agentView, mode, logger, …) keep env auth
+  // detection working.
   const noAuthConfig = !(
     config?.botToken ||
     config?.clientId ||
     config?.clientSecret ||
-    config?.installationProvider
+    config?.installationProvider ||
+    config?.signingSecret ||
+    config?.webhookVerifier
   );
 
   const resolved: SlackAdapterConfig = {

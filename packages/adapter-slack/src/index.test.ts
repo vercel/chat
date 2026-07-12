@@ -196,6 +196,20 @@ describe("constructor env var resolution", () => {
     ).rejects.toThrow();
   });
 
+  it("disables SLACK_BOT_TOKEN env fallback for a signingSecret-only config (multi-workspace)", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-env-token";
+    const adapter = createSlackAdapter({
+      signingSecret: "config-secret",
+      logger: mockLogger,
+    });
+
+    // Explicit-secret configs stay multi-workspace even when the environment
+    // carries a bot token (as CI does).
+    await expect(
+      adapter.setSuggestedPrompts("C1", undefined, [])
+    ).rejects.toThrow();
+  });
+
   it("should default logger when not provided", () => {
     process.env.SLACK_SIGNING_SECRET = "env-signing-secret";
     const adapter = new SlackAdapter();
