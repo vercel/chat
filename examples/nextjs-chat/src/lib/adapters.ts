@@ -194,6 +194,18 @@ export function buildAdapters(): Adapters {
       "slack",
       SLACK_METHODS
     );
+  } else if (process.env.SLACK_BOT_TOKEN) {
+    // Slack adapter (optional) - plain bot token.
+    // env vars: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET (auto-detected by the
+    // factory since only non-auth fields are passed here).
+    adapters.slack = withRecording(
+      createSlackAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("slack"),
+      }),
+      "slack",
+      SLACK_METHODS
+    );
   }
 
   // Teams adapter (optional) - env vars: TEAMS_APP_ID, TEAMS_APP_PASSWORD

@@ -44,7 +44,8 @@ function getBaseUrl(): string {
 const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
-const DM_ME_REGEX = /^dm\s*me$/i;
+// Non-anchored: mention text includes the "@bot" prefix (e.g. "@mybot dm me").
+const DM_ME_REGEX = /\bdm\s*me\b/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
 const SLACK_PREFIX_REGEX = /^slack:/;
 
@@ -225,25 +226,35 @@ bot.onDirectMessage(async (thread, message, channel) => {
   }
 
   await channel.startTyping("Thinking...");
-  let history: AiMessage[];
-  try {
-    const messages: (typeof message)[] = [];
-    for await (const msg of channel.messages) {
-      messages.push(msg);
-      if (messages.length >= 20) {
-        break;
-      }
-    }
-    history =
-      messages.length > 0
-        ? await toAiMessages(messages)
-        : await toAiMessages([message]);
-  } catch {
+
+  // Build history from the user's transcript rather than channel history:
+  // channel history only contains user turns (bot replies are threaded —
+  // always on some platforms, and on Slack whenever agent_view is enabled),
+  // so it can't give the model both sides of the conversation. The transcript
+  // records user and assistant turns across thread IDs, which also survives
+  // agent_view's one-thread-per-message model.
+  await bot.transcripts.append(thread, message);
+  let history: AiMessage[] = [];
+  if (message.userKey) {
+    history = transcriptToAiMessages(
+      await bot.transcripts.list({ userKey: message.userKey, limit: 20 })
+    );
+  }
+  if (history.length === 0) {
     history = await toAiMessages([message]);
   }
+
   try {
     const result = await agent.stream({ prompt: history });
     await thread.post(result.fullStream);
+    // Persist the assistant reply so the next turn sees both sides.
+    if (message.userKey) {
+      await bot.transcripts.append(
+        thread,
+        { role: "assistant", text: await result.text },
+        { userKey: message.userKey }
+      );
+    }
   } catch (err) {
     console.error("Error in DM AI response:", err);
     await channel.post(

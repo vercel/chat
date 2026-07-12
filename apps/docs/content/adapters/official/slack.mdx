@@ -485,6 +485,41 @@ await thread.post(
 );
 ```
 
+### Agent messaging experience
+
+Slack's Agent messaging experience (`agent_view` manifest mode) supersedes the older `assistant_view`. New Slack apps can only use `agent_view`. Enable it on the adapter:
+
+```typescript
+const slack = createSlackAdapter({ agentView: true });
+```
+
+With `agentView: true`:
+
+- `onAppHomeOpened` is the DM-open signal (Slack no longer signals DM-open via `assistant_thread_started` under `agent_view`), and it fires regardless of the opened tab — branch on `event.tab` (`"home"` vs `"messages"`) if you also publish a Home view.
+- `onAppContextChanged` reports the user's active view (see [Handling active-view context](/docs/handling-events#handling-active-view-context-agent-messaging)).
+- `getAppContext(message)` returns the folded active-view context on a DM message.
+- `setSuggestedPrompts(channelId, undefined, prompts)` may omit the thread reference — prompts sit at the top of the agent conversation.
+- DM messages are threaded per Slack's model (each user message is a thread root). Threads returned by `openDM()` keep working: when the conversation-scoped thread is subscribed, incoming top-level DM messages route to it, so `onSubscribedMessage` and per-thread state behave as before.
+
+<Callout type="warn">
+Because bot replies are threaded under each user message, channel-level history (`channel.messages`, `conversations.history`) only returns the user's side of a DM conversation. If you build AI conversation history for DMs, use [transcripts](/docs/conversation-history) (which record both roles across thread IDs) instead of channel history — otherwise the model never sees its own previous replies.
+</Callout>
+
+Add the event subscription and scope to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_home_opened
+      - app_context_changed
+```
+
 ## Feature support
 
 <FeatureSupport />

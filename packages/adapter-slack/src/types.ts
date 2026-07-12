@@ -23,6 +23,13 @@ export interface SlackInstallation {
 }
 
 export interface SlackAdapterConfig {
+  /**
+   * Enable Slack's Agent messaging experience (`agent_view` manifest mode).
+   * When true, `app_home_opened` is treated as the DM-open signal regardless of
+   * tab and folded active-view context is surfaced. Defaults to false (legacy
+   * `assistant_view`).
+   */
+  agentView?: boolean;
   /** Override the Slack API base URL (e.g. "https://slack-gov.com/api/" for GovSlack). Defaults to SLACK_API_URL env var. */
   apiUrl?: string;
   /** App-level token (xapp-...). Required for socket mode. */
