@@ -41,6 +41,9 @@ import {
   type CardElement,
   CardLink,
   type CardOptions,
+  Chart,
+  type ChartDefinition,
+  type ChartElement,
   Divider,
   type DividerElement,
   Field,
@@ -206,8 +209,16 @@ export interface SelectOptionProps {
 
 /** Props for Table component in JSX */
 export interface TableProps {
+  caption?: string;
   headers: string[];
+  pageSize?: number;
   rows: string[][];
+}
+
+/** Props for Chart component in JSX */
+export interface ChartProps {
+  chart: ChartDefinition;
+  title: string;
 }
 
 /** Union of all valid JSX props */
@@ -226,7 +237,8 @@ export type CardJSXProps =
   | SelectProps
   | ExternalSelectProps
   | SelectOptionProps
-  | TableProps;
+  | TableProps
+  | ChartProps;
 
 /** Component function type with proper overloads */
 type CardComponentFunction =
@@ -247,7 +259,8 @@ type CardComponentFunction =
   | typeof ExternalSelect
   | typeof RadioSelect
   | typeof SelectOption
-  | typeof Table;
+  | typeof Table
+  | typeof Chart;
 
 /**
  * Represents a JSX element from the chat JSX runtime.
@@ -280,7 +293,8 @@ export type ChatElement =
   | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement
-  | TableElement;
+  | TableElement
+  | ChartElement;
 
 // ============================================================================
 // JSX Component Function Types
@@ -383,8 +397,18 @@ export interface RadioSelectComponent {
 }
 
 export interface TableComponent {
-  (options: { headers: string[]; rows: string[][] }): TableElement;
+  (options: {
+    caption?: string;
+    headers: string[];
+    pageSize?: number;
+    rows: string[][];
+  }): TableElement;
   (props: TableProps): ChatElement;
+}
+
+export interface ChartComponent {
+  (options: { chart: ChartDefinition; title: string }): ChartElement;
+  (props: ChartProps): ChatElement;
 }
 
 // Internal alias for backwards compatibility
@@ -780,10 +804,20 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
   }
 
   if (type === Table) {
-    const tableProps = props as { headers: string[]; rows: string[][] };
+    const tableProps = props as TableProps;
     return Table({
       headers: tableProps.headers,
       rows: tableProps.rows,
+      caption: tableProps.caption,
+      pageSize: tableProps.pageSize,
+    });
+  }
+
+  if (type === Chart) {
+    const chartProps = props as ChartProps;
+    return Chart({
+      title: chartProps.title,
+      chart: chartProps.chart,
     });
   }
 
