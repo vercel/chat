@@ -398,7 +398,8 @@ SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted g
 | Buttons | Yes |
 | Link buttons | Yes |
 | Select menus | Yes |
-| Tables | Block Kit |
+| Tables | Block Kit data table (paginated, sortable) |
+| Charts | Block Kit data visualization (pie, bar, area, line) |
 | Fields | Yes |
 | Images in cards | Yes |
 | Modals | Yes |

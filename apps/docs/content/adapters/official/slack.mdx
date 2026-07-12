@@ -27,6 +27,9 @@ features:
   tables:
     status: yes
     label: Block Kit
+  charts:
+    status: yes
+    label: Block Kit
   fields: yes
   imagesInCards: yes
   modals: yes
@@ -519,6 +522,38 @@ settings:
       - app_home_opened
       - app_context_changed
 ```
+
+### Tables and charts
+
+Card [`Table`](/docs/cards#table) elements render as Slack [data table blocks](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) — paginated and sortable, with optional `caption` and `pageSize` props. Tables that exceed Slack's limits (100 data rows, 20 columns, 10,000 characters across all cells) fall back to ASCII text, and header-only tables render as a plain table block.
+
+Card [`Chart`](/docs/cards#chart) elements render as Slack [data visualization blocks](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block) with pie, bar, area, and line chart support:
+
+```tsx
+await thread.post(
+  <Card title="Usage report">
+    <Chart
+      title="Daily Active Users"
+      chart={{
+        type: "line",
+        categories: ["Mon", "Tue", "Wed"],
+        series: [
+          {
+            name: "Web",
+            data: [
+              { label: "Mon", value: 120 },
+              { label: "Tue", value: 135 },
+              { label: "Wed", value: 128 },
+            ],
+          },
+        ],
+      }}
+    />
+  </Card>
+);
+```
+
+Charts that violate Slack's constraints (50-character title, 12 segments/series, 20 categories, 20-character labels, one data point per category, at most 2 charts per message) fall back to a text rendering of the data instead of being rejected by the Slack API.
 
 ## Feature support
 
