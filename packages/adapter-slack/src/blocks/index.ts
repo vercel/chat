@@ -9,6 +9,7 @@ import type {
   SlackButtonStyle,
   SlackCardChild,
   SlackCardElement,
+  SlackChartElement,
   SlackFieldsElement,
   SlackImageElement,
   SlackLinkButtonElement,
@@ -31,16 +32,23 @@ export type {
   SlackButtonStyle,
   SlackCardChild,
   SlackCardElement,
+  SlackChartDataPoint,
+  SlackChartDefinition,
+  SlackChartElement,
+  SlackChartSegment,
+  SlackChartSeries,
   SlackDividerElement,
   SlackFieldElement,
   SlackFieldsElement,
   SlackImageElement,
   SlackLinkButtonElement,
   SlackLinkElement,
+  SlackPieChartDefinition,
   SlackRadioSelectElement,
   SlackSectionElement,
   SlackSelectElement,
   SlackSelectOptionElement,
+  SlackSeriesChartDefinition,
   SlackTableAlignment,
   SlackTableElement,
   SlackTextElement,
@@ -57,6 +65,7 @@ export function cardToSlackBlocks(
 ): SlackBlock[] {
   const blocks: SlackBlock[] = [];
   const state = {
+    chartCount: 0,
     convertEmoji: options.convertEmoji ?? convertSlackEmojiPlaceholders,
     maxBlocks: options.maxBlocks ?? LIMITS.blocks,
     usedTable: false,
@@ -122,6 +131,7 @@ export function convertSlackEmojiPlaceholders(text: string): string {
 function cardChildToSlackBlocks(
   child: SlackCardChild,
   state: {
+    chartCount: number;
     convertEmoji: (text: string) => string;
     maxBlocks: number;
     usedTable: boolean;
@@ -130,6 +140,8 @@ function cardChildToSlackBlocks(
   switch (child.type) {
     case "actions":
       return [actionsToBlock(child, state.convertEmoji)];
+    case "chart":
+      return [chartToBlock(child, state)];
     case "divider":
       return [{ type: "divider" }];
     case "fields":
@@ -355,10 +367,14 @@ function tableToBlocks(
     usedTable: boolean;
   }
 ): SlackBlock[] {
+  const cellCharCount = [element.headers, ...element.rows]
+    .flat()
+    .reduce((total, cell) => total + cell.length, 0);
   if (
     state.usedTable ||
     element.rows.length + 1 > LIMITS.tableRows ||
-    element.headers.length > LIMITS.tableColumns
+    element.headers.length > LIMITS.tableColumns ||
+    cellCharCount > LIMITS.tableChars
   ) {
     return [
       {
@@ -372,20 +388,181 @@ function tableToBlocks(
     ];
   }
   state.usedTable = true;
+  const rows = [
+    element.headers.map((header) => rawText(header, state.convertEmoji)),
+    ...element.rows.map((row) =>
+      row.map((cell) => rawText(cell, state.convertEmoji))
+    ),
+  ];
+  // The data table block requires a header row plus at least one data row;
+  // fall back to the plain table block for header-only tables.
+  if (element.rows.length === 0) {
+    return [
+      compact({
+        column_settings: element.align
+          ?.slice(0, LIMITS.tableColumns)
+          .map((align) => (align ? { align } : null)),
+        rows,
+        type: "table",
+      }),
+    ];
+  }
   return [
     compact({
-      column_settings: element.align
-        ?.slice(0, LIMITS.tableColumns)
-        .map((align) => (align ? { align } : null)),
-      rows: [
-        element.headers.map((header) => rawText(header, state.convertEmoji)),
-        ...element.rows.map((row) =>
-          row.map((cell) => rawText(cell, state.convertEmoji))
-        ),
-      ],
-      type: "table",
+      caption: state.convertEmoji(element.caption || "Table"),
+      page_size:
+        element.pageSize === undefined
+          ? undefined
+          : Math.min(
+              LIMITS.tablePageSize,
+              Math.max(1, Math.floor(element.pageSize))
+            ),
+      rows,
+      type: "data_table",
     }),
   ];
+}
+
+function chartToBlock(
+  element: SlackChartElement,
+  state: {
+    chartCount: number;
+    convertEmoji: (text: string) => string;
+  }
+): SlackBlock {
+  const block =
+    state.chartCount < LIMITS.chartsPerMessage
+      ? chartToDataVisualization(element, state.convertEmoji)
+      : null;
+  if (block) {
+    state.chartCount += 1;
+    return block;
+  }
+  // Slack rejects invalid charts (and >2 charts per message) outright
+  // rather than truncating them, so render the underlying data as text.
+  return {
+    text: mrkdwn(
+      `\`\`\`\n${chartToAscii(element)}\n\`\`\``,
+      (value) => value,
+      LIMITS.sectionText
+    ),
+    type: "section",
+  };
+}
+
+function chartToDataVisualization(
+  element: SlackChartElement,
+  convertEmoji: (text: string) => string
+): SlackBlock | null {
+  const title = convertEmoji(element.title);
+  if (title.length === 0 || title.length > LIMITS.chartTitle) {
+    return null;
+  }
+
+  const { chart } = element;
+
+  if (chart.type === "pie") {
+    const validSegments =
+      chart.segments.length >= 1 &&
+      chart.segments.length <= LIMITS.chartSegments &&
+      chart.segments.every(
+        (segment) => isValidChartLabel(segment.label) && segment.value > 0
+      );
+    if (!validSegments) {
+      return null;
+    }
+    return {
+      chart: {
+        segments: chart.segments.map((segment) => ({
+          label: segment.label,
+          value: segment.value,
+        })),
+        type: "pie",
+      },
+      title,
+      type: "data_visualization",
+    };
+  }
+
+  const { categories, series } = chart;
+  const validShape =
+    categories.length >= 1 &&
+    categories.length <= LIMITS.chartDataPoints &&
+    categories.every((category) => isValidChartLabel(category)) &&
+    new Set(categories).size === categories.length &&
+    series.length >= 1 &&
+    series.length <= LIMITS.chartSeries &&
+    series.every((s) => isValidChartLabel(s.name)) &&
+    new Set(series.map((s) => s.name)).size === series.length &&
+    (chart.xLabel === undefined || chart.xLabel.length <= LIMITS.chartTitle) &&
+    (chart.yLabel === undefined || chart.yLabel.length <= LIMITS.chartTitle);
+  if (!validShape) {
+    return null;
+  }
+
+  // Each series needs exactly one data point per category; normalize
+  // point order to the category order Slack expects.
+  const normalizedSeries: { data: unknown[]; name: string }[] = [];
+  for (const s of series) {
+    if (s.data.length !== categories.length) {
+      return null;
+    }
+    const byLabel = new Map(s.data.map((point) => [point.label, point]));
+    const data: unknown[] = [];
+    for (const category of categories) {
+      const point = byLabel.get(category);
+      if (!point) {
+        return null;
+      }
+      data.push({ label: category, value: point.value });
+    }
+    normalizedSeries.push({ data, name: s.name });
+  }
+
+  return {
+    chart: {
+      axis_config: compact({
+        categories,
+        x_label: chart.xLabel,
+        y_label: chart.yLabel,
+      }),
+      series: normalizedSeries,
+      type: chart.type,
+    },
+    title,
+    type: "data_visualization",
+  };
+}
+
+function isValidChartLabel(label: string): boolean {
+  return label.length >= 1 && label.length <= LIMITS.chartLabel;
+}
+
+function chartToAscii(element: SlackChartElement): string {
+  const { chart, title } = element;
+  if (chart.type === "pie") {
+    const table = tableToAscii({
+      headers: ["Label", "Value"],
+      rows: chart.segments.map((segment) => [
+        segment.label,
+        String(segment.value),
+      ]),
+      type: "table",
+    });
+    return `${title}\n${table}`;
+  }
+  const table = tableToAscii({
+    headers: [chart.xLabel ?? "", ...chart.series.map((s) => s.name)],
+    rows: chart.categories.map((category) => [
+      category,
+      ...chart.series.map((s) => {
+        const point = s.data.find((p) => p.label === category);
+        return point ? String(point.value) : "";
+      }),
+    ]),
+    type: "table",
+  });
+  return `${title}\n${table}`;
 }
 
 function cardChildToFallbackText(
@@ -395,6 +572,8 @@ function cardChildToFallbackText(
   switch (child.type) {
     case "actions":
       return undefined;
+    case "chart":
+      return chartToAscii(child);
     case "divider":
       return "---";
     case "fields":
