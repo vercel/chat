@@ -50,6 +50,7 @@ import type {
   XDmEvent,
   XDmSendResult,
   XDmWireEvent,
+  XMediaUploadResult,
   XOauthTokenResult,
   XPost,
   XPostCreateResult,
@@ -71,6 +72,9 @@ const TOKEN_REFRESH_MARGIN_MS = 60_000;
 const DEFAULT_TOKEN_LIFETIME_S = 7200;
 /** Channel ID for public post threads. */
 const PUBLIC_CHANNEL_ID = "x:public";
+const MEDIA_UPLOAD_PATH = "/2/media/upload";
+const MEDIA_CHUNK_BYTES = 4 * 1024 * 1024;
+const MAX_MEDIA_PER_POST = 4;
 
 interface ManagedToken {
   accessToken: string;
@@ -374,8 +378,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    * Post to a thread. `x:post:` threads become a reply to the latest mention
    * in the conversation (chaining under the bot's own prior replies);
    * `x:dm:` threads send a direct message to the participant. Cards and
-   * markdown are flattened to plain text; attachments are rejected (not yet
-   * supported).
+   * markdown are flattened to plain text; image, gif, and video attachments are
+   * uploaded via the chunked media endpoint and attached to the post.
    */
   async postMessage(
     threadId: string,
@@ -383,15 +387,16 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   ): Promise<RawMessage<XRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
     const text = this.renderOutbound(message);
+    const mediaIds = await this.uploadAttachments(message, decoded.kind);
 
-    if (!text.trim()) {
-      throw new ValidationError("x", "Message text cannot be empty");
+    if (!(text.trim() || mediaIds.length > 0)) {
+      throw new ValidationError("x", "Message must have text or media");
     }
 
     if (decoded.kind === "post") {
-      return this.sendReply(threadId, decoded.conversationId, text);
+      return this.sendReply(threadId, decoded.conversationId, text, mediaIds);
     }
-    return this.sendDm(threadId, decoded.conversationId, text);
+    return this.sendDm(threadId, decoded.conversationId, text, mediaIds);
   }
 
   async postChannelMessage(
@@ -406,15 +411,17 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     }
 
     const text = this.renderOutbound(message);
-    if (!text.trim()) {
-      throw new ValidationError("x", "Message text cannot be empty");
+    const mediaIds = await this.uploadAttachments(message, "post");
+    if (!(text.trim() || mediaIds.length > 0)) {
+      throw new ValidationError("x", "Message must have text or media");
     }
 
     const result = await this.xApiFetch<XPostCreateResult>(
       "/2/tweets",
       "POST",
       {
-        text,
+        ...(text.trim() ? { text } : {}),
+        ...(mediaIds.length > 0 ? { media: { media_ids: mediaIds } } : {}),
       }
     );
     const post = this.requireData(result, "create post");
@@ -430,7 +437,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   protected async sendReply(
     threadId: string,
     conversationId: string,
-    text: string
+    text: string,
+    mediaIds: string[] = []
   ): Promise<RawMessage<XRawMessage>> {
     const replyTarget = this.replyTargets.get(threadId) ?? conversationId;
     const result = await this.xApiFetch<XPostCreateResult>(
@@ -438,7 +446,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       "POST",
       {
         reply: { in_reply_to_tweet_id: replyTarget },
-        text,
+        ...(text.trim() ? { text } : {}),
+        ...(mediaIds.length > 0 ? { media: { media_ids: mediaIds } } : {}),
       }
     );
     const post = this.requireData(result, "create reply");
@@ -471,7 +480,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   protected async sendDm(
     threadId: string,
     participantId: string,
-    text: string
+    text: string,
+    mediaIds: string[] = []
   ): Promise<RawMessage<XRawMessage>> {
     // DM threads are keyed by the other participant, so send via the
     // documented by-participant endpoint. Inbound echoes for this
@@ -479,7 +489,12 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     const result = await this.xApiFetch<XDmSendResult>(
       `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
       "POST",
-      { text }
+      {
+        ...(text.trim() ? { text } : {}),
+        ...(mediaIds.length > 0
+          ? { attachments: mediaIds.map((id) => ({ media_id: id })) }
+          : {}),
+      }
     );
     const sent = this.requireData(result, "send DM");
     this.trackSentId(sent.dm_event_id);
@@ -497,6 +512,134 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     };
     this.cacheMessage(this.buildDmMessage(raw, threadId));
     return { id: sent.dm_event_id, raw, threadId };
+  }
+
+  /**
+   * Upload every attachment on the message via the chunked media endpoint and
+   * return the resulting media IDs, ready to attach to a post or DM. Accepts
+   * both `files` (FileUpload) and `attachments` (Attachment). X allows at most
+   * {@link MAX_MEDIA_PER_POST} media per post.
+   */
+  protected async uploadAttachments(
+    message: AdapterPostableMessage,
+    surface: "dm" | "post"
+  ): Promise<string[]> {
+    const sources: { load: () => Promise<Buffer>; mimeType: string }[] = [];
+    for (const file of extractFiles(message)) {
+      sources.push({
+        load: () => toBytes(file.data),
+        mimeType: inferMediaType(file.mimeType, file.filename),
+      });
+    }
+    for (const attachment of extractPostableAttachments(message)) {
+      const load = attachment.data
+        ? () => toBytes(attachment.data as Buffer | Blob)
+        : attachment.fetchData;
+      if (!load) {
+        throw new ValidationError(
+          "x",
+          "Attachment has no data to upload (provide data or fetchData)"
+        );
+      }
+      sources.push({
+        load,
+        mimeType: inferMediaType(attachment.mimeType, attachment.name),
+      });
+    }
+
+    if (sources.length === 0) {
+      return [];
+    }
+    if (sources.length > MAX_MEDIA_PER_POST) {
+      throw new ValidationError(
+        "x",
+        `X allows at most ${MAX_MEDIA_PER_POST} media per post, got ${sources.length}`
+      );
+    }
+
+    const mediaIds: string[] = [];
+    for (const source of sources) {
+      const bytes = await source.load();
+      mediaIds.push(await this.uploadMedia(bytes, source.mimeType, surface));
+    }
+    return mediaIds;
+  }
+
+  /**
+   * Upload one media file through the v2 chunked flow (INIT, APPEND, FINALIZE)
+   * and return its media ID. Waits for server-side processing when X reports it
+   * (video/gif); images are ready immediately.
+   */
+  protected async uploadMedia(
+    bytes: Buffer,
+    mimeType: string,
+    surface: "dm" | "post"
+  ): Promise<string> {
+    // v2 chunked upload is path-based: initialize (JSON) then one or more
+    // multipart appends, then finalize (JSON). Images finalize synchronously.
+    const init = await this.xApiFetch<XMediaUploadResult>(
+      `${MEDIA_UPLOAD_PATH}/initialize`,
+      "POST",
+      {
+        media_category: mediaCategory(mimeType, surface),
+        media_type: mimeType,
+        total_bytes: bytes.length,
+      }
+    );
+    const mediaId = this.requireData(init, "media upload initialize").id;
+
+    let segment = 0;
+    for (let offset = 0; offset < bytes.length; offset += MEDIA_CHUNK_BYTES) {
+      const chunk = bytes.subarray(offset, offset + MEDIA_CHUNK_BYTES);
+      const form = new FormData();
+      form.append("segment_index", String(segment));
+      form.append(
+        "media",
+        new Blob([new Uint8Array(chunk)], { type: mimeType }),
+        "chunk"
+      );
+      await this.xMediaAppend(mediaId, form);
+      segment += 1;
+    }
+
+    const finalized = this.requireData(
+      await this.xApiFetch<XMediaUploadResult>(
+        `${MEDIA_UPLOAD_PATH}/${encodeURIComponent(mediaId)}/finalize`,
+        "POST"
+      ),
+      "media upload finalize"
+    );
+    const state = finalized.processing_info?.state;
+    if (state && state !== "succeeded") {
+      throw new ValidationError(
+        "x",
+        `X media ${mediaId} needs async processing (state: ${state}); the X adapter supports image uploads only`
+      );
+    }
+    return mediaId;
+  }
+
+  /** Upload one chunk to an initialized media id (multipart append). */
+  protected async xMediaAppend(mediaId: string, form: FormData): Promise<void> {
+    const token = await this.resolveAccessToken();
+    const path = `${MEDIA_UPLOAD_PATH}/${encodeURIComponent(mediaId)}/append`;
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiBaseUrl}${path}`, {
+        body: form,
+        headers: { Authorization: `Bearer ${token}` },
+        method: "POST",
+      });
+    } catch (error) {
+      throw new NetworkError(
+        "x",
+        "Network error uploading X media chunk",
+        error instanceof Error ? error : undefined
+      );
+    }
+    if (!response.ok) {
+      this.throwApiError(path, response, await readMediaResponse(response));
+    }
   }
 
   /**
@@ -829,15 +972,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   }
 
   protected renderOutbound(message: AdapterPostableMessage): string {
-    const attachmentCount =
-      extractPostableAttachments(message).length + extractFiles(message).length;
-    if (attachmentCount > 0) {
-      throw new ValidationError(
-        "x",
-        "File uploads are not supported by the X adapter yet"
-      );
-    }
-
     const card = extractCard(message);
     const text = card
       ? cardToXText(card)
@@ -1260,6 +1394,72 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       throw new ValidationError("x", message);
     }
     throw new NetworkError("x", `${message} (status ${response.status})`);
+  }
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  gif: "image/gif",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  mp4: "video/mp4",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+async function toBytes(data: Buffer | Blob | ArrayBuffer): Promise<Buffer> {
+  if (Buffer.isBuffer(data)) {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data);
+  }
+  if (data instanceof Blob) {
+    return Buffer.from(await data.arrayBuffer());
+  }
+  throw new ValidationError("x", "Unsupported attachment data type");
+}
+
+function mediaCategory(mimeType: string, surface: "dm" | "post"): string {
+  if (
+    mimeType === "image/png" ||
+    mimeType === "image/jpeg" ||
+    mimeType === "image/webp"
+  ) {
+    // DM attachments must be registered as dm_image; X rejects a tweet_image
+    // media_id attached to a DM event with "unsupported media category".
+    return surface === "dm" ? "dm_image" : "tweet_image";
+  }
+  throw new ValidationError(
+    "x",
+    `X adapter supports image uploads (png, jpeg, webp); got ${mimeType}`
+  );
+}
+
+function inferMediaType(
+  mimeType: string | undefined,
+  name: string | undefined
+): string {
+  if (mimeType) {
+    return mimeType;
+  }
+  const extension = name?.split(".").pop()?.toLowerCase();
+  const inferred = extension ? MIME_BY_EXTENSION[extension] : undefined;
+  if (!inferred) {
+    throw new ValidationError(
+      "x",
+      `Cannot determine media type${name ? ` for "${name}"` : ""}; set mimeType`
+    );
+  }
+  return inferred;
+}
+
+async function readMediaResponse(
+  response: Response
+): Promise<XApiResponse<XMediaUploadResult> | undefined> {
+  try {
+    return (await response.json()) as XApiResponse<XMediaUploadResult>;
+  } catch {
+    return undefined;
   }
 }
 

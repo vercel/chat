@@ -11,9 +11,7 @@ features:
   postMessage: yes
   editMessage: yes
   deleteMessage: yes
-  fileUploads:
-    status: partial
-    label: Single file
+  fileUploads: yes
   streaming:
     status: partial
     label: Rich drafts / Post+Edit
@@ -201,6 +199,7 @@ Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 st
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Telegram callback data is limited to 64 bytes — keep `Button` `id`/`value` payloads short.
+- Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
 - Other rich card elements (images, select menus, radios) render as fallback text.
 
 ## Feature support

@@ -35,10 +35,11 @@ The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APP
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
 
+const discord = createDiscordAdapter();
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    discord: createDiscordAdapter(),
+    discord,
   },
 });
 
@@ -75,7 +76,7 @@ bot.onNewMention(async (thread, message) => {
 
 1. Go to **OAuth2** then **URL Generator**
 2. Select scopes: `bot`, `applications.commands`
-3. Select bot permissions: Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Attach Files
+3. Select bot permissions: Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files
 4. Copy the generated URL and open it to invite the bot to your server
 
 ## Architecture: HTTP Interactions vs Gateway
@@ -192,6 +193,28 @@ createDiscordAdapter({
 Later calls to `event.channel.post()` will share the same ephemeral message.
 Calls to `event.channel.postEphemeral()` will fallback to a private DM.
 
+## Components v2 cards
+
+Discord cards render as embeds by default. To render Chat SDK cards with
+[Discord Components v2](https://docs.discord.com/developers/components/reference) instead, set `contentFormat`:
+
+```typescript
+import { DiscordContentFormat } from "@chat-adapter/discord";
+
+createDiscordAdapter({
+  contentFormat: DiscordContentFormat.ComponentsV2,
+});
+```
+
+When enabled, card messages use Discord's `IS_COMPONENTS_V2` flag and render
+with components such as containers, sections, text displays, media galleries,
+buttons, and string selects. Plain text messages still use Discord message
+content.
+
+Discord caps a Components v2 message at 40 total components and 4000 characters
+across all text. When a card exceeds either limit the adapter throws a
+`ValidationError` rather than letting Discord reject the request.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided.
@@ -201,12 +224,18 @@ All options are auto-detected from environment variables when not provided.
 | `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `respondToGlobalMentions` | No | Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false` |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
+
+## Discord thread channel names
+
+Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord thread channel. The bot needs the **Manage Threads** permission.
 
 ## Environment variables
 
@@ -235,10 +264,10 @@ CRON_SECRET=your-random-secret                   # For Gateway cron
 
 | Feature | Supported |
 |---------|-----------|
-| Card format | Embeds |
+| Card format | Embeds by default, Components v2 when enabled |
 | Buttons | Yes |
 | Link buttons | Yes |
-| Select menus | No |
+| Select menus | Components v2 |
 | Tables | GFM |
 | Fields | Yes |
 | Images in cards | Yes |

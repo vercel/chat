@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   CardLink,
+  Chart,
   Chat,
   Divider,
   emoji,
@@ -174,6 +175,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="channel-info">Channel Info (Slack)</Button>
         <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
+        <Button id="show-charts">Show Charts</Button>
         <Button id="agent-demo">Run Agent Demo</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
@@ -547,7 +549,9 @@ bot.onAction("show-table", async (event) => {
     <Card title={`${emoji.memo} Team Directory`}>
       <Text>Here's the current team roster:</Text>
       <Table
+        caption="Team roster"
         headers={["Name", "Role", "Location", "Status"]}
+        pageSize={3}
         rows={[
           ["Alice Chen", "Engineering Lead", "San Francisco", "Active"],
           ["Bob Smith", "Designer", "New York", "Active"],
@@ -555,6 +559,59 @@ bot.onAction("show-table", async (event) => {
           ["Dan Lee", "Backend Engineer", "Tokyo", "Active"],
           ["Eve Park", "Frontend Engineer", "Seoul", "Active"],
         ]}
+      />
+    </Card>
+  );
+});
+
+bot.onAction("show-charts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post(
+    <Card title={`${emoji.chart_up} Usage Report`}>
+      <Text>Native charts on Slack, text tables everywhere else:</Text>
+      <Chart
+        chart={{
+          type: "pie",
+          segments: [
+            { label: "Web", value: 45 },
+            { label: "Mobile", value: 35 },
+            { label: "API", value: 20 },
+          ],
+        }}
+        title="Traffic by Platform"
+      />
+      <Chart
+        chart={{
+          type: "line",
+          categories: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          series: [
+            {
+              name: "Web",
+              data: [
+                { label: "Mon", value: 120 },
+                { label: "Tue", value: 135 },
+                { label: "Wed", value: 128 },
+                { label: "Thu", value: 150 },
+                { label: "Fri", value: 142 },
+              ],
+            },
+            {
+              name: "Mobile",
+              data: [
+                { label: "Mon", value: 80 },
+                { label: "Tue", value: 95 },
+                { label: "Wed", value: 90 },
+                { label: "Thu", value: 105 },
+                { label: "Fri", value: 98 },
+              ],
+            },
+          ],
+          xLabel: "Day",
+          yLabel: "Users",
+        }}
+        title="Daily Active Users"
       />
     </Card>
   );

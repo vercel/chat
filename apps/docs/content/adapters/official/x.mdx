@@ -13,7 +13,7 @@ features:
     status: partial
     label: Posts only
   deleteMessage: yes
-  fileUploads: no
+  fileUploads: yes
   streaming:
     status: partial
     label: Buffered
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
 
 1. Go to the [X developer portal](https://developer.x.com) and create a Project and App.
 2. Under **Keys and tokens**, copy the **API Key Secret** to `X_CONSUMER_SECRET`.
-3. Enable **OAuth 2.0** user authentication with the scopes `tweet.read`, `tweet.write`, `users.read`, `dm.read`, `dm.write`, `like.write`, and `offline.access`.
+3. Enable **OAuth 2.0** user authentication with the scopes `tweet.read`, `tweet.write`, `users.read`, `dm.read`, `dm.write`, `like.write`, `media.write`, and `offline.access`.
 4. Complete the OAuth 2.0 flow for the bot account. Either store the access token as `X_USER_ACCESS_TOKEN`, or store `X_CLIENT_ID` plus `X_REFRESH_TOKEN` to let the adapter manage token refresh.
 
 <Callout type="warn">
@@ -195,6 +195,19 @@ Replies target the most recent mention received in the conversation, and consecu
 ### Reactions
 
 Likes are the only reaction X exposes. `addReaction` accepts `emoji.heart` or `"like"` and maps to `POST /2/users/:id/likes`; anything else throws a `ValidationError`.
+
+### Media uploads
+
+Attach images by passing `files` (or `attachments`) on the message. The adapter uploads each image (png, jpeg, webp) through X's chunked media endpoints (`initialize` then `append` then `finalize`) and attaches the returned `media_id`s. Posts and DMs accept up to four images, with or without text.
+
+```typescript
+await thread.post({
+  markdown: "France lead the title race",
+  files: [{ data: pngBuffer, filename: "odds.png", mimeType: "image/png" }],
+});
+```
+
+Media upload requires the `media.write` scope on the OAuth 2.0 token, alongside `tweet.write`; without it uploads fail with a 403.
 
 ### Thread ID format
 
