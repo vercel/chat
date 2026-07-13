@@ -1614,6 +1614,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
+  async setThreadTitle(threadId: string, title: string): Promise<void> {
+    const { threadId: discordThreadId } = this.decodeThreadId(threadId);
+    if (!discordThreadId) {
+      return;
+    }
+
+    await this.discordFetch(`/channels/${discordThreadId}`, "PATCH", {
+      name: title,
+    });
+  }
+
   /**
    * Open a DM with a user.
    */

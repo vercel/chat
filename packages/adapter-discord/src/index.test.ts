@@ -3279,6 +3279,30 @@ describe("fetchThread", () => {
   });
 });
 
+describe("setThreadTitle", () => {
+  it("renames Discord thread channels", async () => {
+    const spy = vi
+      .spyOn(threadIdAdapter as any, "discordFetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456:thread789",
+      "New thread title"
+    );
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456",
+      "Ignored channel title"
+    );
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("/channels/thread789", "PATCH", {
+      name: "New thread title",
+    });
+
+    spy.mockRestore();
+  });
+});
+
 describe("legacy gateway interactions", () => {
   class TestGatewayDiscordAdapter extends DiscordAdapter {
     listen(client: Client, isShuttingDown = () => false) {
