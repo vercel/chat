@@ -53,6 +53,7 @@ const DISCORD_MAX_BUTTONS_PER_ROW = 5;
 const DISCORD_MAX_SELECT_OPTIONS = 25;
 const DISCORD_MAX_SECTION_TEXT_DISPLAYS = 3;
 const DISCORD_MAX_COMPONENTS_V2 = 40;
+const DISCORD_MAX_TEXT_V2 = 4000;
 
 interface DiscordCardPayloadOptions {
   contentFormat?: DiscordContentFormat;
@@ -218,6 +219,56 @@ function countComponentsV2(
   return total;
 }
 
+/**
+ * Sum the character length of every Text Display in a Components v2 tree.
+ * Discord caps the combined text across all text displays at 4000 characters.
+ */
+function countTextV2(components: readonly DiscordMessageComponent[]): number {
+  let total = 0;
+  for (const component of components) {
+    switch (component.type) {
+      case DiscordComponentType.TextDisplay:
+        total += component.content.length;
+        break;
+      case DiscordComponentType.Container:
+        total += countTextV2(component.components);
+        break;
+      case DiscordComponentType.Section:
+        total += countTextV2(component.components);
+        break;
+      default:
+        break;
+    }
+  }
+  return total;
+}
+
+/**
+ * Enforce Discord's Components v2 aggregate limits (40 total components and
+ * 4000 characters across all text displays). Runs on the card tree during
+ * conversion and again after file attachments are appended, so it catches
+ * overflow from either source with a clear error instead of an opaque 400.
+ */
+export function validateComponentsV2(
+  components: readonly DiscordMessageComponent[]
+): void {
+  const componentCount = countComponentsV2(components);
+  if (componentCount > DISCORD_MAX_COMPONENTS_V2) {
+    throw new ValidationError(
+      "discord",
+      `Discord Components v2 messages allow up to ${DISCORD_MAX_COMPONENTS_V2} components, but this message produced ${componentCount}. Reduce the number of sections, fields, actions, images, or file attachments.`
+    );
+  }
+
+  const textLength = countTextV2(components);
+  if (textLength > DISCORD_MAX_TEXT_V2) {
+    throw new ValidationError(
+      "discord",
+      `Discord Components v2 messages allow up to ${DISCORD_MAX_TEXT_V2} characters across all text, but this message produced ${textLength}. Shorten the card text.`
+    );
+  }
+}
+
 function cardToDiscordComponentsV2Payload(
   card: CardElement
 ): DiscordComponentsV2CardPayload {
@@ -247,13 +298,7 @@ function cardToDiscordComponentsV2Payload(
     },
   ];
 
-  const componentCount = countComponentsV2(components);
-  if (componentCount > DISCORD_MAX_COMPONENTS_V2) {
-    throw new ValidationError(
-      "discord",
-      `Discord Components v2 messages allow up to ${DISCORD_MAX_COMPONENTS_V2} components, but this card produced ${componentCount}. Reduce the number of sections, fields, actions, or images.`
-    );
-  }
+  validateComponentsV2(components);
 
   return {
     embeds: [],

@@ -61,7 +61,11 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, decodeDiscordCustomId } from "./cards";
+import {
+  cardToDiscordPayload,
+  decodeDiscordCustomId,
+  validateComponentsV2,
+} from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordAdapterConfig,
@@ -1087,10 +1091,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     if (container) {
       container.components.push(...uploadComponents);
-      return;
+    } else {
+      payload.components = [...(payload.components ?? []), ...uploadComponents];
     }
 
-    payload.components = [...(payload.components ?? []), ...uploadComponents];
+    validateComponentsV2(payload.components ?? []);
   }
 
   protected fileUploadToComponentsV2Component(

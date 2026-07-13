@@ -23,6 +23,7 @@ import {
   cardToFallbackText,
   decodeDiscordCustomId,
   encodeDiscordCustomId,
+  validateComponentsV2,
 } from "./cards";
 import {
   DiscordComponentType,
@@ -635,6 +636,71 @@ describe("cardToDiscordPayload Components v2 limits and section edges", () => {
         )
     );
     expect(selectRow).toBeDefined();
+  });
+
+  it("allows a card at the 4000 character text limit", () => {
+    const card = Card({ children: [CardText("x".repeat(4000))] });
+
+    expect(() => asV2(card)).not.toThrow();
+  });
+
+  it("throws when a single text element exceeds the 4000 character limit", () => {
+    const card = Card({ children: [CardText("x".repeat(4001))] });
+
+    expect(() => asV2(card)).toThrow(ValidationError);
+  });
+
+  it("throws when combined text across elements exceeds 4000 characters", () => {
+    const card = Card({
+      children: [CardText("x".repeat(2001)), CardText("y".repeat(2001))],
+    });
+
+    expect(() => asV2(card)).toThrow(ValidationError);
+  });
+});
+
+describe("validateComponentsV2", () => {
+  it("passes an in-range component tree", () => {
+    expect(() =>
+      validateComponentsV2([
+        {
+          type: DiscordComponentType.Container,
+          components: [
+            { type: DiscordComponentType.TextDisplay, content: "hello" },
+          ],
+        },
+      ])
+    ).not.toThrow();
+  });
+
+  it("throws when file attachments push the tree past 40 components", () => {
+    expect(() =>
+      validateComponentsV2([
+        {
+          type: DiscordComponentType.Container,
+          components: Array.from({ length: 40 }, () => ({
+            type: DiscordComponentType.File,
+            file: { url: "attachment://doc.pdf" },
+          })),
+        },
+      ])
+    ).toThrow(ValidationError);
+  });
+
+  it("throws when combined text display content exceeds 4000 characters", () => {
+    expect(() =>
+      validateComponentsV2([
+        {
+          type: DiscordComponentType.Container,
+          components: [
+            {
+              type: DiscordComponentType.TextDisplay,
+              content: "x".repeat(4001),
+            },
+          ],
+        },
+      ])
+    ).toThrow(ValidationError);
   });
 });
 

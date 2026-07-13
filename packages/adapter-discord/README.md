@@ -211,9 +211,9 @@ with components such as containers, sections, text displays, media galleries,
 buttons, and string selects. Plain text messages still use Discord message
 content.
 
-Discord caps a Components v2 message at 40 total components. When a card
-exceeds that limit the adapter throws a `ValidationError` rather than letting
-Discord reject the request.
+Discord caps a Components v2 message at 40 total components and 4000 characters
+across all text. When a card exceeds either limit the adapter throws a
+`ValidationError` rather than letting Discord reject the request.
 
 ## Configuration
 
