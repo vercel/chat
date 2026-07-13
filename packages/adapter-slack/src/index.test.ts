@@ -14,8 +14,16 @@ import {
 import { WebClient } from "@slack/web-api";
 import type { AdapterPostableMessage, ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SlackInstallation, SlackThreadId } from "./index";
-import { createSlackAdapter, SlackAdapter } from "./index";
+import type {
+  SlackAdapterConfig,
+  SlackInstallation,
+  SlackThreadId,
+} from "./index";
+import {
+  buildFeedbackButtonsBlock,
+  createSlackAdapter,
+  SlackAdapter,
+} from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
 
@@ -6118,6 +6126,320 @@ describe("publishHomeView", () => {
 });
 
 // ============================================================================
+// Configured suggestedPrompts / loadingMessages Tests
+// ============================================================================
+
+describe("configured suggestedPrompts", () => {
+  const secret = "test-signing-secret";
+
+  const assistantThreadStartedBody = () =>
+    JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "assistant_thread_started",
+        event_ts: "1234567890.000000",
+        assistant_thread: {
+          user_id: "U_USER",
+          channel_id: "D_ASSISTANT",
+          thread_ts: "1234567890.111111",
+          context: { channel_id: "C_CONTEXT", team_id: "T123" },
+        },
+      },
+    });
+
+  const homeOpenedBody = (tab: string, context?: unknown) =>
+    JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "app_home_opened",
+        user: "U_USER",
+        channel: "D1",
+        tab,
+        event_ts: "1.2",
+        ...(context ? { context } : {}),
+      },
+    });
+
+  async function setup(config: Parameters<typeof createSlackAdapter>[0]) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+      ...config,
+    });
+    const chatInstance = {
+      ...createMockChatInstance({ state: createMockState() }),
+      processAssistantThreadStarted: vi.fn(),
+    };
+    await adapter.initialize(chatInstance);
+    const setPrompts = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setSuggestedPrompts",
+      setPrompts
+    );
+    return { adapter, setPrompts };
+  }
+
+  async function dispatch(adapter: SlackAdapter, body: string) {
+    const tasks: Promise<unknown>[] = [];
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret),
+      {
+        waitUntil: (p) => {
+          tasks.push(p);
+        },
+      }
+    );
+    await Promise.all(tasks);
+    return response;
+  }
+
+  it("applies static prompts on assistant_thread_started (legacy assistant_view)", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: {
+        title: "Welcome!",
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      },
+    });
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel_id: "D_ASSISTANT",
+        thread_ts: "1234567890.111111",
+        title: "Welcome!",
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      })
+    );
+  });
+
+  it("applies prompts on Messages-tab app_home_opened under agentView, without thread_ts", async () => {
+    const { adapter, setPrompts } = await setup({
+      agentView: true,
+      suggestedPrompts: {
+        prompts: [{ title: "Summarize", message: "Summarize this channel" }],
+      },
+    });
+
+    await dispatch(adapter, homeOpenedBody("messages"));
+
+    expect(setPrompts).toHaveBeenCalledTimes(1);
+    const [arg] = setPrompts.mock.calls[0];
+    expect(arg).toMatchObject({ channel_id: "D1" });
+    expect(arg).not.toHaveProperty("thread_ts");
+  });
+
+  it("does not apply prompts on a Home-tab open under agentView", async () => {
+    const { adapter, setPrompts } = await setup({
+      agentView: true,
+      suggestedPrompts: {
+        prompts: [{ title: "Summarize", message: "Summarize this channel" }],
+      },
+    });
+
+    await dispatch(adapter, homeOpenedBody("home"));
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when suggestedPrompts is not configured", async () => {
+    const { adapter, setPrompts } = await setup({});
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("invokes a dynamic resolver with thread context", async () => {
+    const resolver = vi.fn().mockResolvedValue({
+      prompts: [{ title: "Dynamic", message: "Resolved per thread" }],
+    });
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: resolver,
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "D_ASSISTANT",
+        threadTs: "1234567890.111111",
+        userId: "U_USER",
+        teamId: "T123",
+      })
+    );
+    expect(setPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompts: [{ title: "Dynamic", message: "Resolved per thread" }],
+      })
+    );
+  });
+
+  it("passes active-view entities to the resolver under agentView", async () => {
+    const resolver = vi.fn().mockResolvedValue(null);
+    const { adapter } = await setup({
+      agentView: true,
+      suggestedPrompts: resolver,
+    });
+
+    await dispatch(
+      adapter,
+      homeOpenedBody("messages", {
+        entities: [
+          { type: "slack#/types/channel_id", value: "C42", team_id: "T123" },
+        ],
+      })
+    );
+
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "D1",
+        entities: [
+          expect.objectContaining({ kind: "channel", channelId: "C42" }),
+        ],
+      })
+    );
+  });
+
+  it("skips setting prompts when the resolver returns null", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: () => null,
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("truncates to Slack's 4-prompt limit with a warning", async () => {
+    const prompts = Array.from({ length: 6 }, (_, i) => ({
+      title: `P${i}`,
+      message: `M${i}`,
+    }));
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: { prompts },
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    const [arg] = setPrompts.mock.calls[0];
+    expect(arg.prompts).toHaveLength(4);
+    expect(arg.prompts[3]).toEqual({ title: "P3", message: "M3" });
+  });
+
+  it("logs and keeps the webhook green when the resolver throws", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: () => {
+        throw new Error("resolver blew up");
+      },
+    });
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("logs and keeps the webhook green when the API call fails", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: {
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      },
+    });
+    setPrompts.mockRejectedValue(new Error("slack down"));
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("configured loadingMessages", () => {
+  const secret = "test-signing-secret";
+
+  function setupAdapter(loadingMessages?: string[]) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      loadingMessages,
+    });
+    const setStatus = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "assistant.threads.setStatus", setStatus);
+    return { adapter, setStatus };
+  }
+
+  it("startTyping uses configured loading messages by default", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking...", "Digging..."]);
+
+    await adapter.startTyping("slack:D1:1.2");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Thinking...",
+        loading_messages: ["Thinking...", "Digging..."],
+      })
+    );
+  });
+
+  it("startTyping prefers an explicit status over configured messages", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.startTyping("slack:D1:1.2", "Searching docs...");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Searching docs...",
+        loading_messages: ["Searching docs..."],
+      })
+    );
+  });
+
+  it("setAssistantStatus falls back to configured loading messages", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.setAssistantStatus("D1", "1.2", "working");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "working",
+        loading_messages: ["Thinking..."],
+      })
+    );
+  });
+
+  it("setAssistantStatus explicit loadingMessages win over config", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.setAssistantStatus("D1", "1.2", "working", ["Custom..."]);
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ loading_messages: ["Custom..."] })
+    );
+  });
+
+  it("startTyping keeps the Typing... default without config", async () => {
+    const { adapter, setStatus } = setupAdapter();
+
+    await adapter.startTyping("slack:D1:1.2");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Typing...",
+        loading_messages: ["Typing..."],
+      })
+    );
+  });
+});
+
+// ============================================================================
 // setSuggestedPrompts Tests
 // ============================================================================
 
@@ -8280,6 +8602,383 @@ describe("stream with empty threadTs", () => {
       2,
       expect.objectContaining({ token: "xoxb-test-token" })
     );
+  });
+});
+
+describe("native streaming fallback", () => {
+  function createAdapter(config?: Record<string, unknown>) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      ...config,
+    });
+    const postSpy = vi
+      .spyOn(adapter, "postMessage")
+      .mockResolvedValue({ id: "fallback-ts", threadId: "t", raw: {} });
+    const editSpy = vi
+      .spyOn(adapter, "editMessage")
+      .mockResolvedValue({ id: "fallback-ts", threadId: "t", raw: {} });
+    return { adapter, postSpy, editSpy };
+  }
+
+  async function* textStream(...parts: string[]) {
+    for (const part of parts) {
+      yield part;
+    }
+  }
+
+  it("returns null before consuming the stream when nativeStreaming is false", async () => {
+    const { adapter } = createAdapter({ nativeStreaming: false });
+    const chatStream = vi.fn();
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    const next = vi.fn();
+    const stream = { [Symbol.asyncIterator]: () => ({ next }) };
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", stream)
+    ).resolves.toBeNull();
+    expect(next).not.toHaveBeenCalled();
+    expect(chatStream).not.toHaveBeenCalled();
+  });
+
+  it("falls back to post-and-edit when the first native call fails", async () => {
+    const { adapter, postSpy, editSpy } = createAdapter();
+    const append = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    const stop = vi.fn();
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      textStream("hello ", "world")
+    );
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    // Whatever the throttle did mid-stream, the final forced flush must have
+    // delivered the full text — via the initial post or a closing edit.
+    const lastPosted = editSpy.mock.calls.length
+      ? editSpy.mock.calls.at(-1)?.[2]
+      : postSpy.mock.calls.at(-1)?.[1];
+    expect(lastPosted).toContain("world");
+  });
+
+  it("latches native streaming off after an unsupported-method platform error", async () => {
+    const { adapter } = createAdapter();
+    const platformError = Object.assign(new Error("unknown_method"), {
+      code: "slack_webapi_platform_error",
+      data: { error: "unknown_method" },
+    });
+    const chatStream = vi.fn().mockReturnValue({
+      append: vi.fn().mockRejectedValue(platformError),
+      stop: vi.fn(),
+      ts: undefined,
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+    expect(chatStream).toHaveBeenCalledTimes(1);
+
+    // Second stream skips the doomed native attempt entirely.
+    const next = vi.fn();
+    const stream = { [Symbol.asyncIterator]: () => ({ next }) };
+    await expect(
+      adapter.stream("slack:D123:1234567890.111111", stream)
+    ).resolves.toBeNull();
+    expect(chatStream).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("does not latch native streaming off after a transient error", async () => {
+    const { adapter } = createAdapter();
+    const chatStream = vi.fn().mockReturnValue({
+      append: vi.fn().mockRejectedValue(new Error("socket hang up")),
+      stop: vi.fn(),
+      ts: undefined,
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+    await adapter.stream(
+      "slack:D123:1234567890.111111",
+      textStream("hello again")
+    );
+
+    // Native streaming is re-attempted on the next stream.
+    expect(chatStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates mid-stream failures once native content has rendered", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // First native call succeeds (content is rendering), the next fails.
+    const append = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValue(new Error("mid-stream boom"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop: vi.fn(), ts: undefined })
+    );
+
+    async function* mixedStream() {
+      // A structured chunk flushes to the native stream immediately,
+      // deterministically marking native content as rendered before the
+      // text append fails.
+      yield {
+        details: "step",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task",
+        type: "task_update" as const,
+      };
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", mixedStream())
+    ).rejects.toThrow("mid-stream boom");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back when buffered appends never hit the API and stop() fails", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // append() returning null means the delta was only buffered in memory —
+    // no API call happened, so stop() carries the first real failure.
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      textStream("short reply")
+    );
+
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("short reply");
+  });
+
+  it("propagates stop() failures once native content has rendered", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // A non-null append response means content rendered natively.
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockRejectedValue(new Error("stop boom"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", textStream("hello"))
+    ).rejects.toThrow("stop boom");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips structured chunks in fallback mode without failing the stream", async () => {
+    const { adapter, postSpy } = createAdapter();
+    const append = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop: vi.fn(), ts: undefined })
+    );
+
+    async function* mixedStream() {
+      yield "hello";
+      yield {
+        details: "step",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task",
+        type: "task_update" as const,
+      };
+      yield " world";
+    }
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      mixedStream()
+    );
+
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    // The structured chunk didn't fail the stream, and the text still
+    // arrived via the post-and-edit fallback.
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("hello");
+  });
+});
+
+describe("feedbackButtons", () => {
+  function createStreamAdapter(
+    feedbackButtons?: SlackAdapterConfig["feedbackButtons"]
+  ) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      ...(feedbackButtons !== undefined ? { feedbackButtons } : {}),
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.111111" });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+    return { adapter, append, stop };
+  }
+
+  async function* helloStream() {
+    yield "hello";
+  }
+
+  it("appends a feedback context_actions block on stream stop", async () => {
+    const { adapter, stop } = createStreamAdapter(true);
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toEqual([
+      expect.objectContaining({
+        type: "context_actions",
+        elements: [
+          expect.objectContaining({
+            type: "feedback_buttons",
+            action_id: "message_feedback",
+            positive_button: expect.objectContaining({ value: "positive" }),
+            negative_button: expect.objectContaining({ value: "negative" }),
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("honors custom labels, values, and action id", async () => {
+    const { adapter, stop } = createStreamAdapter({
+      actionId: "ai_feedback",
+      negativeLabel: "Nope",
+      negativeValue: "down",
+      positiveLabel: "Nice",
+      positiveValue: "up",
+    });
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    const element = arg.blocks[0].elements[0];
+    expect(element.action_id).toBe("ai_feedback");
+    expect(element.positive_button).toEqual({
+      text: { type: "plain_text", text: "Nice" },
+      value: "up",
+    });
+    expect(element.negative_button).toEqual({
+      text: { type: "plain_text", text: "Nope" },
+      value: "down",
+    });
+  });
+
+  it("places feedback buttons after caller stopBlocks", async () => {
+    const { adapter, stop } = createStreamAdapter(true);
+    const endWith = { type: "actions", elements: [] };
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream(), {
+      stopBlocks: [endWith],
+    });
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toHaveLength(2);
+    expect(arg.blocks[0]).toEqual(endWith);
+    expect(arg.blocks[1].type).toBe("context_actions");
+  });
+
+  it("attaches no blocks when unconfigured", async () => {
+    const { adapter, stop } = createStreamAdapter();
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toBeUndefined();
+  });
+
+  it("routes feedback button clicks through onAction", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance({ state: createMockState() });
+    await adapter.initialize(mockChat);
+
+    const payload = {
+      type: "block_actions",
+      user: { id: "U1", username: "user" },
+      trigger_id: "trigger-1",
+      channel: { id: "D123", name: "dm" },
+      container: {
+        type: "message",
+        message_ts: "1234567890.111111",
+        channel_id: "D123",
+      },
+      message: { ts: "1234567890.111111", thread_ts: "1234567890.000000" },
+      actions: [
+        {
+          type: "feedback_buttons",
+          action_id: "message_feedback",
+          value: "positive",
+          action_ts: "1234567891.000000",
+        },
+      ],
+    };
+    const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, "test-signing-secret", {
+        contentType: "application/x-www-form-urlencoded",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockChat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "message_feedback",
+        value: "positive",
+        threadId: "slack:D123:1234567890.000000",
+      }),
+      undefined
+    );
+  });
+
+  it("exposes buildFeedbackButtonsBlock defaults", () => {
+    expect(buildFeedbackButtonsBlock()).toEqual({
+      type: "context_actions",
+      elements: [
+        {
+          type: "feedback_buttons",
+          action_id: "message_feedback",
+          positive_button: {
+            text: { type: "plain_text", text: "Good response" },
+            value: "positive",
+          },
+          negative_button: {
+            text: { type: "plain_text", text: "Bad response" },
+            value: "negative",
+          },
+        },
+      ],
+    });
   });
 });
 
