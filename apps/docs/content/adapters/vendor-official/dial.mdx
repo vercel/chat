@@ -15,7 +15,7 @@ features:
   deleteMessage: no
   fileUploads:
     status: yes
-    label: MMS via public URLs
+    label: MMS & iMessage media via public URLs; a single audio file on iMessage is delivered as a native voice message
   streaming: no
   scheduledMessages: no
   cardFormat: no
@@ -32,7 +32,9 @@ features:
   mentions:
     status: partial
     label: DMs only — every phone pair is 1:1
-  addReactions: no
+  addReactions:
+    status: yes
+    label: Native Tapbacks on iMessage, both directions; emoji delivered as text on SMS
   removeReactions: no
   typingIndicator: no
   directMessages: yes
@@ -168,6 +170,8 @@ The adapter recomputes the HMAC with Node's `crypto.createHmac` + `timingSafeEqu
 | Outbound  | SMS / MMS / iMessage   | ✅   | ✅ (via attachment URLs) |
 
 Voice calls surface as their transcript via the `call.transcribed` event — the adapter fetches the transcript through `@getdial/sdk.getCall()` and forwards it as a message on the caller's thread.
+
+**Threaded replies and reactions** ride the same channels. Replies are delivered as native quoted replies on iMessage (regular messages on SMS), reactions as native Tapbacks (`love`, `like`, `dislike`, `laugh`, `emphasize`, `question`, or any single emoji) — and inbound replies and Tapbacks arrive carrying the ID of the message they target.
 
 ## Threads
 
