@@ -4324,6 +4324,242 @@ describe("mentionRoleIds handling", () => {
 });
 
 // ============================================================================
+// Global Mention (@everyone/@here) Tests
+// ============================================================================
+
+describe("respondToGlobalMentions handling", () => {
+  function createForwardedEveryoneRequest() {
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "@everyone big announcement",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        mention_roles: [],
+        mention_everyone: true,
+        attachments: [],
+      },
+    });
+
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+  }
+
+  function createAdapterWithThreadSpy(config?: {
+    respondToGlobalMentions?: boolean;
+  }) {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      ...config,
+    });
+
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    return { adapter, fetchSpy };
+  }
+
+  it("ignores @everyone in forwarded gateway messages by default", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    // No thread created and message is not flagged as a mention
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in forwarded gateway messages as a mention when respondToGlobalMentions is true", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy({
+      respondToGlobalMentions: true,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client, isShuttingDown = () => false) {
+      this.setupLegacyGatewayHandlers(client, isShuttingDown);
+    }
+  }
+
+  function createEveryoneGatewayMessage() {
+    // Mirrors discord.js MessageMentions semantics: has() matches
+    // @everyone pings unless ignoreEveryone is set
+    const mentions = {
+      everyone: true,
+      roles: [] as Array<{ id: string }>,
+      has: (_id: string, options?: { ignoreEveryone?: boolean }) =>
+        !options?.ignoreEveryone,
+    };
+
+    return {
+      id: "msg123",
+      channelId: "channel456",
+      guildId: "guild1",
+      content: "@everyone big announcement",
+      author: {
+        id: "user789",
+        username: "testuser",
+        displayName: "Test User",
+        bot: false,
+      },
+      mentions,
+      channel: { isThread: () => false },
+      createdAt: new Date("2021-01-01T00:00:00.000Z"),
+      editedAt: null,
+      attachments: [],
+    };
+  }
+
+  it("ignores @everyone in legacy gateway mode by default", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in legacy gateway mode as a mention when respondToGlobalMentions is true", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToGlobalMentions: true,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("still detects direct user mentions when @everyone is ignored", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const message = createEveryoneGatewayMessage();
+    // Direct bot mention alongside @everyone
+    message.mentions.has = () => true;
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, message);
+    await waitForGatewayHandlers();
+
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
 // createDiscordThread 160004 Recovery Tests
 // ============================================================================
 

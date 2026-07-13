@@ -95,6 +95,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Role IDs that should trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated).",
     },
+    respondToGlobalMentions: {
+      type: "boolean",
+      description:
+        "Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false`, so the bot only responds when mentioned directly (or via `mentionRoleIds`).",
+    },
     interactionFlags: {
       type: "(context) => DiscordInteractionResponseFlag.Ephemeral | undefined",
       description:

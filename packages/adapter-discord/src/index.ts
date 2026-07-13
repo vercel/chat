@@ -106,6 +106,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
+  protected readonly respondToGlobalMentions: boolean;
   protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -152,6 +153,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       (process.env.DISCORD_MENTION_ROLE_IDS
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
+    this.respondToGlobalMentions = config.respondToGlobalMentions ?? false;
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
     this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
@@ -818,7 +820,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       data.mention_roles?.some((roleId) =>
         this.mentionRoleIds.includes(roleId)
       );
-    const isMentioned = isUserMentioned || isRoleMentioned;
+    const isEveryoneMentioned =
+      this.respondToGlobalMentions && data.mention_everyone === true;
+    const isMentioned =
+      isUserMentioned || isRoleMentioned || isEveryoneMentioned;
 
     // If mentioned and not in a thread, create one
     if (!discordThreadId && isMentioned) {
@@ -2014,14 +2019,20 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         return;
       }
 
-      // Check if we're mentioned (by user ID or configured role IDs)
-      const isUserMentioned = message.mentions.has(client.user?.id ?? "");
+      // Check if we're mentioned (by user ID or configured role IDs).
+      // @everyone/@here only count when respondToGlobalMentions is enabled.
+      const isUserMentioned = message.mentions.has(client.user?.id ?? "", {
+        ignoreEveryone: true,
+      });
       const isRoleMentioned =
         this.mentionRoleIds.length > 0 &&
         message.mentions.roles.some((role) =>
           this.mentionRoleIds.includes(role.id)
         );
-      const isMentioned = isUserMentioned || isRoleMentioned;
+      const isEveryoneMentioned =
+        this.respondToGlobalMentions && message.mentions.everyone;
+      const isMentioned =
+        isUserMentioned || isRoleMentioned || isEveryoneMentioned;
 
       this.logger.info("Discord Gateway message received", {
         channelId: message.channelId,
@@ -2030,6 +2041,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         isMentioned,
         isUserMentioned,
         isRoleMentioned,
+        isEveryoneMentioned,
         content: message.content.slice(0, 100),
       });
 

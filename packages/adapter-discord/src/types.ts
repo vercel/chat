@@ -31,6 +31,8 @@ export interface DiscordAdapterConfig {
   mentionRoleIds?: string[];
   /** Discord application public key for webhook signature verification. Defaults to DISCORD_PUBLIC_KEY env var. */
   publicKey?: string;
+  /** Treat @everyone/@here pings as mentions of the bot. Defaults to false. */
+  respondToGlobalMentions?: boolean;
   /** Override bot username (optional) */
   userName?: string;
 }
@@ -287,6 +289,8 @@ export interface DiscordGatewayMessageData {
   id: string;
   /** Whether the bot was mentioned */
   is_mention?: boolean;
+  /** Whether the message pings @everyone or @here */
+  mention_everyone?: boolean;
   /** Role IDs mentioned in the message */
   mention_roles?: string[];
   /** Users mentioned in the message */
