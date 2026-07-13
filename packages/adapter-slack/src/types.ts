@@ -22,6 +22,23 @@ export interface SlackInstallation {
   teamName?: string;
 }
 
+/** Options for the feedback buttons appended to streamed replies. */
+export interface SlackFeedbackButtonsOptions {
+  /**
+   * `action_id` dispatched to `bot.onAction` when a button is clicked.
+   * Defaults to "message_feedback".
+   */
+  actionId?: string;
+  /** Label for the negative button. Defaults to "Bad response". */
+  negativeLabel?: string;
+  /** Action value dispatched for negative clicks. Defaults to "negative". */
+  negativeValue?: string;
+  /** Label for the positive button. Defaults to "Good response". */
+  positiveLabel?: string;
+  /** Action value dispatched for positive clicks. Defaults to "positive". */
+  positiveValue?: string;
+}
+
 /** A single suggested prompt shown in an assistant/agent thread. */
 export interface SlackSuggestedPrompt {
   /** Full prompt text sent as the user's message when the prompt is clicked. */
@@ -98,6 +115,15 @@ export interface SlackAdapterConfig {
    * If provided, bot tokens stored via setInstallation() will be encrypted at rest.
    */
   encryptionKey?: string;
+  /**
+   * Append Slack's native feedback buttons (a `context_actions` block with a
+   * `feedback_buttons` element) to every streamed reply, attached when the
+   * stream finishes. Clicks dispatch to `bot.onAction` with the configured
+   * `actionId` and a positive/negative value. Pass `true` for defaults, or an
+   * options object to customize labels, values, and the action id. Skipped
+   * when a stream falls back to post-and-edit.
+   */
+  feedbackButtons?: boolean | SlackFeedbackButtonsOptions;
   /**
    * Prefix for the state key used to store workspace installations.
    * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.

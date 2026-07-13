@@ -143,6 +143,7 @@ import type {
   SlackAdapterConfig,
   SlackAdapterMode,
   SlackBotToken,
+  SlackFeedbackButtonsOptions,
   SlackInstallation,
   SlackSuggestedPrompts,
   SlackSuggestedPromptsContext,
@@ -152,12 +153,47 @@ export type {
   SlackAdapterConfig,
   SlackAdapterMode,
   SlackBotToken,
+  SlackFeedbackButtonsOptions,
   SlackInstallation,
   SlackSuggestedPrompt,
   SlackSuggestedPrompts,
   SlackSuggestedPromptsContext,
   SlackSuggestedPromptsOptions,
 } from "./types";
+
+/**
+ * Build a `context_actions` block with Slack's native feedback buttons
+ * (thumbs up/down on agent replies). The adapter appends this automatically
+ * to streamed replies when the `feedbackButtons` config is set; use this
+ * helper to attach the same block to non-streamed messages via raw blocks.
+ */
+export function buildFeedbackButtonsBlock(
+  options: SlackFeedbackButtonsOptions = {}
+): Record<string, unknown> {
+  return {
+    type: "context_actions",
+    elements: [
+      {
+        type: "feedback_buttons",
+        action_id: options.actionId ?? "message_feedback",
+        positive_button: {
+          text: {
+            type: "plain_text",
+            text: options.positiveLabel ?? "Good response",
+          },
+          value: options.positiveValue ?? "positive",
+        },
+        negative_button: {
+          text: {
+            type: "plain_text",
+            text: options.negativeLabel ?? "Bad response",
+          },
+          value: options.negativeValue ?? "negative",
+        },
+      },
+    ],
+  };
+}
 
 /** Slack displays at most this many suggested prompts per thread. */
 const MAX_SUGGESTED_PROMPTS = 4;
@@ -524,6 +560,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly agentView: boolean;
   protected readonly suggestedPrompts?: SlackSuggestedPrompts;
   protected readonly loadingMessages?: string[];
+  /** Normalized feedbackButtons config (`true` becomes `{}`). */
+  protected readonly feedbackButtons?: SlackFeedbackButtonsOptions;
   protected readonly nativeStreaming: boolean;
   /**
    * Latched when the workspace rejects native streaming with an error that
@@ -695,6 +733,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.suggestedPrompts = config.suggestedPrompts;
     this.loadingMessages = config.loadingMessages;
     this.nativeStreaming = config.nativeStreaming ?? true;
+    if (config.feedbackButtons) {
+      this.feedbackButtons =
+        config.feedbackButtons === true ? {} : config.feedbackButtons;
+    }
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -4368,9 +4410,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     await flushCommitted(true);
 
     if (fallback.mode === "fallback") {
-      if (options?.stopBlocks) {
+      if (options?.stopBlocks || this.feedbackButtons) {
         this.logger.warn(
-          "Slack: stopBlocks skipped - post-and-edit fallback cannot attach stream blocks",
+          "Slack: stream-end blocks (stopBlocks/feedbackButtons) skipped - post-and-edit fallback cannot attach stream blocks",
           { channel }
         );
       }
@@ -4380,12 +4422,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return fallback.message;
     }
 
+    // Caller blocks (StreamingPlan endWith) first, then the configured
+    // feedback buttons so they render at the very end of the reply.
+    const stopBlocks = [
+      ...(options?.stopBlocks ?? []),
+      ...(this.feedbackButtons
+        ? [buildFeedbackButtonsBlock(this.feedbackButtons)]
+        : []),
+    ];
     const result = await streamer.stop({
       token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
+      ...(stopBlocks.length > 0
+        ? { blocks: stopBlocks as ChatStopStreamArguments["blocks"] }
         : {}),
     });
     const messageTs = (result.message?.ts ?? result.ts) as string;
@@ -5333,6 +5381,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       (noAuthConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
+    feedbackButtons: config?.feedbackButtons,
     installationProvider: config?.installationProvider,
     loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),

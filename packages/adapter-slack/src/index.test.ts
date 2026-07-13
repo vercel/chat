@@ -14,8 +14,16 @@ import {
 import { WebClient } from "@slack/web-api";
 import type { AdapterPostableMessage, ChatInstance, StateAdapter } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SlackInstallation, SlackThreadId } from "./index";
-import { createSlackAdapter, SlackAdapter } from "./index";
+import type {
+  SlackAdapterConfig,
+  SlackInstallation,
+  SlackThreadId,
+} from "./index";
+import {
+  buildFeedbackButtonsBlock,
+  createSlackAdapter,
+  SlackAdapter,
+} from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
 
@@ -8756,6 +8764,168 @@ describe("native streaming fallback", () => {
     // arrived via the post-and-edit fallback.
     expect(postSpy).toHaveBeenCalledTimes(1);
     expect(postSpy.mock.calls.at(-1)?.[1]).toContain("hello");
+  });
+});
+
+describe("feedbackButtons", () => {
+  function createStreamAdapter(
+    feedbackButtons?: SlackAdapterConfig["feedbackButtons"]
+  ) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      ...(feedbackButtons !== undefined ? { feedbackButtons } : {}),
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi
+      .fn()
+      .mockResolvedValue({ ok: true, ts: "1234567890.111111" });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+    return { adapter, append, stop };
+  }
+
+  async function* helloStream() {
+    yield "hello";
+  }
+
+  it("appends a feedback context_actions block on stream stop", async () => {
+    const { adapter, stop } = createStreamAdapter(true);
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toEqual([
+      expect.objectContaining({
+        type: "context_actions",
+        elements: [
+          expect.objectContaining({
+            type: "feedback_buttons",
+            action_id: "message_feedback",
+            positive_button: expect.objectContaining({ value: "positive" }),
+            negative_button: expect.objectContaining({ value: "negative" }),
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("honors custom labels, values, and action id", async () => {
+    const { adapter, stop } = createStreamAdapter({
+      actionId: "ai_feedback",
+      negativeLabel: "Nope",
+      negativeValue: "down",
+      positiveLabel: "Nice",
+      positiveValue: "up",
+    });
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    const element = arg.blocks[0].elements[0];
+    expect(element.action_id).toBe("ai_feedback");
+    expect(element.positive_button).toEqual({
+      text: { type: "plain_text", text: "Nice" },
+      value: "up",
+    });
+    expect(element.negative_button).toEqual({
+      text: { type: "plain_text", text: "Nope" },
+      value: "down",
+    });
+  });
+
+  it("places feedback buttons after caller stopBlocks", async () => {
+    const { adapter, stop } = createStreamAdapter(true);
+    const endWith = { type: "actions", elements: [] };
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream(), {
+      stopBlocks: [endWith],
+    });
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toHaveLength(2);
+    expect(arg.blocks[0]).toEqual(endWith);
+    expect(arg.blocks[1].type).toBe("context_actions");
+  });
+
+  it("attaches no blocks when unconfigured", async () => {
+    const { adapter, stop } = createStreamAdapter();
+
+    await adapter.stream("slack:D123:1234567890.000000", helloStream());
+
+    const [arg] = stop.mock.calls[0];
+    expect(arg.blocks).toBeUndefined();
+  });
+
+  it("routes feedback button clicks through onAction", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const mockChat = createMockChatInstance({ state: createMockState() });
+    await adapter.initialize(mockChat);
+
+    const payload = {
+      type: "block_actions",
+      user: { id: "U1", username: "user" },
+      trigger_id: "trigger-1",
+      channel: { id: "D123", name: "dm" },
+      container: {
+        type: "message",
+        message_ts: "1234567890.111111",
+        channel_id: "D123",
+      },
+      message: { ts: "1234567890.111111", thread_ts: "1234567890.000000" },
+      actions: [
+        {
+          type: "feedback_buttons",
+          action_id: "message_feedback",
+          value: "positive",
+          action_ts: "1234567891.000000",
+        },
+      ],
+    };
+    const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, "test-signing-secret", {
+        contentType: "application/x-www-form-urlencoded",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockChat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "message_feedback",
+        value: "positive",
+        threadId: "slack:D123:1234567890.000000",
+      }),
+      undefined
+    );
+  });
+
+  it("exposes buildFeedbackButtonsBlock defaults", () => {
+    expect(buildFeedbackButtonsBlock()).toEqual({
+      type: "context_actions",
+      elements: [
+        {
+          type: "feedback_buttons",
+          action_id: "message_feedback",
+          positive_button: {
+            text: { type: "plain_text", text: "Good response" },
+            value: "positive",
+          },
+          negative_button: {
+            text: { type: "plain_text", text: "Bad response" },
+            value: "negative",
+          },
+        },
+      ],
+    });
   });
 });
 
