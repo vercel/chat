@@ -387,7 +387,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   ): Promise<RawMessage<XRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
     const text = this.renderOutbound(message);
-    const mediaIds = await this.uploadAttachments(message);
+    const mediaIds = await this.uploadAttachments(message, decoded.kind);
 
     if (!(text.trim() || mediaIds.length > 0)) {
       throw new ValidationError("x", "Message must have text or media");
@@ -411,7 +411,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     }
 
     const text = this.renderOutbound(message);
-    const mediaIds = await this.uploadAttachments(message);
+    const mediaIds = await this.uploadAttachments(message, "post");
     if (!(text.trim() || mediaIds.length > 0)) {
       throw new ValidationError("x", "Message must have text or media");
     }
@@ -521,7 +521,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    * {@link MAX_MEDIA_PER_POST} media per post.
    */
   protected async uploadAttachments(
-    message: AdapterPostableMessage
+    message: AdapterPostableMessage,
+    surface: "dm" | "post"
   ): Promise<string[]> {
     const sources: { load: () => Promise<Buffer>; mimeType: string }[] = [];
     for (const file of extractFiles(message)) {
@@ -559,7 +560,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     const mediaIds: string[] = [];
     for (const source of sources) {
       const bytes = await source.load();
-      mediaIds.push(await this.uploadMedia(bytes, source.mimeType));
+      mediaIds.push(await this.uploadMedia(bytes, source.mimeType, surface));
     }
     return mediaIds;
   }
@@ -571,7 +572,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    */
   protected async uploadMedia(
     bytes: Buffer,
-    mimeType: string
+    mimeType: string,
+    surface: "dm" | "post"
   ): Promise<string> {
     // v2 chunked upload is path-based: initialize (JSON) then one or more
     // multipart appends, then finalize (JSON). Images finalize synchronously.
@@ -579,7 +581,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       `${MEDIA_UPLOAD_PATH}/initialize`,
       "POST",
       {
-        media_category: mediaCategory(mimeType),
+        media_category: mediaCategory(mimeType, surface),
         media_type: mimeType,
         total_bytes: bytes.length,
       }
@@ -1417,13 +1419,15 @@ async function toBytes(data: Buffer | Blob | ArrayBuffer): Promise<Buffer> {
   throw new ValidationError("x", "Unsupported attachment data type");
 }
 
-function mediaCategory(mimeType: string): string {
+function mediaCategory(mimeType: string, surface: "dm" | "post"): string {
   if (
     mimeType === "image/png" ||
     mimeType === "image/jpeg" ||
     mimeType === "image/webp"
   ) {
-    return "tweet_image";
+    // DM attachments must be registered as dm_image; X rejects a tweet_image
+    // media_id attached to a DM event with "unsupported media category".
+    return surface === "dm" ? "dm_image" : "tweet_image";
   }
   throw new ValidationError(
     "x",

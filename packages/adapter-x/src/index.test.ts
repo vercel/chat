@@ -661,6 +661,11 @@ describe("XAdapter", () => {
           markdown: "pic",
         });
 
+        // DM media must register as dm_image; X rejects a tweet_image media_id
+        // attached to a DM event.
+        const initBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
+        expect(initBody.media_category).toBe("dm_image");
+
         const dmBody = JSON.parse(String(mockFetch.mock.calls[3][1]?.body));
         expect(dmBody).toEqual({
           attachments: [{ media_id: "MEDIA1" }],
