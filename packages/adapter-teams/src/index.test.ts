@@ -2,11 +2,15 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import {
+  createMockChatInstance,
+  createMockState,
+  threadIdContract,
+} from "@chat-adapter/tests";
 import { ConsoleLogger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTeamsAdapter, TeamsAdapter } from "./index";
+import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
 
-const TEAMS_PREFIX_PATTERN = /^teams:/;
 const WHITESPACE_START_PATTERN = /^\s/;
 const WHITESPACE_END_PATTERN = /\s$/;
 
@@ -28,6 +32,71 @@ class MockTeamsError extends Error {
 }
 
 const logger = new ConsoleLogger("error");
+
+// encodeThreadId/decodeThreadId/isDM are pure — a minimally configured adapter
+// suffices for the shared thread-id contract (no init/network needed).
+const contractAdapter = createTeamsAdapter({
+  appId: "test",
+  appPassword: "test",
+  logger,
+});
+
+threadIdContract<TeamsThreadId>({
+  name: "teams",
+  encode: (d) => contractAdapter.encodeThreadId(d),
+  decode: (id) => contractAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: {
+        conversationId: "19:abc123@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      },
+      encoded:
+        "teams:MTk6YWJjMTIzQHRocmVhZC50YWN2Mg:aHR0cHM6Ly9zbWJhLnRyYWZmaWNtYW5hZ2VyLm5ldC90ZWFtcy8",
+    },
+    {
+      // Channel thread carrying a ;messageid= suffix (threaded reply root).
+      decoded: {
+        conversationId:
+          "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1767297849909",
+        serviceUrl: "https://smba.trafficmanager.net/amer/",
+      },
+      encoded:
+        "teams:MTk6ZDQ0MWQzOGM2NTVjNDdhMDg1MjE1YjI3MjZlNzY5MjdAdGhyZWFkLnRhY3YyO21lc3NhZ2VpZD0xNzY3Mjk3ODQ5OTA5:aHR0cHM6Ly9zbWJhLnRyYWZmaWNtYW5hZ2VyLm5ldC9hbWVyLw",
+    },
+    {
+      // DM conversation (non-19: prefix).
+      decoded: {
+        conversationId: "a]8:orgid:user-id-here",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      },
+      encoded:
+        "teams:YV04Om9yZ2lkOnVzZXItaWQtaGVyZQ:aHR0cHM6Ly9zbWJhLnRyYWZmaWNtYW5hZ2VyLm5ldC90ZWFtcy8",
+    },
+    {
+      // Special characters in both segments survive base64url round-trip.
+      decoded: {
+        conversationId:
+          "19:meeting_MDE4OWI4N2UtNzEzNC00ZGE2LTkxMGEtNDM3@thread.v2",
+        serviceUrl:
+          "https://smba.trafficmanager.net/amer/?special=chars&foo=bar",
+      },
+      encoded:
+        "teams:MTk6bWVldGluZ19NREU0T1dJNE4yVXROekV6TkMwMFpHRTJMVGt4TUdFdE5ETTNAdGhyZWFkLnYy:aHR0cHM6Ly9zbWJhLnRyYWZmaWNtYW5hZ2VyLm5ldC9hbWVyLz9zcGVjaWFsPWNoYXJzJmZvbz1iYXI",
+    },
+  ],
+  isDM: {
+    fn: (id) => contractAdapter.isDM(id),
+    dmThreadId: contractAdapter.encodeThreadId({
+      conversationId: "a]8:orgid:user-id-here",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    }),
+    nonDmThreadId: contractAdapter.encodeThreadId({
+      conversationId: "19:abc@thread.tacv2",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    }),
+  },
+});
 
 describe("ESM compatibility", () => {
   it(
@@ -111,47 +180,10 @@ describe("TeamsAdapter", () => {
     expect(adapter.name).toBe("teams");
   });
 
-  describe("thread ID encoding", () => {
-    it("should encode and decode thread IDs", () => {
-      const adapter = createTeamsAdapter({
-        appId: "test",
-        appPassword: "test",
-        logger,
-      });
-
-      const original = {
-        conversationId: "19:abc123@thread.tacv2",
-        serviceUrl: "https://smba.trafficmanager.net/teams/",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      expect(encoded).toMatch(TEAMS_PREFIX_PATTERN);
-
-      const decoded = adapter.decodeThreadId(encoded);
-      expect(decoded.conversationId).toBe(original.conversationId);
-      expect(decoded.serviceUrl).toBe(original.serviceUrl);
-    });
-
-    it("should preserve messageid in thread context for channel threads", () => {
-      const adapter = createTeamsAdapter({
-        appId: "test",
-        appPassword: "test",
-        logger,
-      });
-
-      const original = {
-        conversationId:
-          "19:d441d38c655c47a085215b2726e76927@thread.tacv2;messageid=1767297849909",
-        serviceUrl: "https://smba.trafficmanager.net/amer/",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-
-      expect(decoded.conversationId).toBe(original.conversationId);
-      expect(decoded.conversationId).toContain(";messageid=");
-    });
-
+  // Round-trip, prefix, pinned-encoding, and DM detection coverage lives in the
+  // top-level threadIdContract. These remain because the contract does not
+  // exercise malformed-id / wrong-prefix decode errors.
+  describe("thread ID decode errors", () => {
     it("should throw ValidationError for invalid thread IDs", () => {
       const adapter = createTeamsAdapter({
         appId: "test",
@@ -164,27 +196,6 @@ describe("TeamsAdapter", () => {
         ValidationError
       );
       expect(() => adapter.decodeThreadId("teams")).toThrow(ValidationError);
-    });
-
-    it("should handle special characters in conversationId and serviceUrl", () => {
-      const adapter = createTeamsAdapter({
-        appId: "test",
-        appPassword: "test",
-        logger,
-      });
-
-      const original = {
-        conversationId:
-          "19:meeting_MDE4OWI4N2UtNzEzNC00ZGE2LTkxMGEtNDM3@thread.v2",
-        serviceUrl:
-          "https://smba.trafficmanager.net/amer/?special=chars&foo=bar",
-      };
-
-      const encoded = adapter.encodeThreadId(original);
-      const decoded = adapter.decodeThreadId(encoded);
-
-      expect(decoded.conversationId).toBe(original.conversationId);
-      expect(decoded.serviceUrl).toBe(original.serviceUrl);
     });
   });
 
@@ -637,37 +648,10 @@ describe("TeamsAdapter", () => {
   // isDM Tests
   // ==========================================================================
 
+  // Baseline DM vs non-DM detection is covered by the top-level
+  // threadIdContract's isDM check. This retains the Teams-specific edge case
+  // where a ;messageid= suffix must not flip a channel thread to a DM.
   describe("isDM", () => {
-    it("should return false for group chats (19: prefix)", () => {
-      const adapter = createTeamsAdapter({
-        appId: "test",
-        appPassword: "test",
-        logger,
-      });
-
-      const threadId = adapter.encodeThreadId({
-        conversationId: "19:abc@thread.tacv2",
-        serviceUrl: "https://smba.trafficmanager.net/teams/",
-      });
-
-      expect(adapter.isDM(threadId)).toBe(false);
-    });
-
-    it("should return true for DM conversations (non-19: prefix)", () => {
-      const adapter = createTeamsAdapter({
-        appId: "test",
-        appPassword: "test",
-        logger,
-      });
-
-      const threadId = adapter.encodeThreadId({
-        conversationId: "a]8:orgid:user-id-here",
-        serviceUrl: "https://smba.trafficmanager.net/teams/",
-      });
-
-      expect(adapter.isDM(threadId)).toBe(true);
-    });
-
     it("should return false for channel threads with messageid", () => {
       const adapter = createTeamsAdapter({
         appId: "test",
@@ -788,18 +772,8 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockChat = {
-        getState: vi.fn(),
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-        processReaction: vi.fn(),
-      };
-
       // initialize() calls app.initialize() which registers the bridge route handler
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(createMockChatInstance());
 
       expect(adapter.name).toBe("teams");
     });
@@ -1002,27 +976,12 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async () => null),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-        processReaction: vi.fn(),
-      };
-
       // Mock app.initialize to avoid real HTTP setup
       const mockApp = (
         adapter as unknown as { app: { initialize: ReturnType<typeof vi.fn> } }
       ).app;
       mockApp.initialize = vi.fn(async () => undefined);
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(createMockChatInstance());
 
       await expect(adapter.openDM("user-123")).rejects.toThrow(ValidationError);
     });
@@ -1040,22 +999,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1075,9 +1021,7 @@ describe("TeamsAdapter", () => {
         })),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
@@ -1095,17 +1039,7 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async () => null),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const mockChat = createMockChatInstance();
 
       const mockApp = (
         adapter as unknown as {
@@ -1114,9 +1048,7 @@ describe("TeamsAdapter", () => {
       ).app;
       mockApp.initialize = vi.fn(async () => undefined);
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:unknown-user");
       expect(user).toBeNull();
@@ -1129,22 +1061,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1161,9 +1080,7 @@ describe("TeamsAdapter", () => {
         }),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).toBeNull();
@@ -1176,22 +1093,9 @@ describe("TeamsAdapter", () => {
         logger,
       });
 
-      const mockState = {
-        get: vi.fn(async (key: string) => {
-          if (key === "teams:aadObjectId:29:user-123") {
-            return "aad-object-id-456";
-          }
-          return null;
-        }),
-        set: vi.fn(async () => undefined),
-        delete: vi.fn(async () => undefined),
-      };
-      const mockChat = {
-        getState: () => mockState,
-        processMessage: vi.fn(),
-        processAction: vi.fn(),
-        processReaction: vi.fn(),
-      };
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      const mockChat = createMockChatInstance({ state });
 
       const mockApp = (
         adapter as unknown as {
@@ -1211,9 +1115,7 @@ describe("TeamsAdapter", () => {
         })),
       };
 
-      await adapter.initialize(
-        mockChat as unknown as Parameters<typeof adapter.initialize>[0]
-      );
+      await adapter.initialize(mockChat);
 
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();

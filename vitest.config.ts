@@ -12,6 +12,7 @@ export default defineConfig({
       "packages/adapter-slack",
       "packages/adapter-teams",
       "packages/adapter-web",
+      "packages/adapter-x",
       "packages/state-ioredis",
       "packages/state-memory",
       "packages/state-redis",

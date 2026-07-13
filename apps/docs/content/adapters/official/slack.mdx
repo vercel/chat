@@ -27,6 +27,9 @@ features:
   tables:
     status: yes
     label: Block Kit
+  charts:
+    status: yes
+    label: Block Kit
   fields: yes
   imagesInCards: yes
   modals: yes
@@ -484,6 +487,73 @@ await thread.post(
   })
 );
 ```
+
+### Agent messaging experience
+
+Slack's Agent messaging experience (`agent_view` manifest mode) supersedes the older `assistant_view`. New Slack apps can only use `agent_view`. Enable it on the adapter:
+
+```typescript
+const slack = createSlackAdapter({ agentView: true });
+```
+
+With `agentView: true`:
+
+- `onAppHomeOpened` is the DM-open signal (Slack no longer signals DM-open via `assistant_thread_started` under `agent_view`), and it fires regardless of the opened tab — branch on `event.tab` (`"home"` vs `"messages"`) if you also publish a Home view.
+- `onAppContextChanged` reports the user's active view (see [Handling active-view context](/docs/handling-events#handling-active-view-context-agent-messaging)).
+- `getAppContext(message)` returns the folded active-view context on a DM message.
+- `setSuggestedPrompts(channelId, undefined, prompts)` may omit the thread reference — prompts sit at the top of the agent conversation.
+- DM messages are threaded per Slack's model (each user message is a thread root). Threads returned by `openDM()` keep working: when the conversation-scoped thread is subscribed, incoming top-level DM messages route to it, so `onSubscribedMessage` and per-thread state behave as before.
+
+<Callout type="warn">
+Because bot replies are threaded under each user message, channel-level history (`channel.messages`, `conversations.history`) only returns the user's side of a DM conversation. If you build AI conversation history for DMs, use [transcripts](/docs/conversation-history) (which record both roles across thread IDs) instead of channel history — otherwise the model never sees its own previous replies.
+</Callout>
+
+Add the event subscription and scope to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_home_opened
+      - app_context_changed
+```
+
+### Tables and charts
+
+Card [`Table`](/docs/cards#table) elements render as Slack [data table blocks](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) — paginated and sortable, with optional `caption` and `pageSize` props. Tables that exceed Slack's limits (100 data rows, 20 columns, 10,000 characters across all cells) fall back to ASCII text, and header-only tables render as a plain table block.
+
+Card [`Chart`](/docs/cards#chart) elements render as Slack [data visualization blocks](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block) with pie, bar, area, and line chart support:
+
+```tsx
+await thread.post(
+  <Card title="Usage report">
+    <Chart
+      title="Daily Active Users"
+      chart={{
+        type: "line",
+        categories: ["Mon", "Tue", "Wed"],
+        series: [
+          {
+            name: "Web",
+            data: [
+              { label: "Mon", value: 120 },
+              { label: "Tue", value: 135 },
+              { label: "Wed", value: 128 },
+            ],
+          },
+        ],
+      }}
+    />
+  </Card>
+);
+```
+
+Charts that violate Slack's constraints (50-character title, 12 segments/series, 20 categories, 20-character labels, one data point per category, at most 2 charts per message) fall back to a text rendering of the data instead of being rejected by the Slack API.
 
 ## Feature support
 

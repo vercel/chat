@@ -1,25 +1,20 @@
-import type { ChatInstance } from "chat";
+import { createMockChatInstance, threadIdContract } from "@chat-adapter/tests";
 import { Message } from "chat";
 import { describe, expect, it, vi } from "vitest";
-import { createTwilioAdapter } from "./index";
+import { createTwilioAdapter, type TwilioThreadId } from "./index";
 
 describe("TwilioAdapter", () => {
-  it("encodes and decodes phone and channel-address thread ids", () => {
+  it("derives the channel id from a thread's sender", () => {
+    // Encode/decode round-trips and pinned encoded strings live in the shared
+    // `threadIdContract` at the bottom of this file; channelIdFromThreadId is
+    // not covered by the contract, so it stays asserted here.
     const adapter = createTwilioAdapter();
-    const thread = {
-      recipient: "whatsapp:+15550000002",
-      sender: "whatsapp:+15550000001",
-    };
 
-    const threadId = adapter.encodeThreadId(thread);
-
-    expect(threadId).toBe(
-      "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002"
-    );
-    expect(adapter.decodeThreadId(threadId)).toEqual(thread);
-    expect(adapter.channelIdFromThreadId(threadId)).toBe(
-      "twilio:whatsapp%3A%2B15550000001"
-    );
+    expect(
+      adapter.channelIdFromThreadId(
+        "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002"
+      )
+    ).toBe("twilio:whatsapp%3A%2B15550000001");
   });
 
   it("opens dms with the configured phone number", async () => {
@@ -31,7 +26,7 @@ describe("TwilioAdapter", () => {
   });
 
   it("routes incoming message webhooks to chat processing", async () => {
-    const chat = mockChat();
+    const chat = createMockChatInstance();
     const adapter = createTwilioAdapter({
       fetch: mockFetch("media"),
       webhookVerifier: () => true,
@@ -253,21 +248,40 @@ describe("TwilioAdapter", () => {
   });
 });
 
+const threadIdAdapter = createTwilioAdapter();
+
+threadIdContract<TwilioThreadId>({
+  name: "twilio",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      // Plain SMS phone numbers: the leading `+` is URL-encoded to `%2B`.
+      decoded: { recipient: "+15550000002", sender: "+15550000001" },
+      encoded: "twilio:%2B15550000001:%2B15550000002",
+    },
+    {
+      // Channel-addressed ids (e.g. WhatsApp) also encode the `:` as `%3A`.
+      decoded: {
+        recipient: "whatsapp:+15550000002",
+        sender: "whatsapp:+15550000001",
+      },
+      encoded: "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002",
+    },
+    {
+      // Messaging-service senders (`MG…`) survive the round-trip untouched.
+      decoded: { recipient: "+15550000002", sender: "MG123" },
+      encoded: "twilio:MG123:%2B15550000002",
+    },
+  ],
+});
+
 function formRequest(fields: Record<string, string>): Request {
   return new Request("https://example.com/twilio", {
     body: new URLSearchParams(fields),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     method: "POST",
   });
-}
-
-function mockChat() {
-  return {
-    getLogger: () => ({ child: () => console }),
-    processMessage: vi.fn(),
-  } as unknown as ChatInstance & {
-    processMessage: ReturnType<typeof vi.fn>;
-  };
 }
 
 function mockFetch(body: unknown) {

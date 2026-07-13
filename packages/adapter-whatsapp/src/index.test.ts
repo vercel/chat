@@ -1,5 +1,10 @@
 import { createHmac } from "node:crypto";
 import {
+  createMockChatInstance,
+  createMockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
+import {
   afterEach,
   beforeEach,
   describe,
@@ -8,7 +13,12 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import { createWhatsAppAdapter, splitMessage, WhatsAppAdapter } from "./index";
+import {
+  createWhatsAppAdapter,
+  splitMessage,
+  WhatsAppAdapter,
+  type WhatsAppThreadId,
+} from "./index";
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
@@ -25,45 +35,42 @@ function createTestAdapter(): WhatsAppAdapter {
     phoneNumberId: "123456789",
     verifyToken: "test-verify-token",
     userName: "test-bot",
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
+    logger: createMockLogger(),
   });
 }
 
-describe("encodeThreadId", () => {
-  it("should encode a thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-    expect(result).toBe("whatsapp:123456789:15551234567");
-  });
+// `encodeThreadId`/`decodeThreadId` are pure, so a single adapter instance (no
+// init, no network) is enough to exercise the shared thread-id codec contract.
+const threadIdAdapter = createTestAdapter();
 
-  it("should encode with different phone numbers", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "987654321",
-      userWaId: "44771234567",
-    });
-    expect(result).toBe("whatsapp:987654321:44771234567");
-  });
+// Encode/decode/round-trip coverage lives in the shared `threadIdContract`.
+// WhatsApp threads are always 1:1 DMs, so `isDM` has no non-DM case to feed the
+// contract's optional check — that edge stays in the local `isDM` suite below.
+threadIdContract<WhatsAppThreadId>({
+  name: "whatsapp",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { phoneNumberId: "123456789", userWaId: "15551234567" },
+      encoded: "whatsapp:123456789:15551234567",
+    },
+    {
+      decoded: { phoneNumberId: "987654321", userWaId: "44771234567" },
+      encoded: "whatsapp:987654321:44771234567",
+    },
+    {
+      // international numbers must survive the round-trip untouched.
+      decoded: { phoneNumberId: "999888777", userWaId: "919876543210" },
+      encoded: "whatsapp:999888777:919876543210",
+    },
+  ],
 });
 
 describe("decodeThreadId", () => {
-  it("should decode a valid thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.decodeThreadId("whatsapp:123456789:15551234567");
-    expect(result).toEqual({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-  });
-
+  // Valid decode + round-trip coverage lives in the shared `threadIdContract`
+  // above; only the malformed-id and invalid-prefix errors it does not cover
+  // are kept here.
   it("should throw on invalid prefix", () => {
     const adapter = createTestAdapter();
     expect(() => adapter.decodeThreadId("slack:C123:ts123")).toThrow(
@@ -97,30 +104,6 @@ describe("decodeThreadId", () => {
     expect(() => adapter.decodeThreadId("whatsapp:123:456:extra")).toThrow(
       "Invalid WhatsApp thread ID format"
     );
-  });
-});
-
-describe("encodeThreadId / decodeThreadId roundtrip", () => {
-  it("should round-trip a thread ID", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
-  });
-
-  it("should round-trip with international numbers", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "999888777",
-      userWaId: "919876543210",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
   });
 });
 
@@ -650,24 +633,7 @@ function makeWebhookPayload(overrides?: {
   };
 }
 
-const mockChat = {
-  processMessage: vi.fn(),
-  processReaction: vi.fn(),
-  processAction: vi.fn(),
-  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-  processModalSubmit: vi.fn(),
-  processModalClose: vi.fn(),
-  processSlashCommand: vi.fn(),
-  processMemberJoinedChannel: vi.fn(),
-  getState: vi.fn(),
-  getUserName: () => "test-bot",
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-};
+const mockChat = createMockChatInstance();
 
 // ---------------------------------------------------------------------------
 // handleWebhook - POST with signature verification
@@ -768,7 +734,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("text message calls chat.processMessage with correct thread and message", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload();
     const body = JSON.stringify(payload);
@@ -792,7 +758,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("non-messages field change is skipped", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload({
       field: "statuses",
@@ -811,7 +777,7 @@ describe("handleWebhook - POST message processing", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(mockChat.processMessage).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveDispatched("processMessage");
   });
 });
 
@@ -1193,12 +1159,7 @@ describe("createWhatsAppAdapter", () => {
       verifyToken: "test-verify-token",
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v25.0"
@@ -1237,12 +1198,7 @@ describe("createWhatsAppAdapter", () => {
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
       apiVersion: "v19.0",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v19.0"

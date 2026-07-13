@@ -90,6 +90,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-twilio"
   },
   {
+    "name": "X",
+    "slug": "x",
+    "type": "platform",
+    "description": "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+    "packageName": "@chat-adapter/x",
+    "icon": "x",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-x"
+  },
+  {
     "name": "Messenger",
     "slug": "messenger",
     "type": "platform",
@@ -103,7 +113,7 @@
     "name": "Web",
     "slug": "web",
     "type": "platform",
-    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol — works out of the box with @ai-sdk/react and ai-elements.",
+    "description": "Serve a browser chat UI from the same bot using the AI SDK useChat protocol \u2014 works out of the box with @ai-sdk/react and ai-elements.",
     "packageName": "@chat-adapter/web",
     "icon": "web",
     "beta": true,
@@ -256,6 +266,16 @@
     "readme": "https://github.com/rama-adi/chat-adapter-baileys/tree/b5454e7c04c75d91b06213f16a4af82ddb4a120f"
   },
   {
+    "name": "Zaileys WhatsApp",
+    "slug": "zaileys",
+    "type": "platform",
+    "community": true,
+    "description": "WhatsApp adapter powered by Zaileys \u2014 real message history, native buttons from Cards, decrypted poll votes, and scheduling.",
+    "packageName": "chat-adapter-zaileys",
+    "author": "zeative",
+    "readme": "https://github.com/zeative/chat-adapter-zaileys"
+  },
+  {
     "name": "Blooio iMessage",
     "slug": "blooio",
     "type": "platform",
@@ -360,6 +380,17 @@
     "packageName": "@photon-ai/chat-adapter-imessage",
     "author": "Photon",
     "readme": "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+    "vendorOfficial": true
+  },
+  {
+    "name": "Dial",
+    "slug": "dial",
+    "type": "platform",
+    "community": true,
+    "description": "SMS, MMS, iMessage, and inbound voice-call transcripts for Chat SDK, built and maintained by Dial. One handler answers phone traffic the same way it answers Slack/Teams/Discord, with HMAC-signed webhooks and replies over @getdial/sdk.",
+    "packageName": "@getdial/chat-sdk-adapter",
+    "author": "Dial",
+    "readme": "https://github.com/GetDial-AI/chat-sdk-adapter",
     "vendorOfficial": true
   },
   {

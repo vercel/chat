@@ -199,7 +199,7 @@ Radio button group for mutually exclusive choices.
 
 ### Table
 
-Structured data display with column headers and rows. Renders as a native table on platforms that support it (Teams, GitHub, Linear), as GFM markdown in Discord card payloads, and as padded ASCII text elsewhere.
+Structured data display with column headers and rows. Renders as a native table on platforms that support it (Slack, Teams, GitHub, Linear), as GFM markdown in Discord card payloads, and as padded ASCII text elsewhere.
 
 ```tsx title="lib/bot.tsx" lineNumbers
 <Table
@@ -220,6 +220,69 @@ Optional column alignment:
   align={["left", "right"]}
 />
 ```
+
+On Slack, tables render as paginated, sortable [data tables](https://docs.slack.dev/reference/block-kit/blocks/data-table-block). The optional `caption` (accessible table description) and `pageSize` (rows per page, 1–100) props tune that rendering and are ignored on other platforms:
+
+```tsx title="lib/bot.tsx"
+<Table
+  headers={["Name", "Score"]}
+  rows={[["Alice", "98"], ["Bob", "87"]]}
+  caption="Quarterly review scores"
+  pageSize={10}
+/>
+```
+
+### Chart
+
+Data visualization with pie, bar, area, and line charts. Renders as a native [data visualization](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block) on Slack; other platforms fall back to the chart's data rendered as a text table.
+
+```tsx title="lib/bot.tsx" lineNumbers
+<Chart
+  title="My Favorite Candy Bars"
+  chart={{
+    type: "pie",
+    segments: [
+      { label: "Kit Kat", value: 45 },
+      { label: "Twix", value: 28 },
+      { label: "Crunch", value: 18 },
+    ],
+  }}
+/>
+```
+
+Bar, area, and line charts take named series plotted against shared categories:
+
+```tsx title="lib/bot.tsx" lineNumbers
+<Chart
+  title="Daily Active Users"
+  chart={{
+    type: "line",
+    categories: ["Mon", "Tue", "Wed"],
+    xLabel: "Day",
+    yLabel: "Users",
+    series: [
+      {
+        name: "Web",
+        data: [
+          { label: "Mon", value: 120 },
+          { label: "Tue", value: 135 },
+          { label: "Wed", value: 128 },
+        ],
+      },
+      {
+        name: "Mobile",
+        data: [
+          { label: "Mon", value: 80 },
+          { label: "Tue", value: 95 },
+          { label: "Wed", value: 90 },
+        ],
+      },
+    ],
+  }}
+/>
+```
+
+Slack enforces a 50-character title, up to 12 segments or series, up to 20 categories, 20-character labels, and at most 2 charts per message. Charts that exceed these limits fall back to a text rendering of the data instead of being rejected by the API.
 
 ### Image
 

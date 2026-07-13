@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/slack",
-  "version": "4.32.0",
+  "version": "4.33.0",
   "description": "Slack adapter for Chat SDK — webhooks, Block Kit cards, OAuth, slash commands, and AI streaming",
   "type": "module",
   "engines": {
@@ -45,10 +45,11 @@
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
     "@slack/socket-mode": "^2.0.5",
-    "@slack/web-api": "^7.14.0",
+    "@slack/web-api": "^7.18.0",
     "chat": "workspace:*"
   },
   "devDependencies": {
+    "@chat-adapter/tests": "workspace:*",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

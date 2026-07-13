@@ -62,10 +62,11 @@ The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APP
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
 
+const discord = createDiscordAdapter();
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    discord: createDiscordAdapter(),
+    discord,
   },
 });
 
@@ -101,6 +102,11 @@ bot.onNewMention(async (thread, message) => {
       type: "string[]",
       description:
         "Role IDs that should trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated).",
+    },
+    respondToGlobalMentions: {
+      type: "boolean",
+      description:
+        "Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false`, so the bot only responds when mentioned directly (or via `mentionRoleIds`).",
     },
     interactionFlags: {
       type: "(context) => DiscordInteractionResponseFlag.Ephemeral | undefined",
@@ -179,7 +185,11 @@ In **General Information**, set **Interactions Endpoint URL** to `https://your-d
 
 ### 4. Add the bot to your server
 
-In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
+In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
+
+## Discord thread channel names
+
+Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord thread channel. The bot needs the **Manage Threads** permission.
 
 ## Advanced
 

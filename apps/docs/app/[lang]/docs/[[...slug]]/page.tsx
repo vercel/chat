@@ -1,115 +1,60 @@
-import { createRelativeLink } from "fumadocs-ui/mdx";
+import { MobileDocsBar } from "@vercel/geistdocs/mobile-docs-bar";
+import { createDocsPage } from "@vercel/geistdocs/pages/docs";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { AskAI } from "@/components/geistdocs/ask-ai";
-import { CopyPage } from "@/components/geistdocs/copy-page";
-import {
-  DocsBody,
-  DocsDescription,
-  DocsPage,
-  DocsTitle,
-} from "@/components/geistdocs/docs-page";
-import { EditSource } from "@/components/geistdocs/edit-source";
-import { Feedback } from "@/components/geistdocs/feedback";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
-import { MobileDocsBar } from "@/components/geistdocs/mobile-docs-bar";
-import { OpenInChat } from "@/components/geistdocs/open-in-chat";
-import { ScrollTop } from "@/components/geistdocs/scroll-top";
-import { Separator } from "@/components/ui/separator";
-import { getLLMText, getPageImage, source } from "@/lib/geistdocs/source";
+import { config } from "@/lib/geistdocs/config";
 import { getDocsJsonLd } from "@/lib/geistdocs/docs-jsonld";
+import { geistdocsSource } from "@/lib/geistdocs/source";
 
-const Page = async ({ params }: PageProps<"/[lang]/docs/[[...slug]]">) => {
-  const { slug, lang } = await params;
-  const page = source.getPage(slug, lang);
-
-  if (!page) {
-    notFound();
-  }
-
-  const markdown = await getLLMText(page);
-  const MDX = page.data.body;
-  const slugPath = slug?.join("/");
-  const markdownPath = slugPath ? `/docs/${slugPath}.md` : "/docs.md";
-  const jsonLd = getDocsJsonLd(page);
-
-  return (
-    <DocsPage
-      full={page.data.full}
-      tableOfContent={{
-        style: "clerk",
-        footer: (
-          <div className="my-3 space-y-3">
-            <Separator />
-            <EditSource path={page.path} />
-            <ScrollTop />
-            <Feedback />
-            <CopyPage text={markdown} />
-            <AskAI href={page.url} />
-            <OpenInChat href={page.url} />
-          </div>
-        ),
-      }}
-      tableOfContentPopover={{ enabled: false }}
-      toc={page.data.toc}
-    >
-      <MobileDocsBar toc={page.data.toc} />
-      {jsonLd ? (
-        <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-          type="application/ld+json"
-        />
-      ) : null}
-      <a aria-hidden="true" className="sr-only" href={markdownPath} tabIndex={-1}>
-        AI/LLM: This documentation page is available in plain markdown format at
-        {markdownPath}
-      </a>
-      <DocsTitle>{page.data.title}</DocsTitle>
-      <DocsDescription>{page.data.description}</DocsDescription>
-      <DocsBody>
-        <MDX
-          components={getMDXComponents({
-            a: createRelativeLink(source, page),
-
-            // Add your custom components here
-          })}
-        />
-      </DocsBody>
-    </DocsPage>
-  );
-};
-
-export const generateStaticParams = () => source.generateParams();
-
-export const generateMetadata = async ({
-  params,
-}: PageProps<"/[lang]/docs/[[...slug]]">) => {
-  const { slug, lang } = await params;
-  const page = source.getPage(slug, lang);
-
-  if (!page) {
-    notFound();
-  }
-
-  const metadata: Metadata = {
-    title: page.data.title,
-    description: page.data.description,
+const docsPage = createDocsPage({
+  config,
+  mdx: ({ link }) => getMDXComponents({ a: link }),
+  metadata: ({ metadata }): Metadata => ({
+    ...metadata,
     openGraph: {
-      title: page.data.title,
-      images: getPageImage(page).url,
+      ...metadata.openGraph,
+      title: metadata.title ?? undefined,
     },
     twitter: {
       card: "summary_large_image",
     },
-    alternates: {
-      types: {
-        "text/markdown": slug?.length ? `/docs/${slug.join("/")}.md` : "/docs.md",
-      },
-    },
-  };
+  }),
+  openGraph: {
+    images: true,
+  },
+  source: geistdocsSource,
+  tableOfContentPopover: {
+    enabled: false,
+  },
+  renderTop: ({ data, page, pageUrl }) => {
+    const markdownPath = pageUrl === "/docs" ? "/docs.md" : `${pageUrl}.md`;
+    const jsonLd = getDocsJsonLd(page);
 
-  return metadata;
-};
+    return (
+      <>
+        <MobileDocsBar toc={data.toc} />
+        {jsonLd ? (
+          <script
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+            type="application/ld+json"
+          />
+        ) : null}
+        {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
+        <a
+          aria-hidden="true"
+          className="sr-only"
+          href={markdownPath}
+          tabIndex={-1}
+        >
+          AI/LLM: This documentation page is available in plain markdown format
+          at {markdownPath}
+        </a>
+      </>
+    );
+  },
+});
 
-export default Page;
+export default docsPage.Page;
+export const generateStaticParams = docsPage.generateStaticParams;
+export const generateMetadata = docsPage.generateMetadata;

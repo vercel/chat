@@ -140,6 +140,7 @@ describe("Vendor-Official adapter MDX", () => {
       [
         "agentphone",
         "cloudflare-agents",
+        "dial",
         "kapso",
         "lark",
         "linq",
@@ -260,6 +261,7 @@ describe("Official platform adapter OG images", () => {
         "twilio",
         "web",
         "whatsapp",
+        "x",
       ].sort()
     );
   });

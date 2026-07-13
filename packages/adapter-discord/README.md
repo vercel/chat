@@ -35,10 +35,11 @@ The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APP
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
 
+const discord = createDiscordAdapter();
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    discord: createDiscordAdapter(),
+    discord,
   },
 });
 
@@ -75,7 +76,7 @@ bot.onNewMention(async (thread, message) => {
 
 1. Go to **OAuth2** then **URL Generator**
 2. Select scopes: `bot`, `applications.commands`
-3. Select bot permissions: Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Attach Files
+3. Select bot permissions: Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files
 4. Copy the generated URL and open it to invite the bot to your server
 
 ## Architecture: HTTP Interactions vs Gateway
@@ -221,11 +222,16 @@ All options are auto-detected from environment variables when not provided.
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `respondToGlobalMentions` | No | Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false` |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
+
+## Discord thread channel names
+
+Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord thread channel. The bot needs the **Manage Threads** permission.
 
 ## Environment variables
 

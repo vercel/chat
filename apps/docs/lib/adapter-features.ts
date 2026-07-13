@@ -40,6 +40,7 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
       { key: "linkButtons", label: "Link buttons" },
       { key: "selectMenus", label: "Select menus" },
       { key: "tables", label: "Tables" },
+      { key: "charts", label: "Charts" },
       { key: "fields", label: "Fields" },
       { key: "imagesInCards", label: "Images in cards" },
       { key: "modals", label: "Modals" },

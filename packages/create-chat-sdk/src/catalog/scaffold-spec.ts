@@ -135,6 +135,16 @@ export const CLI_SCAFFOLD_SPEC = {
   "cloudflare-agents": {
     invocation: { kind: "zero-arg" },
   },
+  dial: {
+    invocation: {
+      kind: "object",
+      properties: [
+        { key: "apiKey", value: env("DIAL_API_KEY") },
+        { key: "fromNumberId", value: env("DIAL_FROM_NUMBER_ID") },
+        { key: "webhookSecret", value: env("DIAL_WEBHOOK_SECRET") },
+      ],
+    },
+  },
   discord: {
     invocation: { kind: "zero-arg" },
     serverExternalPackages: [
@@ -314,6 +324,9 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "web-server" },
   },
   whatsapp: {
+    invocation: { kind: "zero-arg" },
+  },
+  x: {
     invocation: { kind: "zero-arg" },
   },
   zernio: {
