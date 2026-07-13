@@ -12,8 +12,8 @@ mdxBody: true
 features:
   postMessage: yes
   threadedReplies:
-    status: yes
-    label: Native quoted replies on iMessage; regular message on SMS
+    status: partial
+    label: Inbound replies carry their target message; no outbound quote primitive in Chat SDK
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -48,12 +48,14 @@ features:
   customApiEndpoint:
     status: yes
     label: apiBaseUrl override
-  fetchMessages: no
+  fetchMessages:
+    status: partial
+    label: Backfills from the account's 100 most recent messages; no pagination
   fetchSingleMessage: no
   fetchThreadInfo: yes
   fetchChannelMessages: no
   listThreads: no
-  fetchChannelInfo: no
+  fetchChannelInfo: yes
   postChannelMessage: no
 ---
 
