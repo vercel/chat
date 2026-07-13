@@ -140,6 +140,8 @@ import type {
   SlackAdapterMode,
   SlackBotToken,
   SlackInstallation,
+  SlackSuggestedPrompts,
+  SlackSuggestedPromptsContext,
 } from "./types";
 
 export type {
@@ -147,7 +149,14 @@ export type {
   SlackAdapterMode,
   SlackBotToken,
   SlackInstallation,
+  SlackSuggestedPrompt,
+  SlackSuggestedPrompts,
+  SlackSuggestedPromptsContext,
+  SlackSuggestedPromptsOptions,
 } from "./types";
+
+/** Slack displays at most this many suggested prompts per thread. */
+const MAX_SUGGESTED_PROMPTS = 4;
 
 /**
  * Normalize a SlackBotToken config value to a resolver function, or undefined
@@ -488,6 +497,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Socket mode support
   protected readonly appToken: string | undefined;
   protected readonly agentView: boolean;
+  protected readonly suggestedPrompts?: SlackSuggestedPrompts;
+  protected readonly loadingMessages?: string[];
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
@@ -649,6 +660,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.appToken = config.appToken;
     this.agentView = config.agentView ?? false;
+    this.suggestedPrompts = config.suggestedPrompts;
+    this.loadingMessages = config.loadingMessages;
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -2389,6 +2402,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       threadTs: thread_ts,
     });
 
+    // Apply configured suggested prompts for the new assistant thread. The
+    // task starts inside the request scope so the multi-workspace token
+    // context propagates; it catches internally, so it is safe without a
+    // waitUntil (fire-and-forget under socket mode).
+    const promptsTask = this.applyConfiguredSuggestedPrompts({
+      channelId: channel_id,
+      enterpriseId: context.enterprise_id,
+      teamId: context.team_id,
+      threadTs: thread_ts,
+      userId: user_id,
+    });
+    options?.waitUntil?.(promptsTask);
+
     this.chat.processAssistantThreadStarted(
       {
         threadId,
@@ -2468,6 +2494,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         "Chat instance not initialized, ignoring app_home_opened"
       );
       return;
+    }
+
+    // Under agent_view, a Messages-tab open is the thread-open signal —
+    // apply configured suggested prompts (no thread_ts; they pin at the top
+    // of the agent conversation). Legacy assistant_view prompts flow through
+    // assistant_thread_started instead.
+    if (this.agentView && event.tab === "messages") {
+      const promptsTask = this.applyConfiguredSuggestedPrompts({
+        channelId: event.channel,
+        userId: event.user,
+        ...(event.context
+          ? { entities: normalizeAppContextEntities(event.context) }
+          : {}),
+      });
+      options?.waitUntil?.(promptsTask);
     }
 
     this.chat.processAppHomeOpened(
@@ -2592,8 +2633,52 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
+   * Resolve and apply the configured `suggestedPrompts` for a newly opened
+   * assistant/agent thread. Errors are logged, never thrown — this runs on
+   * the webhook path where a failure must not turn into a 500.
+   */
+  protected async applyConfiguredSuggestedPrompts(
+    context: SlackSuggestedPromptsContext
+  ): Promise<void> {
+    if (!this.suggestedPrompts) {
+      return;
+    }
+    try {
+      const resolved =
+        typeof this.suggestedPrompts === "function"
+          ? await this.suggestedPrompts(context)
+          : this.suggestedPrompts;
+      if (!resolved || resolved.prompts.length === 0) {
+        return;
+      }
+      let prompts = resolved.prompts;
+      if (prompts.length > MAX_SUGGESTED_PROMPTS) {
+        this.logger.warn(
+          `Slack shows at most ${MAX_SUGGESTED_PROMPTS} suggested prompts; dropping the rest`,
+          { configured: prompts.length }
+        );
+        prompts = prompts.slice(0, MAX_SUGGESTED_PROMPTS);
+      }
+      await this.setSuggestedPrompts(
+        context.channelId,
+        context.threadTs,
+        prompts,
+        resolved.title
+      );
+    } catch (error) {
+      this.logger.warn("Failed to apply configured suggested prompts", {
+        channelId: context.channelId,
+        error,
+      });
+    }
+  }
+
+  /**
    * Set status/thinking indicator for an assistant thread.
    * Slack Assistants API: assistant.threads.setStatus
+   *
+   * When `loadingMessages` is omitted, falls back to the adapter-level
+   * `loadingMessages` config.
    */
   async setAssistantStatus(
     channelId: string,
@@ -2601,12 +2686,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     status: string,
     loadingMessages?: string[]
   ): Promise<void> {
+    const effectiveLoadingMessages = loadingMessages ?? this.loadingMessages;
     await this._client.assistant.threads.setStatus(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
         status,
-        ...(loadingMessages && { loading_messages: loadingMessages }),
+        ...(effectiveLoadingMessages && {
+          loading_messages: effectiveLoadingMessages,
+        }),
       })
     );
   }
@@ -4023,12 +4111,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       status,
     });
     try {
+      const loadingMessages = status
+        ? [status]
+        : (this.loadingMessages ?? ["Typing..."]);
       await this._client.assistant.threads.setStatus(
         await this.withToken({
           channel_id: channel,
           thread_ts: threadTs,
-          status: status ?? "Typing...",
-          loading_messages: [status ?? "Typing..."],
+          status: status ?? this.loadingMessages?.[0] ?? "Typing...",
+          loading_messages: loadingMessages,
         })
       );
     } catch (error) {
@@ -5120,7 +5211,9 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
     installationProvider: config?.installationProvider,
+    loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
+    suggestedPrompts: config?.suggestedPrompts,
     socketForwardingSecret:
       config?.socketForwardingSecret ??
       process.env.SLACK_SOCKET_FORWARDING_SECRET,

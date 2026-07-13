@@ -6118,6 +6118,320 @@ describe("publishHomeView", () => {
 });
 
 // ============================================================================
+// Configured suggestedPrompts / loadingMessages Tests
+// ============================================================================
+
+describe("configured suggestedPrompts", () => {
+  const secret = "test-signing-secret";
+
+  const assistantThreadStartedBody = () =>
+    JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "assistant_thread_started",
+        event_ts: "1234567890.000000",
+        assistant_thread: {
+          user_id: "U_USER",
+          channel_id: "D_ASSISTANT",
+          thread_ts: "1234567890.111111",
+          context: { channel_id: "C_CONTEXT", team_id: "T123" },
+        },
+      },
+    });
+
+  const homeOpenedBody = (tab: string, context?: unknown) =>
+    JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "app_home_opened",
+        user: "U_USER",
+        channel: "D1",
+        tab,
+        event_ts: "1.2",
+        ...(context ? { context } : {}),
+      },
+    });
+
+  async function setup(config: Parameters<typeof createSlackAdapter>[0]) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+      ...config,
+    });
+    const chatInstance = {
+      ...createMockChatInstance({ state: createMockState() }),
+      processAssistantThreadStarted: vi.fn(),
+    };
+    await adapter.initialize(chatInstance);
+    const setPrompts = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setSuggestedPrompts",
+      setPrompts
+    );
+    return { adapter, setPrompts };
+  }
+
+  async function dispatch(adapter: SlackAdapter, body: string) {
+    const tasks: Promise<unknown>[] = [];
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret),
+      {
+        waitUntil: (p) => {
+          tasks.push(p);
+        },
+      }
+    );
+    await Promise.all(tasks);
+    return response;
+  }
+
+  it("applies static prompts on assistant_thread_started (legacy assistant_view)", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: {
+        title: "Welcome!",
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      },
+    });
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel_id: "D_ASSISTANT",
+        thread_ts: "1234567890.111111",
+        title: "Welcome!",
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      })
+    );
+  });
+
+  it("applies prompts on Messages-tab app_home_opened under agentView, without thread_ts", async () => {
+    const { adapter, setPrompts } = await setup({
+      agentView: true,
+      suggestedPrompts: {
+        prompts: [{ title: "Summarize", message: "Summarize this channel" }],
+      },
+    });
+
+    await dispatch(adapter, homeOpenedBody("messages"));
+
+    expect(setPrompts).toHaveBeenCalledTimes(1);
+    const [arg] = setPrompts.mock.calls[0];
+    expect(arg).toMatchObject({ channel_id: "D1" });
+    expect(arg).not.toHaveProperty("thread_ts");
+  });
+
+  it("does not apply prompts on a Home-tab open under agentView", async () => {
+    const { adapter, setPrompts } = await setup({
+      agentView: true,
+      suggestedPrompts: {
+        prompts: [{ title: "Summarize", message: "Summarize this channel" }],
+      },
+    });
+
+    await dispatch(adapter, homeOpenedBody("home"));
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when suggestedPrompts is not configured", async () => {
+    const { adapter, setPrompts } = await setup({});
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("invokes a dynamic resolver with thread context", async () => {
+    const resolver = vi.fn().mockResolvedValue({
+      prompts: [{ title: "Dynamic", message: "Resolved per thread" }],
+    });
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: resolver,
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "D_ASSISTANT",
+        threadTs: "1234567890.111111",
+        userId: "U_USER",
+        teamId: "T123",
+      })
+    );
+    expect(setPrompts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompts: [{ title: "Dynamic", message: "Resolved per thread" }],
+      })
+    );
+  });
+
+  it("passes active-view entities to the resolver under agentView", async () => {
+    const resolver = vi.fn().mockResolvedValue(null);
+    const { adapter } = await setup({
+      agentView: true,
+      suggestedPrompts: resolver,
+    });
+
+    await dispatch(
+      adapter,
+      homeOpenedBody("messages", {
+        entities: [
+          { type: "slack#/types/channel_id", value: "C42", team_id: "T123" },
+        ],
+      })
+    );
+
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "D1",
+        entities: [
+          expect.objectContaining({ kind: "channel", channelId: "C42" }),
+        ],
+      })
+    );
+  });
+
+  it("skips setting prompts when the resolver returns null", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: () => null,
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("truncates to Slack's 4-prompt limit with a warning", async () => {
+    const prompts = Array.from({ length: 6 }, (_, i) => ({
+      title: `P${i}`,
+      message: `M${i}`,
+    }));
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: { prompts },
+    });
+
+    await dispatch(adapter, assistantThreadStartedBody());
+
+    const [arg] = setPrompts.mock.calls[0];
+    expect(arg.prompts).toHaveLength(4);
+    expect(arg.prompts[3]).toEqual({ title: "P3", message: "M3" });
+  });
+
+  it("logs and keeps the webhook green when the resolver throws", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: () => {
+        throw new Error("resolver blew up");
+      },
+    });
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).not.toHaveBeenCalled();
+  });
+
+  it("logs and keeps the webhook green when the API call fails", async () => {
+    const { adapter, setPrompts } = await setup({
+      suggestedPrompts: {
+        prompts: [{ title: "Ideas", message: "Generate ideas" }],
+      },
+    });
+    setPrompts.mockRejectedValue(new Error("slack down"));
+
+    const response = await dispatch(adapter, assistantThreadStartedBody());
+
+    expect(response.status).toBe(200);
+    expect(setPrompts).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("configured loadingMessages", () => {
+  const secret = "test-signing-secret";
+
+  function setupAdapter(loadingMessages?: string[]) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      loadingMessages,
+    });
+    const setStatus = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "assistant.threads.setStatus", setStatus);
+    return { adapter, setStatus };
+  }
+
+  it("startTyping uses configured loading messages by default", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking...", "Digging..."]);
+
+    await adapter.startTyping("slack:D1:1.2");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Thinking...",
+        loading_messages: ["Thinking...", "Digging..."],
+      })
+    );
+  });
+
+  it("startTyping prefers an explicit status over configured messages", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.startTyping("slack:D1:1.2", "Searching docs...");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Searching docs...",
+        loading_messages: ["Searching docs..."],
+      })
+    );
+  });
+
+  it("setAssistantStatus falls back to configured loading messages", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.setAssistantStatus("D1", "1.2", "working");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "working",
+        loading_messages: ["Thinking..."],
+      })
+    );
+  });
+
+  it("setAssistantStatus explicit loadingMessages win over config", async () => {
+    const { adapter, setStatus } = setupAdapter(["Thinking..."]);
+
+    await adapter.setAssistantStatus("D1", "1.2", "working", ["Custom..."]);
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ loading_messages: ["Custom..."] })
+    );
+  });
+
+  it("startTyping keeps the Typing... default without config", async () => {
+    const { adapter, setStatus } = setupAdapter();
+
+    await adapter.startTyping("slack:D1:1.2");
+
+    expect(setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "Typing...",
+        loading_messages: ["Typing..."],
+      })
+    );
+  });
+});
+
+// ============================================================================
 // setSuggestedPrompts Tests
 // ============================================================================
 

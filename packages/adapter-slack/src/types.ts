@@ -3,7 +3,7 @@
  */
 
 import type { WebClientOptions } from "@slack/web-api";
-import type { Logger } from "chat";
+import type { AppContextEntity, Logger } from "chat";
 import type { SlackWebhookVerifier } from "./webhook/index";
 
 export type SlackAdapterMode = "webhook" | "socket";
@@ -21,6 +21,53 @@ export interface SlackInstallation {
   botUserId?: string;
   teamName?: string;
 }
+
+/** A single suggested prompt shown in an assistant/agent thread. */
+export interface SlackSuggestedPrompt {
+  /** Full prompt text sent as the user's message when the prompt is clicked. */
+  message: string;
+  /** Short label shown on the prompt button. */
+  title: string;
+}
+
+/** Suggested prompts payload applied when an assistant/agent thread opens. */
+export interface SlackSuggestedPromptsOptions {
+  /** The prompts to display. Slack shows at most 4. */
+  prompts: SlackSuggestedPrompt[];
+  /** Optional heading shown above the prompts. */
+  title?: string;
+}
+
+/** Context passed to a dynamic `suggestedPrompts` resolver. */
+export interface SlackSuggestedPromptsContext {
+  /** The DM channel the assistant/agent thread lives in. */
+  channelId: string;
+  /** Enterprise the user opened the thread from (legacy assistant_view). */
+  enterpriseId?: string;
+  /** Active-view context entities (agent_view, when Slack folds context in). */
+  entities?: AppContextEntity[];
+  /** Team the user opened the thread from (legacy assistant_view). */
+  teamId?: string;
+  /** Assistant thread root (legacy assistant_view; absent under agent_view). */
+  threadTs?: string;
+  /** The user who opened the thread. */
+  userId: string;
+}
+
+/**
+ * Suggested prompts configuration: a static payload, or a resolver invoked
+ * each time an assistant/agent thread opens. Return null/undefined from the
+ * resolver to skip setting prompts for that thread.
+ */
+export type SlackSuggestedPrompts =
+  | SlackSuggestedPromptsOptions
+  | ((
+      context: SlackSuggestedPromptsContext
+    ) =>
+      | SlackSuggestedPromptsOptions
+      | null
+      | undefined
+      | Promise<SlackSuggestedPromptsOptions | null | undefined>);
 
 export interface SlackAdapterConfig {
   /**
@@ -70,6 +117,12 @@ export interface SlackAdapterConfig {
       isEnterpriseInstall: boolean
     ) => Promise<SlackInstallation | null>;
   };
+  /**
+   * Default rotating loading messages for the assistant thinking indicator
+   * (`assistant.threads.setStatus` `loading_messages`). Used by `startTyping`
+   * and `setAssistantStatus` when no explicit status/messages are passed.
+   */
+  loadingMessages?: string[];
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Connection mode: "webhook" (default) or "socket" */
@@ -78,6 +131,15 @@ export interface SlackAdapterConfig {
   signingSecret?: string;
   /** Shared secret for authenticating forwarded socket mode events. Auto-detected from SLACK_SOCKET_FORWARDING_SECRET. Falls back to appToken if not set. */
   socketForwardingSecret?: string;
+  /**
+   * Suggested prompts to pin automatically when an assistant/agent thread
+   * opens. Applied on `assistant_thread_started` (legacy `assistant_view`)
+   * and on Messages-tab `app_home_opened` (with `agentView` enabled, where
+   * prompts sit at the top of the agent conversation). Pass a static payload
+   * or a resolver that receives the thread context (user, channel,
+   * active-view entities) and returns prompts per thread.
+   */
+  suggestedPrompts?: SlackSuggestedPrompts;
   /** Override bot username (optional) */
   userName?: string;
   /**
