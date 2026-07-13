@@ -83,17 +83,17 @@ bot.onNewMention(async (thread, message) => {
     botToken: {
       type: "string | () => string | Promise<string>",
       description:
-        "Bot token (`xoxb-...`) or a resolver function for rotation / lazy fetch. Auto-detected from `SLACK_BOT_TOKEN`.",
+        "Bot token (xoxb-...) or a resolver function for rotation / lazy fetch. Auto-detected from SLACK_BOT_TOKEN.",
     },
     signingSecret: {
       type: "string",
       description:
-        "Signing secret for webhook verification. Auto-detected from `SLACK_SIGNING_SECRET`.",
+        "Signing secret for webhook verification. Auto-detected from SLACK_SIGNING_SECRET.",
     },
     webhookVerifier: {
       type: "(request, body) => unknown | Promise<unknown>",
       description:
-        "Custom verifier used in place of `signingSecret`. Returning a string substitutes the verified body downstream.",
+        "Custom verifier used in place of signingSecret. Returning a string substitutes the verified body downstream.",
     },
     mode: {
       type: '"webhook" | "socket"',
@@ -103,33 +103,60 @@ bot.onNewMention(async (thread, message) => {
     appToken: {
       type: "string",
       description:
-        "App-level token (`xapp-...`) for socket mode. Auto-detected from `SLACK_APP_TOKEN`.",
+        "App-level token (xapp-...) for socket mode. Auto-detected from SLACK_APP_TOKEN.",
     },
     clientId: {
       type: "string",
       description:
-        "App client ID for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_ID`.",
+        "App client ID for multi-workspace OAuth. Auto-detected from SLACK_CLIENT_ID.",
     },
     clientSecret: {
       type: "string",
       description:
-        "App client secret for multi-workspace OAuth. Auto-detected from `SLACK_CLIENT_SECRET`.",
+        "App client secret for multi-workspace OAuth. Auto-detected from SLACK_CLIENT_SECRET.",
     },
     encryptionKey: {
       type: "string",
       description:
-        "AES-256-GCM key for encrypting stored tokens. Auto-detected from `SLACK_ENCRYPTION_KEY`.",
+        "AES-256-GCM key for encrypting stored tokens. Auto-detected from SLACK_ENCRYPTION_KEY.",
     },
     installationKeyPrefix: {
       type: "string",
       default: '"slack:installation"',
       description:
-        "Prefix for the state key used to store workspace installations. Full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for org-wide installs).",
+        "Prefix for the state key used to store workspace installations. Full key is {prefix}:{teamId}, or {prefix}:{enterpriseId} for org-wide installs.",
     },
     installationProvider: {
       type: "{ getInstallation(installationId, isEnterpriseInstall) }",
       description:
         "External installation lookup. When set, bypasses the internal state adapter for token resolution. Read-only — manage your own writes externally.",
+    },
+    agentView: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Enable the Agent messaging experience (agent_view manifest mode).",
+    },
+    suggestedPrompts: {
+      type: "SlackSuggestedPrompts",
+      description:
+        "Static payload or per-thread resolver for prompts pinned when an assistant/agent thread opens.",
+    },
+    loadingMessages: {
+      type: "string[]",
+      description:
+        "Default rotating status strings for the assistant thinking indicator, used by startTyping and setAssistantStatus when no explicit status is passed.",
+    },
+    nativeStreaming: {
+      type: "boolean",
+      default: "true",
+      description:
+        "Use Slack's native streaming API for streamed posts. Set false to always stream via post-and-edit.",
+    },
+    feedbackButtons: {
+      type: "boolean | SlackFeedbackButtonsOptions",
+      description:
+        "Append native thumbs up/down to every streamed reply; clicks dispatch to bot.onAction.",
     },
     apiUrl: {
       type: "string",
@@ -237,6 +264,169 @@ If your app already owns routing, state, sessions, or workflow execution, use th
 The `@chat-adapter/slack/webhook`, `@chat-adapter/slack/format`, `@chat-adapter/slack/api`, and `@chat-adapter/slack/blocks` subpaths expose request verification, payload parsing, mrkdwn helpers, fetch-based Web API calls, and Block Kit conversion without importing the full `Chat` runtime.
 
 ## Advanced
+
+### Agents
+
+Everything for building an AI agent on Slack: the Agent messaging experience (`agent_view`), the Assistants API (suggested prompts, status, titles), native streaming, and feedback buttons.
+
+#### Agent messaging experience
+
+Slack's Agent messaging experience (`agent_view` manifest mode) supersedes the older `assistant_view`. New Slack apps can only use `agent_view`. Enable it on the adapter:
+
+```typescript
+const slack = createSlackAdapter({ agentView: true });
+```
+
+With `agentView: true`:
+
+- `onAppHomeOpened` is the DM-open signal (Slack no longer signals DM-open via `assistant_thread_started` under `agent_view`), and it fires regardless of the opened tab — branch on `event.tab` (`"home"` vs `"messages"`) if you also publish a Home view.
+- `onAppContextChanged` reports the user's active view (see [Handling active-view context](/docs/handling-events#handling-active-view-context-agent-messaging)).
+- `getAppContext(message)` returns the folded active-view context on a DM message.
+- `setSuggestedPrompts(channelId, undefined, prompts)` may omit the thread reference — prompts sit at the top of the agent conversation. A `suggestedPrompts` config entry is applied automatically on every Messages-tab open.
+- DM messages are threaded per Slack's model (each user message is a thread root). Threads returned by `openDM()` keep working: when the conversation-scoped thread is subscribed, incoming top-level DM messages route to it, so `onSubscribedMessage` and per-thread state behave as before.
+
+<Callout type="warn">
+Because bot replies are threaded under each user message, channel-level history (`channel.messages`, `conversations.history`) only returns the user's side of a DM conversation. If you build AI conversation history for DMs, use [transcripts](/docs/conversation-history) (which record both roles across thread IDs) instead of channel history — otherwise the model never sees its own previous replies.
+</Callout>
+
+Add the event subscription and scope to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_home_opened
+      - app_context_changed
+```
+
+#### Slack Assistants API
+
+The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai). Register handlers on the `Chat` instance:
+
+```typescript
+bot.onAssistantThreadStarted(async (event) => {
+  const slack = bot.getAdapter("slack");
+  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
+    { title: "Summarize", message: "Summarize this channel" },
+    { title: "Draft", message: "Help me draft a message" },
+  ]);
+});
+
+bot.onAssistantContextChanged(async (event) => {
+  // User navigated to a different channel
+});
+```
+
+Instead of wiring the handler yourself, you can configure prompts declaratively — the adapter applies them automatically whenever an assistant/agent thread opens (`assistant_thread_started` in legacy mode, or a Messages-tab open with [`agentView`](#agent-messaging-experience) enabled):
+
+```typescript
+const slack = createSlackAdapter({
+  suggestedPrompts: {
+    title: "Welcome! What can I do for you?",
+    prompts: [
+      { title: "Summarize", message: "Summarize this channel" },
+      { title: "Draft", message: "Help me draft a message" },
+    ],
+  },
+  // Rotating status strings shown while the bot is thinking
+  loadingMessages: ["Thinking...", "Digging through the archives..."],
+});
+```
+
+`suggestedPrompts` also accepts an async resolver, called per thread-open with the thread context (`channelId`, `userId`, `threadTs` in legacy mode, active-view `entities` under `agentView`). Return `null` to skip a thread. Slack shows at most 4 prompts.
+
+```typescript
+const slack = createSlackAdapter({
+  agentView: true,
+  suggestedPrompts: async ({ userId, entities }) => ({
+    prompts: entities?.some((e) => e.kind === "channel")
+      ? [{ title: "Summarize", message: "Summarize the channel I'm viewing" }]
+      : [{ title: "Catch me up", message: "What did I miss today?" }],
+  }),
+});
+```
+
+`loadingMessages` becomes the default for `startTyping(threadId)` and `setAssistantStatus(...)` when no explicit status/messages are passed.
+
+The `SlackAdapter` exposes:
+
+| Method | Description |
+|--------|-------------|
+| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
+| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
+| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
+| `publishHomeView(userId, view)` | Publish a Home tab view for a user |
+| `startTyping(threadId, status)` | Show a custom loading status (requires `assistant:write`) |
+
+Add these scopes/events to your manifest:
+
+```yaml
+oauth_config:
+  scopes:
+    bot:
+      - assistant:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - assistant_thread_started
+      - assistant_thread_context_changed
+```
+
+When streaming in an assistant thread, attach Block Kit elements to the final message via `StreamingPlan`'s `endWith` option:
+
+```typescript
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(textStream, {
+    endWith: [
+      {
+        type: "actions",
+        elements: [
+          { type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" },
+        ],
+      },
+    ],
+  })
+);
+```
+
+#### Native streaming
+
+Streamed posts (`thread.post(asyncIterable)`) use Slack's native streaming API (`chat.startStream` / `chat.appendStream` / `chat.stopStream`) whenever the thread has streaming context: any DM thread, or a channel thread where the recipient user/team is known (derived automatically from the incoming message). Structured `task_update` / `plan_update` chunks render as native task cards, and plain text renders token-by-token with safe incremental markdown.
+
+Threads without streaming context fall back to post-and-edit (`chat.update` deltas) automatically. If the workspace rejects the first native call — for example on Slack flavours without the streaming methods, like GovSlack — the adapter falls back to post-and-edit mid-stream without losing content, and skips the native attempt on subsequent streams when the error is permanent (e.g. `unknown_method`). To skip native streaming entirely:
+
+```typescript
+const slack = createSlackAdapter({ nativeStreaming: false });
+```
+
+#### Feedback buttons
+
+Slack's agent UX guidance recommends native thumbs up/down feedback on agent replies (a `context_actions` block with a `feedback_buttons` element). Configure `feedbackButtons` and the adapter appends them to every streamed reply when the stream finishes:
+
+```typescript
+const slack = createSlackAdapter({
+  feedbackButtons: true, // or customize:
+  // feedbackButtons: {
+  //   actionId: "ai_feedback",
+  //   positiveLabel: "Helpful", positiveValue: "up",
+  //   negativeLabel: "Not helpful", negativeValue: "down",
+  // },
+});
+
+bot.onAction("message_feedback", async (event) => {
+  await recordFeedback(event.threadId, event.messageId, event.value); // "positive" | "negative"
+});
+```
+
+Clicks dispatch through the regular action flow with the configured `actionId` (default `"message_feedback"`). For non-streamed messages, build the same block with the exported `buildFeedbackButtonsBlock(options?)` helper and attach it via raw blocks. Feedback buttons are skipped when a stream falls back to post-and-edit.
 
 ### Slack app manifest
 
@@ -422,103 +612,6 @@ export async function GET(request: Request) {
 ```
 
 Forwarded events are authenticated using `socketForwardingSecret` (defaults to `SLACK_SOCKET_FORWARDING_SECRET`, falling back to `appToken`).
-
-### Slack Assistants API
-
-The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai). Register handlers on the `Chat` instance:
-
-```typescript
-bot.onAssistantThreadStarted(async (event) => {
-  const slack = bot.getAdapter("slack");
-  await slack.setSuggestedPrompts(event.channelId, event.threadTs, [
-    { title: "Summarize", message: "Summarize this channel" },
-    { title: "Draft", message: "Help me draft a message" },
-  ]);
-});
-
-bot.onAssistantContextChanged(async (event) => {
-  // User navigated to a different channel
-});
-```
-
-The `SlackAdapter` exposes:
-
-| Method | Description |
-|--------|-------------|
-| `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
-| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
-| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
-| `publishHomeView(userId, view)` | Publish a Home tab view for a user |
-| `startTyping(threadId, status)` | Show a custom loading status (requires `assistant:write`) |
-
-Add these scopes/events to your manifest:
-
-```yaml
-oauth_config:
-  scopes:
-    bot:
-      - assistant:write
-
-settings:
-  event_subscriptions:
-    bot_events:
-      - assistant_thread_started
-      - assistant_thread_context_changed
-```
-
-When streaming in an assistant thread, attach Block Kit elements to the final message via `StreamingPlan`'s `endWith` option:
-
-```typescript
-import { StreamingPlan } from "chat";
-
-await thread.post(
-  new StreamingPlan(textStream, {
-    endWith: [
-      {
-        type: "actions",
-        elements: [
-          { type: "button", text: { type: "plain_text", text: "Retry" }, action_id: "retry" },
-        ],
-      },
-    ],
-  })
-);
-```
-
-### Agent messaging experience
-
-Slack's Agent messaging experience (`agent_view` manifest mode) supersedes the older `assistant_view`. New Slack apps can only use `agent_view`. Enable it on the adapter:
-
-```typescript
-const slack = createSlackAdapter({ agentView: true });
-```
-
-With `agentView: true`:
-
-- `onAppHomeOpened` is the DM-open signal (Slack no longer signals DM-open via `assistant_thread_started` under `agent_view`), and it fires regardless of the opened tab — branch on `event.tab` (`"home"` vs `"messages"`) if you also publish a Home view.
-- `onAppContextChanged` reports the user's active view (see [Handling active-view context](/docs/handling-events#handling-active-view-context-agent-messaging)).
-- `getAppContext(message)` returns the folded active-view context on a DM message.
-- `setSuggestedPrompts(channelId, undefined, prompts)` may omit the thread reference — prompts sit at the top of the agent conversation.
-- DM messages are threaded per Slack's model (each user message is a thread root). Threads returned by `openDM()` keep working: when the conversation-scoped thread is subscribed, incoming top-level DM messages route to it, so `onSubscribedMessage` and per-thread state behave as before.
-
-<Callout type="warn">
-Because bot replies are threaded under each user message, channel-level history (`channel.messages`, `conversations.history`) only returns the user's side of a DM conversation. If you build AI conversation history for DMs, use [transcripts](/docs/conversation-history) (which record both roles across thread IDs) instead of channel history — otherwise the model never sees its own previous replies.
-</Callout>
-
-Add the event subscription and scope to your manifest:
-
-```yaml
-oauth_config:
-  scopes:
-    bot:
-      - assistant:write
-
-settings:
-  event_subscriptions:
-    bot_events:
-      - app_home_opened
-      - app_context_changed
-```
 
 ## Feature support
 
