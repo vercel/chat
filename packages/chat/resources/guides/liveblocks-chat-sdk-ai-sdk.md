@@ -29,7 +29,7 @@ Before you begin, make sure you have:
 
 The `@liveblocks/chat-sdk-adapter` connects Chat SDK to Liveblocks' webhook system. You register event handlers (like `onNewMention` and `onReaction`) and the adapter routes incoming webhook payloads to them. It handles signature verification, parses comment and reaction events, and exposes a consistent thread API for posting replies or adding emoji reactions.
 
-AI SDK's `ToolLoopAgent` wraps a language model with tools and runs an autonomous loop: the model generates text or calls a tool, the SDK executes the tool, feeds the result back, and repeats until the model finishes. When you pass a model string like `"anthropic/claude-sonnet-4-6"` and host your application on Vercel, the AI SDK routes the request through the [Vercel AI Gateway](https://vercel.com/ai-gateway) automatically. Chat SDK accepts any `AsyncIterable<string>` as a message, so you can pass the agent's `fullStream` directly to `thread.post()` for real-time streaming in Liveblocks threads.
+AI SDK's `ToolLoopAgent` wraps a language model with tools and runs an autonomous loop: the model generates text or calls a tool, the SDK executes the tool, feeds the result back, and repeats until the model finishes. When you pass a model string like `"xai/grok-4.5"` and host your application on Vercel, the AI SDK routes the request through the [Vercel AI Gateway](https://vercel.com/ai-gateway) automatically. Chat SDK accepts any `AsyncIterable<string>` as a message, so you can pass the agent's `fullStream` directly to `thread.post()` for real-time streaming in Liveblocks threads.
 
 The [Redis state adapter](https://chat-sdk.dev/adapters/official/redis) tracks which threads the bot has subscribed to, so follow-up messages in the same thread are handled automatically after the first mention.
 
@@ -42,8 +42,6 @@ Before continuing, make sure you have a React app with Liveblocks Comments up an
 ### 2\. Install Liveblocks, Chat SDK, and AI SDK
 
 Install the Liveblocks adapter, Chat SDK, AI SDK, and other related packages:
-
-`npm install @liveblocks/chat-sdk-adapter @liveblocks/node chat @chat-adapter/state-redis ai zod`
 
 The `chat` package is the Chat SDK core. `@liveblocks/chat-sdk-adapter` is the Liveblocks platform adapter. `ai` is the AI SDK, which includes `ToolLoopAgent`. `zod` is used to define tool input schemas. `@chat-adapter/state-redis` is the [Redis state adapter,](https://chat-sdk.dev/adapters/official/redis) which handles thread subscriptions and distributed locking.
 
@@ -89,7 +87,7 @@ Create `app/tools.ts` with the tools your agent can call. Each tool has a `descr
 
 Create `app/bot.ts` with a `ToolLoopAgent` and a `Chat` instance. The agent is configured with a model, a system prompt, and your tools. The bot wires the Liveblocks adapter and Redis state to your event handlers:
 
-`import { Chat } from "chat"; import { createLiveblocksAdapter, LiveblocksAdapter, } from "@liveblocks/chat-sdk-adapter"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { BOT_USER_ID, BOT_USER_NAME, getUser } from "./database"; import { tools } from "./tools"; const agent = new ToolLoopAgent({ model: "anthropic/claude-sonnet-4-6", instructions: "You are a helpful assistant in a Liveblocks comment thread. " + "Answer questions clearly and use your tools when you need " + "up-to-date information. Keep responses concise.", tools, }); export const bot = new Chat<{ liveblocks: LiveblocksAdapter }>({ userName: BOT_USER_NAME, adapters: { liveblocks: createLiveblocksAdapter({ apiKey: process.env.LIVEBLOCKS_SECRET_KEY!, webhookSecret: process.env.LIVEBLOCKS_WEBHOOK_SECRET!, botUserId: BOT_USER_ID, botUserName: BOT_USER_NAME, resolveUsers: ({ userIds }) => { return userIds.map((id) => getUser(id)); }, }), }, state: createRedisState(), });`
+`import { Chat } from "chat"; import { createLiveblocksAdapter, LiveblocksAdapter, } from "@liveblocks/chat-sdk-adapter"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { BOT_USER_ID, BOT_USER_NAME, getUser } from "./database"; import { tools } from "./tools"; const agent = new ToolLoopAgent({ model: "xai/grok-4.5", instructions: "You are a helpful assistant in a Liveblocks comment thread. " + "Answer questions clearly and use your tools when you need " + "up-to-date information. Keep responses concise.", tools, }); export const bot = new Chat<{ liveblocks: LiveblocksAdapter }>({ userName: BOT_USER_NAME, adapters: { liveblocks: createLiveblocksAdapter({ apiKey: process.env.LIVEBLOCKS_SECRET_KEY!, webhookSecret: process.env.LIVEBLOCKS_WEBHOOK_SECRET!, botUserId: BOT_USER_ID, botUserName: BOT_USER_NAME, resolveUsers: ({ userIds }) => { return userIds.map((id) => getUser(id)); }, }), }, state: createRedisState(), });`
 
 ### 8\. Handle mentions and reactions
 

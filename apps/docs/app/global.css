@@ -1,6 +1,3 @@
-@import "tailwindcss";
+@import "@vercel/geistdocs/styles.css";
 @import "./styles/geistdocs.css";
-
-@source "../node_modules/streamdown/dist/*.js";
-@source "../node_modules/@streamdown/code/dist/*.js";
-@source "../node_modules/@streamdown/cjk/dist/*.js";
+@import "./styles/home-grid.css";

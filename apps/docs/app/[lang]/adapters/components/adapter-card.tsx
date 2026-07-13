@@ -24,6 +24,7 @@ import {
   twilio,
   web,
   whatsapp,
+  x,
 } from "@/lib/logos";
 
 const iconMap: Record<
@@ -32,7 +33,7 @@ const iconMap: Record<
 > = {
   slack,
   teams,
-  "google-chat": gchat,
+  gchat,
   discord,
   github,
   web,
@@ -45,6 +46,7 @@ const iconMap: Record<
   whatsapp,
   twilio,
   messenger,
+  x,
 };
 
 interface AdapterCardProps {

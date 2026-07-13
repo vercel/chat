@@ -17,8 +17,15 @@ describe("Chat SDK agent skill", () => {
       const skill = readFileSync(join(REPO_ROOT, skillPath), "utf-8");
 
       expect(skill).toContain("chat/adapters");
-      expect(skill).toContain("node_modules/chat/dist/adapters/index.d.ts");
       expect(skill).toContain("getSecretEnvVars");
+      expect(skill).toContain("chat-sdk.dev/llms.txt");
+    });
+
+    it(`${skillPath} points agents at create-chat-sdk help`, () => {
+      const skill = readFileSync(join(REPO_ROOT, skillPath), "utf-8");
+
+      expect(skill).toContain("npx create-chat-sdk --help");
+      expect(skill).toContain("license: MIT");
     });
   }
 });

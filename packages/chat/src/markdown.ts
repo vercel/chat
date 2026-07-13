@@ -26,7 +26,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
-import type { CardChild, CardElement } from "./cards";
+import type { CardChild, CardElement, ChartElement } from "./cards";
 import type { AdapterPostableMessage } from "./types";
 
 // Alias for use within this file
@@ -226,6 +226,34 @@ export function tableElementToAscii(
     lines.push(formatRow(row));
   }
   return lines.join("\n");
+}
+
+/**
+ * Render a chart element as text: the title followed by the underlying
+ * data as a padded ASCII table.
+ * Used for card ChartElement fallback rendering on platforms without
+ * native chart support.
+ */
+export function chartElementToFallbackText(element: ChartElement): string {
+  const { chart, title } = element;
+
+  if (chart.type === "pie") {
+    const table = tableElementToAscii(
+      ["Label", "Value"],
+      chart.segments.map((s) => [s.label, String(s.value)])
+    );
+    return `${title}\n${table}`;
+  }
+
+  const headers = [chart.xLabel ?? "", ...chart.series.map((s) => s.name)];
+  const rows = chart.categories.map((category) => [
+    category,
+    ...chart.series.map((s) => {
+      const point = s.data.find((p) => p.label === category);
+      return point ? String(point.value) : "";
+    }),
+  ]);
+  return `${title}\n${tableElementToAscii(headers, rows)}`;
 }
 
 // ============================================================================
@@ -654,6 +682,8 @@ export abstract class BaseFormatConverter implements FormatConverter {
         return null;
       case "table":
         return tableElementToAscii(child.headers, child.rows);
+      case "chart":
+        return chartElementToFallbackText(child);
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

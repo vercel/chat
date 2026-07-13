@@ -1,4 +1,4 @@
-import type { ToolExecutionOptions } from "ai";
+import type { Tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Chat } from "../chat";
 import {
@@ -15,11 +15,14 @@ const NO_FETCH_CHANNEL_MESSAGES_REGEX =
   /does not support fetching channel messages/;
 const NO_LIST_THREADS_REGEX = /does not support listing threads/;
 
-// Minimal ToolExecutionOptions stub used by every test below.
+// Minimal tool execution options stub used by every test below. Derived from
+// `Tool["execute"]` so the same code typechecks against both ai v6 and v7
+// (v7 made the `ToolExecutionOptions` generic parameter required).
+type ToolExecOptions = Parameters<NonNullable<Tool["execute"]>>[1];
 const TOOL_OPTIONS = {
   toolCallId: "t1",
   messages: [],
-} as unknown as ToolExecutionOptions;
+} as unknown as ToolExecOptions;
 
 describe("createChatTools", () => {
   let chat: Chat<{ slack: Adapter }>;

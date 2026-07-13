@@ -14,6 +14,12 @@ import type {
 /**
  * Discord adapter configuration.
  */
+// biome-ignore lint/style/noEnum: Public config uses an enum so callers do not pass raw string literals.
+export enum DiscordContentFormat {
+  ComponentsV2 = "componentsv2",
+  Embeds = "embeds",
+}
+
 export interface DiscordAdapterConfig {
   /** Override the Discord API base URL. Defaults to DISCORD_API_URL env var or "https://discord.com/api/v10". */
   apiUrl?: string;
@@ -21,14 +27,38 @@ export interface DiscordAdapterConfig {
   applicationId?: string;
   /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
   botToken?: string;
+  /** Render Discord card content as embeds or Components v2. Defaults to DiscordContentFormat.Embeds. */
+  contentFormat?: DiscordContentFormat;
+  /** Return interaction flags for the initial deferred slash command response. */
+  interactionFlags?: (
+    context: DiscordInteractionFlagsContext
+  ) => DiscordInteractionResponseFlags | undefined;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Role IDs that should trigger mention handlers (in addition to direct user mentions). Defaults to DISCORD_MENTION_ROLE_IDS env var (comma-separated). */
   mentionRoleIds?: string[];
   /** Discord application public key for webhook signature verification. Defaults to DISCORD_PUBLIC_KEY env var. */
   publicKey?: string;
+  /** Treat @everyone/@here pings as mentions of the bot. Defaults to false. */
+  respondToGlobalMentions?: boolean;
   /** Override bot username (optional) */
   userName?: string;
+}
+
+/**
+ * Context passed to the Discord adapter interactionFlags callback for slash commands.
+ */
+export interface DiscordInteractionFlagsContext {
+  /** Chat SDK channel ID where the command was invoked. */
+  channelId: string;
+  /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
+  command: string;
+  /** Raw Discord interaction payload. */
+  interaction: DiscordInteraction;
+  /** Flattened slash command option text. */
+  text: string;
+  /** User who invoked the command. */
+  user: DiscordUser;
 }
 
 /**
@@ -49,6 +79,7 @@ export interface DiscordThreadId {
  */
 export interface DiscordSlashCommandContext {
   channelId: string;
+  initialResponseFlags?: DiscordMessagePayload["flags"];
   initialResponseSent: boolean;
   interactionToken: string;
 }
@@ -132,6 +163,22 @@ export interface DiscordEmoji {
   name: string;
 }
 
+export const DiscordComponentType = {
+  ActionRow: 1,
+  Button: 2,
+  StringSelect: 3,
+  Section: 9,
+  TextDisplay: 10,
+  Thumbnail: 11,
+  MediaGallery: 12,
+  File: 13,
+  Separator: 14,
+  Container: 17,
+} as const;
+
+export type DiscordComponentTypeValue =
+  (typeof DiscordComponentType)[keyof typeof DiscordComponentType];
+
 /**
  * Discord button component.
  */
@@ -141,17 +188,107 @@ export interface DiscordButton {
   emoji?: DiscordEmoji;
   label?: string;
   style: ButtonStyle;
-  type: 2; // Component type for button
+  type: typeof DiscordComponentType.Button;
   url?: string;
 }
+
+/**
+ * Discord string select component.
+ */
+export interface DiscordStringSelect {
+  custom_id: string;
+  disabled?: boolean;
+  max_values?: number;
+  min_values?: number;
+  options: {
+    default?: boolean;
+    description?: string;
+    emoji?: DiscordEmoji;
+    label: string;
+    value: string;
+  }[];
+  placeholder?: string;
+  type: typeof DiscordComponentType.StringSelect;
+}
+
+export type DiscordActionRowComponent = DiscordButton | DiscordStringSelect;
 
 /**
  * Discord action row component.
  */
 export interface DiscordActionRow {
-  components: DiscordButton[];
-  type: 1; // Component type for action row
+  components: DiscordActionRowComponent[];
+  type: typeof DiscordComponentType.ActionRow;
 }
+
+export interface DiscordTextDisplay {
+  content: string;
+  type: typeof DiscordComponentType.TextDisplay;
+}
+
+export interface DiscordThumbnail {
+  description?: string;
+  media: {
+    url: string;
+  };
+  spoiler?: boolean;
+  type: typeof DiscordComponentType.Thumbnail;
+}
+
+export interface DiscordMediaGallery {
+  items: {
+    description?: string;
+    media: {
+      url: string;
+    };
+    spoiler?: boolean;
+  }[];
+  type: typeof DiscordComponentType.MediaGallery;
+}
+
+export interface DiscordFileComponent {
+  file: {
+    url: string;
+  };
+  spoiler?: boolean;
+  type: typeof DiscordComponentType.File;
+}
+
+export interface DiscordSeparator {
+  divider?: boolean;
+  spacing?: 1 | 2;
+  type: typeof DiscordComponentType.Separator;
+}
+
+export interface DiscordSection {
+  accessory: DiscordButton | DiscordThumbnail;
+  components: DiscordTextDisplay[];
+  type: typeof DiscordComponentType.Section;
+}
+
+export type DiscordContainerChild =
+  | DiscordActionRow
+  | DiscordFileComponent
+  | DiscordMediaGallery
+  | DiscordSection
+  | DiscordSeparator
+  | DiscordTextDisplay;
+
+export interface DiscordContainer {
+  accent_color?: number;
+  components: DiscordContainerChild[];
+  spoiler?: boolean;
+  type: typeof DiscordComponentType.Container;
+}
+
+export type DiscordMessageComponent =
+  | DiscordActionRow
+  | DiscordContainer
+  | DiscordFileComponent
+  | DiscordMediaGallery
+  | DiscordSection
+  | DiscordSeparator
+  | DiscordTextDisplay;
 
 /**
  * Discord message create payload.
@@ -168,14 +305,43 @@ export interface DiscordMessagePayload {
     filename: string;
     description?: string;
   }[];
-  components?: DiscordActionRow[];
-  content?: string;
+  components?: DiscordMessageComponent[];
+  content?: string | null;
   embeds?: APIEmbed[];
+  flags?: number;
   message_reference?: {
     message_id: string;
     fail_if_not_exists?: boolean;
   };
 }
+
+export const DiscordMessageFlag = {
+  Crossposted: 1,
+  IsCrosspost: 2,
+  SuppressEmbeds: 4,
+  SourceMessageDeleted: 8,
+  Urgent: 16,
+  HasThread: 32,
+  Ephemeral: 64,
+  Loading: 128,
+  FailedToMentionSomeRolesInThread: 256,
+  SuppressNotifications: 4096,
+  IsVoiceMessage: 8192,
+  HasSnapshot: 16_384,
+  IsComponentsV2: 32_768,
+} as const;
+
+export type DiscordMessageFlagValue =
+  (typeof DiscordMessageFlag)[keyof typeof DiscordMessageFlag];
+
+export type DiscordMessageFlags = DiscordMessageFlagValue;
+
+export const DiscordInteractionResponseFlag = {
+  Ephemeral: 64,
+} as const;
+
+export type DiscordInteractionResponseFlags =
+  (typeof DiscordInteractionResponseFlag)[keyof typeof DiscordInteractionResponseFlag];
 
 /**
  * Discord interaction response types.
@@ -259,6 +425,8 @@ export interface DiscordGatewayMessageData {
   id: string;
   /** Whether the bot was mentioned */
   is_mention?: boolean;
+  /** Whether the message pings @everyone or @here */
+  mention_everyone?: boolean;
   /** Role IDs mentioned in the message */
   mention_roles?: string[];
   /** Users mentioned in the message */

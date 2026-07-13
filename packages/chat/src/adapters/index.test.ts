@@ -9,6 +9,8 @@ import {
   getSecretEnvVars,
   isAdapterSlug,
   listEnvVars,
+  listPlatformAdapters,
+  listStateAdapters,
 } from "./index";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../..");
@@ -47,6 +49,7 @@ const PROCESS_ENV_PATTERN =
   /process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g;
 const RESOLVE_TWILIO_CREDENTIAL_PATTERN =
   /resolveTwilioCredential\([\s\S]*?["']([A-Z][A-Z0-9_]*)["']\s*\)/g;
+const FACTORY_EXPORT_PATTERN = /^create\w+$/;
 const BLOCK_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 const LINE_COMMENT_PATTERN = /(^|[^:])\/\/.*$/gm;
 const OFFICIAL_PEER_DEP_EXCLUSIONS = new Set(["chat", "@chat-adapter/shared"]);
@@ -131,9 +134,6 @@ const packageDependencies = (packageDir: string): Record<string, string> => {
 };
 
 const packageDirToSlug = (dirName: string): string => {
-  if (dirName === "adapter-gchat") {
-    return "google-chat";
-  }
   if (dirName === "state-pg") {
     return "postgres";
   }
@@ -152,6 +152,34 @@ describe("adapters catalog", () => {
 
   test("ADAPTER_NAMES is sorted and complete", () => {
     expect([...ADAPTER_NAMES]).toEqual(Object.keys(ADAPTERS).sort());
+  });
+
+  test("listPlatformAdapters returns only platform entries", () => {
+    const platforms = listPlatformAdapters();
+    expect(platforms.length).toBeGreaterThan(0);
+    expect(platforms.every((adapter) => adapter.type === "platform")).toBe(
+      true
+    );
+    expect(platforms.map((adapter) => adapter.slug)).toEqual(
+      ADAPTER_NAMES.filter((slug) => ADAPTERS[slug].type === "platform")
+    );
+  });
+
+  test("listStateAdapters returns only state entries", () => {
+    const states = listStateAdapters();
+    expect(states.length).toBeGreaterThan(0);
+    expect(states.every((adapter) => adapter.type === "state")).toBe(true);
+    expect(states.map((adapter) => adapter.slug)).toEqual(
+      ADAPTER_NAMES.filter((slug) => ADAPTERS[slug].type === "state")
+    );
+  });
+
+  test("each entry declares a factory export", () => {
+    for (const adapter of Object.values(ADAPTERS)) {
+      expect(adapter.factoryExport, `${adapter.slug}: factoryExport`).toMatch(
+        FACTORY_EXPORT_PATTERN
+      );
+    }
   });
 
   test("catalog slugs match official and vendor-official registry entries", () => {
@@ -225,6 +253,23 @@ describe("adapters catalog", () => {
         [...(adapter?.peerDeps ?? [])].sort(),
         `${slug}: peerDeps should match non-workspace runtime dependencies`
       ).toEqual(expectedPeerDeps);
+    }
+  });
+
+  test("official factory exports exist in package entry points", () => {
+    for (const packageDir of OFFICIAL_ENV_PACKAGE_DIRS) {
+      const slug = packageDirToSlug(packageDir);
+      const adapter = getAdapter(slug);
+      expect(adapter, `${slug}: missing catalog entry`).toBeDefined();
+
+      const entrypoint = readFileSync(
+        join(PACKAGES_DIR, packageDir, "src/index.ts"),
+        "utf-8"
+      );
+      expect(
+        entrypoint.includes(`export function ${adapter?.factoryExport}`),
+        `${slug}: expected ${adapter?.factoryExport} export in ${packageDir}/src/index.ts`
+      ).toBe(true);
     }
   });
 });

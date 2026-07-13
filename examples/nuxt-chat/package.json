@@ -1,0 +1,29 @@
+{
+  "name": "example-nuxt-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "postinstall": "nuxt prepare",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@ai-sdk/vue": "^4.0.0",
+    "@chat-adapter/slack": "workspace:*",
+    "@chat-adapter/state-memory": "workspace:*",
+    "@chat-adapter/state-redis": "workspace:*",
+    "@chat-adapter/web": "workspace:*",
+    "ai": "^7.0.0",
+    "chat": "workspace:*",
+    "h3": "2.0.1-rc.22",
+    "nuxt": "~4.4.7",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vue-tsc": "^3.3.4"
+  }
+}

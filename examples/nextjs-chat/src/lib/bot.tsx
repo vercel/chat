@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   CardLink,
+  Chart,
   Chat,
   Divider,
   emoji,
@@ -44,7 +45,8 @@ function getBaseUrl(): string {
 const AI_MENTION_REGEX = /\bAI\b/i;
 const DISABLE_AI_REGEX = /disable\s*AI/i;
 const ENABLE_AI_REGEX = /enable\s*AI/i;
-const DM_ME_REGEX = /^dm\s*me$/i;
+// Non-anchored: mention text includes the "@bot" prefix (e.g. "@mybot dm me").
+const DM_ME_REGEX = /\bdm\s*me\b/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
 const SLACK_PREFIX_REGEX = /^slack:/;
 
@@ -89,7 +91,7 @@ export const bot = new Chat<typeof adapters, ThreadState>({
 
 // AI agent for AI mode
 const agent = new ToolLoopAgent({
-  model: "openai/gpt-5.4",
+  model: "anthropic/claude-sonnet-5",
   instructions:
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
@@ -109,8 +111,10 @@ bot.onNewMention(async (thread, message) => {
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    // Also respond to the initial message with AI (including any image attachments)
-    await thread.startTyping("Thinking...");
+    // Also respond to the initial message with AI (including any image attachments).
+    // No explicit status: on Slack this falls back to the adapter-level
+    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    await thread.startTyping();
     try {
       const history = await toAiMessages([message]);
       const result = await agent.stream({ prompt: history });
@@ -171,6 +175,7 @@ bot.onNewMention(async (thread, message) => {
         <Button id="channel-info">Channel Info (Slack)</Button>
         <Button id="pin-message">Pin Message (Slack)</Button>
         <Button id="show-table">Show Table</Button>
+        <Button id="show-charts">Show Charts</Button>
         <Button id="agent-demo">Run Agent Demo</Button>
         <Button id="who-am-i">Who Am I</Button>
         <Button actionType="modal" id="report" value="bug">
@@ -225,25 +230,35 @@ bot.onDirectMessage(async (thread, message, channel) => {
   }
 
   await channel.startTyping("Thinking...");
-  let history: AiMessage[];
-  try {
-    const messages: (typeof message)[] = [];
-    for await (const msg of channel.messages) {
-      messages.push(msg);
-      if (messages.length >= 20) {
-        break;
-      }
-    }
-    history =
-      messages.length > 0
-        ? await toAiMessages(messages)
-        : await toAiMessages([message]);
-  } catch {
+
+  // Build history from the user's transcript rather than channel history:
+  // channel history only contains user turns (bot replies are threaded —
+  // always on some platforms, and on Slack whenever agent_view is enabled),
+  // so it can't give the model both sides of the conversation. The transcript
+  // records user and assistant turns across thread IDs, which also survives
+  // agent_view's one-thread-per-message model.
+  await bot.transcripts.append(thread, message);
+  let history: AiMessage[] = [];
+  if (message.userKey) {
+    history = transcriptToAiMessages(
+      await bot.transcripts.list({ userKey: message.userKey, limit: 20 })
+    );
+  }
+  if (history.length === 0) {
     history = await toAiMessages([message]);
   }
+
   try {
     const result = await agent.stream({ prompt: history });
     await thread.post(result.fullStream);
+    // Persist the assistant reply so the next turn sees both sides.
+    if (message.userKey) {
+      await bot.transcripts.append(
+        thread,
+        { role: "assistant", text: await result.text },
+        { userKey: message.userKey }
+      );
+    }
   } catch (err) {
     console.error("Error in DM AI response:", err);
     await channel.post(
@@ -534,7 +549,9 @@ bot.onAction("show-table", async (event) => {
     <Card title={`${emoji.memo} Team Directory`}>
       <Text>Here's the current team roster:</Text>
       <Table
+        caption="Team roster"
         headers={["Name", "Role", "Location", "Status"]}
+        pageSize={3}
         rows={[
           ["Alice Chen", "Engineering Lead", "San Francisco", "Active"],
           ["Bob Smith", "Designer", "New York", "Active"],
@@ -542,6 +559,59 @@ bot.onAction("show-table", async (event) => {
           ["Dan Lee", "Backend Engineer", "Tokyo", "Active"],
           ["Eve Park", "Frontend Engineer", "Seoul", "Active"],
         ]}
+      />
+    </Card>
+  );
+});
+
+bot.onAction("show-charts", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post(
+    <Card title={`${emoji.chart_up} Usage Report`}>
+      <Text>Native charts on Slack, text tables everywhere else:</Text>
+      <Chart
+        chart={{
+          type: "pie",
+          segments: [
+            { label: "Web", value: 45 },
+            { label: "Mobile", value: 35 },
+            { label: "API", value: 20 },
+          ],
+        }}
+        title="Traffic by Platform"
+      />
+      <Chart
+        chart={{
+          type: "line",
+          categories: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          series: [
+            {
+              name: "Web",
+              data: [
+                { label: "Mon", value: 120 },
+                { label: "Tue", value: 135 },
+                { label: "Wed", value: 128 },
+                { label: "Thu", value: 150 },
+                { label: "Fri", value: 142 },
+              ],
+            },
+            {
+              name: "Mobile",
+              data: [
+                { label: "Mon", value: 80 },
+                { label: "Tue", value: 95 },
+                { label: "Wed", value: 90 },
+                { label: "Thu", value: 105 },
+                { label: "Fri", value: 98 },
+              ],
+            },
+          ],
+          xLabel: "Day",
+          yLabel: "Users",
+        }}
+        title="Daily Active Users"
       />
     </Card>
   );
@@ -582,6 +652,21 @@ bot.onAction("feedback", async (event) => {
   await event.openModal(FeedbackModal);
 });
 
+// Native feedback buttons appended to streamed Slack replies (see the
+// `feedbackButtons` adapter config in adapters.ts). In a real app you'd
+// persist this signal for evals; here we just acknowledge it.
+bot.onAction("ai_feedback", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const positive = event.value === "positive";
+  await event.thread.post(
+    positive
+      ? `${emoji.sparkles} Thanks for the positive feedback!`
+      : `${emoji.wrench} Thanks — I'll try to do better.`
+  );
+});
+
 bot.onSlashCommand("/ping", async (event) => {
   await event.channel.post(
     `Pong! Command invoked by ${event.user.fullName}${event.text ? `: ${event.text}` : ""}`
@@ -620,7 +705,7 @@ bot.onAction("agent-demo", async (event) => {
   await thread.startTyping("Running agent...");
   try {
     const result = await generateText({
-      model: "openai/gpt-5.4",
+      model: "anthropic/claude-sonnet-5",
       tools,
       stopWhen: ({ steps }) => steps.length >= 6,
       system: [
@@ -673,7 +758,7 @@ bot.onSlashCommand("/agent", async (event) => {
   });
 
   const toolAgent = new ToolLoopAgent({
-    model: "openai/gpt-5.4",
+    model: "anthropic/claude-sonnet-5",
     tools,
     stopWhen: ({ steps }) => steps.length >= 8,
     instructions: [
@@ -1207,7 +1292,9 @@ bot.onSubscribedMessage(async (thread, message) => {
       );
     }
 
-    await thread.startTyping("Thinking...");
+    // No explicit status: on Slack this falls back to the adapter-level
+    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    await thread.startTyping();
     try {
       const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);

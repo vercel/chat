@@ -1,5 +1,48 @@
 # @chat-adapter/telegram
 
+## 4.33.0
+
+### Patch Changes
+
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
+## 4.32.0
+
+### Patch Changes
+
+- 937cac9: fix(telegram): stop `trimToMarkdownV2SafeBoundary` from truncating valid messages at entity-marker characters (`_`, `*`, `~`) inside link URLs. Per the MarkdownV2 spec, only `)` and `\` are special inside the `(...)` part of an inline link, so URLs with raw underscores in query parameters (e.g. `?a_b=1&c_d=2&e_f=3`) are now left intact instead of being sliced mid-URL and degraded to plain text. Hard truncation that cuts inside a link URL now trims back to before the link's `[`.
+- 4ee187a: Send Telegram typing actions immediately when private message updates arrive.
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
+## 4.31.0
+
+### Minor Changes
+
+- 4662309: add native rich message formatting and streaming for Telegram Bot API 10.1
+- 9c936f8: Add support for routing Telegram bot commands to Chat SDK slash command handlers
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Minor Changes

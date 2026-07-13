@@ -110,6 +110,22 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("<at>someone</at>");
     });
 
+    it("should not turn email addresses into mentions", () => {
+      const result = converter.renderPostable({
+        raw: "email user@example.com",
+      });
+      expect(result).toContain("user@example.com");
+      expect(result).not.toContain("<at>example</at>");
+    });
+
+    it("should not mangle an @handle inside a url", () => {
+      const result = converter.renderPostable({
+        raw: "see https://github.com/@vercel",
+      });
+      expect(result).toContain("https://github.com/@vercel");
+      expect(result).not.toContain("<at>vercel</at>");
+    });
+
     it("should handle thematic breaks", () => {
       const ast = converter.toAst("text\n\n---\n\nmore");
       const result = converter.fromAst(ast);

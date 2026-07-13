@@ -12,7 +12,11 @@ import {
   createMessengerAdapter,
   type MessengerAdapter,
 } from "@chat-adapter/messenger";
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
+import {
+  createSlackAdapter,
+  type SlackAdapter,
+  type SlackAdapterConfig,
+} from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
   createTelegramAdapter,
@@ -23,6 +27,11 @@ import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
 } from "@chat-adapter/whatsapp";
+import {
+  connectGitHubAdapter,
+  connectLinearAdapter,
+  connectSlackAdapter,
+} from "@vercel/connect/chat";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -53,6 +62,52 @@ const DISCORD_METHODS = [
   "openDM",
   "fetchMessages",
 ];
+// Slack agent experience (optional) — requires the Agents feature and the
+// assistant:write scope plus the matching events in slack-manifest.yml.
+// Suggested prompts are pinned automatically when an assistant/agent thread
+// opens; the resolver tailors them to the user's active view (agent_view
+// folds what the user is looking at into the event as `entities`).
+// `loadingMessages` rotate in the thinking indicator while the bot works.
+// Set SLACK_AGENT_VIEW=true when your manifest uses `agent_view`.
+// Set SLACK_NATIVE_STREAMING=false to compare Slack's native streaming API
+// (chat.startStream/appendStream/stopStream, the default) against the
+// post-and-edit fallback (chat.update deltas).
+const SLACK_AGENT_OPTIONS: Pick<
+  SlackAdapterConfig,
+  | "agentView"
+  | "feedbackButtons"
+  | "loadingMessages"
+  | "nativeStreaming"
+  | "suggestedPrompts"
+> = {
+  agentView: process.env.SLACK_AGENT_VIEW === "true",
+  // Thumbs up/down on every streamed reply; clicks dispatch to
+  // bot.onAction("ai_feedback") — see bot.tsx.
+  feedbackButtons: { actionId: "ai_feedback" },
+  nativeStreaming: process.env.SLACK_NATIVE_STREAMING !== "false",
+  loadingMessages: [
+    "Thinking...",
+    "Consulting the Chat SDK docs...",
+    "Almost there...",
+  ],
+  suggestedPrompts: ({ entities }) => ({
+    title: "Welcome! What can I do for you?",
+    prompts: [
+      entities?.some((entity) => entity.kind === "channel")
+        ? {
+            title: "Summarize this channel",
+            message: "Summarize the channel I'm currently viewing",
+          }
+        : {
+            title: "Catch me up",
+            message: "What can you help me with?",
+          },
+      { title: "Draft a message", message: "Help me draft a message" },
+      { title: "Explain Chat SDK", message: "What is the Chat SDK?" },
+    ],
+  }),
+};
+
 const SLACK_METHODS = [
   "postMessage",
   "editMessage",
@@ -173,14 +228,32 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
-  if (process.env.SLACK_SIGNING_SECRET) {
+  // Slack adapter (optional) - Vercel Connect.
+  // env vars: SLACK_CONNECTOR (the connector UID, e.g. "slack/acme-slack") plus
+  // VERCEL_OIDC_TOKEN (run `vercel env pull`). connectSlackAdapter() resolves a
+  // short-lived bot token from Vercel Connect at runtime and verifies
+  // Connect-forwarded webhooks via the Vercel OIDC token, so there's no
+  // SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET to store.
+  if (process.env.SLACK_CONNECTOR) {
     adapters.slack = withRecording(
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
-        botToken: process.env.SLACK_BOT_TOKEN,
-        clientSecret: process.env.SLACK_CLIENT_SECRET,
+        ...SLACK_AGENT_OPTIONS,
+        ...connectSlackAdapter(process.env.SLACK_CONNECTOR),
+      }),
+      "slack",
+      SLACK_METHODS
+    );
+  } else if (process.env.SLACK_BOT_TOKEN) {
+    // Slack adapter (optional) - plain bot token.
+    // env vars: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET (auto-detected by the
+    // factory since only non-auth fields are passed here).
+    adapters.slack = withRecording(
+      createSlackAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("slack"),
+        ...SLACK_AGENT_OPTIONS,
       }),
       "slack",
       SLACK_METHODS
@@ -221,27 +294,41 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // GitHub adapter (optional) - env vars: GITHUB_WEBHOOK_SECRET + (GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)
-  if (process.env.GITHUB_WEBHOOK_SECRET) {
+  // GitHub adapter (optional) - Vercel Connect.
+  // env vars: GITHUB_CONNECTOR (the connector UID, e.g. "github/acme-github")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectGitHubAdapter()
+  // resolves a short-lived installation token from Vercel Connect at runtime
+  // (skipping the GitHub App JWT exchange) and verifies Connect-forwarded
+  // webhooks via the Vercel OIDC token instead of a webhook secret.
+  if (process.env.GITHUB_CONNECTOR) {
     try {
       adapters.github = withRecording(
         createGitHubAdapter({
           logger: logger.child("github"),
           userName: "chat-sdk-bot",
+          // In Connect mode the adapter can't auto-detect its own bot user id
+          // (the /app lookup needs an App JWT), so set GITHUB_BOT_USER_ID — the
+          // adapter auto-detects it — to skip self-authored comments and avoid
+          // reply loops across function instances.
+          ...connectGitHubAdapter(process.env.GITHUB_CONNECTOR),
         }),
         "github",
         GITHUB_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create github adapter (check GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)"
+        "[chat] Failed to create github adapter (check GITHUB_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }
 
-  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET).
-  // Set LINEAR_MODE=agent-sessions for app-actor installs with Agent session events + app:mentionable.
-  if (process.env.LINEAR_WEBHOOK_SECRET) {
+  // Linear adapter (optional) - Vercel Connect.
+  // env vars: LINEAR_CONNECTOR (the connector UID, e.g. "linear/acme-linear")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectLinearAdapter()
+  // resolves a short-lived access token from Vercel Connect at runtime and
+  // verifies Connect-forwarded webhooks via the Vercel OIDC token instead of a
+  // webhook secret. Set LINEAR_MODE=agent-sessions for app-actor installs.
+  if (process.env.LINEAR_CONNECTOR) {
     try {
       adapters.linear = withRecording(
         createLinearAdapter({
@@ -250,13 +337,14 @@ export function buildAdapters(): Adapters {
             process.env.LINEAR_MODE === "agent-sessions"
               ? "agent-sessions"
               : "comments",
+          ...connectLinearAdapter(process.env.LINEAR_CONNECTOR),
         }),
         "linear",
         LINEAR_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create linear adapter (check LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)"
+        "[chat] Failed to create linear adapter (check LINEAR_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }

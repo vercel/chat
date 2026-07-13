@@ -52,8 +52,8 @@ export default function Home() {
 
       <h3>Slack</h3>
       <pre>
-        {`SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...`}
+        {`SLACK_CONNECTOR=slack/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
 
       <h3>Microsoft Teams</h3>
@@ -80,27 +80,14 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN=...`}
 
       <h3>GitHub</h3>
       <pre>
-        {`# PAT auth (simple)
-GITHUB_TOKEN=ghp_...
-GITHUB_WEBHOOK_SECRET=...
-
-# OR GitHub App auth (recommended)
-GITHUB_APP_ID=...
-GITHUB_PRIVATE_KEY=...
-GITHUB_WEBHOOK_SECRET=...`}
+        {`GITHUB_CONNECTOR=github/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
 
       <h3>Linear</h3>
       <pre>
-        {`# Single-workspace
-LINEAR_API_KEY=lin_api_...
-LINEAR_WEBHOOK_SECRET=...
-
-# OR multi-tenant OAuth installs
-LINEAR_CLIENT_ID=...
-LINEAR_CLIENT_SECRET=...
-LINEAR_REDIRECT_URI=https://your-domain.com/api/linear/install/callback
-LINEAR_WEBHOOK_SECRET=...`}
+        {`LINEAR_CONNECTOR=linear/your-connector
+# plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
     </main>
   );

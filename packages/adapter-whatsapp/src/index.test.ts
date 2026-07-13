@@ -1,5 +1,11 @@
 import { createHmac } from "node:crypto";
 import {
+  createMockChatInstance,
+  createMockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
+import type { CardElement } from "chat";
+import {
   afterEach,
   beforeEach,
   describe,
@@ -8,11 +14,19 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import { createWhatsAppAdapter, splitMessage, WhatsAppAdapter } from "./index";
+import {
+  createWhatsAppAdapter,
+  getWhatsAppMediaType,
+  splitMessage,
+  WhatsAppAdapter,
+  type WhatsAppThreadId,
+} from "./index";
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
 const APP_SECRET_PATTERN = /appSecret/i;
+const WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN = /exceeds WhatsApp image limit/;
+const NO_MESSAGE_ID_PATTERN = /did not return a message ID/i;
 
 /**
  * Create a minimal WhatsAppAdapter for testing thread ID methods.
@@ -25,45 +39,42 @@ function createTestAdapter(): WhatsAppAdapter {
     phoneNumberId: "123456789",
     verifyToken: "test-verify-token",
     userName: "test-bot",
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
+    logger: createMockLogger(),
   });
 }
 
-describe("encodeThreadId", () => {
-  it("should encode a thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-    expect(result).toBe("whatsapp:123456789:15551234567");
-  });
+// `encodeThreadId`/`decodeThreadId` are pure, so a single adapter instance (no
+// init, no network) is enough to exercise the shared thread-id codec contract.
+const threadIdAdapter = createTestAdapter();
 
-  it("should encode with different phone numbers", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.encodeThreadId({
-      phoneNumberId: "987654321",
-      userWaId: "44771234567",
-    });
-    expect(result).toBe("whatsapp:987654321:44771234567");
-  });
+// Encode/decode/round-trip coverage lives in the shared `threadIdContract`.
+// WhatsApp threads are always 1:1 DMs, so `isDM` has no non-DM case to feed the
+// contract's optional check — that edge stays in the local `isDM` suite below.
+threadIdContract<WhatsAppThreadId>({
+  name: "whatsapp",
+  encode: (decoded) => threadIdAdapter.encodeThreadId(decoded),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { phoneNumberId: "123456789", userWaId: "15551234567" },
+      encoded: "whatsapp:123456789:15551234567",
+    },
+    {
+      decoded: { phoneNumberId: "987654321", userWaId: "44771234567" },
+      encoded: "whatsapp:987654321:44771234567",
+    },
+    {
+      // international numbers must survive the round-trip untouched.
+      decoded: { phoneNumberId: "999888777", userWaId: "919876543210" },
+      encoded: "whatsapp:999888777:919876543210",
+    },
+  ],
 });
 
 describe("decodeThreadId", () => {
-  it("should decode a valid thread ID", () => {
-    const adapter = createTestAdapter();
-    const result = adapter.decodeThreadId("whatsapp:123456789:15551234567");
-    expect(result).toEqual({
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    });
-  });
-
+  // Valid decode + round-trip coverage lives in the shared `threadIdContract`
+  // above; only the malformed-id and invalid-prefix errors it does not cover
+  // are kept here.
   it("should throw on invalid prefix", () => {
     const adapter = createTestAdapter();
     expect(() => adapter.decodeThreadId("slack:C123:ts123")).toThrow(
@@ -97,30 +108,6 @@ describe("decodeThreadId", () => {
     expect(() => adapter.decodeThreadId("whatsapp:123:456:extra")).toThrow(
       "Invalid WhatsApp thread ID format"
     );
-  });
-});
-
-describe("encodeThreadId / decodeThreadId roundtrip", () => {
-  it("should round-trip a thread ID", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "123456789",
-      userWaId: "15551234567",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
-  });
-
-  it("should round-trip with international numbers", () => {
-    const adapter = createTestAdapter();
-    const original = {
-      phoneNumberId: "999888777",
-      userWaId: "919876543210",
-    };
-    const encoded = adapter.encodeThreadId(original);
-    const decoded = adapter.decodeThreadId(encoded);
-    expect(decoded).toEqual(original);
   });
 });
 
@@ -650,24 +637,7 @@ function makeWebhookPayload(overrides?: {
   };
 }
 
-const mockChat = {
-  processMessage: vi.fn(),
-  processReaction: vi.fn(),
-  processAction: vi.fn(),
-  processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-  processModalSubmit: vi.fn(),
-  processModalClose: vi.fn(),
-  processSlashCommand: vi.fn(),
-  processMemberJoinedChannel: vi.fn(),
-  getState: vi.fn(),
-  getUserName: () => "test-bot",
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-};
+const mockChat = createMockChatInstance();
 
 // ---------------------------------------------------------------------------
 // handleWebhook - POST with signature verification
@@ -768,7 +738,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("text message calls chat.processMessage with correct thread and message", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload();
     const body = JSON.stringify(payload);
@@ -792,7 +762,7 @@ describe("handleWebhook - POST message processing", () => {
 
   it("non-messages field change is skipped", async () => {
     const adapter = createTestAdapter();
-    await adapter.initialize(mockChat as never);
+    await adapter.initialize(mockChat);
 
     const payload = makeWebhookPayload({
       field: "statuses",
@@ -811,7 +781,7 @@ describe("handleWebhook - POST message processing", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(mockChat.processMessage).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveDispatched("processMessage");
   });
 });
 
@@ -861,6 +831,518 @@ describe("postMessage", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// postMessage - file uploads
+// ---------------------------------------------------------------------------
+
+describe("postMessage - file uploads", () => {
+  const THREAD_ID = "whatsapp:123456789:15551234567";
+
+  let fetchSpy: MockInstance;
+  let messageCounter: number;
+
+  function createMediaFetchMock() {
+    let mediaCounter = 0;
+    messageCounter = 0;
+
+    return (url: string | URL | Request) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes("/media")) {
+        mediaCounter += 1;
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: `media-${mediaCounter}` }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+
+      messageCounter += 1;
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ messages: [{ id: `wamid.msg${messageCounter}` }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    };
+  }
+
+  function getMessageCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/messages")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function getMediaCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/media")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function parseMessageBody(index: number): Record<string, unknown> {
+    const [, init] = getMessageCalls()[index] ?? [];
+    return JSON.parse(init?.body as string) as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(createMediaFetchMock() as never);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("single PDF with markdown caption uploads then sends document", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Here is the report",
+      files: [
+        {
+          data: Buffer.from("pdf-content"),
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("document");
+    expect((sent.document as { id: string }).id).toBe("media-1");
+    expect((sent.document as { caption: string }).caption).toBe(
+      "Here is the report"
+    );
+    expect((sent.document as { filename: string }).filename).toBe("report.pdf");
+    expect(result.id).toBe("wamid.msg1");
+  });
+
+  it("single JPEG maps to image message type", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Photo",
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("audio with text sends leading text message without audio caption", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Listen to this",
+      files: [
+        {
+          data: Buffer.from("audio"),
+          filename: "clip.mp3",
+          mimeType: "audio/mpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const audioMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect((textMessage.text as { body: string }).body).toBe("Listen to this");
+    expect(audioMessage.type).toBe("audio");
+    expect(
+      (audioMessage.audio as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("long text with image sends text first then image without caption", async () => {
+    const adapter = createTestAdapter();
+    const longText = "a".repeat(1025);
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: longText,
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const imageMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect(imageMessage.type).toBe("image");
+    expect(
+      (imageMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("multiple files send sequentially with caption only on first", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Two files",
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "first.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "second.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+
+    expect((first.document as { caption: string }).caption).toBe("Two files");
+    expect((second.document as { caption?: string }).caption).toBeUndefined();
+    expect(result.id).toBe("wamid.msg2");
+  });
+
+  it("attachment with HTTPS url uses link passthrough without upload", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Remote doc",
+      attachments: [
+        {
+          type: "file",
+          url: "https://example.com/report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect((sent.document as { link: string }).link).toBe(
+      "https://example.com/report.pdf"
+    );
+    expect((sent.document as { id?: string }).id).toBeUndefined();
+  });
+
+  it("attachment with fetchData uploads binary", async () => {
+    const adapter = createTestAdapter();
+    const fetchData = vi.fn().mockResolvedValue(Buffer.from("png-bytes"));
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          fetchData,
+        },
+      ],
+    });
+
+    expect(fetchData).toHaveBeenCalledOnce();
+    expect(getMediaCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("card with files sends media then interactive message", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Approve?",
+      children: [
+        {
+          type: "actions",
+          children: [
+            { type: "button", id: "yes", label: "Yes" },
+            { type: "button", id: "no", label: "No" },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "proof.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(mediaMessage.type).toBe("image");
+    expect((mediaMessage.image as { caption: string }).caption).toContain(
+      "Approve"
+    );
+    expect(interactiveMessage.type).toBe("interactive");
+  });
+
+  it("card with text fallback and file does not send duplicate text", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Order update",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com/track",
+              label: "Track",
+            },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "receipt.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const mediaMessage = parseMessageBody(0);
+    expect(mediaMessage.type).toBe("image");
+    expect((mediaMessage.image as { caption: string }).caption).toContain(
+      "Order update"
+    );
+  });
+
+  it("oversize image throws ValidationError before upload", async () => {
+    const adapter = createTestAdapter();
+    const oversized = Buffer.alloc(6 * 1024 * 1024);
+
+    await expect(
+      adapter.postMessage(THREAD_ID, {
+        markdown: "",
+        files: [
+          {
+            data: oversized,
+            filename: "huge.png",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).rejects.toThrow(WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN);
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendTemplate
+// ---------------------------------------------------------------------------
+
+describe("sendTemplate", () => {
+  let fetchSpy: MockInstance;
+
+  const makeGraphApiResponse = () =>
+    new Response(JSON.stringify({ messages: [{ id: "wamid.template123" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(() => Promise.resolve(makeGraphApiResponse()));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("sends a template with name and language", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.sendTemplate(
+      "whatsapp:123456789:15551234567",
+      {
+        name: "appointment_reminder",
+        language: "en",
+      }
+    );
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.type).toBe("template");
+    expect(sent.to).toBe("15551234567");
+    expect(sent.template).toEqual({
+      name: "appointment_reminder",
+      language: { code: "en" },
+    });
+    expect(result.id).toBe("wamid.template123");
+  });
+
+  it("includes components when provided", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: "Ada" },
+            { type: "text", text: "#12345" },
+          ],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: 0,
+          parameters: [{ type: "text", text: "12345" }],
+        },
+      ],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.name).toBe("order_shipped");
+    expect(sent.template.language).toEqual({ code: "en_US" });
+    expect(sent.template.components).toHaveLength(2);
+    expect(sent.template.components[0].parameters[0].text).toBe("Ada");
+  });
+
+  it("converts emoji placeholders in text parameters", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [{ type: "text", text: "Shipped! {{emoji:thumbs_up}}" }],
+        },
+      ],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.components[0].parameters[0].text).toBe("Shipped! 👍");
+  });
+
+  it("does not emoji-convert quick reply payloads", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "button",
+          sub_type: "quick_reply",
+          index: 0,
+          parameters: [{ type: "payload", payload: "{{emoji:thumbs_up}}:1" }],
+        },
+      ],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.components[0].parameters[0].payload).toBe(
+      "{{emoji:thumbs_up}}:1"
+    );
+  });
+
+  it("omits components when the array is empty", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "hello_world",
+      language: "en_US",
+      components: [],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template).not.toHaveProperty("components");
+  });
+
+  it("throws when the API returns no message ID", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("whatsapp:123456789:15551234567", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow(NO_MESSAGE_ID_PATTERN);
+  });
+
+  it("throws on invalid thread ID", async () => {
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("slack:C123:ts123", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow("Invalid WhatsApp thread ID");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("getWhatsAppMediaType", () => {
+  it.each([
+    ["image/png", "image"],
+    ["image/jpeg", "image"],
+    ["image/gif", "document"],
+    ["video/mp4", "video"],
+    ["video/3gpp", "video"],
+    ["audio/mpeg", "audio"],
+    ["application/pdf", "document"],
+  ] as const)("maps %s to %s", (mimeType, expected) => {
+    expect(getWhatsAppMediaType(mimeType)).toBe(expected);
   });
 });
 
@@ -1193,12 +1675,7 @@ describe("createWhatsAppAdapter", () => {
       verifyToken: "test-verify-token",
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v25.0"
@@ -1237,12 +1714,7 @@ describe("createWhatsAppAdapter", () => {
       userName: "test-bot",
       apiUrl: "https://custom-graph.example.com",
       apiVersion: "v19.0",
-      logger: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
+      logger: createMockLogger(),
     });
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v19.0"

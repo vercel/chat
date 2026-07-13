@@ -1,0 +1,194 @@
+---
+title: Dial
+description: SMS, MMS, iMessage, and inbound voice-call transcripts for Chat SDK, built and maintained by Dial. One handler answers phone traffic the same way it answers Slack/Teams/Discord — signed webhooks, thread-per-phone-pair, replies over @getdial/sdk.
+packageName: "@getdial/chat-sdk-adapter"
+slug: dial
+type: platform
+tagline: Give your Chat SDK bot a phone number — SMS, MMS, iMessage in and out, plus inbound voice-call transcripts, with HMAC-signed webhooks and no channel-specific handlers.
+community: true
+vendorOfficial: true
+author: Dial
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads:
+    status: yes
+    label: MMS via public URLs
+  streaming: no
+  scheduledMessages: no
+  cardFormat: no
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables:
+    status: partial
+    label: Flattened to ASCII code blocks
+  fields: no
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions:
+    status: partial
+    label: DMs only — every phone pair is 1:1
+  addReactions: no
+  removeReactions: no
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint:
+    status: yes
+    label: apiBaseUrl override
+  fetchMessages: no
+  fetchSingleMessage: no
+  fetchThreadInfo: yes
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+---
+
+The Dial adapter connects [Chat SDK](https://chat-sdk.dev) bots to a **real phone number** — SMS, MMS, iMessage, and inbound voice-call transcripts, all through one adapter. The same `onNewMention` handler that already answers Slack, Teams, or Discord messages fires for phone traffic hitting your Dial number, and `thread.post` replies go back out over those channels through the official [`@getdial/sdk`](https://www.npmjs.com/package/@getdial/sdk).
+
+The adapter maps a phone conversation to a Chat SDK thread (identified by the pair of phone numbers), an SMS/MMS/iMessage to a message with optional media attachments, and a completed voice call's transcript to a message on that same thread — so subscriptions, handlers, posts, and per-thread state work the same as with any other adapter.
+
+## Feature support
+
+<FeatureSupport />
+
+## Install
+
+<PackageInstall package="@getdial/chat-sdk-adapter chat @chat-adapter/state-memory" />
+
+For production, use a persistent state adapter such as `@chat-adapter/state-redis` instead of in-memory state.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createDialAdapter } from "@getdial/chat-sdk-adapter";
+
+export const bot = new Chat({
+  userName: "mybot",
+  state: createMemoryState(),
+  adapters: {
+    dial: createDialAdapter({
+      apiKey: process.env.DIAL_API_KEY,
+      fromNumberId: process.env.DIAL_FROM_NUMBER_ID,
+      webhookSecret: process.env.DIAL_WEBHOOK_SECRET,
+    }),
+  },
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post(`heard you: ${message.text}`);
+});
+```
+
+Bind the webhook on whichever HTTP framework you use — every framework Chat SDK works on works here:
+
+```typescript
+// e.g. Next.js route handler
+export async function POST(req: Request) {
+  return bot.webhooks.dial(req);
+}
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    apiKey: {
+      type: "string",
+      description:
+        "Dial API key (`sk_live_…`). Mint from the Dial dashboard. Falls back to `DIAL_API_KEY`.",
+    },
+    fromNumberId: {
+      type: "string",
+      description:
+        "Dial's ID of the phone number the bot sends **from**. Copy from the Phone Numbers page in the Dial dashboard, or `dial number list --json`. Falls back to `DIAL_FROM_NUMBER_ID`.",
+    },
+    webhookSecret: {
+      type: "string",
+      description:
+        "HMAC-SHA256 signing secret Dial issued when you created the webhook subscription. When set, incoming requests are verified against `X-Dial-Signature` and rejected `401` on mismatch. Falls back to `DIAL_WEBHOOK_SECRET`.",
+    },
+    apiBaseUrl: {
+      type: "string",
+      description:
+        "Override the Dial API host. Defaults to `https://api.getdial.ai`. Falls back to `DIAL_API_URL`.",
+    },
+    botName: {
+      type: "string",
+      description:
+        'Display name Chat SDK uses for the bot. Defaults to `"bot"`. Falls back to `BOT_USERNAME`.',
+    },
+    logger: {
+      type: "Logger",
+      description:
+        'Chat SDK `Logger` instance. Defaults to `ConsoleLogger("info").child("dial")`.',
+    },
+  }}
+/>
+
+## Webhook setup
+
+Point a Dial webhook subscription at the endpoint you handed to `bot.webhooks.dial`. Create the subscription from the [Dial dashboard's Webhooks page](https://getdial.ai/dashboard/webhooks) or over the API:
+
+```bash
+curl -X POST https://api.getdial.ai/api/v1/webhooks \
+  -H "Authorization: Bearer $DIAL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "targetUrl": "https://your-bot.example.com/webhook/dial", "eventTypes": ["*"] }'
+```
+
+The `whsec_…` secret returned at creation goes in `DIAL_WEBHOOK_SECRET`. See the [Dial Webhooks reference](https://docs.getdial.ai/documentation/platform/webhooks) for signature format, retries, and delivery semantics.
+
+### Signature verification
+
+When `webhookSecret` is set, every request must carry:
+
+```
+X-Dial-Signature: t=<unix_seconds>,v1=<hex-hmac-sha256(secret, `${t}.${rawBody}`)>
+```
+
+The adapter recomputes the HMAC with Node's `crypto.createHmac` + `timingSafeEqual`, rejects timestamps older than 5 minutes (replay protection), and answers `401` on any mismatch.
+
+## What the adapter carries
+
+| Direction | Channel                | Text | Media |
+|-----------|------------------------|------|-------|
+| Inbound   | SMS                    | ✅   | —     |
+| Inbound   | MMS                    | ✅   | ✅ (image / video / audio / file) |
+| Inbound   | iMessage               | ✅   | ✅    |
+| Inbound   | Voice call             | ✅ (as transcript) | — |
+| Outbound  | SMS / MMS / iMessage   | ✅   | ✅ (via attachment URLs) |
+
+Voice calls surface as their transcript via the `call.transcribed` event — the adapter fetches the transcript through `@getdial/sdk.getCall()` and forwards it as a message on the caller's thread.
+
+## Threads
+
+A Chat SDK thread here is a **pair of phone numbers** — your Dial-owned number and the peer's — encoded as:
+
+```
+dial:{yourDialNumber}:{peerNumber}
+```
+
+Every distinct pair is a distinct thread. Chat SDK's per-thread state (subscriptions, locks, conversation memory) is scoped per-pair, so multiple concurrent conversations don't leak into each other.
+
+## Design notes
+
+- **Outbound sends and transcript fetches** go through the official [`@getdial/sdk`](https://www.npmjs.com/package/@getdial/sdk) Node SDK — no hand-rolled HTTP.
+- **Signature verification** uses Node's stdlib `crypto` — HMAC-SHA256 + constant-time compare — matching the exact primitive Dial's server signs with.
+- **ESM-only, TypeScript-first.** Requires Node 18+.
+- Peer-depends on `chat ^4.20.0`.
+
+## Learn more
+
+- Adapter source + issues: [`GetDial-AI/chat-sdk-adapter`](https://github.com/GetDial-AI/chat-sdk-adapter)
+- Dial docs (this adapter): [docs.getdial.ai/integrations/agent-clients/vercel-chat-sdk](https://docs.getdial.ai/integrations/agent-clients/vercel-chat-sdk)
+- Dial platform docs: [docs.getdial.ai](https://docs.getdial.ai)
+- Node SDK the adapter wraps: [`@getdial/sdk`](https://www.npmjs.com/package/@getdial/sdk)

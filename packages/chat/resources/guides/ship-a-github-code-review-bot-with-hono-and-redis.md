@@ -45,7 +45,7 @@ The `chat` package is the Chat SDK core. The `@chat-adapter/github` and `@chat-a
 
 1.  Go to your repository **Settings**, then **Webhooks**, then **Add webhook**
     
-2.  Set **Payload URL** to [`https://your-domain.com/api/webhooks/github`](https://your-domain.com/api/webhooks/github)
+2.  Set **Payload URL** to `https://your-domain.com/api/webhooks/github`
     
 3.  Set **Content type** to `application/json`
     
@@ -71,13 +71,13 @@ Create a `.env` file in your project root:
 
 `GITHUB_TOKEN=ghp_your_personal_access_token GITHUB_WEBHOOK_SECRET=your_webhook_secret REDIS_URL=redis://localhost:6379 BOT_USERNAME=my-review-bot`
 
-The model (`anthropic/claude-sonnet-4.6`) uses AI Gateway. Develop locally by linking to your Vercel project with `vc link`, then pulling your OIDC token with `vc pull --environment development`.
+The model (`xai/grok-4.5`) uses AI Gateway. Develop locally by linking to your Vercel project with `vc link`, then pulling your OIDC token with `vc pull --environment development`.
 
 ### 4\. Define the review function
 
 Create the core review logic. This clones the repo into a Vercel Sandbox, then uses AI SDK with a bash tool to let Claude analyze the diff and read files directly.
 
-``import { Sandbox } from "@vercel/sandbox"; import { ToolLoopAgent, stepCountIs } from "ai"; import { createBashTool } from "bash-tool"; interface ReviewInput { owner: string; repo: string; prBranch: string; baseBranch: string; } export async function reviewPullRequest(input: ReviewInput): Promise<string> { const { owner, repo, prBranch, baseBranch } = input; const sandbox = await Sandbox.create({ source: { type: "git", url: `https://github.com/${owner}/${repo}`, username: "x-access-token", password: process.env.GITHUB_TOKEN, depth: 50, }, timeout: 5 * 60 * 1000, }); try { await sandbox.runCommand("git", ["fetch", "origin", prBranch, baseBranch]); await sandbox.runCommand("git", ["checkout", prBranch]); const diffResult = await sandbox.runCommand("git", [ "diff", `origin/${baseBranch}...HEAD`, ]); const diff = await diffResult.output("stdout"); const { tools } = await createBashTool({ sandbox }); const agent = new ToolLoopAgent({ model: "anthropic/claude-sonnet-4.6", tools, stopWhen: stepCountIs(20), }); const result = await agent.generate({ prompt: `You are reviewing a pull request for bugs and issues. Here is the diff for this PR: \`\`\`diff ${diff} \`\`\` Use the bash and readFile tools to inspect any files you need more context on. Look for bugs, security issues, performance problems, and missing error handling. Organize findings by severity (critical, warning, suggestion). If the code looks good, say so.`, }); return result.text; } finally { await sandbox.stop(); } }``
+``import { Sandbox } from "@vercel/sandbox"; import { ToolLoopAgent, stepCountIs } from "ai"; import { createBashTool } from "bash-tool"; interface ReviewInput { owner: string; repo: string; prBranch: string; baseBranch: string; } export async function reviewPullRequest(input: ReviewInput): Promise<string> { const { owner, repo, prBranch, baseBranch } = input; const sandbox = await Sandbox.create({ source: { type: "git", url: `https://github.com/${owner}/${repo}`, username: "x-access-token", password: process.env.GITHUB_TOKEN, depth: 50, }, timeout: 5 * 60 * 1000, }); try { await sandbox.runCommand("git", ["fetch", "origin", prBranch, baseBranch]); await sandbox.runCommand("git", ["checkout", prBranch]); const diffResult = await sandbox.runCommand("git", [ "diff", `origin/${baseBranch}...HEAD`, ]); const diff = await diffResult.output("stdout"); const { tools } = await createBashTool({ sandbox }); const agent = new ToolLoopAgent({ model: "xai/grok-4.5", tools, stopWhen: stepCountIs(20), }); const result = await agent.generate({ prompt: `You are reviewing a pull request for bugs and issues. Here is the diff for this PR: \`\`\`diff ${diff} \`\`\` Use the bash and readFile tools to inspect any files you need more context on. Look for bugs, security issues, performance problems, and missing error handling. Organize findings by severity (critical, warning, suggestion). If the code looks good, say so.`, }); return result.text; } finally { await sandbox.stop(); } }``
 
 The `createBashTool` gives the agent `bash`, `readFile`, and `writeFile` tools, all scoped to the sandbox. The agent can run `git diff`, read source files, and explore the repo freely without any code escaping the sandbox.
 

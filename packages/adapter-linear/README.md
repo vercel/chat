@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/linear`](https://www.npmjs.com/package/@chat-adapter/linear)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/linear)](https://www.npmjs.com/package/@chat-adapter/linear)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Linear adapter for [Chat SDK](https://chat-sdk.dev). Respond to @mentions in issue comment threads and Linear app-actor agent sessions.
 
@@ -18,6 +18,16 @@ Documentation: [chat-sdk.dev/adapters/official/linear](https://chat-sdk.dev/adap
 ```bash
 pnpm add @chat-adapter/linear
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Linear bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter linear memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -116,6 +126,39 @@ createLinearAdapter({
   mode: "agent-sessions",
 });
 ```
+
+### Option E: Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the Linear access token at runtime instead of storing a long-lived token or OAuth secret. Pass `accessToken` as a resolver and verify inbound webhooks with `webhookVerifier` (a Vercel OIDC token from Connect trigger forwarding) instead of a webhook secret.
+
+The simplest path is the `connectLinearAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect):
+
+```typescript
+import { createLinearAdapter } from "@chat-adapter/linear";
+import { connectLinearAdapter } from "@vercel/connect/chat";
+
+createLinearAdapter({
+  ...connectLinearAdapter("linear/acme-linear"),
+  mode: "agent-sessions",
+});
+```
+
+Or wire the fields yourself:
+
+```typescript
+import { getToken } from "@vercel/connect";
+
+createLinearAdapter({
+  accessToken: () =>
+    getToken("linear/acme-linear", { subject: { type: "app" } }),
+  webhookVerifier: myConnectWebhookVerifier,
+  mode: "agent-sessions",
+});
+```
+
+`accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call, so it composes with Connect's short-lived tokens. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
+
+> **Freshness:** OIDC verification replaces Linear's signature + timestamp check, so request freshness relies on the short-lived OIDC token's expiry rather than the `>5 min` timestamp rejection, and there is no built-in delivery de-duplication. Keep your webhook handlers idempotent (Linear can also deliver events out of order).
 
 ### Token encryption
 
@@ -235,7 +278,7 @@ All options are auto-detected from environment variables when not provided.
 | Option | Required | Description |
 |--------|----------|-------------|
 | `apiKey` | No* | Personal API key. Auto-detected from `LINEAR_API_KEY` |
-| `accessToken` | No* | Pre-obtained OAuth access token. Auto-detected from `LINEAR_ACCESS_TOKEN` |
+| `accessToken` | No* | OAuth access token. Accepts a string, or (Vercel Connect) a `() => string \| Promise<string>` resolver invoked per API call. Auto-detected from `LINEAR_ACCESS_TOKEN` |
 | `clientId` | No* | Multi-tenant OAuth app client ID. Auto-detected from `LINEAR_CLIENT_ID` |
 | `clientSecret` | No* | Multi-tenant OAuth app client secret. Auto-detected from `LINEAR_CLIENT_SECRET` |
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored OAuth tokens. Auto-detected from `LINEAR_ENCRYPTION_KEY` |
@@ -243,13 +286,14 @@ All options are auto-detected from environment variables when not provided.
 | `clientCredentials.scopes` | No | Scopes for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
 | `mode` | No | Inbound webhook handling mode. `"comments"` by default, or `"agent-sessions"` for app-actor installs |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
+| `webhookVerifier` | No** | Custom verifier `(request, body) => unknown \| Promise<unknown>` used in place of `webhookSecret`. Takes precedence over `webhookSecret`/`LINEAR_WEBHOOK_SECRET`. Required in Connect mode |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
 | `apiUrl` | No | Override the Linear GraphQL API base URL. Auto-detected from `LINEAR_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*One of `apiKey`, `accessToken`, top-level `clientId`/`clientSecret`, or `clientCredentials` is required (via config or env vars).
+*One of `apiKey`, `accessToken` (string or Vercel Connect resolver), top-level `clientId`/`clientSecret`, or `clientCredentials` is required (via config or env vars).
 
-**`webhookSecret` is required — either via config or `LINEAR_WEBHOOK_SECRET` env var.
+**Either `webhookSecret` (via config or `LINEAR_WEBHOOK_SECRET`) or a `webhookVerifier` is required. When `webhookVerifier` is set it takes precedence and the secret is ignored.
 
 ## Environment variables
 

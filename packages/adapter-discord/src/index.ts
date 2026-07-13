@@ -17,6 +17,7 @@ import type {
   ActionEvent,
   Adapter,
   AdapterPostableMessage,
+  Attachment,
   ChannelInfo,
   ChatInstance,
   EmojiValue,
@@ -52,7 +53,6 @@ import {
 } from "discord.js";
 import { MessageType } from "discord-api-types/v9";
 import {
-  type APIEmbed,
   type APIMessage,
   ChannelType,
   InteractionType,
@@ -61,18 +61,30 @@ import {
   InteractionResponseType as DiscordInteractionResponseType,
   verifyKey,
 } from "discord-interactions";
-import { cardToDiscordPayload, decodeDiscordCustomId } from "./cards";
+import {
+  cardToDiscordPayload,
+  decodeDiscordCustomId,
+  validateComponentsV2,
+} from "./cards";
 import { DiscordFormatConverter } from "./markdown";
 import {
-  type DiscordActionRow,
   type DiscordAdapterConfig,
   type DiscordCommandOption,
+  DiscordComponentType,
+  type DiscordContainer,
+  type DiscordContainerChild,
+  DiscordContentFormat,
+  type DiscordFileComponent,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
   type DiscordGatewayMessageData,
   type DiscordGatewayReactionData,
   type DiscordInteraction,
+  type DiscordInteractionFlagsContext,
   type DiscordInteractionResponse,
+  type DiscordInteractionResponseFlags,
+  type DiscordMediaGallery,
+  DiscordMessageFlag,
   type DiscordMessagePayload,
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
@@ -93,6 +105,12 @@ interface GatewayCommandOption {
   value?: boolean | number | string;
 }
 
+interface DiscordFileUpload {
+  data: Buffer | Blob | ArrayBuffer;
+  filename: string;
+  mimeType?: string;
+}
+
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
   readonly userName: string;
@@ -103,6 +121,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly publicKey: string;
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
+  protected readonly contentFormat: DiscordContentFormat;
+  protected readonly respondToGlobalMentions: boolean;
+  protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new DiscordFormatConverter();
@@ -148,7 +169,21 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       (process.env.DISCORD_MENTION_ROLE_IDS
         ? process.env.DISCORD_MENTION_ROLE_IDS.split(",").map((id) => id.trim())
         : []);
+    const contentFormat = config.contentFormat ?? DiscordContentFormat.Embeds;
+    if (
+      contentFormat !== DiscordContentFormat.Embeds &&
+      contentFormat !== DiscordContentFormat.ComponentsV2
+    ) {
+      throw new ValidationError(
+        "discord",
+        "contentFormat must be a DiscordContentFormat value."
+      );
+    }
+
+    this.respondToGlobalMentions = config.respondToGlobalMentions ?? false;
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
+    this.contentFormat = contentFormat;
+    this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
@@ -276,8 +311,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle APPLICATION_COMMAND (slash commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      this.handleApplicationCommandInteraction(interaction, options);
+      const context = this.getApplicationCommandContext(interaction);
+      const flags = this.getInteractionFlags(context);
+      this.handleApplicationCommandInteraction(context, flags, options);
       return this.respondToInteraction({
+        ...(flags === undefined ? {} : { data: { flags } }),
         type: InteractionResponseType.DeferredChannelMessageWithSource,
       });
     }
@@ -410,11 +448,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         });
 
     const decoded = decodeDiscordCustomId(customId);
+    const selectedValue = interaction.data?.values?.[0];
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
     } = {
       actionId: decoded.actionId,
-      value: decoded.value ?? decoded.actionId,
+      value: selectedValue ?? decoded.value ?? decoded.actionId,
       user: {
         userId: user.id,
         userName: user.username,
@@ -440,31 +479,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Handle APPLICATION_COMMAND interactions (slash commands).
    */
-  protected handleApplicationCommandInteraction(
-    interaction: DiscordInteraction,
-    options?: WebhookOptions
-  ): void {
-    if (!this.chat) {
-      this.logger.warn("Chat instance not initialized, ignoring interaction");
-      return;
-    }
-
+  protected getApplicationCommandContext(
+    interaction: DiscordInteraction
+  ): DiscordInteractionFlagsContext | null {
     const commandName = interaction.data?.name;
     if (!commandName) {
       this.logger.warn("No command name in application command interaction");
-      return;
+      return null;
     }
 
     const user = interaction.member?.user || interaction.user;
     if (!user) {
       this.logger.warn("No user in application command interaction");
-      return;
+      return null;
     }
 
     const interactionChannelId = interaction.channel_id;
     if (!interactionChannelId) {
       this.logger.warn("Missing channel_id in application command interaction");
-      return;
+      return null;
     }
 
     const guildId = interaction.guild_id || "@me";
@@ -489,6 +522,40 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       interaction.data?.options
     );
 
+    return {
+      channelId,
+      command,
+      interaction,
+      text,
+      user,
+    };
+  }
+
+  protected getInteractionFlags(
+    context: DiscordInteractionFlagsContext | null
+  ): DiscordInteractionResponseFlags | undefined {
+    if (!(context && this.interactionFlags)) {
+      return undefined;
+    }
+    return this.interactionFlags(context);
+  }
+
+  protected handleApplicationCommandInteraction(
+    context: DiscordInteractionFlagsContext | null,
+    initialResponseFlags?: DiscordMessagePayload["flags"],
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring interaction");
+      return;
+    }
+
+    if (!context) {
+      return;
+    }
+
+    const { channelId, command, interaction, text, user } = context;
+
     this.logger.debug("Processing Discord slash command", {
       command,
       text,
@@ -502,6 +569,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       {
         slashCommand: {
           channelId,
+          initialResponseFlags,
           interactionToken: interaction.token,
           initialResponseSent: false,
         },
@@ -574,10 +642,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     interaction: DiscordJsInteraction
   ): Promise<void> {
     if (interaction.isChatInputCommand()) {
-      await interaction.deferReply();
-      this.handleApplicationCommandInteraction(
+      const context = this.getApplicationCommandContext(
         this.normalizeGatewaySlashCommandInteraction(interaction)
       );
+      const flags = this.getInteractionFlags(context);
+      await interaction.deferReply(flags === undefined ? undefined : { flags });
+      this.handleApplicationCommandInteraction(context, flags);
       return;
     }
 
@@ -781,7 +851,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       data.mention_roles?.some((roleId) =>
         this.mentionRoleIds.includes(roleId)
       );
-    const isMentioned = isUserMentioned || isRoleMentioned;
+    const isEveryoneMentioned =
+      this.respondToGlobalMentions && data.mention_everyone === true;
+    const isMentioned =
+      isUserMentioned || isRoleMentioned || isEveryoneMentioned;
 
     // If mentioned and not in a thread, create one
     if (!discordThreadId && isMentioned) {
@@ -933,6 +1006,128 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.chat.processReaction(reactionEvent);
   }
 
+  protected buildMessagePayload(
+    message: AdapterPostableMessage,
+    options: { clearContentForCard?: boolean } = {}
+  ): {
+    componentCount: number;
+    embedCount: number;
+    payload: DiscordMessagePayload;
+  } {
+    const payload: DiscordMessagePayload = {};
+    const card = extractCard(message);
+
+    if (card) {
+      const cardPayload = cardToDiscordPayload(card, {
+        contentFormat: this.contentFormat,
+      });
+
+      if (cardPayload.embeds.length > 0) {
+        payload.embeds = cardPayload.embeds;
+      }
+
+      if (cardPayload.components.length > 0) {
+        payload.components = cardPayload.components;
+      }
+
+      if (cardPayload.flags !== undefined) {
+        // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+        payload.flags = (payload.flags ?? 0) | cardPayload.flags;
+      }
+
+      if (options.clearContentForCard) {
+        if (this.contentFormat === DiscordContentFormat.ComponentsV2) {
+          payload.content = null;
+          payload.embeds = [];
+        } else {
+          payload.content = "";
+        }
+      }
+
+      return {
+        componentCount: payload.components?.length ?? 0,
+        embedCount: payload.embeds?.length ?? 0,
+        payload,
+      };
+    }
+
+    payload.content = this.truncateContent(
+      convertEmojiPlaceholders(
+        this.formatConverter.renderPostable(message),
+        "discord"
+      )
+    );
+
+    return {
+      componentCount: 0,
+      embedCount: 0,
+      payload,
+    };
+  }
+
+  protected addComponentsV2FileReferences(
+    payload: DiscordMessagePayload,
+    files: DiscordFileUpload[]
+  ): void {
+    if (files.length === 0) {
+      return;
+    }
+
+    const isComponentsV2 =
+      // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+      ((payload.flags ?? 0) & DiscordMessageFlag.IsComponentsV2) !== 0;
+    if (!isComponentsV2) {
+      return;
+    }
+
+    const uploadComponents = files.map((file) =>
+      this.fileUploadToComponentsV2Component(file)
+    );
+
+    const container = payload.components?.find(
+      (component): component is DiscordContainer =>
+        component.type === DiscordComponentType.Container
+    );
+
+    if (container) {
+      container.components.push(...uploadComponents);
+    } else {
+      payload.components = [...(payload.components ?? []), ...uploadComponents];
+    }
+
+    validateComponentsV2(payload.components ?? []);
+  }
+
+  protected fileUploadToComponentsV2Component(
+    file: DiscordFileUpload
+  ): DiscordContainerChild {
+    const url = `attachment://${file.filename}`;
+
+    if (this.isMediaGalleryUpload(file)) {
+      return {
+        type: DiscordComponentType.MediaGallery,
+        items: [
+          {
+            media: { url },
+            description: file.filename,
+          },
+        ],
+      } satisfies DiscordMediaGallery;
+    }
+
+    return {
+      type: DiscordComponentType.File,
+      file: { url },
+    } satisfies DiscordFileComponent;
+  }
+
+  protected isMediaGalleryUpload(file: DiscordFileUpload): boolean {
+    return (
+      file.mimeType?.startsWith("image/") === true ||
+      file.mimeType?.startsWith("video/") === true
+    );
+  }
+
   /**
    * Post a message to a Discord channel or thread.
    */
@@ -949,37 +1144,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId = discordThreadId;
     }
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    // Check for card
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Don't include text - Discord shows both text and card if text is present
-    } else {
-      // Regular text message (truncated to Discord's limit)
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { componentCount, embedCount, payload } =
+      this.buildMessagePayload(message);
 
     // Handle file uploads
     const files = extractFiles(message);
+    this.addComponentsV2FileReferences(payload, files);
     const slashResponse = this.tryPostSlashResponse(
       actualThreadId,
       payload,
@@ -1000,8 +1170,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.logger.debug("Discord API: POST message", {
       channelId,
       contentLength: payload.content?.length || 0,
-      embedCount: embeds.length,
-      componentCount: components.length,
+      embedCount,
+      componentCount,
     });
 
     const response = await this.discordFetch(
@@ -1026,11 +1196,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected tryPostSlashResponse(
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> | undefined {
     const slashContext = this.requestContext.getStore()?.slashCommand;
     if (!slashContext || slashContext.channelId !== threadId) {
@@ -1048,11 +1214,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     slashContext: DiscordSlashCommandContext,
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> {
     const isInitialResponse = !slashContext.initialResponseSent;
     // Set flag before awaiting to prevent concurrent post() calls from both
@@ -1073,15 +1235,26 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       }
     );
 
+    const responsePayload =
+      isInitialResponse &&
+      slashContext.initialResponseFlags !== undefined &&
+      payload.flags !== undefined
+        ? {
+            ...payload,
+            // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
+            flags: slashContext.initialResponseFlags | payload.flags,
+          }
+        : payload;
+
     const response =
       files.length > 0
         ? await this.discordInteractionFetchWithFiles(
             path,
             method,
-            payload,
+            responsePayload,
             files
           )
-        : await this.discordInteractionFetch(path, method, payload);
+        : await this.discordInteractionFetch(path, method, responsePayload);
 
     const result = (await response.json()) as APIMessage;
 
@@ -1162,11 +1335,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     channelId: string,
     threadId: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> {
     const formData = new FormData();
 
@@ -1251,11 +1420,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     path: string,
     method: string,
     payload: DiscordMessagePayload,
-    files: Array<{
-      filename: string;
-      data: Buffer | Blob | ArrayBuffer;
-      mimeType?: string;
-    }>
+    files: DiscordFileUpload[]
   ): Promise<Response> {
     const formData = new FormData();
     formData.append("payload_json", JSON.stringify(payload));
@@ -1312,35 +1477,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // Use thread channel ID if in a thread, otherwise use channel ID
     const targetChannelId = discordThreadId || channelId;
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    // Check for card
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Clear content so old text doesn't persist alongside the card (Discord PATCH keeps omitted fields)
-      payload.content = "";
-    } else {
-      // Regular text message (truncated to Discord's limit)
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { payload } = this.buildMessagePayload(message, {
+      clearContentForCard: true,
+    });
 
     this.logger.debug("Discord API: PATCH message", {
       channelId: targetChannelId,
@@ -1572,6 +1711,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     };
   }
 
+  async setThreadTitle(threadId: string, title: string): Promise<void> {
+    const { threadId: discordThreadId } = this.decodeThreadId(threadId);
+    if (!discordThreadId) {
+      return;
+    }
+
+    await this.discordFetch(`/channels/${discordThreadId}`, "PATCH", {
+      name: title,
+    });
+  }
+
   /**
    * Open a DM with a user.
    */
@@ -1713,6 +1863,39 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return "audio";
     }
     return "file";
+  }
+
+  rehydrateAttachment(attachment: Attachment): Attachment {
+    const url = attachment.fetchMetadata?.url ?? attachment.url;
+    if (!url) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      fetchData: () => this.downloadAttachment(url),
+    };
+  }
+
+  protected async downloadAttachment(url: string): Promise<Buffer> {
+    let response: Response;
+    try {
+      response = await fetch(url);
+    } catch (error) {
+      throw new NetworkError(
+        "discord",
+        "Failed to download Discord attachment",
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    if (!response.ok) {
+      throw new NetworkError(
+        "discord",
+        `Failed to download Discord attachment: ${response.status}`
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
 
   /**
@@ -1944,14 +2127,20 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         return;
       }
 
-      // Check if we're mentioned (by user ID or configured role IDs)
-      const isUserMentioned = message.mentions.has(client.user?.id ?? "");
+      // Check if we're mentioned (by user ID or configured role IDs).
+      // @everyone/@here only count when respondToGlobalMentions is enabled.
+      const isUserMentioned = message.mentions.has(client.user?.id ?? "", {
+        ignoreEveryone: true,
+      });
       const isRoleMentioned =
         this.mentionRoleIds.length > 0 &&
         message.mentions.roles.some((role) =>
           this.mentionRoleIds.includes(role.id)
         );
-      const isMentioned = isUserMentioned || isRoleMentioned;
+      const isEveryoneMentioned =
+        this.respondToGlobalMentions && message.mentions.everyone;
+      const isMentioned =
+        isUserMentioned || isRoleMentioned || isEveryoneMentioned;
 
       this.logger.info("Discord Gateway message received", {
         channelId: message.channelId,
@@ -1960,6 +2149,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         isMentioned,
         isUserMentioned,
         isRoleMentioned,
+        isEveryoneMentioned,
         content: message.content.slice(0, 100),
       });
 
@@ -2555,34 +2745,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
-    // Build message payload
-    const payload: DiscordMessagePayload = {};
-    const embeds: APIEmbed[] = [];
-    const components: DiscordActionRow[] = [];
-
-    const card = extractCard(message);
-    if (card) {
-      const cardPayload = cardToDiscordPayload(card);
-      embeds.push(...cardPayload.embeds);
-      components.push(...cardPayload.components);
-      // Don't include text - Discord shows both text and card if text is present
-    } else {
-      payload.content = this.truncateContent(
-        convertEmojiPlaceholders(
-          this.formatConverter.renderPostable(message),
-          "discord"
-        )
-      );
-    }
-
-    if (embeds.length > 0) {
-      payload.embeds = embeds;
-    }
-    if (components.length > 0) {
-      payload.components = components;
-    }
+    const { payload } = this.buildMessagePayload(message);
 
     const files = extractFiles(message);
+    this.addComponentsV2FileReferences(payload, files);
     const slashResponse = this.tryPostSlashResponse(channelId, payload, files);
     if (slashResponse) {
       return slashResponse;
@@ -2671,4 +2837,18 @@ export {
   DiscordFormatConverter as DiscordMarkdownConverter,
 } from "./markdown";
 // Re-export types
-export type { DiscordAdapterConfig, DiscordThreadId } from "./types";
+export type {
+  DiscordAdapterConfig,
+  DiscordComponentTypeValue,
+  DiscordInteractionFlagsContext,
+  DiscordInteractionResponseFlags,
+  DiscordMessageFlags,
+  DiscordMessageFlagValue,
+  DiscordThreadId,
+} from "./types";
+export {
+  DiscordComponentType,
+  DiscordContentFormat,
+  DiscordInteractionResponseFlag,
+  DiscordMessageFlag,
+} from "./types";

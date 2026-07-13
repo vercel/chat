@@ -1,5 +1,47 @@
 # @chat-adapter/linear
 
+## 4.33.0
+
+### Minor Changes
+
+- 4115c94: Add Vercel Connect support to the Linear adapter. The `accessToken` config option now accepts a resolver (`() => string | Promise<string>`) in addition to a string, so tokens can be sourced from Vercel Connect at runtime, and a new optional `webhookVerifier` verifies inbound webhooks (e.g. Connect trigger-forwarded requests via a Vercel OIDC token) in place of the Linear webhook secret. Pair with `connectLinearAdapter()` from `@vercel/connect/chat`. Connect-mode outbound calls outside webhook handling are supported via `withInstallation(organizationId, fn)`.
+
+  Note: the `connectLinearAdapter()` helper ships in `@vercel/connect` — release this adapter together with (or after) the `@vercel/connect` version that adds the `@vercel/connect/chat` subpath so the documented helper resolves.
+
+### Patch Changes
+
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
+## 4.32.0
+
+### Patch Changes
+
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
+## 4.31.0
+
+### Patch Changes
+
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Patch Changes

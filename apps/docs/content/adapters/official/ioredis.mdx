@@ -27,12 +27,12 @@ features:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
-import { createIORedisState } from "@chat-adapter/state-ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
 
 const bot = new Chat({
   userName: "mybot",
   adapters: { /* ... */ },
-  state: createIORedisState({ url: process.env.REDIS_URL! }),
+  state: createIoRedisState({ url: process.env.REDIS_URL! }),
 });
 ```
 
@@ -65,11 +65,11 @@ Either `url` or `client` is required.
 
 ```typescript title="lib/state.ts" lineNumbers
 import Redis from "ioredis";
-import { createIORedisState } from "@chat-adapter/state-ioredis";
+import { createIoRedisState } from "@chat-adapter/state-ioredis";
 
 const client = new Redis("redis://localhost:6379");
 
-export const state = createIORedisState({ client });
+export const state = createIoRedisState({ client });
 ```
 
 ### When to choose ioredis vs redis

@@ -2,8 +2,8 @@
 
 > npm package: [`@chat-adapter/state-pg`](https://www.npmjs.com/package/@chat-adapter/state-pg)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-pg)](https://www.npmjs.com/package/@chat-adapter/state-pg)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-pg)](https://www.npmjs.com/package/@chat-adapter/state-pg)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Production PostgreSQL state adapter for [Chat SDK](https://chat-sdk.dev) built with [pg](https://www.npmjs.com/package/pg) (node-postgres). Use this when PostgreSQL is your primary datastore and you want state persistence without a separate Redis dependency.
 
@@ -14,6 +14,16 @@ Documentation: [chat-sdk.dev/adapters/official/postgres](https://chat-sdk.dev/ad
 ```bash
 pnpm add @chat-adapter/state-pg
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Slack bot that uses PostgreSQL for state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack postgres
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 

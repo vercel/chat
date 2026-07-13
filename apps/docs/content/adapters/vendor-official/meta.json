@@ -3,13 +3,17 @@
   "pages": [
     "liveblocks",
     "resend",
+    "novu",
     "sendblue",
     "zernio",
     "matrix",
-    "imessage",
     "agentphone",
     "lark",
     "velt",
-    "kapso"
+    "kapso",
+    "linq",
+    "photon",
+    "cloudflare-agents",
+    "dial"
   ]
 }

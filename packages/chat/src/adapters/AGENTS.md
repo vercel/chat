@@ -10,9 +10,11 @@ Guidance for coding agents working on the `chat/adapters` catalog subpath.
 
 - Keep the module self-contained. Do not import adapter packages, state packages, docs code, Node APIs, or platform SDKs from `index.ts`.
 - Keep catalog metadata in sync with `apps/docs/adapters.json`: `slug`, `name`, `description`, `packageName`, `type`, and `group`.
+- Keep `factoryExport` aligned with the package's actual named factory export. For official monorepo packages this is verified against `src/index.ts`; for vendor-official packages, read the adapter MDX examples.
+- Prefer runtime adapter keys for slugs when they differ from product names. Google Chat uses `gchat` because the adapter name and webhook path are `gchat`.
 - For official adapters, derive peer dependencies from each package's `package.json` dependencies, excluding `workspace:*`, `chat`, and `@chat-adapter/shared`.
 - For vendor-official adapters, read the corresponding MDX file in `apps/docs/content/adapters/vendor-official/` and update env vars, credential modes, peer deps, and constructor-only config from that source. Keep peer deps that the MDX install command tells users to install, including `@chat-adapter/shared` when applicable.
-- Preserve the public API shape in this folder unless intentionally changing the `chat/adapters` contract: `ADAPTERS`, `ADAPTER_NAMES`, `AdapterSlug`, `CatalogAdapter`, `AdapterEnvSpec`, `EnvGroup`, `EnvVar`, `getAdapter`, `isAdapterSlug`, `listEnvVars`, and `getSecretEnvVars`.
+- Preserve the public API shape in this folder unless intentionally changing the `chat/adapters` contract: `ADAPTERS`, `ADAPTER_NAMES`, `AdapterSlug`, `CatalogAdapter`, `AdapterEnvSpec`, `EnvGroup`, `EnvVar`, `getAdapter`, `isAdapterSlug`, `listPlatformAdapters`, `listStateAdapters`, `listEnvVars`, and `getSecretEnvVars`.
 - Use readonly arrays and literal-friendly data. Keep `AdapterSlug` derived from `keyof typeof ADAPTERS`.
 
 ## Usage examples

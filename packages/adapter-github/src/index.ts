@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { extractCard, ValidationError } from "@chat-adapter/shared";
+import {
+  AuthenticationError,
+  extractCard,
+  ValidationError,
+} from "@chat-adapter/shared";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type {
@@ -37,6 +41,7 @@ import type {
   GitHubReviewComment,
   GitHubThreadId,
   GitHubUser,
+  GitHubWebhookVerifier,
   IssueCommentWebhookPayload,
   PullRequestReviewCommentWebhookPayload,
 } from "./types";
@@ -49,11 +54,26 @@ const PR_THREAD_PATTERN = /^([^/]+)\/([^:]+):(\d+)$/;
 export type {
   GitHubAdapterAppConfig,
   GitHubAdapterConfig,
+  GitHubAdapterConnectConfig,
   GitHubAdapterMultiTenantAppConfig,
   GitHubAdapterPATConfig,
   GitHubRawMessage,
   GitHubThreadId,
+  GitHubWebhookVerifier,
 } from "./types";
+
+/**
+ * Normalize an `installationToken` config value (string or resolver) to an
+ * async resolver invoked per API call.
+ */
+function normalizeInstallationTokenProvider(
+  value: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof value === "function") {
+    return async () => await value();
+  }
+  return () => Promise.resolve(value);
+}
 
 /**
  * GitHub adapter for chat SDK.
@@ -167,8 +187,12 @@ export class GitHubAdapter
   private readonly installationClients = new Map<number, Octokit>();
   // Custom API base URL (e.g. for GitHub Enterprise)
   protected readonly apiUrl?: string;
+  // Vercel Connect installation-token resolver (Connect mode only)
+  protected readonly installationTokenProvider: (() => Promise<string>) | null =
+    null;
 
-  protected readonly webhookSecret: string;
+  protected readonly webhookSecret?: string;
+  protected readonly webhookVerifier?: GitHubWebhookVerifier;
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected _botUserId: number | null = null;
@@ -185,21 +209,61 @@ export class GitHubAdapter
   }
 
   constructor(config: GitHubAdapterConfig = {} as GitHubAdapterAutoConfig) {
-    const webhookSecret =
-      config.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
-    if (!webhookSecret) {
+    const webhookVerifier = config.webhookVerifier;
+    // webhookVerifier takes precedence over webhookSecret (config) and the
+    // GITHUB_WEBHOOK_SECRET env var. When a verifier is configured we ignore
+    // both so an env-configured deployment can't silently shadow it.
+    const webhookSecret = webhookVerifier
+      ? undefined
+      : (config.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET);
+    if (!(webhookSecret || webhookVerifier)) {
       throw new ValidationError(
         "github",
-        "webhookSecret is required. Set GITHUB_WEBHOOK_SECRET or provide it in config."
+        "webhookSecret or webhookVerifier is required. Set GITHUB_WEBHOOK_SECRET, provide webhookSecret in config, or provide a webhookVerifier."
       );
     }
     this.webhookSecret = webhookSecret;
+    this.webhookVerifier = webhookVerifier;
     this.logger = config.logger ?? new ConsoleLogger("info").child("github");
     this.userName =
       config.userName ?? process.env.GITHUB_BOT_USERNAME ?? "github-bot";
-    this._botUserId = config.botUserId ?? null;
+    const envBotUserId = process.env.GITHUB_BOT_USER_ID
+      ? Number.parseInt(process.env.GITHUB_BOT_USER_ID, 10)
+      : undefined;
+    this._botUserId =
+      config.botUserId ??
+      (envBotUserId !== undefined && !Number.isNaN(envBotUserId)
+        ? envBotUserId
+        : null);
     this.apiUrl = config.apiUrl ?? process.env.GITHUB_API_URL;
     let fixedInstallationId: number | null = null;
+
+    // Vercel Connect mode: a resolver supplies installation access tokens
+    // directly, so we skip the GitHub App JWT / PAT setup. A single Octokit
+    // instance resolves a fresh token per request via a before-hook, so all
+    // existing call sites (sync and async) keep working unchanged.
+    if ("installationToken" in config && config.installationToken) {
+      this.installationTokenProvider = normalizeInstallationTokenProvider(
+        config.installationToken
+      );
+      const octokit = new Octokit({
+        ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
+      });
+      octokit.hook.before("request", async (options) => {
+        const token = await this.installationTokenProvider?.();
+        if (!token) {
+          throw new AuthenticationError(
+            "github",
+            "Vercel Connect returned an empty installation token. Check the connector configuration and its scopes."
+          );
+        }
+        options.headers = options.headers ?? {};
+        options.headers.authorization = `token ${token}`;
+      });
+      this.defaultOctokit = octokit;
+      this.fixedInstallationId = null;
+      return;
+    }
 
     // Create Octokit instance based on auth method.
     // Only fall back to env vars when NO auth field was explicitly provided,
@@ -356,6 +420,17 @@ export class GitHubAdapter
     if (this._botUserId !== null) {
       return;
     }
+    // Vercel Connect mode: only an installation token is available, so neither
+    // GET /user nor GET /app (which needs the App's signed JWT) can identify
+    // the bot. The id is instead learned from the first comment the bot posts
+    // (see captureBotUserId); set `botUserId` in config to enable self-message
+    // detection before that first post.
+    if (this.installationTokenProvider) {
+      this.logger.debug(
+        "Skipping GitHub bot user ID auto-detection in Vercel Connect mode; it will be learned from the first posted comment, or set botUserId explicitly"
+      );
+      return;
+    }
     // For App installations, /user is not available. Fetch the App's bot user
     // via /app then look up the slug to get a numeric user ID. The /user
     // endpoint works for PAT mode and (returns the bot user) for installation
@@ -391,6 +466,25 @@ export class GitHubAdapter
       }
     } catch (error) {
       this.logger.warn("Could not auto-detect GitHub bot user ID", { error });
+    }
+  }
+
+  /**
+   * Learn the bot's own numeric user id from a comment it just created. The
+   * create-comment response's `user` is the authenticated author (the bot), so
+   * this lets self-message detection (`isMe`) start working even in Vercel
+   * Connect mode, where the id can't be auto-detected from an installation
+   * token — preventing the adapter from replying to its own comments in a loop.
+   */
+  protected captureBotUserId(
+    user: { id?: number; login?: string } | null | undefined
+  ): void {
+    if (this._botUserId === null && typeof user?.id === "number") {
+      this._botUserId = user.id;
+      this.logger.info("GitHub bot user ID learned from posted comment", {
+        botUserId: this._botUserId,
+        login: user.login,
+      });
     }
   }
 
@@ -507,19 +601,39 @@ export class GitHubAdapter
     options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
-    this.logger.debug("GitHub webhook raw body", {
-      body: body.substring(0, 500),
-    });
-
-    // Verify request signature
     const signature = request.headers.get("x-hub-signature-256");
-    if (!this.verifySignature(body, signature)) {
+    const eventType = request.headers.get("x-github-event");
+    const webhookMetadata = {
+      bodyBytes: Buffer.byteLength(body, "utf8"),
+      contentType: request.headers.get("content-type"),
+      eventType,
+      signaturePresent: signature !== null,
+    };
+
+    // Verify the request. A custom webhookVerifier (e.g. Vercel Connect OIDC)
+    // takes precedence over the HMAC-SHA256 signature check.
+    if (this.webhookVerifier) {
+      let verified: unknown;
+      try {
+        verified = await this.webhookVerifier(request, body);
+      } catch (error) {
+        this.logger.warn("GitHub webhook verifier rejected the request", {
+          error,
+        });
+        return new Response("Invalid signature", { status: 401 });
+      }
+      if (!verified) {
+        return new Response("Invalid signature", { status: 401 });
+      }
+    } else if (!this.verifySignature(body, signature)) {
+      this.logger.debug(
+        "GitHub webhook signature verification failed",
+        webhookMetadata
+      );
       return new Response("Invalid signature", { status: 401 });
     }
 
-    // Get event type from header
-    const eventType = request.headers.get("x-github-event");
-    this.logger.debug("GitHub webhook event type", { eventType });
+    this.logger.debug("GitHub webhook request verified", webhookMetadata);
 
     // Handle ping event (webhook verification)
     if (eventType === "ping") {
@@ -535,8 +649,8 @@ export class GitHubAdapter
       payload = JSON.parse(body);
     } catch {
       this.logger.error("GitHub webhook invalid JSON", {
-        contentType: request.headers.get("content-type"),
-        bodyPreview: body.substring(0, 200),
+        ...webhookMetadata,
+        jsonParseStatus: "error",
       });
       return new Response(
         "Invalid JSON. Make sure webhook Content-Type is set to application/json",
@@ -561,6 +675,11 @@ export class GitHubAdapter
         await this.detectBotUserId(this.getOctokit(installationId));
       }
     }
+
+    // In Vercel Connect mode the bot user ID cannot be auto-detected from an
+    // installation token (see detectBotUserId), so it comes from
+    // `config.botUserId` / `GITHUB_BOT_USER_ID` or is learned from the first
+    // comment the bot posts (see captureBotUserId).
 
     // Handle events
     const ctx = { installationId };
@@ -587,6 +706,10 @@ export class GitHubAdapter
    * Verify GitHub webhook signature using HMAC-SHA256.
    */
   protected verifySignature(body: string, signature: string | null): boolean {
+    if (!this.webhookSecret) {
+      return false;
+    }
+
     if (!signature) {
       return false;
     }
@@ -837,6 +960,8 @@ export class GitHubAdapter
         }
       );
 
+      this.captureBotUserId(comment.user);
+
       return {
         id: comment.id.toString(),
         threadId,
@@ -860,6 +985,8 @@ export class GitHubAdapter
       issue_number: prNumber,
       body,
     });
+
+    this.captureBotUserId(comment.user);
 
     return {
       id: comment.id.toString(),
