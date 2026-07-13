@@ -465,6 +465,26 @@ describe("Chat", () => {
 
       expect(mentionHandler).not.toHaveBeenCalled();
     });
+
+    it("should not trigger onNewMention when a hyphen-suffixed user ID is mentioned", async () => {
+      // Bot with ID UBOT123 should not react when @UBOT123-canary is mentioned
+      const adapterWithId = {
+        ...createMockAdapter("slack"),
+        botUserId: "UBOT123",
+      };
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "deploy @UBOT123-canary now");
+
+      await chat.handleIncomingMessage(
+        adapterWithId,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
   });
 
   it("should match message patterns", async () => {

@@ -2600,7 +2600,7 @@ export class Chat<
     // Fallback: check for user ID mention if available (e.g., @U_BOT_123)
     if (botUserId) {
       const userIdPattern = new RegExp(
-        `@${this.escapeRegex(botUserId)}\\b`,
+        `@${this.escapeRegex(botUserId)}(?![\\w-])`,
         "i"
       );
       if (userIdPattern.test(message.text)) {
