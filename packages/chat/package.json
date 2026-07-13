@@ -56,14 +56,14 @@
   "devDependencies": {
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.3.2",
-    "ai": "^6.0.182",
+    "ai": "^7.0.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "ai": "^6.0.182",
+    "ai": "^6.0.182 || ^7.0.0",
     "zod": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {

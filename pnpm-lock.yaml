@@ -173,8 +173,8 @@ importers:
   examples/nextjs-chat:
     dependencies:
       '@ai-sdk/react':
-        specifier: ^3.0.184
-        version: 3.0.184(react@19.2.3)(zod@4.3.6)
+        specifier: ^4.0.0
+        version: 4.0.18(react@19.2.3)(zod@4.3.6)
       '@chat-adapter/discord':
         specifier: workspace:*
         version: link:../../packages/adapter-discord
@@ -216,13 +216,13 @@ importers:
         version: 4.1.18
       '@vercel/connect':
         specifier: ^0.3.0
-        version: 0.3.0(@chat-adapter/slack@packages+adapter-slack)(ai@6.0.182(zod@4.3.6))
+        version: 0.3.0(@ai-sdk/mcp@2.0.8(zod@4.3.6))(@chat-adapter/slack@packages+adapter-slack)(ai@7.0.17(zod@4.3.6))
       '@vercel/oidc':
         specifier: ^3.7.0
         version: 3.7.0
       ai:
-        specifier: ^6.0.182
-        version: 6.0.182(zod@4.3.6)
+        specifier: ^7.0.0
+        version: 7.0.17(zod@4.3.6)
       chat:
         specifier: workspace:*
         version: link:../../packages/chat
@@ -270,8 +270,8 @@ importers:
   examples/nuxt-chat:
     dependencies:
       '@ai-sdk/vue':
-        specifier: ^3.0.182
-        version: 3.0.182(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)
+        specifier: ^4.0.0
+        version: 4.0.17(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)
       '@chat-adapter/slack':
         specifier: workspace:*
         version: link:../../packages/adapter-slack
@@ -285,8 +285,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/adapter-web
       ai:
-        specifier: ^6.0.182
-        version: 6.0.182(zod@4.3.6)
+        specifier: ^7.0.0
+        version: 7.0.17(zod@4.3.6)
       chat:
         specifier: workspace:*
         version: link:../../packages/chat
@@ -628,14 +628,14 @@ importers:
         version: link:../chat
     devDependencies:
       '@ai-sdk/react':
-        specifier: ^3.0.184
-        version: 3.0.184(react@19.2.3)(zod@4.3.6)
+        specifier: ^4.0.0
+        version: 4.0.18(react@19.2.3)(zod@4.3.6)
       '@ai-sdk/svelte':
-        specifier: ^4.0.182
-        version: 4.0.182(svelte@5.55.7)(zod@4.3.6)
+        specifier: ^5.0.0
+        version: 5.0.17(svelte@5.55.7)(zod@4.3.6)
       '@ai-sdk/vue':
-        specifier: ^3.0.182
-        version: 3.0.182(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)
+        specifier: ^4.0.0
+        version: 4.0.17(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)
       '@chat-adapter/state-memory':
         specifier: workspace:*
         version: link:../state-memory
@@ -652,8 +652,8 @@ importers:
         specifier: ^4.0.18
         version: 4.0.18(vitest@4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.30.2)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       ai:
-        specifier: ^6.0.182
-        version: 6.0.182(zod@4.3.6)
+        specifier: ^7.0.0
+        version: 7.0.17(zod@4.3.6)
       react:
         specifier: ^19.0.0
         version: 19.2.3
@@ -751,8 +751,8 @@ importers:
         specifier: ^25.3.2
         version: 25.3.2
       ai:
-        specifier: ^6.0.182
-        version: 6.0.182(zod@4.3.6)
+        specifier: ^7.0.0
+        version: 7.0.17(zod@4.3.6)
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.16)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
@@ -984,9 +984,27 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/gateway@4.0.13':
+    resolution: {integrity: sha512-EIiMZZMEAc3yZ3nywrJfKigrkaNwqrQgGsj0QbQ6x3Y73MlQe68EElR2cm/8I5dvBci3PFyahMRe3NwR8OOb9A==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/mcp@2.0.8':
+    resolution: {integrity: sha512-9PmSc+ObIxGieXsSXL3ghvAYGXj83V2mFo+FuG/8F1Ujv8d3pVD+fTnh3JdY0gKAT05Ehrtz5FGH9tLJGbQnMw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/provider-utils@4.0.27':
     resolution: {integrity: sha512-ubkAJ+xODouwtmN1tYlvTPphH1hPOBfZaEQe8U7skGvFAnIRs9PPpsq57bC2+Ky/MB4yzhd6YOsxTAx9sGpazw==}
     engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@5.0.5':
+    resolution: {integrity: sha512-oI0t3dvCoqWNV1I8o1Rybi2DXDvHES5r/TrwtJW90tuFLVepgJlftPxrcjh8vaSvjqC2diTuA2vXyjKAyHJm4A==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -994,21 +1012,31 @@ packages:
     resolution: {integrity: sha512-Q3BZ27qfpYqnCYGvE3vt+Qi6LGOF9R5Nmzn+9JoM1lCRsD9mYaIhfJLkSunN48nfGXJ6n+XNV0J/XVpqGQl7Dw==}
     engines: {node: '>=18'}
 
+  '@ai-sdk/provider@4.0.2':
+    resolution: {integrity: sha512-pfPoy9J1B1xV7cqJ8MYHOsDYrMv5tR3+EMNfI249OhkD2uRakvav3Fo7XpD2luuN/YNCBY7KfEQc7vEV7KEtyw==}
+    engines: {node: '>=22'}
+
   '@ai-sdk/react@3.0.184':
     resolution: {integrity: sha512-k8fQ11U3+lKzUCkiitevuH0MF++b7QPX7zrPRfXfNayLRZwrwvNuqXifB/6iIyQpSLNCfzhkqG117FW2EXCI5w==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
 
-  '@ai-sdk/svelte@4.0.182':
-    resolution: {integrity: sha512-BKu9PwxPmqEXCUMleC+cjfAe7+CN2TXc3v3pQSIs6BQMv0puXjKALyes43dD5nQa2TZ0Sl8QLxjURpq9ASQ3+w==}
-    engines: {node: '>=18'}
+  '@ai-sdk/react@4.0.18':
+    resolution: {integrity: sha512-xNLGIy8JepTiKRedRwMcnM4Y0yjBqMYO3/Uea9yiNiC/d/MMlaQPfUzMwB8bs+wHE7xQ+e0tHMgo5CjSrN5AxA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
+
+  '@ai-sdk/svelte@5.0.17':
+    resolution: {integrity: sha512-BIKUsdg43jpUvs3KSy4VM0/4+FEMVpKRQTShzoB7U8b37GSprjfAJN4urr03nvcOmHkJiFU5+upV3fLanU3YYQ==}
+    engines: {node: '>=22'}
     peerDependencies:
       svelte: ^5.31.0
 
-  '@ai-sdk/vue@3.0.182':
-    resolution: {integrity: sha512-BLWb0LlNAXhJJgPWZxQy50++j0HkkEyXGqqtptKcZU1riRxFwu5LGrlVXsT6YRpwkwvgQBmpki0sgq6atVm+Pg==}
-    engines: {node: '>=18'}
+  '@ai-sdk/vue@4.0.17':
+    resolution: {integrity: sha512-LjSOlNc/iqopVJbXBU86bnWuTV0aO1lv57feg6OcdBZkrpTLfEYDYnBsrFeyiPGqS9DkBvDspF2BUD3tYInUqw==}
+    engines: {node: '>=22'}
     peerDependencies:
       vue: ^3.3.4
 
@@ -6130,6 +6158,9 @@ packages:
   '@workflow/rollup@4.0.4':
     resolution: {integrity: sha512-DqmSp89Y4WVoMkBWkiNll0b5mZ2WA9uwNsRuO4QOU0XHytuCnvTRGMf0ZV6fXAa3KyeXlgS1r0V8SHwt1ZQ7jg==}
 
+  '@workflow/serde@4.1.0':
+    resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
+
   '@workflow/serde@4.1.0-beta.2':
     resolution: {integrity: sha512-8kkeoQKLDaKXefjV5dbhBj2aErfKp1Mc4pb6tj8144cF+Em5SPbyMbyLCHp+BVrFfFVCBluCtMx+jjvaFVZGww==}
 
@@ -6266,6 +6297,12 @@ packages:
   ai@6.0.182:
     resolution: {integrity: sha512-ooJdziFjYrYRcsCx107roqA8gDTI3P82nUfroNWIhVvwrkYzEN3W1l50YK+XNqkUew8AiimaW0/SLBewRXMuHQ==}
     engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  ai@7.0.17:
+    resolution: {integrity: sha512-kpIjNtN0tyUaxzkAs7b8YF48WZzc71dKu0HqFPSAWg/avu1Ogv50UPE9hpVMr+kb33zsEa6LrAU9DZHMNscvzw==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -9519,6 +9556,10 @@ packages:
   piscina@4.9.3:
     resolution: {integrity: sha512-3e3ka9QCE8RJ5I9uszdAADZnkcYi21cqmF3gxox3u884N72qpFHCsIVhHt8cEQ9t3Auq/NqoiCEuhxlxxQuDWA==}
 
+  pkce-challenge@5.0.1:
+    resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
+    engines: {node: '>=16.20.0'}
+
   pkg-types@1.3.1:
     resolution: {integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==}
 
@@ -10488,8 +10529,8 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
-  swr@2.4.0:
-    resolution: {integrity: sha512-sUlC20T8EOt1pHmDiqueUWMmRRX03W7w5YxovWX7VR2KHEPCTMly85x05vpkP5i6Bu4h44ePSMD9Tc+G2MItFw==}
+  swr@2.4.2:
+    resolution: {integrity: sha512-ej644Y2bvkIajfR32KGeSSdBXQW+ScjGjkybZgSE7kFpk9eGnV44XY9FJylXi+W75pavSX1PVNB57W5EbhGIYw==}
     peerDependencies:
       react: ^16.11.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -11543,6 +11584,20 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.3.6
 
+  '@ai-sdk/gateway@4.0.13(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.2
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
+      '@vercel/oidc': 3.2.0
+      zod: 4.3.6
+
+  '@ai-sdk/mcp@2.0.8(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.2
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
+      pkce-challenge: 5.0.1
+      zod: 4.3.6
+
   '@ai-sdk/provider-utils@4.0.27(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.10
@@ -11550,7 +11605,19 @@ snapshots:
       eventsource-parser: 3.0.8
       zod: 4.3.6
 
+  '@ai-sdk/provider-utils@5.0.5(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.2
+      '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
+      eventsource-parser: 3.0.8
+      zod: 4.3.6
+
   '@ai-sdk/provider@3.0.10':
+    dependencies:
+      json-schema: 0.4.0
+
+  '@ai-sdk/provider@4.0.2':
     dependencies:
       json-schema: 0.4.0
 
@@ -11559,23 +11626,35 @@ snapshots:
       '@ai-sdk/provider-utils': 4.0.27(zod@4.3.6)
       ai: 6.0.182(zod@4.3.6)
       react: 19.2.3
-      swr: 2.4.0(react@19.2.3)
+      swr: 2.4.2(react@19.2.3)
       throttleit: 2.1.0
     transitivePeerDependencies:
       - zod
 
-  '@ai-sdk/svelte@4.0.182(svelte@5.55.7)(zod@4.3.6)':
+  '@ai-sdk/react@4.0.18(react@19.2.3)(zod@4.3.6)':
     dependencies:
-      '@ai-sdk/provider-utils': 4.0.27(zod@4.3.6)
-      ai: 6.0.182(zod@4.3.6)
+      '@ai-sdk/mcp': 2.0.8(zod@4.3.6)
+      '@ai-sdk/provider': 4.0.2
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
+      ai: 7.0.17(zod@4.3.6)
+      react: 19.2.3
+      swr: 2.4.2(react@19.2.3)
+      throttleit: 2.1.0
+    transitivePeerDependencies:
+      - zod
+
+  '@ai-sdk/svelte@5.0.17(svelte@5.55.7)(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
+      ai: 7.0.17(zod@4.3.6)
       svelte: 5.55.7
     transitivePeerDependencies:
       - zod
 
-  '@ai-sdk/vue@3.0.182(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)':
+  '@ai-sdk/vue@4.0.17(vue@3.5.34(typescript@5.9.3))(zod@4.3.6)':
     dependencies:
-      '@ai-sdk/provider-utils': 4.0.27(zod@4.3.6)
-      ai: 6.0.182(zod@4.3.6)
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
+      ai: 7.0.17(zod@4.3.6)
       swrv: 1.2.0(vue@3.5.34(typescript@5.9.3))
       vue: 3.5.34(typescript@5.9.3)
     transitivePeerDependencies:
@@ -16230,12 +16309,13 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  '@vercel/connect@0.3.0(@chat-adapter/slack@packages+adapter-slack)(ai@6.0.182(zod@4.3.6))':
+  '@vercel/connect@0.3.0(@ai-sdk/mcp@2.0.8(zod@4.3.6))(@chat-adapter/slack@packages+adapter-slack)(ai@7.0.17(zod@4.3.6))':
     dependencies:
       '@vercel/oidc': 3.7.1
     optionalDependencies:
+      '@ai-sdk/mcp': 2.0.8(zod@4.3.6)
       '@chat-adapter/slack': link:packages/adapter-slack
-      ai: 6.0.182(zod@4.3.6)
+      ai: 7.0.17(zod@4.3.6)
 
   '@vercel/edge-config-fs@0.1.0': {}
 
@@ -16873,6 +16953,8 @@ snapshots:
       - aws-crt
       - supports-color
 
+  '@workflow/serde@4.1.0': {}
+
   '@workflow/serde@4.1.0-beta.2': {}
 
   '@workflow/serde@4.1.1': {}
@@ -17089,6 +17171,13 @@ snapshots:
       '@ai-sdk/provider': 3.0.10
       '@ai-sdk/provider-utils': 4.0.27(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
+      zod: 4.3.6
+
+  ai@7.0.17(zod@4.3.6):
+    dependencies:
+      '@ai-sdk/gateway': 4.0.13(zod@4.3.6)
+      '@ai-sdk/provider': 4.0.2
+      '@ai-sdk/provider-utils': 5.0.5(zod@4.3.6)
       zod: 4.3.6
 
   alien-signals@3.2.1: {}
@@ -20842,7 +20931,7 @@ snapshots:
       log-symbols: 6.0.0
       stdin-discarder: 0.2.2
       string-width: 7.2.0
-      strip-ansi: 7.1.2
+      strip-ansi: 7.2.0
 
   os-paths@4.4.0: {}
 
@@ -21121,6 +21210,8 @@ snapshots:
   piscina@4.9.3:
     optionalDependencies:
       '@napi-rs/nice': 1.1.1
+
+  pkce-challenge@5.0.1: {}
 
   pkg-types@1.3.1:
     dependencies:
@@ -22319,7 +22410,7 @@ snapshots:
       picocolors: 1.1.1
       sax: 1.6.0
 
-  swr@2.4.0(react@19.2.3):
+  swr@2.4.2(react@19.2.3):
     dependencies:
       dequal: 2.0.3
       react: 19.2.3
@@ -23301,7 +23392,7 @@ snapshots:
     dependencies:
       ansi-styles: 6.2.3
       string-width: 7.2.0
-      strip-ansi: 7.1.2
+      strip-ansi: 7.2.0
 
   wrappy@1.0.2: {}
 
