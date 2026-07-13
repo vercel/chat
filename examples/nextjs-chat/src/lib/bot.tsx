@@ -110,8 +110,10 @@ bot.onNewMention(async (thread, message) => {
   // Check if user wants to enable AI mode (mention contains "AI")
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
-    // Also respond to the initial message with AI (including any image attachments)
-    await thread.startTyping("Thinking...");
+    // Also respond to the initial message with AI (including any image attachments).
+    // No explicit status: on Slack this falls back to the adapter-level
+    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    await thread.startTyping();
     try {
       const history = await toAiMessages([message]);
       const result = await agent.stream({ prompt: history });
@@ -591,6 +593,21 @@ const FeedbackModal = (
 // Open feedback modal
 bot.onAction("feedback", async (event) => {
   await event.openModal(FeedbackModal);
+});
+
+// Native feedback buttons appended to streamed Slack replies (see the
+// `feedbackButtons` adapter config in adapters.ts). In a real app you'd
+// persist this signal for evals; here we just acknowledge it.
+bot.onAction("ai_feedback", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  const positive = event.value === "positive";
+  await event.thread.post(
+    positive
+      ? `${emoji.sparkles} Thanks for the positive feedback!`
+      : `${emoji.wrench} Thanks — I'll try to do better.`
+  );
 });
 
 bot.onSlashCommand("/ping", async (event) => {
@@ -1218,7 +1235,9 @@ bot.onSubscribedMessage(async (thread, message) => {
       );
     }
 
-    await thread.startTyping("Thinking...");
+    // No explicit status: on Slack this falls back to the adapter-level
+    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    await thread.startTyping();
     try {
       const result = await agent.stream({ prompt: history });
       await thread.post(result.fullStream);

@@ -12,7 +12,11 @@ import {
   createMessengerAdapter,
   type MessengerAdapter,
 } from "@chat-adapter/messenger";
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
+import {
+  createSlackAdapter,
+  type SlackAdapter,
+  type SlackAdapterConfig,
+} from "@chat-adapter/slack";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
 import {
   createTelegramAdapter,
@@ -58,6 +62,52 @@ const DISCORD_METHODS = [
   "openDM",
   "fetchMessages",
 ];
+// Slack agent experience (optional) — requires the Agents feature and the
+// assistant:write scope plus the matching events in slack-manifest.yml.
+// Suggested prompts are pinned automatically when an assistant/agent thread
+// opens; the resolver tailors them to the user's active view (agent_view
+// folds what the user is looking at into the event as `entities`).
+// `loadingMessages` rotate in the thinking indicator while the bot works.
+// Set SLACK_AGENT_VIEW=true when your manifest uses `agent_view`.
+// Set SLACK_NATIVE_STREAMING=false to compare Slack's native streaming API
+// (chat.startStream/appendStream/stopStream, the default) against the
+// post-and-edit fallback (chat.update deltas).
+const SLACK_AGENT_OPTIONS: Pick<
+  SlackAdapterConfig,
+  | "agentView"
+  | "feedbackButtons"
+  | "loadingMessages"
+  | "nativeStreaming"
+  | "suggestedPrompts"
+> = {
+  agentView: process.env.SLACK_AGENT_VIEW === "true",
+  // Thumbs up/down on every streamed reply; clicks dispatch to
+  // bot.onAction("ai_feedback") — see bot.tsx.
+  feedbackButtons: { actionId: "ai_feedback" },
+  nativeStreaming: process.env.SLACK_NATIVE_STREAMING !== "false",
+  loadingMessages: [
+    "Thinking...",
+    "Consulting the Chat SDK docs...",
+    "Almost there...",
+  ],
+  suggestedPrompts: ({ entities }) => ({
+    title: "Welcome! What can I do for you?",
+    prompts: [
+      entities?.some((entity) => entity.kind === "channel")
+        ? {
+            title: "Summarize this channel",
+            message: "Summarize the channel I'm currently viewing",
+          }
+        : {
+            title: "Catch me up",
+            message: "What can you help me with?",
+          },
+      { title: "Draft a message", message: "Help me draft a message" },
+      { title: "Explain Chat SDK", message: "What is the Chat SDK?" },
+    ],
+  }),
+};
+
 const SLACK_METHODS = [
   "postMessage",
   "editMessage",
@@ -189,6 +239,7 @@ export function buildAdapters(): Adapters {
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
+        ...SLACK_AGENT_OPTIONS,
         ...connectSlackAdapter(process.env.SLACK_CONNECTOR),
       }),
       "slack",
@@ -202,6 +253,7 @@ export function buildAdapters(): Adapters {
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
+        ...SLACK_AGENT_OPTIONS,
       }),
       "slack",
       SLACK_METHODS
