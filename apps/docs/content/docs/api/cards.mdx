@@ -7,7 +7,7 @@ type: reference
 Card components render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Embeds on Discord, and Google Chat Cards.
 
 ```typescript
-import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton, Table } from "chat";
+import { Card, Text, CardLink, Button, Actions, Section, Fields, Field, Divider, Image, LinkButton, Table, Chart } from "chat";
 ```
 
 All components support both function-call and JSX syntax. Function-call syntax is recommended for better type inference.
@@ -260,10 +260,52 @@ Table({
       description: 'Column alignment.',
       type: '"left" | "center" | "right"[]',
     },
+    caption: {
+      description: 'Accessible table caption (used by platforms with native table support).',
+      type: 'string',
+    },
+    pageSize: {
+      description: 'Rows per page on platforms that paginate tables (Slack: 1-100, default 5).',
+      type: 'number',
+    },
   }}
 />
 
-On platforms with native table support (Teams, GitHub, Linear), tables render as formatted tables. On other platforms (Slack, Google Chat, Discord, Telegram), tables render as padded ASCII text.
+On platforms with native table support (Slack, Teams, GitHub, Linear), tables render as formatted tables. On Slack, tables render as paginated, sortable data table blocks. On other platforms (Google Chat, Discord, Telegram), tables render as padded ASCII text.
+
+## Chart
+
+Data visualization with pie, bar, area, and line charts.
+
+```typescript
+Chart({
+  title: "My Favorite Candy Bars",
+  chart: {
+    type: "pie",
+    segments: [
+      { label: "Kit Kat", value: 45 },
+      { label: "Twix", value: 28 },
+    ],
+  },
+})
+```
+
+<TypeTable
+  type={{
+    title: {
+      description: 'Chart title (Slack: max 50 characters).',
+      type: 'string',
+    },
+    chart: {
+      description: 'Chart definition, discriminated by chart type ("pie" | "bar" | "area" | "line").',
+      type: 'ChartDefinition',
+    },
+  }}
+/>
+
+Pie charts take `segments` (label + value, rendered as percentages of the total). Bar, area, and line charts take `series` (named lists of data points) plotted against shared `categories`, with optional `xLabel`/`yLabel` axis titles.
+
+On Slack, charts render as native data visualization blocks. On other platforms, charts fall back to the underlying data rendered as a text table.
 
 ## Divider
 
@@ -287,3 +329,4 @@ The `children` array in `Card` and `Section` accepts these element types:
 | `SectionElement` | `Section()` |
 | `FieldsElement` | `Fields()` |
 | `TableElement` | `Table()` |
+| `ChartElement` | `Chart()` |

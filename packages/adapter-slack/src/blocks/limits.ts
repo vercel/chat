@@ -6,6 +6,13 @@ export const LIMITS = {
   buttonText: 75,
   buttonUrl: 3000,
   buttonValue: 2000,
+  chartDataPoints: 20,
+  chartLabel: 20,
+  // Undocumented: Slack rejects messages with >2 data_visualization blocks
+  chartsPerMessage: 2,
+  chartSegments: 12,
+  chartSeries: 12,
+  chartTitle: 50,
   fields: 10,
   fieldText: 2000,
   headerText: 150,
@@ -18,7 +25,9 @@ export const LIMITS = {
   placeholder: 150,
   radioOptions: 10,
   sectionText: 3000,
+  tableChars: 10_000,
   tableColumns: 20,
+  tablePageSize: 100,
   tableRows: 100,
   textObject: 3000,
 } as const;
