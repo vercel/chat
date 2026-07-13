@@ -2174,7 +2174,9 @@ export class TelegramAdapter
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
 
-    const captionIndex = parts.length - 1;
+    // Telegram shows an album's caption from the first item that carries one;
+    // on a later item it renders under that media instead of the whole group.
+    const captionIndex = 0;
     const botApiParseMode = toBotApiParseMode(parseMode);
     const media = parts.map((part, index): Record<string, unknown> => {
       const item: Record<string, unknown> = {

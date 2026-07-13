@@ -1950,13 +1950,13 @@ describe("TelegramAdapter", () => {
     expect(formData.get("chat_id")).toBe("-100123");
     expect(formData.get("message_thread_id")).toBe("42");
     expect(media).toEqual([
-      { media: "attach://media0", type: "document" },
       {
         caption: "attached *files*",
-        media: "attach://media1",
+        media: "attach://media0",
         parse_mode: "MarkdownV2",
         type: "document",
       },
+      { media: "attach://media1", type: "document" },
     ]);
     expect(formData.get("media0")).toBeInstanceOf(Blob);
     expect((formData.get("media0") as { name?: string }).name).toBe("one.txt");
@@ -2038,14 +2038,14 @@ describe("TelegramAdapter", () => {
 
     expect(media).toEqual([
       {
+        caption: "visual *album*",
         media: "https://cdn.example.com/image.png",
+        parse_mode: "MarkdownV2",
         type: "photo",
       },
       {
-        caption: "visual *album*",
         height: 720,
         media: "attach://media1",
-        parse_mode: "MarkdownV2",
         type: "video",
         width: 1280,
       },
