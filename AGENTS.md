@@ -1,125 +1,98 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude Code (claude.ai/code) when working in this repository.
+Guidance for coding agents working in this repository. For PR workflow, signed commits, and changeset rules, see [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
-## Build commands
+## Commands
 
 ```bash
 pnpm install
-pnpm build           # Build all packages (Turborepo)
-pnpm typecheck       # Type-check all packages
-pnpm check           # Lint and format check (ultracite/biome)
-pnpm fix             # Auto-fix lint/format issues
-pnpm knip            # Check for unused exports/dependencies
-pnpm konsistent      # Enforce adapter/state-package shape conventions (see .github/konsistent.json)
-pnpm test            # Run all tests
-pnpm validate        # knip + check + typecheck + test + build. ALWAYS run before declaring a task done.
-pnpm dev             # Watch mode
+pnpm validate        # knip + check + typecheck + test + build — run before declaring work done
+pnpm check           # lint/format (Ultracite/Biome)
+pnpm fix             # auto-fix lint/format issues
+pnpm typecheck
+pnpm test            # all package tests via Turborepo (includes integration-tests)
+pnpm test:workspace  # single Vitest run across unit-test packages only
+pnpm build
+pnpm dev             # watch mode
+pnpm knip            # unused exports/dependencies
+pnpm konsistent      # adapter/state package shape (see .github/konsistent.json)
 
 # Per-package
 pnpm --filter chat test
 pnpm --filter @chat-adapter/slack build
-pnpm --filter docs dev    # Preview the docs site (chat-sdk.dev) locally
+pnpm --filter docs dev    # preview chat-sdk.dev locally
 ```
 
-## Code style
+Install dependencies with `pnpm add`, not by editing `package.json` by hand.
 
-- Install dependencies with `pnpm add`, not by editing `package.json` by hand.
-- `sample-messages.md` files in adapter packages contain real-world webhook logs — useful when writing parsers or fixtures.
-- Commits must be **signed and verified** — see `.github/CONTRIBUTING.md`.
-- We follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `chore:`, optionally scoped). The release workflow's auto-PR uses `chore(release): version packages` — don't reuse that exact subject for unrelated commits.
-- See the Ultracite section at the bottom for the in-code style rules Biome doesn't catch automatically.
+## Monorepo layout
+
+pnpm + Turborepo monorepo. Packages are ESM (`"type": "module"`), TypeScript, bundled with **tsup**.
+
+| Path | Role |
+| --- | --- |
+| `packages/chat` | Core SDK (`chat`): `Chat`, types, mdast markdown, `chat/adapters` catalog |
+| `packages/adapter-*` | Platform adapters (slack, teams, gchat, discord, telegram, whatsapp, github, linear, web, messenger, twilio, …) |
+| `packages/adapter-shared` | Shared adapter utilities |
+| `packages/state-*` | State adapters (memory, redis, ioredis, pg) |
+| `packages/create-chat-sdk` | `create-chat-sdk` CLI scaffold |
+| `packages/tests` | `@chat-adapter/tests` — Vitest factories/matchers for adapter tests |
+| `packages/integration-tests` | Replay + emulator tests; needs credentials for live API tests |
+| `apps/docs` | fumadocs site (chat-sdk.dev) |
+| `examples/*` | Example bots; `package.json` `name` must be `example-*` (private, no changeset) |
+
+When editing a specific package, read its **AGENTS.md** if present (most adapters, state packages, `create-chat-sdk`, and `packages/chat/src/adapters/` have one).
 
 ## Architecture
 
-pnpm monorepo, Turborepo orchestrated. All packages are ESM (`"type": "module"`), TypeScript, bundled with **tsup**.
-
-### Packages
-
-- `packages/chat` — core SDK (`chat` npm package): `Chat` class, types, mdast-based markdown utilities
-- `packages/adapter-{slack,teams,gchat,discord,telegram,whatsapp,github,linear,zoom}` — platform adapters
-- `packages/adapter-shared` — utilities shared across adapters
-- `packages/state-{memory,redis,ioredis,pg}` — state adapters
-- `packages/integration-tests` — integration tests against real platform APIs
-- `apps/docs` — fumadocs-based docs site (chat-sdk.dev)
-- `examples/nextjs-chat` — example Next.js app
-
 ### Core concepts
 
-1. **Chat** (`packages/chat/src/chat.ts`) — main entry point; coordinates adapters and handlers.
-2. **Adapter** — platform-specific implementation: webhook verification + parsing, normalized format conversion, `FormatConverter` for markdown ↔ platform AST.
-3. **StateAdapter** — persistence for subscriptions, distributed locks, key/value cache, lists, and queues.
-4. **Thread** — conversation thread with `post()`, `subscribe()`, `startTyping()`, `setState()`, etc.
+1. **Chat** (`packages/chat/src/chat.ts`) — coordinates adapters and handlers.
+2. **Adapter** — webhook verification, parsing, and a `FormatConverter` for markdown ↔ platform format.
+3. **StateAdapter** — subscriptions, distributed locks, key/value cache, lists, queues.
+4. **Thread** — conversation handle: `post()`, `subscribe()`, `startTyping()`, `setState()`, etc.
 5. **Message** — normalized message: `text`, `formatted` (mdast AST), `raw` (platform-specific).
 
-### Thread ID format
+### Thread IDs
 
 `{adapter}:{channel}:{thread}` — e.g. `slack:C123ABC:1234567890.123456`. Some adapters base64-encode IDs that contain delimiters (Teams, Google Chat).
 
 ### Webhook flow
 
 1. Platform → `/api/webhooks/{platform}`
-2. Adapter verifies, parses, calls `chat.handleIncomingMessage()`
-3. `Chat` acquires a thread lock, then routes to `onSubscribedMessage`, `onNewMention`, or `onNewMessage` handlers depending on context.
-4. Handler receives `Thread` and `Message`.
+2. Adapter verifies and parses; calls `chat.handleIncomingMessage()`
+3. `Chat` acquires a thread lock, then routes to `onSubscribedMessage`, `onNewMention`, or `onNewMessage`
+4. Handler receives `Thread` and `Message`
 
 ### Formatting
 
-Messages use **mdast** as the canonical format. Each adapter's `FormatConverter` provides:
+**mdast** is the canonical message format. Each adapter's `FormatConverter` implements `toAst`, `fromAst`, and `renderPostable`.
 
-- `toAst(platformText)` — platform → mdast
-- `fromAst(ast)` — mdast → platform
-- `renderPostable(message)` — `PostableMessage` → platform string
+### Adapter catalog
+
+`packages/chat/src/adapters/index.ts` powers the zero-dependency `chat/adapters` subpath. See [packages/chat/src/adapters/AGENTS.md](packages/chat/src/adapters/AGENTS.md) when adding or changing catalog entries — keep it in sync with `apps/docs/adapters.json`.
+
+## Working on adapters and state packages
+
+- Run `pnpm konsistent` after changing public exports; conventions are documented in [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md#package-conventions).
+- `sample-messages.md` in adapter packages holds real webhook payloads — extend it when fixing parsers or adding event support.
+- Adapter factory/config naming: `create${Name}Adapter`, `${Name}Adapter`, `${Name}AdapterConfig` (see konsistent config for `gchat` → `GoogleChat` etc.).
 
 ## Testing
 
-`packages/chat/src/mock-adapter.ts` exports test utilities:
+`packages/chat/src/mock-adapter.ts`:
 
-- `createMockAdapter(name)` — `Adapter` with `vi.fn()` mocks
-- `createMockState()` — in-memory subscriptions/locks/cache
-- `createTestMessage(id, text, overrides?)`
-- `mockLogger`
+- `createMockAdapter(name)`, `createMockState()`, `createTestMessage()`, `mockLogger`
 
-For production-traffic-driven testing, see `packages/integration-tests/fixtures/replay/README.md` (recording / export / replay workflow). Recordings are tagged with the deployed git SHA and exported via `pnpm recording:list` / `pnpm recording:export <session-id>` from `examples/nextjs-chat`.
+For production-traffic replay tests, see [packages/integration-tests/fixtures/replay/README.md](packages/integration-tests/fixtures/replay/README.md). Recordings export via `pnpm recording:list` / `pnpm recording:export <session-id>` from `examples/nextjs-chat`.
 
-## Documentation
+## Docs and releases
 
-User-facing docs live in `apps/docs/content/docs/` (rendered at chat-sdk.dev/docs). When changing behavior, public APIs, or env vars, update the relevant page in the same PR. Preview locally with `pnpm --filter docs dev`.
+- User-facing docs: `apps/docs/content/` → [chat-sdk.dev/docs](https://chat-sdk.dev/docs). Update relevant pages when behavior, public APIs, or env vars change.
+- Behavioral package changes need a changeset (`pnpm changeset`). Docs-only, tests-only, CI, and `examples/*` changes do not.
 
-## Releases
+## Code style
 
-Uses Changesets with fixed versioning (every package shares one version). Every PR that changes a package's behavior must include a changeset (`pnpm changeset`). Full rules in `.github/CONTRIBUTING.md`.
+Ultracite (Biome) via `pnpm check` / `pnpm fix`. Most issues auto-fix.
 
-## Environment variables
-
-Key env vars (see `turbo.json` for the full list):
-
-- `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`
-- `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`
-- `GOOGLE_CHAT_CREDENTIALS` or `GOOGLE_CHAT_USE_ADC`
-- `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`
-- `REDIS_URL` — Redis state adapter
-- `POSTGRES_URL` / `DATABASE_URL` — PostgreSQL state adapter
-- `BOT_USERNAME` — default bot username
-
-## Community health files
-
-- `.github/CONTRIBUTING.md` — dev setup, signed commits, conventional commits, changesets, docs preview, building your own adapter
-- `.github/SUPPORT.md` — where to send help/usage questions
-- `.github/SECURITY.md` — private vulnerability reporting
-- `.github/ISSUE_TEMPLATE/` — bug, feature, docs, and adapter-request templates
-- `.github/CODEOWNERS` — `@vercel/chat-sdk` owns everything; release plumbing is locked to `@cramforce`
-
-## Ultracite code standards
-
-This project uses [Ultracite](https://github.com/haydenbleasel/ultracite) (Biome-based). `pnpm check` / `pnpm fix` run it across the monorepo. Most issues auto-fix.
-
-Beyond what Biome enforces:
-
-- **Type safety** — prefer `unknown` over `any`; `as const` for literals; named constants over magic numbers.
-- **Modern JS/TS** — `for...of` over `.forEach`; `?.` and `??`; `const` by default; template literals; destructure.
-- **Async** — always `await` returned promises; no async Promise executors.
-- **React** — function components only; hooks at top level; stable `key`s (prefer IDs over indices); no components defined inside other components; semantic HTML and ARIA; `<Image>` over `<img>`; ref-as-prop in React 19+.
-- **Errors** — throw `Error` objects with descriptive messages; early returns over nested conditionals; no `console.log` / `debugger` / `alert` in shipped code.
-- **Performance** — top-level regex literals; no spread-in-accumulator loops; specific imports over barrel files.
-- **Security** — `rel="noopener"` on `target="_blank"`; avoid `dangerouslySetInnerHTML`; never `eval()` or assign to `document.cookie`.
+Beyond Biome: prefer `unknown` over `any`; top-level regex literals; `for...of` over `.forEach`; always `await` returned promises; no `console.log` / `debugger` in shipped code; throw descriptive `Error` objects. React (docs/examples): function components, stable keys, semantic HTML/ARIA.

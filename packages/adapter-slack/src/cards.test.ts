@@ -4,6 +4,7 @@ import {
   Card,
   CardLink,
   CardText,
+  Chart,
   Divider,
   Field,
   Fields,
@@ -206,6 +207,24 @@ describe("cardToBlockKit", () => {
     });
     expect(elements[0].url).toBe("https://example.com/docs");
     expect(elements[0].style).toBe("primary");
+  });
+
+  it("uses custom link button action ids", () => {
+    const card = Card({
+      children: [
+        Actions([
+          LinkButton({
+            id: "agent_slack_auth_signin",
+            url: "https://vercel.com/oauth/authorize",
+            label: "Sign in",
+          }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{ action_id: string }>;
+    expect(elements[0].action_id).toBe("agent_slack_auth_signin");
   });
 
   it("converts fields", () => {
@@ -743,7 +762,7 @@ describe("cardToBlockKit with CardLink", () => {
     });
   });
 
-  it("converts a card with table element to Block Kit Table", () => {
+  it("converts a card with table element to a Block Kit data table", () => {
     const card = Card({
       children: [
         Table({
@@ -758,7 +777,9 @@ describe("cardToBlockKit with CardLink", () => {
 
     const blocks = cardToBlockKit(card);
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe("table");
+    expect(blocks[0].type).toBe("data_table");
+    expect(blocks[0].caption).toBe("Table");
+    expect(blocks[0].page_size).toBeUndefined();
     // First row is headers, subsequent rows are data
     expect(blocks[0].rows).toEqual([
       [
@@ -792,7 +813,7 @@ describe("cardToBlockKit with CardLink", () => {
 
     const blocks = cardToBlockKit(card);
     expect(blocks).toHaveLength(2);
-    expect(blocks[0].type).toBe("table");
+    expect(blocks[0].type).toBe("data_table");
     // Second table falls back to ASCII in a section block
     expect(blocks[1].type).toBe("section");
     expect(blocks[1].text.text).toContain("```");
@@ -813,7 +834,7 @@ describe("cardToBlockKit with CardLink", () => {
 
     const blocks = cardToBlockKit(card);
     const tableBlock = blocks[0];
-    expect(tableBlock.type).toBe("table");
+    expect(tableBlock.type).toBe("data_table");
     // Every cell must have non-empty text (Slack rejects empty strings)
     for (const row of tableBlock.rows) {
       for (const cell of row) {
@@ -823,5 +844,280 @@ describe("cardToBlockKit with CardLink", () => {
     // Empty cells become a space
     expect(tableBlock.rows[0][1].text).toBe(" "); // empty header
     expect(tableBlock.rows[2][1].text).toBe(" "); // empty data cell
+  });
+});
+
+describe("cardToBlockKit with data tables", () => {
+  it("passes caption and clamped page_size through", () => {
+    const card = Card({
+      children: [
+        Table({
+          headers: ["Name"],
+          rows: [["Ada"]],
+          caption: "People",
+          pageSize: 250,
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("data_table");
+    expect(blocks[0].caption).toBe("People");
+    expect(blocks[0].page_size).toBe(100);
+  });
+
+  it("renders header-only tables as a plain table block", () => {
+    const card = Card({
+      children: [Table({ headers: ["Name", "Age"], rows: [] })],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("table");
+    expect(blocks[0].rows).toEqual([
+      [
+        { type: "raw_text", text: "Name" },
+        { type: "raw_text", text: "Age" },
+      ],
+    ]);
+  });
+
+  it("falls back to ASCII when combined cells exceed 10,000 characters", () => {
+    const bigCell = "x".repeat(5001);
+    const card = Card({
+      children: [Table({ headers: ["A"], rows: [[bigCell], [bigCell]] })],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("section");
+    expect(blocks[0].text.text).toContain("```");
+  });
+
+  it("truncates ASCII fallback to Slack's 3,000-char section limit", () => {
+    const bigCell = "x".repeat(5001);
+    const card = Card({
+      children: [Table({ headers: ["A"], rows: [[bigCell], [bigCell]] })],
+    });
+
+    const text = (cardToBlockKit(card)[0] as { text: { text: string } }).text
+      .text;
+    expect(text.length).toBeLessThanOrEqual(3000);
+    // Closing code fence survives truncation
+    expect(text.endsWith("\n```")).toBe(true);
+  });
+});
+
+describe("cardToBlockKit with charts", () => {
+  it("converts a pie chart to a data_visualization block", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "Candy Bars",
+          chart: {
+            type: "pie",
+            segments: [
+              { label: "Kit Kat", value: 45 },
+              { label: "Twix", value: 28 },
+            ],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toEqual({
+      type: "data_visualization",
+      title: "Candy Bars",
+      chart: {
+        type: "pie",
+        segments: [
+          { label: "Kit Kat", value: 45 },
+          { label: "Twix", value: 28 },
+        ],
+      },
+    });
+  });
+
+  it("converts a bar chart with axis config and normalizes point order", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "DAU",
+          chart: {
+            type: "bar",
+            categories: ["Mon", "Tue"],
+            xLabel: "Day",
+            yLabel: "Users",
+            series: [
+              {
+                name: "Mobile",
+                data: [
+                  { label: "Tue", value: 60 },
+                  { label: "Mon", value: 50 },
+                ],
+              },
+            ],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0]).toEqual({
+      type: "data_visualization",
+      title: "DAU",
+      chart: {
+        type: "bar",
+        series: [
+          {
+            name: "Mobile",
+            data: [
+              { label: "Mon", value: 50 },
+              { label: "Tue", value: 60 },
+            ],
+          },
+        ],
+        axis_config: {
+          categories: ["Mon", "Tue"],
+          x_label: "Day",
+          y_label: "Users",
+        },
+      },
+    });
+  });
+
+  it("omits axis labels that are not provided", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "Sales",
+          chart: {
+            type: "line",
+            categories: ["W1"],
+            series: [{ name: "A", data: [{ label: "W1", value: 1 }] }],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].chart).toEqual({
+      type: "line",
+      series: [{ name: "A", data: [{ label: "W1", value: 1 }] }],
+      axis_config: { categories: ["W1"] },
+    });
+  });
+
+  it("falls back to text when a pie segment value is not positive", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "Bad Pie",
+          chart: {
+            type: "pie",
+            segments: [{ label: "Zero", value: 0 }],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("section");
+    expect(blocks[0].text.text).toContain("Bad Pie");
+    expect(blocks[0].text.text).toContain("```");
+  });
+
+  it("falls back to text when a series misses a category", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "Gaps",
+          chart: {
+            type: "area",
+            categories: ["Mon", "Tue"],
+            series: [{ name: "A", data: [{ label: "Mon", value: 1 }] }],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("section");
+    expect(blocks[0].text.text).toContain("```");
+  });
+
+  it("falls back to text when the title exceeds 50 characters", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "t".repeat(51),
+          chart: {
+            type: "pie",
+            segments: [{ label: "A", value: 1 }],
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("section");
+  });
+
+  it("falls back to text when there are more than 12 segments", () => {
+    const card = Card({
+      children: [
+        Chart({
+          title: "Too Many",
+          chart: {
+            type: "pie",
+            segments: Array.from({ length: 13 }, (_, i) => ({
+              label: `S${i}`,
+              value: i + 1,
+            })),
+          },
+        }),
+      ],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks[0].type).toBe("section");
+  });
+
+  it("falls back to text from the third chart in one message", () => {
+    const pie = (title: string) =>
+      Chart({
+        title,
+        chart: { type: "pie", segments: [{ label: "A", value: 1 }] },
+      });
+    const card = Card({
+      children: [pie("One"), pie("Two"), pie("Three")],
+    });
+
+    const blocks = cardToBlockKit(card);
+    expect(blocks.map((b) => b.type)).toEqual([
+      "data_visualization",
+      "data_visualization",
+      "section",
+    ]);
+    expect(blocks[2].text.text).toContain("Three");
+  });
+
+  it("includes chart data in card fallback text", () => {
+    const card = Card({
+      title: "Report",
+      children: [
+        Chart({
+          title: "Candy Bars",
+          chart: {
+            type: "pie",
+            segments: [{ label: "Kit Kat", value: 45 }],
+          },
+        }),
+      ],
+    });
+
+    const text = cardToFallbackText(card);
+    expect(text).toContain("Candy Bars");
+    expect(text).toContain("Kit Kat");
   });
 });

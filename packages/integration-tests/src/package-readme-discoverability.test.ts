@@ -6,12 +6,16 @@ import {
   CHAT_SDK_HOMEPAGE,
   findPublishedPackages,
   getExpectedHomepage,
+  getOfficialPlatformAdapterSlug,
+  getOfficialPlatformOgImageUrl,
   REPO_ROOT,
 } from "./documentation-test-utils";
 
 const publishedPackages = findPublishedPackages();
 const NPM_PACKAGE_CALLOUT =
   /> npm package: \[`([^`]+)`\]\(https:\/\/www\.npmjs\.com\/package\//;
+const CREATE_CHAT_SDK_COMMAND = "npx create-chat-sdk@latest";
+const ADAPTERS_DIRECTORY_URL = `${CHAT_SDK_HOMEPAGE}/adapters`;
 
 const getNpmPackageCallout = (readme: string) =>
   readme.match(NPM_PACKAGE_CALLOUT)?.[1];
@@ -42,6 +46,34 @@ describe("Published package README discoverability", () => {
       it("links to chat-sdk.dev", () => {
         expect(readme).toContain(CHAT_SDK_HOMEPAGE);
       });
+
+      const platformSlug = getOfficialPlatformAdapterSlug(pkg.dirName);
+      const isOfficialStateAdapter = pkg.dirName.startsWith("state-");
+
+      if (platformSlug) {
+        it("includes a hero banner linked to the official adapter docs", () => {
+          const docsUrl = getExpectedHomepage(pkg.dirName, pkg.name);
+          expect(
+            readme.startsWith("[!["),
+            `${pkg.name}: README should start with a hero banner`
+          ).toBe(true);
+          expect(readme).toContain(getOfficialPlatformOgImageUrl(platformSlug));
+          expect(readme).toContain(`](${docsUrl})`);
+        });
+      }
+
+      if (platformSlug || isOfficialStateAdapter) {
+        it("documents CLI scaffolding and links to the adapters directory", () => {
+          expect(
+            readme,
+            `${pkg.name}: missing create-chat-sdk command`
+          ).toContain(CREATE_CHAT_SDK_COMMAND);
+          expect(
+            readme,
+            `${pkg.name}: missing adapters directory link`
+          ).toContain(ADAPTERS_DIRECTORY_URL);
+        });
+      }
 
       if (pkg.name !== "@chat-adapter/tests") {
         it("includes Documentation and Guides links near the top", () => {

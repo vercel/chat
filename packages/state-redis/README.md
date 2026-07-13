@@ -2,8 +2,8 @@
 
 > npm package: [`@chat-adapter/state-redis`](https://www.npmjs.com/package/@chat-adapter/state-redis)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-redis)](https://www.npmjs.com/package/@chat-adapter/state-redis)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-redis)](https://www.npmjs.com/package/@chat-adapter/state-redis)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Production state adapter for [Chat SDK](https://chat-sdk.dev) using the official [redis](https://www.npmjs.com/package/redis) package.
 
@@ -14,6 +14,16 @@ Documentation: [chat-sdk.dev/adapters/official/redis](https://chat-sdk.dev/adapt
 ```bash
 pnpm add @chat-adapter/state-redis
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Slack bot that uses Redis for state:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter slack redis
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 

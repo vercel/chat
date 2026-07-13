@@ -1,9 +1,11 @@
+[![Telegram adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/telegram/og)](https://chat-sdk.dev/adapters/official/telegram)
+
 # @chat-adapter/telegram
 
 > npm package: [`@chat-adapter/telegram`](https://www.npmjs.com/package/@chat-adapter/telegram)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/telegram)](https://www.npmjs.com/package/@chat-adapter/telegram)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/telegram)](https://www.npmjs.com/package/@chat-adapter/telegram)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Telegram adapter for [Chat SDK](https://chat-sdk.dev). Configure for bot webhooks and messaging.
 
@@ -14,6 +16,16 @@ Documentation: [chat-sdk.dev/adapters/official/telegram](https://chat-sdk.dev/ad
 ```bash
 pnpm add @chat-adapter/telegram
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Telegram bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter telegram memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 
@@ -146,9 +158,9 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Post message | Yes |
 | Edit message | Yes |
 | Delete message | Yes |
-| File uploads | Single file (`sendDocument`) |
-| Attachment uploads | Single image/audio/video/file (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`) |
-| Streaming | Private chat draft previews + post/edit fallback |
+| File uploads | Yes (`sendDocument`, `sendMediaGroup`) |
+| Attachment uploads | Yes (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`, `sendMediaGroup`) |
+| Streaming | Private chat rich draft previews + post/edit fallback |
 
 ### Rich content
 
@@ -158,7 +170,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Buttons | Inline keyboard callbacks |
 | Link buttons | Inline keyboard URLs |
 | Select menus | No |
-| Tables | ASCII |
+| Tables | Native for markdown and AST messages, ASCII in cards |
 | Fields | Yes |
 | Images in cards | No |
 | Modals | No |
@@ -189,9 +201,11 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 
 ## Markdown formatting
 
-Outbound messages are sent with Telegram's `MarkdownV2` parse mode. The adapter walks the markdown AST and emits MarkdownV2 with context-aware escaping (normal text vs. code blocks vs. link URLs), so you author standard markdown (`**bold**`, `*italic*`, `` `code` ``, `[label](url)`) and the adapter handles every reserved character.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
 
-Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping — the renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
+
+Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping. The renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
 ## Notes
 
@@ -203,7 +217,7 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
-- `files` upload as Telegram documents. `attachments` preserve the normalized media type for single image, audio, video, or file uploads. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
+- `files` upload as Telegram documents. Multiple `files` are sent as Telegram media groups. `attachments` preserve image, audio, video, or file media type and also use media groups when multiple compatible attachments are posted. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 - Other rich card elements (images/select menus/radios) render as fallback text only.
 
 ## AI Coding Agents

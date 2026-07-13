@@ -13,6 +13,7 @@
  * - Spoiler: ||text||
  */
 
+import { replaceBareMentions } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -36,11 +37,11 @@ import {
 
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
-   * Convert @mentions to Discord format in plain text.
-   * @name → <@name>
+   * Convert bare `@mentions` to Discord format (`@name` → `<@name>`), leaving
+   * emails, URLs, code spans, and existing `<@…>` tokens untouched.
    */
   private convertMentionsToDiscord(text: string): string {
-    return text.replace(/@(\w+)/g, "<@$1>");
+    return replaceBareMentions(text, (_mention, name) => `<@${name}>`);
   }
 
   /**
@@ -106,8 +107,8 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      // Convert @mentions to Discord format <@mention>
-      return node.value.replace(/@(\w+)/g, "<@$1>");
+      // Convert bare @mentions to Discord format <@mention>
+      return this.convertMentionsToDiscord(node.value);
     }
 
     if (isStrongNode(node)) {
@@ -146,6 +147,12 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
+      // Bare URLs / autolinks (label === url) must stay bare: Discord only
+      // renders masked links `[text](url)` inside embeds, so `[url](url)` in a
+      // normal message shows up as literal text instead of a clickable link.
+      if (linkText === node.url) {
+        return node.url;
+      }
       // Standard markdown [text](url)
       return `[${linkText}](${node.url})`;
     }

@@ -1,9 +1,11 @@
+[![Microsoft Teams adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/teams/og)](https://chat-sdk.dev/adapters/official/teams)
+
 # @chat-adapter/teams
 
 > npm package: [`@chat-adapter/teams`](https://www.npmjs.com/package/@chat-adapter/teams)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/teams)](https://www.npmjs.com/package/@chat-adapter/teams)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Microsoft Teams adapter for [Chat SDK](https://chat-sdk.dev).
 
@@ -14,6 +16,16 @@ Documentation: [chat-sdk.dev/adapters/official/teams](https://chat-sdk.dev/adapt
 ```bash
 pnpm add @chat-adapter/teams
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Microsoft Teams bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter teams memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 

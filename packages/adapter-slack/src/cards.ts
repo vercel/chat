@@ -15,6 +15,7 @@ import type {
   ButtonElement,
   CardChild,
   CardElement,
+  ChartElement,
   DividerElement,
   FieldsElement,
   ImageElement,
@@ -26,7 +27,11 @@ import type {
   TableElement,
   TextElement,
 } from "chat";
-import { cardChildToFallbackText, tableElementToAscii } from "chat";
+import {
+  cardChildToFallbackText,
+  chartElementToFallbackText,
+  tableElementToAscii,
+} from "chat";
 import { markdownBoldToSlackMrkdwn } from "./format";
 
 /**
@@ -124,9 +129,9 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
     });
   }
 
-  // Convert children — track whether native table block has been used
-  // (Slack allows at most one table block per message)
-  const state = { usedNativeTable: false };
+  // Convert children — track native table/chart block usage (Slack allows
+  // at most one table block and two data_visualization blocks per message)
+  const state = { usedNativeTable: false, chartCount: 0 };
   for (const child of card.children) {
     const childBlocks = convertChildToBlocks(child, state);
     blocks.push(...childBlocks);
@@ -135,12 +140,18 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
   return blocks;
 }
 
+/** Per-message rendering state for Slack's native block usage limits. */
+interface CardRenderState {
+  chartCount: number;
+  usedNativeTable: boolean;
+}
+
 /**
  * Convert a card child element to Slack blocks.
  */
 function convertChildToBlocks(
   child: CardChild,
-  state: { usedNativeTable: boolean }
+  state: CardRenderState
 ): SlackBlock[] {
   switch (child.type) {
     case "text":
@@ -159,6 +170,8 @@ function convertChildToBlocks(
       return [convertLinkToBlock(child)];
     case "table":
       return convertTableToBlocks(child, state);
+    case "chart":
+      return [convertChartToBlock(child, state)];
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
@@ -274,7 +287,7 @@ function convertLinkButtonToElement(
       text: convertEmoji(button.label),
       emoji: true,
     },
-    action_id: `link-${button.url.slice(0, 200)}`,
+    action_id: button.id ?? `link-${button.url.slice(0, 200)}`,
     url: button.url,
   };
 
@@ -354,39 +367,58 @@ function convertRadioSelectToElement(
   return element;
 }
 
+// Slack's section text object limit
+const SECTION_TEXT_MAX_CHARS = 3000;
+
 /**
- * Convert a table element to Slack Block Kit blocks.
- * Uses Block Kit Table block for tables within limits (100 rows, 20 columns),
- * falls back to code block for larger tables.
+ * Wrap ASCII fallback content in a fenced code block inside a section,
+ * truncating the content so the section text stays within Slack's
+ * 3,000-character limit while keeping the closing fence intact.
  */
+function asciiFallbackBlock(content: string): SlackBlock {
+  const fence = (body: string) => `\`\`\`\n${body}\n\`\`\``;
+  const budget = SECTION_TEXT_MAX_CHARS - fence("").length;
+  const text =
+    content.length > budget
+      ? fence(`${content.slice(0, budget - 1)}…`)
+      : fence(content);
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
+const DATA_TABLE_MAX_ROWS = 100;
+const DATA_TABLE_MAX_COLS = 20;
+// A single table (all cells combined) can't exceed 10,000 characters
+const DATA_TABLE_MAX_CHARS = 10_000;
+const DATA_TABLE_MIN_PAGE_SIZE = 1;
+const DATA_TABLE_MAX_PAGE_SIZE = 100;
+
 /**
  * Convert a table element to Slack Block Kit blocks.
- * Uses the native table block with first-row-as-headers schema.
- * Falls back to code block for tables exceeding Slack limits (100 rows, 20 columns)
- * or when a native table block has already been used in this message.
- * @see https://docs.slack.dev/reference/block-kit/blocks/table-block/
+ * Uses the data table block (paginated + sortable) with first-row-as-headers
+ * schema when the table has at least one data row.
+ * Falls back to the plain table block for header-only tables, and to an
+ * ASCII code block for tables exceeding Slack limits (100 data rows,
+ * 20 columns, 10,000 characters) or when a native table block has already
+ * been used in this message.
+ * @see https://docs.slack.dev/reference/block-kit/blocks/data-table-block/
  */
 function convertTableToBlocks(
   element: TableElement,
-  state: { usedNativeTable: boolean }
+  state: CardRenderState
 ): SlackBlock[] {
-  const MAX_ROWS = 100;
-  const MAX_COLS = 20;
+  const cellCharCount = [element.headers, ...element.rows]
+    .flat()
+    .reduce((total, cell) => total + cell.length, 0);
 
   if (
     state.usedNativeTable ||
-    element.rows.length > MAX_ROWS ||
-    element.headers.length > MAX_COLS
+    element.rows.length > DATA_TABLE_MAX_ROWS ||
+    element.headers.length > DATA_TABLE_MAX_COLS ||
+    cellCharCount > DATA_TABLE_MAX_CHARS
   ) {
     // Fall back to ASCII table in a code block
     return [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `\`\`\`\n${tableElementToAscii(element.headers, element.rows)}\n\`\`\``,
-        },
-      },
+      asciiFallbackBlock(tableElementToAscii(element.headers, element.rows)),
     ];
   }
 
@@ -405,17 +437,160 @@ function convertTableToBlocks(
     }))
   );
 
-  return [
-    {
-      type: "table",
-      rows: [headerRow, ...dataRows],
+  // The data table block requires a header row plus at least one data row
+  if (dataRows.length === 0) {
+    return [
+      {
+        type: "table",
+        rows: [headerRow],
+      },
+    ];
+  }
+
+  const block: SlackBlock = {
+    type: "data_table",
+    caption: convertEmoji(element.caption || "Table"),
+    rows: [headerRow, ...dataRows],
+  };
+  if (element.pageSize !== undefined) {
+    block.page_size = Math.min(
+      DATA_TABLE_MAX_PAGE_SIZE,
+      Math.max(DATA_TABLE_MIN_PAGE_SIZE, Math.floor(element.pageSize))
+    );
+  }
+  return [block];
+}
+
+const CHART_MAX_TITLE_CHARS = 50;
+const CHART_MAX_LABEL_CHARS = 20;
+const CHART_MAX_SEGMENTS = 12;
+const CHART_MAX_SERIES = 12;
+const CHART_MAX_DATA_POINTS = 20;
+// Slack rejects messages with more than 2 data_visualization blocks
+// (undocumented; enforced by the API as of July 2026)
+const CHART_MAX_PER_MESSAGE = 2;
+
+/**
+ * Convert a chart element to a Slack data visualization block.
+ * Falls back to the chart's data rendered as an ASCII table in a code block
+ * when the chart violates Slack constraints (label lengths, series counts,
+ * category/data-point mismatches, more than 2 charts per message), since
+ * Slack rejects invalid charts outright rather than truncating them.
+ * @see https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block/
+ */
+function convertChartToBlock(
+  element: ChartElement,
+  state: CardRenderState
+): SlackBlock {
+  const block =
+    state.chartCount < CHART_MAX_PER_MESSAGE
+      ? chartToDataVisualization(element)
+      : null;
+  if (block) {
+    state.chartCount += 1;
+    return block;
+  }
+  return asciiFallbackBlock(chartElementToFallbackText(element));
+}
+
+/**
+ * Build a data_visualization block, or return null if the chart violates
+ * Slack constraints.
+ */
+function chartToDataVisualization(element: ChartElement): SlackBlock | null {
+  const title = convertEmoji(element.title);
+  if (title.length === 0 || title.length > CHART_MAX_TITLE_CHARS) {
+    return null;
+  }
+
+  const { chart } = element;
+
+  if (chart.type === "pie") {
+    const validSegments =
+      chart.segments.length >= 1 &&
+      chart.segments.length <= CHART_MAX_SEGMENTS &&
+      chart.segments.every(
+        (segment) => isValidChartLabel(segment.label) && segment.value > 0
+      );
+    if (!validSegments) {
+      return null;
+    }
+    return {
+      type: "data_visualization",
+      title,
+      chart: {
+        type: "pie",
+        segments: chart.segments.map((segment) => ({
+          label: segment.label,
+          value: segment.value,
+        })),
+      },
+    };
+  }
+
+  const { categories, series } = chart;
+  const validShape =
+    categories.length >= 1 &&
+    categories.length <= CHART_MAX_DATA_POINTS &&
+    categories.every((category) => isValidChartLabel(category)) &&
+    new Set(categories).size === categories.length &&
+    series.length >= 1 &&
+    series.length <= CHART_MAX_SERIES &&
+    series.every((s) => isValidChartLabel(s.name)) &&
+    new Set(series.map((s) => s.name)).size === series.length &&
+    (chart.xLabel === undefined ||
+      chart.xLabel.length <= CHART_MAX_TITLE_CHARS) &&
+    (chart.yLabel === undefined ||
+      chart.yLabel.length <= CHART_MAX_TITLE_CHARS);
+  if (!validShape) {
+    return null;
+  }
+
+  // Each series needs exactly one data point per category; normalize
+  // point order to the category order Slack expects.
+  const normalizedSeries: { name: string; data: unknown[] }[] = [];
+  for (const s of series) {
+    if (s.data.length !== categories.length) {
+      return null;
+    }
+    const byLabel = new Map(s.data.map((point) => [point.label, point]));
+    const data: unknown[] = [];
+    for (const category of categories) {
+      const point = byLabel.get(category);
+      if (!point) {
+        return null;
+      }
+      data.push({ label: category, value: point.value });
+    }
+    normalizedSeries.push({ name: s.name, data });
+  }
+
+  const axisConfig: Record<string, unknown> = { categories };
+  if (chart.xLabel !== undefined) {
+    axisConfig.x_label = chart.xLabel;
+  }
+  if (chart.yLabel !== undefined) {
+    axisConfig.y_label = chart.yLabel;
+  }
+
+  return {
+    type: "data_visualization",
+    title,
+    chart: {
+      type: chart.type,
+      series: normalizedSeries,
+      axis_config: axisConfig,
     },
-  ];
+  };
+}
+
+function isValidChartLabel(label: string): boolean {
+  return label.length >= 1 && label.length <= CHART_MAX_LABEL_CHARS;
 }
 
 function convertSectionToBlocks(
   element: SectionElement,
-  state: { usedNativeTable: boolean }
+  state: CardRenderState
 ): SlackBlock[] {
   // Flatten section children into blocks
   const blocks: SlackBlock[] = [];

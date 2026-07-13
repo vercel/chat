@@ -1,5 +1,50 @@
 # @chat-adapter/slack
 
+## 4.33.0
+
+### Patch Changes
+
+- 0b63791: Process Slack Socket Mode retry envelopes instead of discarding them. Slack redelivers an event (immediately, +1 min, +5 min) when a prior delivery wasn't acknowledged — including events sent while the app had no open socket, e.g. during a restart or a routine connection refresh. The adapter previously acked and dropped every envelope with `retry_num > 0`, so such events were permanently lost even though Slack redelivered them. Retries are now routed like first deliveries (logged at info with `retry_num`/`retry_reason`); `Chat.processMessage`'s message-id dedupe drops true duplicates.
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
+## 4.32.0
+
+### Patch Changes
+
+- a8c4af7: prevent cached slack display names inside urls from being resolved as user mentions before payload formatting
+- 07c1112: Fix `@mention` rewriting so handles inside inline code spans (`` `@vercel/postgres` ``) and fenced code blocks (` ``` `) are no longer turned into `<@USER_ID>` Slack mentions. Agents printing npm package names or shell snippets previously had those handles corrupted into bot user IDs. Mention linking now skips whole code spans and code blocks; handles outside code (including the same name mentioned elsewhere in the message) still resolve normally.
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
+## 4.31.0
+
+### Minor Changes
+
+- 8336a3e: Add `webClientOptions` to `SlackAdapterConfig`, forwarded to both the default and per-token `@slack/web-api` `WebClient` instances. This exposes Web API settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`. Use the existing `apiUrl` option to override the Slack Web API base URL.
+- 171657a: Adding support for stable IDs to link button action handlers
+
+### Patch Changes
+
+- a8bf99a: Fix `@mention` rewriting so an `@handle` inside a URL is no longer turned into a `<@handle>` Slack mention, which corrupted the link. Mention linking now skips whole `http(s)://…` spans, so handles in paths (`https://hackmd.io/@jkyang/abc`), query strings (`?user=@george`), and fragments (`#@george`) are preserved; the lookbehind also excludes a `/` immediately before `@` to cover schemeless URLs (`mastodon.social/@user`). Whitespace- and punctuation-led mentions (e.g. `(cc @george)`), emails, and `<mailto:…>` links are unaffected.
+- Updated dependencies [778ae69]
+- Updated dependencies [171657a]
+  - chat@4.31.0
+  - @chat-adapter/shared@4.31.0
+
 ## 4.30.0
 
 ### Minor Changes

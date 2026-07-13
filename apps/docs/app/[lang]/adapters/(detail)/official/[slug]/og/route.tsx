@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { readOfficialPlatformOgImage } from "@/lib/geistdocs/adapter-og";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 import { renderAdapterOg } from "../../../og-image";
 
@@ -6,6 +7,7 @@ interface AdapterFrontmatter {
   description: string;
   logo?: string;
   title: string;
+  type: "platform" | "state";
 }
 
 export const GET = async (
@@ -20,6 +22,20 @@ export const GET = async (
   }
 
   const data = page.data as unknown as AdapterFrontmatter;
+
+  if (data.type === "platform") {
+    const staticImage = await readOfficialPlatformOgImage(slug);
+
+    if (staticImage) {
+      return new Response(new Uint8Array(staticImage.data), {
+        headers: {
+          "Content-Type": staticImage.contentType,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
+  }
+
   return renderAdapterOg({
     title: data.title,
     description: data.description,

@@ -1,0 +1,47 @@
+display_information:
+  name: Chat SDK Nuxt ExampleBot
+  description: A bot built with chat-sdk and Nuxt
+  background_color: "#1a1a2e"
+
+features:
+  bot_user:
+    display_name: Chat SDK Bot
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      # Read messages and mentions
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      # Send messages and reactions
+      - chat:write
+      - pins:write
+      - reactions:write
+      # User info for display names
+      - users:read
+
+settings:
+  event_subscriptions:
+    # Set this to your deployed webhook URL
+    request_url: https://your-deployment.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=TOKEN_HERE
+    bot_events:
+      - app_mention
+      - member_joined_channel
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: true
+    request_url: https://your-deployment.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=TOKEN_HERE
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

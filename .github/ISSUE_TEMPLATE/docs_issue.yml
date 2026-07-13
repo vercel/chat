@@ -12,7 +12,7 @@ body:
     id: location
     attributes:
       label: Affected page or section
-      description: URL on chat-sdk.dev, or path in this repo (e.g., `apps/docs/content/docs/state.mdx`)
+      description: URL on chat-sdk.dev, or path in this repo (e.g., `apps/docs/content/docs/state-adapters.mdx`)
       placeholder: https://chat-sdk.dev/docs/...
     validations:
       required: true

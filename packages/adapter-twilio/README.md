@@ -1,9 +1,11 @@
+[![Twilio adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/twilio/og)](https://chat-sdk.dev/adapters/official/twilio)
+
 # @chat-adapter/twilio
 
 > npm package: [`@chat-adapter/twilio`](https://www.npmjs.com/package/@chat-adapter/twilio)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Twilio adapter for [Chat SDK](https://chat-sdk.dev). Build SMS and MMS bots with Twilio Messaging webhooks and the Messages API.
 
@@ -14,6 +16,16 @@ Documentation: [chat-sdk.dev/adapters/official/twilio](https://chat-sdk.dev/adap
 ```bash
 pnpm add @chat-adapter/twilio
 ```
+
+## Scaffold with the CLI
+
+To scaffold a new Twilio bot with this adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter twilio memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Usage
 

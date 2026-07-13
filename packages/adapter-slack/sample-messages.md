@@ -41,3 +41,21 @@
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","context_team_id":"T00FAKE00AA","context_enterprise_id":null,"api_app_id":"A00FAKEAPP01","event":{"type":"message","subtype":"message_changed","message":{"user":"U00FAKEBOT01","type":"message","edited":{"user":"B00FAKEBOT01","ts":"1766458034.000000"},"bot_id":"B00FAKEBOT01","app_id":"A00FAKEAPP01","text":"Thanks for your message","team":"T00FAKE00AA","bot_profile":{"id":"B00FAKEBOT01","app_id":"A00FAKEAPP01","user_id":"U00FAKEBOT01","name":"Chat SDK ExampleBot","icons":{"image_36":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/bot_36.png","image_48":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/bot_48.png","image_72":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/service_72.png"},"deleted":false,"updated":1766422444,"team_id":"T00FAKE00AA"},"thread_ts":"1766458026.240809","parent_user_id":"U00FAKEUSER1","blocks":[{"type":"rich_text","block_id":"fFdi","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Thanks for your message"}]}]}],"ts":"1766458031.632339","source_team":"T00FAKE00AA","user_team":"T00FAKE00AA"},"previous_message":{"user":"U00FAKEBOT01","type":"message","ts":"1766458031.632339","edited":{"user":"B00FAKEBOT01","ts":"1766458033.000000"},"bot_id":"B00FAKEBOT01","app_id":"A00FAKEAPP01","text":"Just a little bit...","team":"T00FAKE00AA","bot_profile":{"id":"B00FAKEBOT01","app_id":"A00FAKEAPP01","user_id":"U00FAKEBOT01","name":"Chat SDK ExampleBot","icons":{"image_36":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/bot_36.png","image_48":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/bot_48.png","image_72":"https:\\/\\/a.slack-edge.com\\/80588\\/img\\/plugins\\/app\\/service_72.png"},"deleted":false,"updated":1766422444,"team_id":"T00FAKE00AA"},"thread_ts":"1766458026.240809","parent_user_id":"U00FAKEUSER1","blocks":[{"type":"rich_text","block_id":"Vh6","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Just a little bit..."}]}]}]},"channel":"C00FAKECHAN1","hidden":true,"ts":"1766458034.001400","event_ts":"1766458034.001400","channel_type":"channel"},"type":"event_callback","event_id":"Ev0A4QA0SJSK","event_time":1766458034,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false,"event_context":"4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDNTSDdHMDFHVSIsImFpZCI6IkEwQTVGVVhQMUVEIiwiY2lkIjoiQzBBNTExTUJDVVcifQ"}'
 }
 ```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_context_changed","channel":"D00FAKEDM001","user":"U00FAKEUSER1","context":{"entities":[{"type":"slack#/types/channel_id","value":"C00FAKECHAN1","team_id":"T00FAKE00AA"}]},"event_ts":"1771460500.111180"},"type":"event_callback","event_id":"Ev0AGENTCTX1","event_time":1771460500}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"message","channel":"D00FAKEDM001","channel_type":"im","user":"U00FAKEUSER1","text":"summarize this","ts":"1771460600.222190","event_ts":"1771460600.222190","app_context":{"entities":[{"type":"slack#/types/message_context","value":{"message_ts":"1771460400.100100","channel_id":"C00FAKECHAN1"},"team_id":"T00FAKE00AA"}]}},"type":"event_callback","event_id":"Ev0AGENTFOLD1","event_time":1771460600}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_home_opened","user":"U00FAKEUSER1","channel":"D00FAKEDM001","tab":"messages","event_ts":"1771460700.333100","context":{"entities":[{"type":"slack#/types/channel_id","value":"C00FAKECHAN1"}]}},"type":"event_callback","event_id":"Ev0AGENTHOME1","event_time":1771460700}'
+}
+```

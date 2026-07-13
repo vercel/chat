@@ -1,8 +1,7 @@
 import { ArrowUpRightIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 
 interface Integration {
@@ -59,83 +58,108 @@ const IntegrationCard = ({
   title,
   description,
   children,
-  className,
 }: {
   href: string;
   title: ReactNode;
   description: string;
   children: ReactNode;
-  className?: string;
 }) => (
-  <div className={cn("group relative p-8 sm:p-10", className)}>
+  <>
     <Link
-      className="absolute inset-0 focus:outline-hidden"
+      className="focus:outline-hidden"
       href={href}
       rel="noopener"
       target="_blank"
     >
       <span aria-hidden="true" className="absolute inset-0" />
     </Link>
-    <div className="relative flex h-full flex-col justify-between gap-6">
+    <div className="flex h-full flex-col justify-between gap-6">
       <div>
-        <p className="font-medium font-mono text-[16px]">{title}</p>
-        <p className="mt-3 text-[14px] text-muted-foreground leading-[1.4] sm:text-[16px]">
+        <p className="font-medium font-mono text-base">{title}</p>
+        <p className="mt-3 text-copy-14 text-gray-900 sm:text-copy-16">
           {description}
         </p>
       </div>
       <div className="relative z-10">{children}</div>
     </div>
-    <span className="pointer-events-none absolute top-0 right-0 overflow-hidden bg-muted p-2">
-      <PlusIcon className="size-3.5 text-muted-foreground transition-all duration-200 group-hover:scale-0 group-hover:opacity-0" />
-      <ArrowUpRightIcon className="absolute top-2 right-2 size-3.5 -translate-x-[6px] translate-y-[6px] scale-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100" />
+    <span className="pointer-events-none absolute top-0 right-0 overflow-hidden bg-gray-100 p-2">
+      <PlusIcon className="size-3.5 text-gray-900 transition-all duration-200 group-hover:scale-0 group-hover:opacity-0" />
+      <ArrowUpRightIcon className="absolute top-2 right-2 size-3.5 -translate-x-[6px] translate-y-[6px] scale-0 text-gray-900 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100" />
     </span>
-  </div>
+  </>
 );
 
 export const IntegrationsSection = () => (
-  <div
-    className="grid lg:grid-cols-3 lg:grid-rows-[1fr_1fr]"
-    style={{ fontFamily: "var(--font-sans)" }}
-  >
-    <div className="flex flex-col gap-4 border-b p-8 sm:p-10 lg:row-span-2 lg:border-r lg:border-b-0">
-      <h2 className="font-semibold text-[16px] leading-[1.2] tracking-tight sm:text-[24px]">
-        Scale with confidence
-      </h2>
-      <p className="text-[16px] text-muted-foreground leading-[1.4]">
-        Plug Chat SDK into an entire ecosystem designed for AI-native chat
-        experiences that scale.
-      </p>
+  <div className="home-grid home-grid-integrations" data-home-grid>
+    <div className="home-grid-cell">
+      <div className="flex flex-col gap-4">
+        <h3 className="text-heading-16 sm:text-heading-24">
+          Scale with confidence
+        </h3>
+        <p className="text-copy-16 text-gray-900">
+          Plug Chat SDK into an entire ecosystem designed for AI-native chat
+          experiences that scale.
+        </p>
+      </div>
     </div>
-    <IntegrationCard
-      className="border-b lg:border-r"
-      description={integrations[0].description}
-      href={integrations[0].href}
-      title={integrations[0].title}
-    >
-      <Snippet text={integrations[0].pkg} />
-    </IntegrationCard>
-    <IntegrationCard
-      className="border-b"
-      description={integrations[1].description}
-      href={integrations[1].href}
-      title={integrations[1].title}
-    >
-      <Snippet text={integrations[1].pkg} />
-    </IntegrationCard>
-    <IntegrationCard
-      className="border-b lg:border-r lg:border-b-0"
-      description={integrations[2].description}
-      href={integrations[2].href}
-      title={integrations[2].title}
-    >
-      <Snippet text={integrations[2].pkg} />
-    </IntegrationCard>
-    <IntegrationCard
-      description={integrations[3].description}
-      href={integrations[3].href}
-      title={integrations[3].title}
-    >
-      <Snippet text={integrations[3].pkg} />
-    </IntegrationCard>
+    {integrations.map((integration) => (
+      <div className="home-grid-cell group relative" key={integration.href}>
+        <IntegrationCard
+          description={integration.description}
+          href={integration.href}
+          title={integration.title}
+        >
+          <Snippet text={integration.pkg} />
+        </IntegrationCard>
+      </div>
+    ))}
+    <div aria-hidden className="home-grid-guides home-grid-guides-sm">
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 1 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 2 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 3 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 4 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 5 } as CSSProperties}
+      />
+    </div>
+    <div aria-hidden className="home-grid-guides home-grid-guides-lg">
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 1 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 2, "--guide-y": 1 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 3, "--guide-y": 1 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 1, "--guide-y": 2 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 2, "--guide-y": 2 } as CSSProperties}
+      />
+      <div
+        className="home-grid-guide"
+        style={{ "--guide-x": 3, "--guide-y": 2 } as CSSProperties}
+      />
+    </div>
   </div>
 );

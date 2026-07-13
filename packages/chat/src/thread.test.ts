@@ -1752,8 +1752,15 @@ describe("ThreadImpl", () => {
 
       const plan = new Plan({ initialMessage: "Start" });
       await thread.post(plan);
+      const initialTask = plan.currentTask;
       const task1 = await plan.addTask({ title: "Step 1" });
+      expect(plan.tasks.find((t) => t.id === initialTask?.id)?.status).toBe(
+        "complete"
+      );
       const task2 = await plan.addTask({ title: "Step 2" });
+      expect(plan.tasks.find((t) => t.id === task1?.id)?.status).toBe(
+        "complete"
+      );
 
       const updated = await plan.updateTask({
         id: task1?.id,
@@ -1767,6 +1774,113 @@ describe("ThreadImpl", () => {
 
       const step2 = plan.tasks.find((t) => t.id === task2?.id);
       expect(step2?.status).toBe("in_progress");
+    });
+
+    it("should not auto-complete in_progress tasks when autoCompletePrevious is false", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Step 1" });
+      await thread.post(plan);
+
+      const step1 = plan.currentTask;
+      const step2 = await plan.addTask({
+        title: "Step 2",
+        autoCompletePrevious: false,
+      });
+      const step3 = await plan.addTask({
+        title: "Step 3",
+        autoCompletePrevious: false,
+      });
+
+      expect(plan.tasks.find((t) => t.id === step1?.id)?.status).toBe(
+        "in_progress"
+      );
+      expect(plan.tasks.find((t) => t.id === step2?.id)?.status).toBe(
+        "in_progress"
+      );
+      expect(plan.tasks.find((t) => t.id === step3?.id)?.status).toBe(
+        "in_progress"
+      );
+    });
+
+    it("should auto-complete all in_progress tasks when switching back to default addTask", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Step 1" });
+      await thread.post(plan);
+
+      const step1 = plan.currentTask;
+      const step2 = await plan.addTask({
+        title: "Step 2",
+        autoCompletePrevious: false,
+      });
+      const step3 = await plan.addTask({
+        title: "Step 3",
+        autoCompletePrevious: false,
+      });
+
+      const sequentialTask = await plan.addTask({ title: "Sequential step" });
+
+      expect(plan.tasks.find((t) => t.id === step1?.id)?.status).toBe(
+        "complete"
+      );
+      expect(plan.tasks.find((t) => t.id === step2?.id)?.status).toBe(
+        "complete"
+      );
+      expect(plan.tasks.find((t) => t.id === step3?.id)?.status).toBe(
+        "complete"
+      );
+      expect(sequentialTask?.status).toBe("in_progress");
+      expect(plan.currentTask?.id).toBe(sequentialTask?.id);
+      expect(plan.tasks).toHaveLength(4);
+    });
+
+    it("should target the most recent in_progress task when updating without id", async () => {
+      const mockPostObject = vi.fn().mockResolvedValue({
+        id: "plan-msg-1",
+        threadId: "slack:C123:1234.5678",
+      });
+      const mockEditObject = vi.fn().mockResolvedValue(undefined);
+      mockAdapter.postObject = mockPostObject;
+      mockAdapter.editObject = mockEditObject;
+
+      const plan = new Plan({ initialMessage: "Start" });
+      await thread.post(plan);
+
+      const fetchTask = await plan.addTask({ title: "Fetch data" });
+      const transformTask = await plan.addTask({
+        title: "Transform",
+        autoCompletePrevious: false,
+      });
+
+      expect(plan.currentTask?.id).toBe(transformTask?.id);
+      expect(plan.tasks.find((t) => t.id === fetchTask?.id)?.status).toBe(
+        "in_progress"
+      );
+
+      const updated = await plan.updateTask("parallel output");
+      expect(updated?.id).toBe(transformTask?.id);
+
+      const fetchUpdated = await plan.updateTask({
+        id: fetchTask?.id,
+        output: "fetch output",
+      });
+      expect(fetchUpdated?.id).toBe(fetchTask?.id);
+      expect(plan.tasks.find((t) => t.id === transformTask?.id)?.status).toBe(
+        "in_progress"
+      );
     });
 
     it("should return null when updating by non-existent ID", async () => {

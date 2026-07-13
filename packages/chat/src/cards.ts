@@ -44,7 +44,7 @@
  * ```
  */
 
-import { tableElementToAscii } from "./markdown";
+import { chartElementToFallbackText, tableElementToAscii } from "./markdown";
 import type { RadioSelectElement, SelectElement } from "./modals";
 
 // ============================================================================
@@ -78,6 +78,8 @@ export interface ButtonElement {
 
 /** Link button element that opens a URL */
 export interface LinkButtonElement {
+  /** Optional action identifier emitted by platforms that report link clicks */
+  id?: string;
   /** Button label text */
   label: string;
   /** Visual style */
@@ -161,11 +163,71 @@ export type TableAlignment = "left" | "center" | "right";
 export interface TableElement {
   /** Column alignment */
   align?: TableAlignment[];
+  /** Accessible table caption (used by platforms with native table support) */
+  caption?: string;
   /** Column header labels */
   headers: string[];
+  /** Rows per page on platforms that paginate tables (Slack: 1-100, default 5) */
+  pageSize?: number;
   /** Data rows (each row is an array of cell strings) */
   rows: string[][];
   type: "table";
+}
+
+/** Chart segment for pie charts */
+export interface ChartSegment {
+  /** Legend label (Slack: max 20 characters) */
+  label: string;
+  /** Segment value; must be greater than 0. Rendered as a percentage of the total. */
+  value: number;
+}
+
+/** A single data point within a chart series */
+export interface ChartDataPoint {
+  /** Category label; must match an entry in the chart's `categories` */
+  label: string;
+  /** Y-axis value (negative values are permitted) */
+  value: number;
+}
+
+/** A named data series for bar, area, and line charts */
+export interface ChartSeries {
+  /** One data point per category */
+  data: ChartDataPoint[];
+  /** Legend label; must be unique within the chart (Slack: max 20 characters) */
+  name: string;
+}
+
+/** Pie chart definition */
+export interface PieChartDefinition {
+  /** Pie segments (Slack: 1-12) */
+  segments: ChartSegment[];
+  type: "pie";
+}
+
+/** Bar, area, or line chart definition */
+export interface SeriesChartDefinition {
+  /** X-axis category labels in display order (Slack: max 20 characters each) */
+  categories: string[];
+  /** Data series (Slack: 1-12); each series needs one point per category */
+  series: ChartSeries[];
+  type: "area" | "bar" | "line";
+  /** X-axis title (Slack: max 50 characters) */
+  xLabel?: string;
+  /** Y-axis title (Slack: max 50 characters) */
+  yLabel?: string;
+}
+
+/** Chart definition, discriminated by chart type */
+export type ChartDefinition = PieChartDefinition | SeriesChartDefinition;
+
+/** Chart element for data visualization */
+export interface ChartElement {
+  /** Chart definition */
+  chart: ChartDefinition;
+  /** Chart title (Slack: max 50 characters) */
+  title: string;
+  type: "chart";
 }
 
 /** Union of all card child element types */
@@ -177,7 +239,8 @@ export type CardChild =
   | SectionElement
   | FieldsElement
   | LinkElement
-  | TableElement;
+  | TableElement
+  | ChartElement;
 
 /** Union of all element types (including nested children) */
 type AnyCardElement =
@@ -394,6 +457,8 @@ export function Button(options: ButtonOptions): ButtonElement {
 
 /** Options for LinkButton */
 export interface LinkButtonOptions {
+  /** Optional action identifier emitted by platforms that report link clicks */
+  id?: string;
   /** Button label text */
   label: string;
   /** Visual style */
@@ -414,6 +479,7 @@ export interface LinkButtonOptions {
 export function LinkButton(options: LinkButtonOptions): LinkButtonElement {
   return {
     type: "link-button",
+    id: options.id,
     url: options.url,
     label: options.label,
     style: options.style,
@@ -458,8 +524,12 @@ export function Fields(children: FieldElement[]): FieldsElement {
 export interface TableOptions {
   /** Column alignment */
   align?: TableAlignment[];
+  /** Accessible table caption (used by platforms with native table support) */
+  caption?: string;
   /** Column header labels */
   headers: string[];
+  /** Rows per page on platforms that paginate tables (Slack: 1-100, default 5) */
+  pageSize?: number;
   /** Data rows */
   rows: string[][];
 }
@@ -484,6 +554,63 @@ export function Table(options: TableOptions): TableElement {
     headers: options.headers,
     rows: options.rows,
     align: options.align,
+    caption: options.caption,
+    pageSize: options.pageSize,
+  };
+}
+
+/** Options for Chart */
+export interface ChartOptions {
+  /** Chart definition (pie segments, or bar/area/line series with categories) */
+  chart: ChartDefinition;
+  /** Chart title (Slack: max 50 characters) */
+  title: string;
+}
+
+/**
+ * Create a Chart element for data visualization.
+ *
+ * @example Pie chart
+ * ```ts
+ * Chart({
+ *   title: "My Favorite Candy Bars",
+ *   chart: {
+ *     type: "pie",
+ *     segments: [
+ *       { label: "Kit Kat", value: 45 },
+ *       { label: "Twix", value: 28 },
+ *     ],
+ *   },
+ * })
+ * ```
+ *
+ * @example Line chart
+ * ```ts
+ * Chart({
+ *   title: "Weekly Sales",
+ *   chart: {
+ *     type: "line",
+ *     categories: ["Week 1", "Week 2"],
+ *     xLabel: "Week",
+ *     yLabel: "Sales",
+ *     series: [
+ *       {
+ *         name: "Scranton",
+ *         data: [
+ *           { label: "Week 1", value: 120 },
+ *           { label: "Week 2", value: 135 },
+ *         ],
+ *       },
+ *     ],
+ *   },
+ * })
+ * ```
+ */
+export function Chart(options: ChartOptions): ChartElement {
+  return {
+    type: "chart",
+    title: options.title,
+    chart: options.chart,
   };
 }
 
@@ -548,6 +675,7 @@ const componentMap = new Map<unknown, string>([
   [Field, "Field"],
   [Fields, "Fields"],
   [Table, "Table"],
+  [Chart, "Chart"],
 ]);
 
 /**
@@ -706,6 +834,14 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         headers: props.headers as string[],
         rows: props.rows as string[][],
         align: props.align as TableAlignment[] | undefined,
+        caption: props.caption as string | undefined,
+        pageSize: props.pageSize as number | undefined,
+      });
+
+    case "Chart":
+      return Chart({
+        title: props.title as string,
+        chart: props.chart as ChartDefinition,
       });
 
     default:
@@ -801,6 +937,8 @@ export function cardChildToFallbackText(child: CardChild): string | null {
       return null;
     case "table":
       return tableElementToAscii(child.headers, child.rows);
+    case "chart":
+      return chartElementToFallbackText(child);
     case "section":
       return child.children
         .map((c) => cardChildToFallbackText(c))

@@ -13,6 +13,7 @@ const PROCESS_HANDLERS = [
   "processAppHomeOpened",
   "processAssistantThreadStarted",
   "processAssistantContextChanged",
+  "processAppContextChanged",
 ] as const;
 
 export type ChatHandler = (typeof PROCESS_HANDLERS)[number];

@@ -10,6 +10,7 @@
  * (`*bold*`, `<@U123>`, `<url|text>`), so the toAst parser stays.
  */
 
+import { replaceBareMentions } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -32,9 +33,7 @@ import {
   stringifyMarkdown,
   tableToAscii,
 } from "chat";
-import { linkBareSlackMentions, slackMrkdwnToMarkdown } from "./format";
-
-const BARE_MENTION_PATTERN = /(?<![<\w])@(\w+)/g;
+import { slackMrkdwnToMarkdown } from "./format";
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
@@ -108,10 +107,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   private finalize(text: string): string {
-    return convertEmojiPlaceholders(
-      linkBareMentionNames(linkBareSlackMentions(text)),
-      "slack"
-    );
+    return convertEmojiPlaceholders(linkBareMentionNames(text), "slack");
   }
 
   private astToMrkdwn(ast: Root): string {
@@ -128,7 +124,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      return linkBareMentionNames(linkBareSlackMentions(node.value));
+      return linkBareMentionNames(node.value);
     }
 
     if (isStrongNode(node)) {
@@ -194,5 +190,5 @@ export class SlackFormatConverter extends BaseFormatConverter {
 }
 
 function linkBareMentionNames(text: string): string {
-  return text.replace(BARE_MENTION_PATTERN, "<@$1>");
+  return replaceBareMentions(text, (_mention, name) => `<@${name}>`);
 }

@@ -33,6 +33,19 @@ export const SHARED_STATE_ADAPTER_KEYWORDS = [
 
 export const PRODUCTION_STATE_ADAPTER_KEYWORDS = ["queues"] as const;
 
+export const getOfficialPlatformAdapterSlug = (
+  dirName: string
+): string | undefined => {
+  if (!dirName.startsWith("adapter-") || dirName === "adapter-shared") {
+    return undefined;
+  }
+
+  return dirName.slice("adapter-".length);
+};
+
+export const getOfficialPlatformOgImageUrl = (slug: string): string =>
+  `${CHAT_SDK_HOMEPAGE}/en/adapters/official/${slug}/og`;
+
 export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "chat") {
     return `${CHAT_SDK_HOMEPAGE}/docs`;
@@ -43,16 +56,21 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "@chat-adapter/shared") {
     return `${CHAT_SDK_HOMEPAGE}/docs/contributing/building`;
   }
+  if (name === "create-chat-sdk") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
+  }
   if (dirName.startsWith("state-")) {
     const slug =
       dirName === "state-pg" ? "postgres" : dirName.slice("state-".length);
     return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
   }
   if (dirName.startsWith("adapter-")) {
-    const slug =
-      dirName === "adapter-gchat"
-        ? "google-chat"
-        : dirName.slice("adapter-".length);
+    const slug = getOfficialPlatformAdapterSlug(dirName);
+    if (!slug) {
+      throw new Error(
+        `No homepage convention for package "${name}" (${dirName})`
+      );
+    }
     return `${CHAT_SDK_HOMEPAGE}/adapters/official/${slug}`;
   }
   throw new Error(`No homepage convention for package "${name}" (${dirName})`);
@@ -99,6 +117,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/whatsapp",
   "@chat-adapter/twilio",
   "@chat-adapter/messenger",
+  "@chat-adapter/x",
   "@chat-adapter/web",
   "@chat-adapter/web/react",
   "@chat-adapter/state-redis",
@@ -108,6 +127,8 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/tests",
   "@chat-adapter/tests/matchers",
   "@chat-adapter/tests/setup",
+  "@vercel/connect",
+  "@vercel/connect/chat",
   "vitest/config",
   "@ai-sdk/react",
   "ai",
@@ -122,12 +143,19 @@ export const VALID_PACKAGE_README_IMPORTS = [
 export const VALID_DOC_PACKAGES = [
   "chat",
   "chat/ai",
+  "chat/adapters",
   "@chat-adapter/slack",
   "@chat-adapter/slack/api",
   "@chat-adapter/slack/blocks",
   "@chat-adapter/slack/format",
   "@chat-adapter/slack/webhook",
   "@chat-adapter/teams",
+  "@chat-adapter/teams/api",
+  "@chat-adapter/teams/cards",
+  "@chat-adapter/teams/format",
+  "@chat-adapter/teams/graph",
+  "@chat-adapter/teams/modals",
+  "@chat-adapter/teams/webhook",
   "@chat-adapter/gchat",
   "@chat-adapter/discord",
   "@chat-adapter/telegram",
@@ -140,6 +168,7 @@ export const VALID_DOC_PACKAGES = [
   "@chat-adapter/twilio/voice",
   "@chat-adapter/twilio/webhook",
   "@chat-adapter/messenger",
+  "@chat-adapter/x",
   "@chat-adapter/web",
   "@chat-adapter/web/react",
   "@chat-adapter/state-redis",
@@ -160,6 +189,8 @@ export const VALID_DOC_PACKAGES = [
   "@ai-sdk/gateway",
   "@vercel/sandbox",
   "@vercel/functions",
+  "@vercel/connect",
+  "@vercel/connect/chat",
   "workflow",
   "workflow/next",
   "workflow/api",
@@ -175,14 +206,21 @@ export const VALID_DOC_PACKAGES = [
   // Vendor-official + community adapters with hand-authored MDX
   "chat-adapter-matrix",
   "@beeper/chat-adapter-matrix",
-  "chat-adapter-imessage",
   "@liveblocks/chat-sdk-adapter",
   "@resend/chat-sdk-adapter",
   "@veltdev/chat-sdk-adapter",
   "@zernio/chat-sdk-adapter",
   "@agentphone/chat-sdk-adapter",
+  "@getdial/chat-sdk-adapter",
   "@kapso/chat-adapter",
+  "@novu/chat-sdk-adapter",
+  "@linqapp/chat-sdk-adapter",
+  "agents",
+  "agents/chat-sdk",
+  "@photon-ai/chat-adapter-imessage",
   "chat-adapter-baileys",
+  "chat-adapter-zaileys",
+  "zaileys",
   "baileys",
   "chat-adapter-blooio",
   "chat-state-cloudflare-do",
@@ -193,6 +231,7 @@ export const VALID_DOC_PACKAGES = [
   "@bitbasti/chat-adapter-webex",
   "chat-adapter-zalo",
   "@larksuite/vercel-chat-adapter",
+  "chat-adapter-weixin",
   "qrcode-terminal",
 ];
 

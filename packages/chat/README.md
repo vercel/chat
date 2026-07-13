@@ -2,8 +2,8 @@
 
 > npm package: [`chat`](https://www.npmjs.com/package/chat)
 
-[![npm version](https://img.shields.io/npm/v/chat)](https://www.npmjs.com/package/chat)
-[![npm downloads](https://img.shields.io/npm/dm/chat)](https://www.npmjs.com/package/chat)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Universal TypeScript SDK for building multi-platform chat bots and AI agents on Slack, Teams, Google Chat, Discord, WhatsApp, and more. Provides the `Chat` class, event handlers, JSX cards, emoji helpers, and type-safe message formatting.
 
@@ -14,6 +14,16 @@ Documentation: [chat-sdk.dev/docs](https://chat-sdk.dev/docs) · Guides: [vercel
 ```bash
 npm install chat
 ```
+
+## CLI
+
+Scaffold a minimal Next.js bot app with `create-chat-sdk`:
+
+```bash
+npx create-chat-sdk@latest my-bot
+```
+
+The CLI generates your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog. See the [CLI docs](https://chat-sdk.dev/docs/create-chat-sdk) for options and non-interactive usage.
 
 ## Usage
 
@@ -44,7 +54,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state) for all options.
+> **Tip:** PostgreSQL and ioredis adapters are also available for production. See [State Adapters](https://chat-sdk.dev/docs/state-adapters) for all options.
 
 ## Configuration
 

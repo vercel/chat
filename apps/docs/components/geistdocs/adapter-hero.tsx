@@ -14,6 +14,7 @@ import {
   twilio,
   web,
   whatsapp,
+  x,
 } from "@/lib/logos";
 
 const ICON_MAP: Record<
@@ -22,7 +23,7 @@ const ICON_MAP: Record<
 > = {
   slack,
   teams,
-  "google-chat": gchat,
+  gchat,
   discord,
   github,
   web,
@@ -35,6 +36,7 @@ const ICON_MAP: Record<
   whatsapp,
   twilio,
   messenger,
+  x,
 };
 
 interface AdapterHeroProps {

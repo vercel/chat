@@ -1,0 +1,62 @@
+{
+  "name": "create-chat-sdk",
+  "description": "Create a new Chat SDK bot project",
+  "keywords": [
+    "vercel",
+    "chat-sdk",
+    "bot",
+    "scaffold",
+    "create",
+    "cli"
+  ],
+  "version": "0.2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "bin": {
+    "create-chat-sdk": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "_template",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.5.1",
+    "commander": "^14.0.3",
+    "execa": "^9.5.2",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@vitest/coverage-v8": "^4.1.8",
+    "chat": "workspace:*",
+    "tsup": "^8.3.5",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/create-chat-sdk"
+  },
+  "homepage": "https://chat-sdk.dev/docs/create-chat-sdk",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

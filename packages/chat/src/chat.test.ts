@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const HELP_REGEX = /help/i;
 const HELLO_REGEX = /hello/i;
 
+async function* chunks(): AsyncGenerator<string> {
+  yield "Hello";
+}
+
 import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
 import { LockError } from "./errors";
@@ -324,7 +328,7 @@ describe("Chat", () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it("should use default dedupe TTL of 5 minutes", async () => {
+    it("should use default dedupe TTL of 10 minutes", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
       chat.onNewMention(handler);
 
@@ -338,7 +342,7 @@ describe("Chat", () => {
       expect(mockState.setIfNotExists).toHaveBeenCalledWith(
         "dedupe:slack:msg-1",
         true,
-        300_000
+        600_000
       );
     });
 
@@ -448,6 +452,42 @@ describe("Chat", () => {
 
       expect(mentionHandler).not.toHaveBeenCalled();
       expect(patternHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not trigger onNewMention when a bot with a hyphen-suffixed name is mentioned", async () => {
+      // @slack-bot should not react when @slack-bot-dev is mentioned
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot-dev help me");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not trigger onNewMention when a hyphen-suffixed user ID is mentioned", async () => {
+      // Bot with ID UBOT123 should not react when @UBOT123-canary is mentioned
+      const adapterWithId = {
+        ...createMockAdapter("slack"),
+        botUserId: "UBOT123",
+      };
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "deploy @UBOT123-canary now");
+
+      await chat.handleIncomingMessage(
+        adapterWithId,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
     });
   });
 
@@ -997,6 +1037,34 @@ describe("Chat", () => {
         "Thanks for the reaction!"
       );
     });
+
+    it("should allow streaming from a reaction without message context", async () => {
+      chat.onReaction(async (event) => {
+        await event.thread.post(chunks());
+      });
+
+      const event: Omit<ReactionEvent, "thread"> = {
+        emoji: getEmoji("thumbs_up"),
+        rawEmoji: "+1",
+        added: true,
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      chat.processReaction(event);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(mockAdapter.editMessage).toHaveBeenCalled();
+    });
   });
 
   describe("Actions", () => {
@@ -1028,6 +1096,32 @@ describe("Chat", () => {
       expect(receivedEvent.actionId).toBe("approve");
       expect(receivedEvent.value).toBe("order-123");
       expect(receivedEvent.thread).toBeDefined();
+    });
+
+    it("should allow streaming from an action without message context", async () => {
+      chat.onAction(async (event) => {
+        await event.thread?.post(chunks());
+      });
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "approve",
+        value: "order-123",
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      await chat.processAction(event, undefined);
+
+      expect(mockAdapter.editMessage).toHaveBeenCalled();
     });
 
     it("should call onAction handler for specific action IDs", async () => {
@@ -1652,6 +1746,14 @@ describe("Chat", () => {
         "Hello via DM!"
       );
     });
+
+    it("should allow streaming to a DM thread", async () => {
+      const thread = await chat.openDM("U123456");
+
+      await thread.post(chunks());
+
+      expect(mockAdapter.editMessage).toHaveBeenCalled();
+    });
   });
 
   describe("Options Load", () => {
@@ -1817,6 +1919,14 @@ describe("Chat", () => {
         "slack:C123:1234.5678",
         "Hello from outside a webhook!"
       );
+    });
+
+    it("should allow streaming to a thread handle", async () => {
+      const thread = chat.thread("slack:C123:1234.5678");
+
+      await thread.post(chunks());
+
+      expect(mockAdapter.editMessage).toHaveBeenCalled();
     });
 
     it("should throw for an invalid thread ID", () => {
@@ -3335,6 +3445,110 @@ describe("Chat", () => {
         totalSinceLastHandler: 3,
       });
     });
+
+    it("should call onNewMention when a skipped queued message mentions the bot", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      queueChat.onNewMention(handler);
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-1", "Hey @slack-bot")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-2", "please help")
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-mention-3", "trigger")
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      const message = handler.mock.calls[0][1];
+      const context = handler.mock.calls[0][2];
+      expect(message.text).toBe("please help");
+      expect(message.isMention).toBe(false);
+      expect(
+        context?.skipped.map((skipped) => ({
+          text: skipped.text,
+          isMention: skipped.isMention,
+        }))
+      ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
+    });
+
+    it("should continue to message patterns when skipped queued mention has no handler", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      queueChat.onNewMessage(HELP_REGEX, handler);
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-pattern-1", "Hey @slack-bot")
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-pattern-2", "please help")
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-pattern-3", "trigger")
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      const message = handler.mock.calls[0][1];
+      const context = handler.mock.calls[0][2];
+      expect(message.text).toBe("please help");
+      expect(message.isMention).toBe(false);
+      expect(
+        context?.skipped.map((skipped) => ({
+          text: skipped.text,
+          isMention: skipped.isMention,
+        }))
+      ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
+    });
   });
 
   describe("concurrency: queue attachment rehydration", () => {
@@ -4032,6 +4246,57 @@ describe("Chat", () => {
 
       vi.useRealTimers();
     });
+
+    it("should call onNewMention when a skipped debounced message mentions the bot", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const debounceChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy: "debounce", debounceMs: 100 },
+        });
+
+        await debounceChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockResolvedValue(undefined);
+        debounceChat.onNewMention(handler);
+
+        const promise = debounceChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-d-skip-mention-1", "Hey @slack-bot")
+        );
+        await debounceChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-d-skip-mention-2", "please help")
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        const message = handler.mock.calls[0][1];
+        const context = handler.mock.calls[0][2];
+        expect(message.text).toBe("please help");
+        expect(message.isMention).toBe(false);
+        expect(
+          context?.skipped.map((skipped) => ({
+            text: skipped.text,
+            isMention: skipped.isMention,
+          }))
+        ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("concurrency: burst", () => {
@@ -4110,6 +4375,60 @@ describe("Chat", () => {
             totalSinceLastHandler: 3,
           },
         ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should call onNewMention when a skipped burst message mentions the bot", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+
+        const burstChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: {
+            strategy: "burst",
+            debounceMs: 100,
+          },
+        });
+
+        await burstChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockResolvedValue(undefined);
+        burstChat.onNewMention(handler);
+
+        const promise = burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-skip-mention-1", "Hey @slack-bot")
+        );
+        await burstChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-burst-skip-mention-2", "please help")
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        await promise;
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        const message = handler.mock.calls[0][1];
+        const context = handler.mock.calls[0][2];
+        expect(message.text).toBe("please help");
+        expect(message.isMention).toBe(false);
+        expect(
+          context?.skipped.map((skipped) => ({
+            text: skipped.text,
+            isMention: skipped.isMention,
+          }))
+        ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
       } finally {
         vi.useRealTimers();
       }

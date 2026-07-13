@@ -99,7 +99,7 @@ The `vercelBlob` adapter defaults to `access: "public"`, which matches the most 
 
 Create `lib/bot.ts`:
 
-`import { Chat } from "chat"; import { toAiMessages } from "chat/ai"; import { createSlackAdapter } from "@chat-adapter/slack"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { createFileTools } from "files-sdk/ai-sdk"; import { files } from "./files"; const agent = new ToolLoopAgent({ model: "anthropic/claude-sonnet-4.6", instructions: "You are a file management assistant in a Slack workspace. " + "Use the file tools to help users browse, read, upload, and delete " + "files in their object storage. When a write operation is rejected, " + "explain what you were about to do and ask the user to confirm.", tools: createFileTools({ files }), }); export const bot = new Chat({ userName: "files-bot", adapters: { slack: createSlackAdapter(), }, state: createRedisState(), }); // Handle first-time mentions bot.onNewMention(async (thread, message) => { await thread.subscribe(); const result = await agent.stream({ prompt: message.text }); await thread.post(result.fullStream); }); // Handle follow-up messages in subscribed threads bot.onSubscribedMessage(async (thread) => { const { messages } = await thread.adapter.fetchMessages(thread.id, { limit: 20, }); const history = await toAiMessages(messages); const result = await agent.stream({ prompt: history }); await thread.post(result.fullStream); });`
+`import { Chat } from "chat"; import { toAiMessages } from "chat/ai"; import { createSlackAdapter } from "@chat-adapter/slack"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { createFileTools } from "files-sdk/ai-sdk"; import { files } from "./files"; const agent = new ToolLoopAgent({ model: "xai/grok-4.5", instructions: "You are a file management assistant in a Slack workspace. " + "Use the file tools to help users browse, read, upload, and delete " + "files in their object storage. When a write operation is rejected, " + "explain what you were about to do and ask the user to confirm.", tools: createFileTools({ files }), }); export const bot = new Chat({ userName: "files-bot", adapters: { slack: createSlackAdapter(), }, state: createRedisState(), }); // Handle first-time mentions bot.onNewMention(async (thread, message) => { await thread.subscribe(); const result = await agent.stream({ prompt: message.text }); await thread.post(result.fullStream); }); // Handle follow-up messages in subscribed threads bot.onSubscribedMessage(async (thread) => { const { messages } = await thread.adapter.fetchMessages(thread.id, { limit: 20, }); const history = await toAiMessages(messages); const result = await agent.stream({ prompt: history }); await thread.post(result.fullStream); });`
 
 **A few things are happening here:**
 
@@ -124,18 +124,18 @@ This creates a `POST /api/webhooks/slack` endpoint. The `waitUntil` option ensur
 
 1.  Start the dev server:
     
-    `pnpm dev`
-    
-2.  Expose it with a tunnel:
-    
-    `npx ngrok http 3000`
-    
-3.  Copy the tunnel URL (for example, [`https://abc123.ngrok-free.dev`](https://abc123.ngrok-free.dev)) and update both **Event Subscriptions** and **Interactivity** Request URLs in your [Slack app settings](https://api.slack.com/apps) to [`https://abc123.ngrok-free.dev/api/webhooks/slack`](https://abc123.ngrok-free.dev/api/webhooks/slack).
-    
-4.  Invite the bot to a channel: `/invite @Files Bot`.
-    
-5.  @mention the bot and ask it to list files: "Show me what's in the bucket." The agent calls `listFiles` and streams the response back into the thread. To test a write operation end-to-end before building an approval flow, temporarily pass `requireApproval: false` to `createFileTools` in `lib/bot.ts` and ask the bot to "Upload a file called test.txt with the contents 'hello world'."
-    
+
+`pnpm dev`
+
+2\. Expose it with a tunnel:
+
+`npx ngrok http 3000`
+
+3\. Copy the tunnel URL (for example, `https://abc123.ngrok-free.dev`) and update both **Event Subscriptions** and **Interactivity** Request URLs in your [Slack app settings](https://api.slack.com/apps) to `https://abc123.ngrok-free.dev/api/webhooks/slack`.
+
+4\. Invite the bot to a channel: `/invite @Files Bot`.
+
+5\. @mention the bot and ask it to list files: "Show me what's in the bucket." The agent calls `listFiles` and streams the response back into the thread. To test a write operation end-to-end before building an approval flow, temporarily pass `requireApproval: false` to `createFileTools` in `lib/bot.ts` and ask the bot to "Upload a file called test.txt with the contents 'hello world'."
 
 ### 9\. Deploy to Vercel
 
@@ -151,7 +151,7 @@ Then deploy to production:
 
 `vercel --prod`
 
-Update the **Event Subscriptions** and **Interactivity** Request URLs in your Slack app settings to your production URL, for example [`https://my-files-bot.vercel.app/api/webhooks/slack`](https://my-files-bot.vercel.app/api/webhooks/slack).
+Update the **Event Subscriptions** and **Interactivity** Request URLs in your Slack app settings to your production URL, for example `https://your-app.vercel.app/api/webhooks/slack`.
 
 ## Configuring approval and read-only mode
 

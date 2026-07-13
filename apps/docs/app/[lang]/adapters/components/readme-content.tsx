@@ -2,9 +2,9 @@
 
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
+import { Callout } from "@vercel/geistdocs/components/callout";
 import type { ComponentProps } from "react";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
-import { Callout } from "@/components/geistdocs/callout";
 
 const GFM_ALERT_PATTERN =
   /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\r?\n?/;

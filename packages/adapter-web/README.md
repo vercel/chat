@@ -1,9 +1,11 @@
+[![Web adapter for Chat SDK](https://chat-sdk.dev/en/adapters/official/web/og)](https://chat-sdk.dev/adapters/official/web)
+
 # @chat-adapter/web
 
 > npm package: [`@chat-adapter/web`](https://www.npmjs.com/package/@chat-adapter/web)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/web)](https://www.npmjs.com/package/@chat-adapter/web)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/web)](https://www.npmjs.com/package/@chat-adapter/web)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Web adapter for [Chat SDK](https://chat-sdk.dev). Lets a chat-sdk bot serve a browser chat UI alongside Slack, Teams, Discord, etc. — the same `bot.onDirectMessage(...)` handler fires for every platform.
 
@@ -24,6 +26,16 @@ Then install the framework package that matches your UI:
 | React / Next.js | `@ai-sdk/react` | `@chat-adapter/web/react` |
 | Vue / Nuxt | `@ai-sdk/vue` | `@chat-adapter/web/vue` |
 | Svelte / SvelteKit | `@ai-sdk/svelte` | `@chat-adapter/web/svelte` |
+
+## Scaffold with the CLI
+
+To scaffold a new browser chat bot with the Web adapter preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter web memory
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
 ## Quick start
 
