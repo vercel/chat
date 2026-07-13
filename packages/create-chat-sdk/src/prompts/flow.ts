@@ -6,10 +6,11 @@ import {
   select,
   text,
 } from "@clack/prompts";
-import { listStateAdapters } from "chat/adapters";
 import {
+  getAdapterConnectSpec,
   getCliScaffoldSpec,
   listCliPlatformAdapters,
+  listCliStateAdapters,
 } from "../catalog/index.js";
 import { resolveAdapterSelection } from "../catalog/selection.js";
 import type { PackageManager, ProjectConfig } from "../types.js";
@@ -23,6 +24,7 @@ import { detectPackageManager, validatePackageName } from "./validate.js";
  * config's `shouldInitializeGit` field.
  */
 interface PromptInputs {
+  connect?: boolean;
   description?: string;
   initializeGit?: boolean;
   install?: boolean;
@@ -114,7 +116,7 @@ export async function runPrompts(
       ? "memory"
       : await select({
           message: "Select state adapter:",
-          options: listStateAdapters().map((adapter) => ({
+          options: listCliStateAdapters().map((adapter) => ({
             hint: getCliScaffoldSpec(adapter.slug).stateHint,
             label: adapter.name,
             value: adapter.slug,
@@ -134,6 +136,39 @@ export async function runPrompts(
     throw new Error(
       "Select at least one platform adapter. Pass --adapter with a platform (for example: --adapter slack)."
     );
+  }
+
+  const connectCapable = selection.platformAdapters.some((adapter) =>
+    Boolean(getAdapterConnectSpec(adapter.slug))
+  );
+  let useConnect = false;
+  if (inputs.connect) {
+    useConnect = connectCapable;
+    if (!(connectCapable || inputs.quiet)) {
+      log.warning(
+        "Ignoring --connect: Vercel Connect supports only the Slack, GitHub, and Linear adapters."
+      );
+    }
+  } else if (!(inputs.yes || flaggedSelection) && connectCapable) {
+    const authMode = await select({
+      message: "How should adapters authenticate?",
+      options: [
+        {
+          hint: "provider tokens and signing secrets via environment variables",
+          label: "Provider secrets",
+          value: "secrets",
+        },
+        {
+          hint: "short-lived tokens from a Vercel Connect connector",
+          label: "Vercel Connect",
+          value: "connect",
+        },
+      ],
+    });
+    if (isCancel(authMode)) {
+      return null;
+    }
+    useConnect = authMode === "connect";
   }
 
   const shouldInstall =
@@ -158,11 +193,15 @@ export async function runPrompts(
     shouldInstall,
     shouldInitializeGit: inputs.initializeGit ?? true,
     stateAdapter: selection.stateAdapter,
+    useConnect,
   };
 
   if (!inputs.quiet && flaggedSelection) {
     log.info(`Platform adapters: ${selectedPlatformLabel(config)}`);
     log.info(`State adapter: ${config.stateAdapter.name}`);
+  }
+  if (!inputs.quiet && useConnect) {
+    log.info("Authentication: Vercel Connect");
   }
   if (
     !inputs.quiet &&

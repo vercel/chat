@@ -139,10 +139,15 @@ describe("Vendor-Official adapter MDX", () => {
     expect(vendorAdapters.map((a) => a.slug).sort()).toEqual(
       [
         "agentphone",
+        "cloudflare-agents",
+        "dial",
         "kapso",
         "lark",
+        "linq",
         "liveblocks",
         "matrix",
+        "novu",
+        "photon",
         "resend",
         "sendblue",
         "velt",
@@ -256,6 +261,7 @@ describe("Official platform adapter OG images", () => {
         "twilio",
         "web",
         "whatsapp",
+        "x",
       ].sort()
     );
   });

@@ -34,7 +34,7 @@ import { ToolLoopAgent } from "ai";
 const chat = new Chat({ /* adapters, state, ... */ });
 
 const agent = new ToolLoopAgent({
-  model: "anthropic/claude-sonnet-4.6",
+  model: "xai/grok-4.5",
   instructions: "You operate inside a chat workspace via Chat SDK tools.",
   tools: createChatTools({ chat, preset: "messenger", requireApproval: true }),
 });

@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/twilio`](https://www.npmjs.com/package/@chat-adapter/twilio)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/twilio)](https://www.npmjs.com/package/@chat-adapter/twilio)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Twilio adapter for [Chat SDK](https://chat-sdk.dev). Build SMS and MMS bots with Twilio Messaging webhooks and the Messages API.
 

@@ -1,8 +1,9 @@
 /**
  * Replay test for native Slack table block rendering.
  *
- * Verifies that a card with a Table element produces a native Slack table block
- * (using raw_text cells and first-row-as-headers schema) instead of ASCII fallback.
+ * Verifies that a card with a Table element produces a native Slack data table
+ * block (using raw_text cells and first-row-as-headers schema) instead of
+ * ASCII fallback.
  */
 
 import { Card, CardText, Table } from "chat";
@@ -77,14 +78,15 @@ describe("Replay Tests - Native Table Block", () => {
 
       const blocks = postCall.blocks;
 
-      // Should have: header, section (text), table
+      // Should have: header, section (text), data table
       expect(blocks).toHaveLength(3);
       expect(blocks[0].type).toBe("header");
       expect(blocks[1].type).toBe("section");
-      expect(blocks[2].type).toBe("table");
+      expect(blocks[2].type).toBe("data_table");
 
       // Verify table block uses native schema
       const tableBlock = blocks[2];
+      expect(tableBlock.caption).toBe("Table");
       expect(tableBlock.rows).toBeDefined();
       expect(tableBlock.rows).toHaveLength(4); // 1 header row + 3 data rows
 

@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/whatsapp`](https://www.npmjs.com/package/@chat-adapter/whatsapp)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/whatsapp)](https://www.npmjs.com/package/@chat-adapter/whatsapp)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/whatsapp)](https://www.npmjs.com/package/@chat-adapter/whatsapp)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 WhatsApp Business Cloud adapter for [Chat SDK](https://chat-sdk.dev), using the [WhatsApp Business Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api).
 

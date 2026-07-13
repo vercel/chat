@@ -2,8 +2,8 @@
 
 > npm package: [`@chat-adapter/state-memory`](https://www.npmjs.com/package/@chat-adapter/state-memory)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/state-memory)](https://www.npmjs.com/package/@chat-adapter/state-memory)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 In-memory state adapter for [Chat SDK](https://chat-sdk.dev). For development and testing only — state is lost on restart.
 

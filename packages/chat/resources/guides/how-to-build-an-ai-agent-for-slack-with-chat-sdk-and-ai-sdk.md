@@ -27,7 +27,7 @@ Before you begin, make sure you have:
 
 Chat SDK is a unified TypeScript SDK for building chatbots across Slack, Teams, Discord, and other platforms. You register event handlers (like `onNewMention` and `onSubscribedMessage`), and the SDK routes incoming webhooks to them. The Slack adapter handles webhook verification, message parsing, and the Slack API. The Redis state adapter tracks which threads your bot has subscribed to and manages distributed locking for concurrent message handling.
 
-AI SDK's `ToolLoopAgent` wraps a language model with tools and runs an autonomous loop: the model generates text or calls a tool, the SDK executes the tool, feeds the result back, and repeats until the model finishes. When you pass a model string like `"anthropic/claude-sonnet-4.6"`, and host your application on Vercel, the AI SDK will route the request through the AI Gateway automatically.
+AI SDK's `ToolLoopAgent` wraps a language model with tools and runs an autonomous loop: the model generates text or calls a tool, the SDK executes the tool, feeds the result back, and repeats until the model finishes. When you pass a model string like `"xai/grok-4.5"`, and host your application on Vercel, the AI SDK will route the request through the AI Gateway automatically.
 
 Chat SDK accepts any `AsyncIterable<string>` as a message, so you can pass the agent's `fullStream` directly to `thread.post()` for real-time streaming in Slack.
 
@@ -86,7 +86,7 @@ Each tool has a `description` (which tells the model when to use it), an `inputS
 
 Create `lib/bot.ts` with a `ToolLoopAgent` and a `Chat` instance:
 
-`import { Chat } from "chat"; import { toAiMessages } from "chat/ai"; import { createSlackAdapter } from "@chat-adapter/slack"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { tools } from "./tools"; const agent = new ToolLoopAgent({ model: "anthropic/claude-sonnet-4.6", instructions: "You are a helpful AI assistant in a Slack workspace. " + "Answer questions clearly and use your tools when you need " + "real-time data. Keep responses concise and well-formatted for chat.", tools, }); export const bot = new Chat({ userName: "ai-agent", adapters: { slack: createSlackAdapter(), }, state: createRedisState(), }); // Handle first-time mentions bot.onNewMention(async (thread, message) => { await thread.subscribe(); const result = await agent.stream({ prompt: message.text }); await thread.post(result.fullStream); }); // Handle follow-up messages in subscribed threads bot.onSubscribedMessage(async (thread, message) => { const allMessages = []; for await (const msg of thread.allMessages) { allMessages.push(msg); } const history = await toAiMessages(allMessages); const result = await agent.stream({ messages: history }); await thread.post(result.fullStream); });`
+`import { Chat } from "chat"; import { toAiMessages } from "chat/ai"; import { createSlackAdapter } from "@chat-adapter/slack"; import { createRedisState } from "@chat-adapter/state-redis"; import { ToolLoopAgent } from "ai"; import { tools } from "./tools"; const agent = new ToolLoopAgent({ model: "xai/grok-4.5", instructions: "You are a helpful AI assistant in a Slack workspace. " + "Answer questions clearly and use your tools when you need " + "real-time data. Keep responses concise and well-formatted for chat.", tools, }); export const bot = new Chat({ userName: "ai-agent", adapters: { slack: createSlackAdapter(), }, state: createRedisState(), }); // Handle first-time mentions bot.onNewMention(async (thread, message) => { await thread.subscribe(); const result = await agent.stream({ prompt: message.text }); await thread.post(result.fullStream); }); // Handle follow-up messages in subscribed threads bot.onSubscribedMessage(async (thread, message) => { const allMessages = []; for await (const msg of thread.allMessages) { allMessages.push(msg); } const history = await toAiMessages(allMessages); const result = await agent.stream({ messages: history }); await thread.post(result.fullStream); });`
 
 When someone @mentions the bot, `onNewMention` fires. The handler subscribes to the thread (to track future messages in that thread) and streams the agent's response. For follow-up messages, `onSubscribedMessage` retrieves the full thread history using `thread.allMessages`, converts it to the AI SDK message format with `toAiMessages`and passes it to the agent so it has a complete conversation context.
 
@@ -175,7 +175,7 @@ For higher accuracy with vague queries (like "ship it" or "ping the team"), add 
 
 Pass `toolIndex.prepareStep()` to your `ToolLoopAgent`. This sets `activeTools` on each step, so the model only sees the tools it needs, while all tools remain available for execution:
 
-`const agent = new ToolLoopAgent({ model: "anthropic/claude-sonnet-4.6", instructions: "..." tools, prepareStep: toolIndex.prepareStep(), });`
+`const agent = new ToolLoopAgent({ model: "xai/grok-4.5", instructions: "..." tools, prepareStep: toolIndex.prepareStep(), });`
 
 If the model can't find a relevant tool in the current selection, toolpick automatically moves to the next page of results. After two misses, it exposes all tools as a fallback. Your agent never gets stuck in a loop, unable to find the right tool.
 

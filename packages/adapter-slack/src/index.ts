@@ -6,6 +6,7 @@ import {
   extractCard,
   extractFiles,
   NetworkError,
+  replaceBareMentions,
   toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
@@ -57,6 +58,11 @@ import {
   toModalElement,
   toPlainText,
 } from "chat";
+import {
+  normalizeAppContextEntities,
+  type SlackAppContext,
+  type SlackAppContextChangedEvent,
+} from "./agent-context";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
@@ -95,6 +101,46 @@ function timingSafeStringEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(aBuf, bBuf);
+}
+
+/**
+ * Surface Slack's per-block validation details on invalid_blocks errors.
+ * The @slack/web-api error message is just "An API error occurred:
+ * invalid_blocks"; the actionable details (which block, which field) live in
+ * `data.errors` and `data.response_metadata.messages`.
+ */
+function enrichInvalidBlocksError(
+  error: unknown,
+  blocks: unknown[],
+  logger: Logger
+): unknown {
+  const slackError = error as {
+    code?: string;
+    data?: {
+      error?: string;
+      errors?: unknown[];
+      response_metadata?: { messages?: string[] };
+    };
+  };
+  if (
+    slackError.code !== "slack_webapi_platform_error" ||
+    slackError.data?.error !== "invalid_blocks"
+  ) {
+    return error;
+  }
+  const details = [
+    ...(slackError.data.errors ?? []),
+    ...(slackError.data.response_metadata?.messages ?? []),
+  ];
+  logger.error("Slack rejected blocks (invalid_blocks)", {
+    details,
+    blocks: JSON.stringify(blocks),
+  });
+  const enriched = new Error(
+    `Slack rejected blocks (invalid_blocks): ${JSON.stringify(details)}`
+  );
+  (enriched as { cause?: unknown }).cause = error;
+  return enriched;
 }
 
 /** Find the next `<@` or `<#` mention in text. */
@@ -291,6 +337,7 @@ interface SlackAssistantContextChangedEvent {
 /** Slack app_home_opened event payload */
 interface SlackAppHomeOpenedEvent {
   channel: string;
+  context?: SlackAppContext;
   event_ts: string;
   tab: string;
   type: "app_home_opened";
@@ -480,6 +527,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   // Socket mode support
   protected readonly appToken: string | undefined;
+  protected readonly agentView: boolean;
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
@@ -640,6 +688,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this._botUserId = config.botUserId || null;
 
     this.appToken = config.appToken;
+    this.agentView = config.agentView ?? false;
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -1317,11 +1366,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event as SlackAssistantContextChangedEvent,
           options
         );
-      } else if (
-        event.type === "app_home_opened" &&
-        (event as SlackAppHomeOpenedEvent).tab === "home"
-      ) {
-        this.handleAppHomeOpened(event as SlackAppHomeOpenedEvent, options);
+      } else if (event.type === "app_context_changed") {
+        this.handleAppContextChanged(
+          event as SlackAppContextChangedEvent,
+          options
+        );
+      } else if (event.type === "app_home_opened") {
+        const homeEvent = event as SlackAppHomeOpenedEvent;
+        if (this.agentView || homeEvent.tab === "home") {
+          this.handleAppHomeOpened(homeEvent, options);
+        }
       } else if (event.type === "member_joined_channel") {
         this.handleMemberJoinedChannel(
           event as SlackMemberJoinedChannelEvent,
@@ -1765,11 +1819,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.socketClient.on(
       "slack_event",
-      async ({ ack, body, type, retry_num }) => {
+      async ({ ack, body, type, retry_num, retry_reason }) => {
         if (retry_num && retry_num > 0) {
-          await ack();
-          this.logger.debug("Skipping socket mode retry", { retry_num });
-          return;
+          // Slack redelivers an event when a prior delivery wasn't acked —
+          // including events sent while the app had no open socket (restart,
+          // deploy, connection refresh). Route it like a first delivery:
+          // processMessage() dedupes by message id, so an already-handled
+          // duplicate is dropped there, while a genuinely missed event is
+          // recovered instead of being lost.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
         }
 
         await this.routeSocketEvent(
@@ -1929,35 +1991,42 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const client = new SocketModeClient({ appToken });
     let isShuttingDown = false;
 
-    client.on("slack_event", async ({ ack, body, type, retry_num }) => {
-      if (isShuttingDown) {
-        return;
-      }
+    client.on(
+      "slack_event",
+      async ({ ack, body, type, retry_num, retry_reason }) => {
+        if (isShuttingDown) {
+          return;
+        }
 
-      if (retry_num && retry_num > 0) {
-        await ack();
-        this.logger.debug("Skipping socket mode retry", { retry_num });
-        return;
-      }
+        if (retry_num && retry_num > 0) {
+          // See startSocketMode: retries are routed like first deliveries and
+          // deduped downstream, so missed-while-disconnected events recover.
+          this.logger.info("Processing socket mode retry", {
+            retry_num,
+            retry_reason,
+            type,
+          });
+        }
 
-      const eventType = type as string;
-      if (webhookUrl) {
-        await ack();
-        await this.forwardSocketEvent(webhookUrl, {
-          type: "socket_event",
-          eventType,
-          body: body as Record<string, unknown>,
-          timestamp: Date.now(),
-        });
-      } else {
-        await this.routeSocketEvent(
-          body as Record<string, unknown>,
-          eventType,
-          ack,
-          options
-        );
+        const eventType = type as string;
+        if (webhookUrl) {
+          await ack();
+          await this.forwardSocketEvent(webhookUrl, {
+            type: "socket_event",
+            eventType,
+            body: body as Record<string, unknown>,
+            timestamp: Date.now(),
+          });
+        } else {
+          await this.routeSocketEvent(
+            body as Record<string, unknown>,
+            eventType,
+            ack,
+            options
+          );
+        }
       }
-    });
+    );
 
     try {
       await client.start();
@@ -2111,11 +2180,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs: top-level messages use empty threadTs (matches openDM subscriptions),
-    // thread replies use thread_ts for per-conversation isolation.
+    // For DMs under assistant_view (legacy): top-level messages use empty threadTs
+    // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
+    // isolation.
+    // Under agent_view the Messages-tab conversation is threaded per Slack's model —
+    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`
+    // (except when the conversation-scoped openDM ID is subscribed; see bridge below).
     // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
-    const threadTs = isDM ? event.thread_ts || "" : event.thread_ts || event.ts;
+    const threadTs =
+      isDM && !this.agentView
+        ? event.thread_ts || ""
+        : event.thread_ts || event.ts;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -2131,15 +2207,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
     const isMention = event.type === "app_mention";
-    const factory = async (): Promise<Message<unknown>> => {
-      const msg = await this.parseSlackMessage(event, threadId);
+    const makeFactory = (id: string) => async (): Promise<Message<unknown>> => {
+      const msg = await this.parseSlackMessage(event, id);
       if (isMention) {
         msg.isMention = true;
       }
       return msg;
     };
 
-    this.chat.processMessage(this, threadId, factory, options);
+    // Under agent_view each top-level DM message is its own thread root, which
+    // would silently bypass subscriptions created on the conversation-scoped
+    // thread ID that openDM() returns (slack:{D…}:). Bridge: when that
+    // conversation-scoped ID is subscribed, route the message to it so
+    // onSubscribedMessage and per-thread state keep working for proactive flows.
+    if (this.agentView && isDM && !event.thread_ts) {
+      const chat = this.chat;
+      const conversationThreadId = this.encodeThreadId({
+        channel: event.channel,
+        threadTs: "",
+      });
+      const task = (async () => {
+        let routedThreadId = threadId;
+        try {
+          if (await chat.getState().isSubscribed(conversationThreadId)) {
+            routedThreadId = conversationThreadId;
+          }
+        } catch (error) {
+          this.logger.warn(
+            "agent_view DM subscription check failed; using per-message thread",
+            { error: String(error), threadId }
+          );
+        }
+        chat.processMessage(
+          this,
+          routedThreadId,
+          makeFactory(routedThreadId),
+          options
+        );
+      })();
+      options?.waitUntil?.(task);
+      return;
+    }
+
+    this.chat.processMessage(this, threadId, makeFactory(threadId), options);
   }
 
   protected handleMessageChanged(
@@ -2404,6 +2514,37 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       {
         userId: event.user,
         channelId: event.channel,
+        tab: event.tab,
+        adapter: this,
+        ...(event.context
+          ? { entities: normalizeAppContextEntities(event.context) }
+          : {}),
+      },
+      options
+    );
+  }
+
+  /**
+   * Handle app_context_changed events (Slack Agent messaging experience).
+   * Reports the user's current active view via normalized entities.
+   */
+  protected handleAppContextChanged(
+    event: SlackAppContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring app_context_changed"
+      );
+      return;
+    }
+
+    this.chat.processAppContextChanged(
+      {
+        channelId: event.channel,
+        userId: event.user,
+        entities: normalizeAppContextEntities(event.context),
+        raw: event,
         adapter: this,
       },
       options
@@ -2469,21 +2610,23 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Set suggested prompts for an assistant thread.
-   * Slack Assistants API: assistant.threads.setSuggestedPrompts
+   * Set suggested prompts for an assistant/agent thread.
+   * Slack Assistants API: assistant.threads.setSuggestedPrompts.
+   * `threadTs` is optional under the Agent messaging experience (agent_view),
+   * where prompts can sit at the top of the agent conversation without a thread.
    */
   async setSuggestedPrompts(
     channelId: string,
-    threadTs: string,
+    threadTs: string | undefined,
     prompts: Array<{ title: string; message: string }>,
     title?: string
   ): Promise<void> {
     await this._client.assistant.threads.setSuggestedPrompts(
       await this.withToken({
         channel_id: channelId,
-        thread_ts: threadTs,
         prompts,
-        title,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(title ? { title } : {}),
       })
     );
   }
@@ -3008,26 +3151,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return text;
     }
     const state = this.chat.getState();
-
-    // Find all @word patterns that aren't already wrapped in <@...>
-    const mentionPattern = /@(\w+)/g;
     const mentions = new Map<string, string[]>();
 
-    for (const match of text.matchAll(mentionPattern)) {
-      const name = match[1];
-      // Skip if already a Slack user ID format or inside <@...>
+    replaceBareMentions(text, (mention, name) => {
       if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-        continue;
-      }
-      // Check the character before @ to skip <@...> patterns
-      const idx = match.index;
-      if (idx > 0 && text[idx - 1] === "<") {
-        continue;
+        return mention;
       }
       if (!mentions.has(name.toLowerCase())) {
         mentions.set(name.toLowerCase(), []);
       }
-    }
+      return mention;
+    });
 
     if (mentions.size === 0) {
       return text;
@@ -3053,35 +3187,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       participants = new Set(participantList);
     }
 
-    // Replace mentions in text
-    return text.replace(
-      mentionPattern,
-      (match, name: string, offset: number) => {
-        if (offset > 0 && text[offset - 1] === "<") {
-          return match;
-        }
-        if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
-          return match;
-        }
-
-        const userIds = mentions.get(name.toLowerCase());
-        if (!userIds || userIds.length === 0) {
-          return match;
-        }
-        if (userIds.length === 1) {
-          return `<@${userIds[0]}>`;
-        }
-        // Disambiguate using thread participants
-        if (participants) {
-          const inThread = userIds.filter((id) => participants.has(id));
-          if (inThread.length === 1) {
-            return `<@${inThread[0]}>`;
-          }
-        }
-        // Still ambiguous — leave as plain text
-        return match;
+    return replaceBareMentions(text, (mention, name) => {
+      if (SLACK_USER_ID_EXACT_PATTERN.test(name)) {
+        return mention;
       }
-    );
+
+      const userIds = mentions.get(name.toLowerCase());
+      if (!userIds || userIds.length === 0) {
+        return mention;
+      }
+      if (userIds.length === 1) {
+        return `<@${userIds[0]}>`;
+      }
+      // Disambiguate using thread participants
+      if (participants) {
+        const inThread = userIds.filter((id) => participants.has(id));
+        if (inThread.length === 1) {
+          return `<@${inThread[0]}>`;
+        }
+      }
+      return mention;
+    });
   }
 
   /**
@@ -3179,16 +3305,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this._client.chat.postMessage(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            text: fallbackText, // Fallback for notifications
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-          })
-        );
+        let result: Awaited<ReturnType<typeof this._client.chat.postMessage>>;
+        try {
+          result = await this._client.chat.postMessage(
+            await this.withToken({
+              channel,
+              thread_ts: threadTs,
+              text: fallbackText, // Fallback for notifications
+              blocks,
+              unfurl_links: false,
+              unfurl_media: false,
+            })
+          );
+        } catch (error) {
+          throw enrichInvalidBlocksError(error, blocks, this.logger);
+        }
 
         this.logger.debug("Slack API: chat.postMessage response", {
           messageId: result.ts,
@@ -3965,28 +4096,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * streaming API as chunk payloads, enabling native task progress cards
    * and plan displays in the Slack AI Assistant UI.
    *
-   * Requires `recipientUserId` and `recipientTeamId` in options.
+   * Falls back to post-and-edit when the thread lacks native stream context.
    */
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<unknown>> {
-    if (!(options?.recipientUserId && options?.recipientTeamId)) {
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires recipientUserId and recipientTeamId in options"
-      );
-    }
+  ): Promise<RawMessage<unknown> | null> {
     const { channel, threadTs: rawThreadTs } = this.decodeThreadId(threadId);
-    // Normalize empty threadTs to undefined to avoid Slack API "invalid_thread_ts" errors
     const threadTs = rawThreadTs || undefined;
     if (!threadTs) {
-      this.logger.debug("Slack: stream skipped - no thread context");
-      throw new ValidationError(
-        "slack",
-        "Slack streaming requires a valid thread context (non-empty threadTs)"
-      );
+      this.logger.debug("Slack: using fallback stream - no thread context");
+      return null;
+    }
+    if (
+      !(
+        channel.startsWith("D") ||
+        (options?.recipientUserId && options?.recipientTeamId)
+      )
+    ) {
+      this.logger.debug("Slack: using fallback stream - no recipient context");
+      return null;
     }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
@@ -3994,9 +4124,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const streamer = this._client.chatStream({
       channel,
       thread_ts: threadTs,
-      recipient_user_id: options.recipientUserId,
-      recipient_team_id: options.recipientTeamId,
-      ...(options.taskDisplayMode && {
+      ...(options?.recipientUserId && {
+        recipient_user_id: options.recipientUserId,
+      }),
+      ...(options?.recipientTeamId && {
+        recipient_team_id: options.recipientTeamId,
+      }),
+      ...(options?.taskDisplayMode && {
         task_display_mode: options.taskDisplayMode,
       }),
     });
@@ -4996,26 +5130,38 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     );
   }
 
-  // Auth fields (botToken, clientId, clientSecret) are modal: botToken's
-  // presence selects single-workspace mode, its absence selects multi-workspace
-  // (per-team token lookup via installations). Only fall back to env vars
-  // in zero-config mode (no config provided at all).
-  const zeroConfig = !config;
+  // Auth fields (botToken, clientId, clientSecret, installationProvider) are
+  // modal: botToken's presence selects single-workspace mode, its absence
+  // selects multi-workspace (per-team token lookup via installations). Fall
+  // back to env vars only when the caller passed no auth or verification
+  // field, so an explicit auth setup (including signingSecret-only
+  // multi-workspace configs) can't be silently mixed with ambient env auth —
+  // while non-auth options (agentView, mode, logger, …) keep env auth
+  // detection working.
+  const noAuthConfig = !(
+    config?.botToken ||
+    config?.clientId ||
+    config?.clientSecret ||
+    config?.installationProvider ||
+    config?.signingSecret ||
+    config?.webhookVerifier
+  );
 
   const resolved: SlackAdapterConfig = {
+    agentView: config?.agentView,
     apiUrl: config?.apiUrl,
     appToken,
     mode,
     signingSecret,
     botToken:
       config?.botToken ??
-      (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined),
+      (noAuthConfig ? process.env.SLACK_BOT_TOKEN : undefined),
     clientId:
       config?.clientId ??
-      (zeroConfig ? process.env.SLACK_CLIENT_ID : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_ID : undefined),
     clientSecret:
       config?.clientSecret ??
-      (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
     installationProvider: config?.installationProvider,
@@ -5031,6 +5177,13 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   return new SlackAdapter(resolved);
 }
 
+export type {
+  SlackAppContext,
+  SlackAppContextChangedEvent,
+  SlackAppContextEntity,
+} from "./agent-context";
+// Re-export agent active-view context helpers for advanced use
+export { getAppContext, normalizeAppContextEntities } from "./agent-context";
 // Re-export card converter for advanced use
 export { cardToBlockKit, cardToFallbackText } from "./cards";
 export type { EncryptedTokenData } from "./crypto";

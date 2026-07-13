@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    setupFiles: ["@chat-adapter/tests/setup"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],

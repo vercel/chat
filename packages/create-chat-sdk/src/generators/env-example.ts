@@ -4,7 +4,11 @@ import type {
   EnvGroup,
   EnvVar,
 } from "chat/adapters";
-import { getCliScaffoldSpec } from "../catalog/index.js";
+import {
+  type AdapterConnectSpec,
+  getAdapterConnectSpec,
+  getCliScaffoldSpec,
+} from "../catalog/index.js";
 import type { ProjectConfig } from "../types.js";
 import { needsDiscordGateway } from "./routes.js";
 
@@ -90,6 +94,54 @@ const adapterSection = (adapter: CatalogAdapter): string[] => {
   return [`# ${adapter.name}`, ...lines];
 };
 
+const connectAdapterSection = (
+  adapter: CatalogAdapter,
+  connect: AdapterConnectSpec
+): string[] => {
+  const lines = [
+    `# ${adapter.name} (Vercel Connect)`,
+    `# Vercel Connect connector UID (for example: ${adapter.slug}/your-connector)`,
+    `${connect.connectorEnvVar}=`,
+  ];
+  for (const extra of connect.extraEnv ?? []) {
+    lines.push(`# ${extra.description}`, `${extra.key}=`);
+  }
+  return lines;
+};
+
+const usesConnect = (config: ProjectConfig): boolean =>
+  config.useConnect === true &&
+  config.platformAdapters.some((adapter) =>
+    getAdapterConnectSpec(adapter.slug)
+  );
+
+const connectNoteLines = (config: ProjectConfig): string[] => {
+  if (!usesConnect(config)) {
+    return [];
+  }
+  return [
+    "# Vercel Connect",
+    "# Adapters marked (Vercel Connect) below authenticate with a connector",
+    "# instead of stored secrets. Vercel injects VERCEL_OIDC_TOKEN at runtime;",
+    "# for local development run `vercel env pull` to populate it. Set each",
+    "# connector UID below (or in your Vercel project's environment variables).",
+    "",
+  ];
+};
+
+const platformSection = (
+  adapter: CatalogAdapter,
+  config: ProjectConfig
+): string[] => {
+  const connect =
+    config.useConnect === true
+      ? getAdapterConnectSpec(adapter.slug)
+      : undefined;
+  return connect
+    ? connectAdapterSection(adapter, connect)
+    : adapterSection(adapter);
+};
+
 /**
  * Generate `.env.example` for the selected project.
  *
@@ -101,8 +153,9 @@ export function generateEnvExample(config: ProjectConfig): string {
     "# Bot Configuration",
     `BOT_USERNAME=${config.name}`,
     "",
+    ...connectNoteLines(config),
     ...config.platformAdapters.flatMap((adapter) => [
-      ...adapterSection(adapter),
+      ...platformSection(adapter, config),
       "",
     ]),
     ...discordGatewayLines(config),

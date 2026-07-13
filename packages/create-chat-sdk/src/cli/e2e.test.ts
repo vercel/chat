@@ -80,6 +80,44 @@ describe("CLI adapter matrix", () => {
   }
 });
 
+describe("CLI Vercel Connect mode", () => {
+  it("scaffolds Slack with Vercel Connect when --connect is passed", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-bot",
+      "--adapter",
+      "slack",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectSlackAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectSlackAdapter(requireEnv("SLACK_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-bot", ".env.example");
+    expect(envExample).toContain("SLACK_CONNECTOR=");
+    expect(envExample).not.toContain("SLACK_SIGNING_SECRET=");
+  });
+});
+
 describe("CLI agent mode", () => {
   it("runs non-interactively when an agent environment is detected", async () => {
     vi.stubEnv("AI_AGENT", "cursor");

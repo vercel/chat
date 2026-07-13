@@ -45,7 +45,7 @@ Select your workspace and paste the following manifest:
 
 `display_information: name: My Bot description: A bot built with Chat SDK features: bot_user: display_name: My Bot always_online: true oauth_config: scopes: bot: - app_mentions:read - channels:history - channels:read - chat:write - groups:history - groups:read - im:history - im:read - mpim:history - mpim:read - reactions:read - reactions:write - users:read settings: event_subscriptions: request_url: https://your-domain.com/api/webhooks/slack bot_events: - app_mention - message.channels - message.groups - message.im - message.mpim interactivity: is_enabled: true request_url: https://your-domain.com/api/webhooks/slack org_deploy_enabled: false socket_mode_enabled: false token_rotation_enabled: false`
 
-Replace [`https://your-domain.com/api/webhooks/slack`](https://your-domain.com/api/webhooks/slack) with your deployed webhook URL, then click **Create**.
+Replace `https://your-domain.com/api/webhooks/slack` with your deployed webhook URL, then click **Create**.
 
 After creating the app:
 

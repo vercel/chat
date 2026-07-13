@@ -45,6 +45,8 @@ export interface StartPlanOptions {
 }
 
 export interface AddTaskOptions {
+  /** When true (default), mark existing in_progress tasks complete before adding. */
+  autoCompletePrevious?: boolean;
   /** Task details/substeps. */
   children?: PlanContent;
   title: PlanContent;
@@ -106,6 +108,7 @@ interface BoundState {
  *
  * Create a plan with `new Plan({ initialMessage: "..." })` and post it with `thread.post(plan)`.
  * After posting, use methods like `addTask()`, `updateTask()`, and `complete()` to update it.
+ * For parallel steps, pass `autoCompletePrevious: false` to `addTask()` and use `updateTask({ id })` to update individual tasks.
  *
  * @example
  * ```typescript
@@ -203,9 +206,12 @@ export class Plan implements PostableObject<PlanModel> {
       return null;
     }
     const title = contentToPlainText(options.title) || "Task";
-    for (const task of this._model.tasks) {
-      if (task.status === "in_progress") {
-        task.status = "complete";
+    const autoCompletePrevious = options.autoCompletePrevious ?? true;
+    if (autoCompletePrevious) {
+      for (const task of this._model.tasks) {
+        if (task.status === "in_progress") {
+          task.status = "complete";
+        }
       }
     }
     const nextTask: PlanModelTask = {

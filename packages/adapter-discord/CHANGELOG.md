@@ -1,5 +1,40 @@
 # @chat-adapter/discord
 
+## 4.33.0
+
+### Patch Changes
+
+- d4c52ca: use the shared `replaceBareMentions` scanner for `@mention` conversion so email addresses, `@handles` inside URLs, and mentions inside code spans are no longer mangled into Discord mentions, and already-formatted `<@id>` tokens are not double-wrapped
+- 6de4572: Implement `rehydrateAttachment` on the Discord adapter. Serialization strips an attachment's `fetchData` closure (queue/debounce strategies), and consumers rebuild it via `adapter.rehydrateAttachment`. The Discord adapter did not implement the method, so downstream consumers could not download inbound Discord attachments after deserialization. The Discord CDN `url` survives serialization, so `fetchData` is now rebuilt to fetch that url (preserving its signed query params), matching how the other adapters implement the method.
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
+## 4.32.0
+
+### Minor Changes
+
+- 022a502: Add a Discord adapter interactionFlags callback for ephemeral slash command responses.
+
+### Patch Changes
+
+- 0d4e3ee: fix: render bare URLs and autolinks as bare URLs instead of `[url](url)` masked links, which Discord only renders inside embeds (in normal messages they showed up as literal text)
+- 490fa00: fix bare-mention conversion so it no longer mangles surrounding text: email addresses and `word@word` handles are left intact (the `@` must be at a word boundary), already-formatted mentions like `<@123>` are no longer double-wrapped into `<<@123>>`, and a real mention that follows a period (e.g. `docs.@everyone`) still converts
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
 ## 4.31.0
 
 ### Patch Changes

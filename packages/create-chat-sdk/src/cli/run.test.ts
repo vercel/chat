@@ -60,6 +60,7 @@ describe("runCli", () => {
 
     expect(intro).toHaveBeenCalled();
     expect(runPrompts).toHaveBeenCalledWith({
+      connect: undefined,
       description: undefined,
       initializeGit: true,
       install: undefined,
@@ -79,6 +80,27 @@ describe("runCli", () => {
     expect(outro).toHaveBeenCalledWith(expect.stringContaining("Done!"));
     expect(outro).toHaveBeenCalledWith(
       expect.stringContaining("Use the Chat SDK skill for agent guidance.")
+    );
+  });
+
+  it("prints Vercel Connect next steps when Connect is enabled", async () => {
+    vi.mocked(runPrompts).mockResolvedValueOnce({
+      ...config,
+      useConnect: true,
+    });
+    vi.mocked(scaffold).mockResolvedValueOnce(true);
+
+    await runCli({
+      connect: true,
+      force: false,
+      initializeGit: true,
+      quiet: false,
+      yes: true,
+    });
+
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining("vercel env pull"),
+      "Next steps"
     );
   });
 
