@@ -143,7 +143,18 @@ export async function POST(request: Request) {
 | Buttons | No (link buttons render as text) |
 | Tables | ASCII |
 | Modals | No |
-| File uploads | Not yet |
+| Image uploads | Yes (png, jpeg, webp; up to 4 per post; also DMs) |
+
+Attach images by passing `files` (or `attachments`) on the message; the adapter uploads each through X's chunked media endpoints (`initialize` then `append` then `finalize`) and attaches the returned `media_id`s to the post or DM. A post can carry media with or without text.
+
+```typescript
+await thread.post({
+  markdown: "France lead the title race",
+  files: [{ data: pngBuffer, filename: "odds.png", mimeType: "image/png" }],
+});
+```
+
+Media upload requires the `media.write` scope on your OAuth 2.0 token, in addition to `tweet.write`. Mint the token with `media.write` included or uploads fail with a 403.
 
 ### Conversations
 
