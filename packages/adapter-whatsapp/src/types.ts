@@ -205,7 +205,8 @@ export interface WhatsAppInboundMessage {
     | "button"
     | "reaction"
     | "order"
-    | "system";
+    | "system"
+    | "template";
   /** Video message content */
   video?: {
     caption?: string;
@@ -316,6 +317,77 @@ export interface WhatsAppInteractiveMessage {
   footer?: { text: string };
   header?: { text: string; type: "text" };
   type: "button" | "list";
+}
+
+// =============================================================================
+// Template Messages
+// =============================================================================
+
+/**
+ * Parameter for a template header or body component.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages#parameter-object
+ */
+export type WhatsAppTemplateParameter =
+  | { text: string; type: "text" }
+  | {
+      currency: {
+        amount_1000: number;
+        code: string;
+        fallback_value: string;
+      };
+      type: "currency";
+    }
+  | {
+      date_time: { fallback_value: string };
+      type: "date_time";
+    }
+  | { image: { id?: string; link?: string }; type: "image" }
+  | {
+      document: { filename?: string; id?: string; link?: string };
+      type: "document";
+    }
+  | { type: "video"; video: { id?: string; link?: string } };
+
+/**
+ * Parameter for a template button component.
+ *
+ * URL buttons take a text parameter substituted into the button's URL;
+ * quick reply buttons take a payload echoed back in the button response.
+ */
+export type WhatsAppTemplateButtonParameter =
+  | { text: string; type: "text" }
+  | { payload: string; type: "payload" };
+
+/**
+ * A component of a template message carrying variable substitutions.
+ */
+export type WhatsAppTemplateComponent =
+  | { parameters: WhatsAppTemplateParameter[]; type: "header" }
+  | { parameters: WhatsAppTemplateParameter[]; type: "body" }
+  | {
+      index: number;
+      parameters: WhatsAppTemplateButtonParameter[];
+      sub_type: "url" | "quick_reply";
+      type: "button";
+    };
+
+/**
+ * A pre-approved template message.
+ *
+ * Templates are the only message type the Cloud API accepts outside the
+ * 24-hour customer service window, so they are required for
+ * business-initiated conversations.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates
+ */
+export interface WhatsAppTemplateMessage {
+  /** Variable substitutions for the template's components. Omit for templates without variables. */
+  components?: WhatsAppTemplateComponent[];
+  /** Template language code (e.g. "en", "en_US") */
+  language: string;
+  /** Name of the approved template */
+  name: string;
 }
 
 // =============================================================================
