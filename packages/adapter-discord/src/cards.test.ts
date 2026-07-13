@@ -506,6 +506,138 @@ describe("cardToDiscordPayload with Components v2", () => {
   });
 });
 
+describe("cardToDiscordPayload Components v2 limits and section edges", () => {
+  const asV2 = (card: ReturnType<typeof Card>) =>
+    cardToDiscordPayload(card, {
+      contentFormat: DiscordContentFormat.ComponentsV2,
+    });
+
+  it("allows a card at the 40 component limit", () => {
+    const card = Card({
+      children: Array.from({ length: 39 }, (_, i) => CardText(`line ${i}`)),
+    });
+
+    const container = asV2(card).components[0];
+    if (!(container && container.type === DiscordComponentType.Container)) {
+      throw new Error("Expected a Discord Components v2 container");
+    }
+    expect(container.components).toHaveLength(39);
+  });
+
+  it("throws when a card exceeds the 40 component limit", () => {
+    const card = Card({
+      children: Array.from({ length: 40 }, (_, i) => CardText(`line ${i}`)),
+    });
+
+    expect(() => asV2(card)).toThrow(ValidationError);
+  });
+
+  it("promotes a lone link button to a section accessory", () => {
+    const card = Card({
+      children: [
+        Section([
+          CardText("Details"),
+          Actions([LinkButton({ url: "https://example.com", label: "Open" })]),
+        ]),
+      ],
+    });
+
+    const container = asV2(card).components[0];
+    if (!(container && container.type === DiscordComponentType.Container)) {
+      throw new Error("Expected a Discord Components v2 container");
+    }
+    const section = container.components.find(
+      (child) => child.type === DiscordComponentType.Section
+    );
+    expect(section).toEqual({
+      type: DiscordComponentType.Section,
+      components: [
+        { type: DiscordComponentType.TextDisplay, content: "Details" },
+      ],
+      accessory: {
+        type: DiscordComponentType.Button,
+        style: ButtonStyle.Link,
+        label: "Open",
+        url: "https://example.com",
+      },
+    });
+  });
+
+  it("keeps multi-button section actions as action rows instead of an accessory", () => {
+    const card = Card({
+      children: [
+        Section([
+          CardText("Choose"),
+          Actions([
+            Button({ id: "a", label: "A" }),
+            Button({ id: "b", label: "B" }),
+          ]),
+        ]),
+      ],
+    });
+
+    const container = asV2(card).components[0];
+    if (!(container && container.type === DiscordComponentType.Container)) {
+      throw new Error("Expected a Discord Components v2 container");
+    }
+    expect(
+      container.components.some(
+        (child) => child.type === DiscordComponentType.Section
+      )
+    ).toBe(false);
+    const actionRow = container.components.find(
+      (child) => child.type === DiscordComponentType.ActionRow
+    );
+    expect(actionRow).toEqual({
+      type: DiscordComponentType.ActionRow,
+      components: [
+        {
+          type: DiscordComponentType.Button,
+          style: ButtonStyle.Secondary,
+          label: "A",
+          custom_id: "a",
+        },
+        {
+          type: DiscordComponentType.Button,
+          style: ButtonStyle.Secondary,
+          label: "B",
+          custom_id: "b",
+        },
+      ],
+    });
+  });
+
+  it("renders a lone section select as its own action row", () => {
+    const card = Card({
+      children: [
+        Section([
+          CardText("Pick one"),
+          Actions([
+            Select({
+              id: "priority",
+              label: "Priority",
+              options: [SelectOption({ label: "High", value: "high" })],
+            }),
+          ]),
+        ]),
+      ],
+    });
+
+    const container = asV2(card).components[0];
+    if (!(container && container.type === DiscordComponentType.Container)) {
+      throw new Error("Expected a Discord Components v2 container");
+    }
+    const selectRow = container.components.find(
+      (child) =>
+        child.type === DiscordComponentType.ActionRow &&
+        child.components.some(
+          (item) => item.type === DiscordComponentType.StringSelect
+        )
+    );
+    expect(selectRow).toBeDefined();
+  });
+});
+
 describe("cardToFallbackText", () => {
   it("generates fallback text for a card", () => {
     const card = Card({

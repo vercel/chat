@@ -139,6 +139,8 @@ createDiscordAdapter({
 
 When enabled, card messages use Discord's `IS_COMPONENTS_V2` flag and render with containers, sections, text displays, media galleries, buttons, and string selects. Plain text messages continue to use normal Discord message content.
 
+Discord caps a Components v2 message at 40 total components. When a card exceeds that limit the adapter throws a `ValidationError` instead of letting Discord reject the request, so reduce the number of sections, fields, actions, or images on very large cards.
+
 ## Interaction flags
 
 Discord slash commands are acknowledged with `DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE` before your handler posts the final response. Use the `interactionFlags` option to set Discord interaction flags on that initial deferred response.

@@ -52,6 +52,7 @@ const DISCORD_BLURPLE = 0x5865f2;
 const DISCORD_MAX_BUTTONS_PER_ROW = 5;
 const DISCORD_MAX_SELECT_OPTIONS = 25;
 const DISCORD_MAX_SECTION_TEXT_DISPLAYS = 3;
+const DISCORD_MAX_COMPONENTS_V2 = 40;
 
 interface DiscordCardPayloadOptions {
   contentFormat?: DiscordContentFormat;
@@ -190,37 +191,74 @@ export function cardToDiscordPayload(
   };
 }
 
+/**
+ * Count every component in a Components v2 tree, including nested children and
+ * section accessories. Discord caps a single message at 40 total components.
+ */
+function countComponentsV2(
+  components: readonly DiscordMessageComponent[]
+): number {
+  let total = 0;
+  for (const component of components) {
+    total += 1;
+    switch (component.type) {
+      case DiscordComponentType.Container:
+        total += countComponentsV2(component.components);
+        break;
+      case DiscordComponentType.ActionRow:
+        total += component.components.length;
+        break;
+      case DiscordComponentType.Section:
+        total += component.components.length + 1;
+        break;
+      default:
+        break;
+    }
+  }
+  return total;
+}
+
 function cardToDiscordComponentsV2Payload(
   card: CardElement
 ): DiscordComponentsV2CardPayload {
-  const components: DiscordContainerChild[] = [];
+  const children: DiscordContainerChild[] = [];
 
   if (card.title) {
-    components.push(toTextDisplay(`# ${convertEmoji(card.title)}`));
+    children.push(toTextDisplay(`# ${convertEmoji(card.title)}`));
   }
 
   if (card.subtitle) {
-    components.push(toTextDisplay(convertEmoji(card.subtitle)));
+    children.push(toTextDisplay(convertEmoji(card.subtitle)));
   }
 
   if (card.imageUrl) {
-    components.push(toMediaGallery({ url: card.imageUrl }));
+    children.push(toMediaGallery({ url: card.imageUrl }));
   }
 
   for (const child of card.children) {
-    components.push(...cardChildToComponentsV2(child));
+    children.push(...cardChildToComponentsV2(child));
+  }
+
+  const components: DiscordMessageComponent[] = [
+    {
+      type: DiscordComponentType.Container,
+      accent_color: DISCORD_BLURPLE,
+      components: children.length > 0 ? children : [toTextDisplay(" ")],
+    },
+  ];
+
+  const componentCount = countComponentsV2(components);
+  if (componentCount > DISCORD_MAX_COMPONENTS_V2) {
+    throw new ValidationError(
+      "discord",
+      `Discord Components v2 messages allow up to ${DISCORD_MAX_COMPONENTS_V2} components, but this card produced ${componentCount}. Reduce the number of sections, fields, actions, or images.`
+    );
   }
 
   return {
     embeds: [],
     flags: DiscordMessageFlag.IsComponentsV2,
-    components: [
-      {
-        type: DiscordComponentType.Container,
-        accent_color: DISCORD_BLURPLE,
-        components: components.length > 0 ? components : [toTextDisplay(" ")],
-      },
-    ],
+    components,
   };
 }
 
