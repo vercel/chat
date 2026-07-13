@@ -159,11 +159,63 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # Guards the ai@^6 || ^7 peer range: the workspace devDependency pins ai@7, so
+  # the matrix above only exercises v7. This job forces the v6 constellation and
+  # builds/typechecks/tests the ai-dependent packages so a v6 regression cannot
+  # land unnoticed.
+  ai-sdk-v6-compat:
+    runs-on: ubuntu-latest
+    name: ai-sdk-v6-compat
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Pin AI SDK to v6
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.pnpm ??= {};
+            pkg.pnpm.overrides = {
+              ...pkg.pnpm.overrides,
+              ai: "6.0.182",
+              "@ai-sdk/react": "3.0.184",
+              "@ai-sdk/svelte": "4.0.182",
+              "@ai-sdk/vue": "3.0.182",
+            };
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          '
+
+      - name: Install dependencies (ai@6)
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify ai@6 resolved
+        run: |
+          if ls node_modules/.pnpm | grep -qE '^ai@6\.'; then
+            echo "ai@6 resolved"
+          else
+            echo "expected ai@6 to resolve; got:"
+            ls node_modules/.pnpm | grep -E '^ai@' || true
+            exit 1
+          fi
+
+      - name: Build, typecheck, and test against ai@6
+        run: pnpm turbo build typecheck test --filter=chat --filter=@chat-adapter/web
+
   # Separate "build-and-test" job to set as required in branch protections,
   # as the matrix build names above change each time Node versions change.
   build-and-test:
     runs-on: ubuntu-latest
-    needs: build-and-test-matrix
+    needs: [build-and-test-matrix, ai-sdk-v6-compat]
     if: ${{ !cancelled() }}
     name: build-and-test (Summary)
     steps:
