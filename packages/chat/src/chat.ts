@@ -2654,7 +2654,7 @@ export class Chat<
 
     // Primary check: @username format (normalized by all adapters)
     const usernamePattern = new RegExp(
-      `@${this.escapeRegex(botUserName)}\\b`,
+      `@${this.escapeRegex(botUserName)}(?![\\w-])`,
       "i"
     );
     if (usernamePattern.test(message.text)) {
@@ -2664,7 +2664,7 @@ export class Chat<
     // Fallback: check for user ID mention if available (e.g., @U_BOT_123)
     if (botUserId) {
       const userIdPattern = new RegExp(
-        `@${this.escapeRegex(botUserId)}\\b`,
+        `@${this.escapeRegex(botUserId)}(?![\\w-])`,
         "i"
       );
       if (userIdPattern.test(message.text)) {

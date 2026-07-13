@@ -2504,7 +2504,10 @@ export class TelegramAdapter
       }
     }
 
-    const mentionRegex = new RegExp(`@${this.escapeRegex(username)}\\b`, "i");
+    const mentionRegex = new RegExp(
+      `@${this.escapeRegex(username)}(?![\\w-])`,
+      "i"
+    );
     return mentionRegex.test(text);
   }
 

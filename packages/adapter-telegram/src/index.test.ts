@@ -413,6 +413,57 @@ describe("TelegramAdapter", () => {
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
+  it("does not mark a mention when a hyphen-suffixed name is mentioned", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 1,
+        message: sampleMessage({
+          chat: {
+            id: -100123,
+            type: "supergroup",
+            title: "General",
+          },
+          text: "see @mybot-dev for details",
+        }),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+
+    const [, , parsedMessage] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      { isMention?: boolean; text: string },
+    ];
+
+    expect(parsedMessage.isMention).toBe(false);
+  });
+
   it("routes bot command messages to slash command handlers", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
