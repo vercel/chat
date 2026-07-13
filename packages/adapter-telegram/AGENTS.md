@@ -170,8 +170,8 @@ contentType }`). The adapter picks the appropriate Bot API method:
 - `image/gif` → `sendAnimation`.
 - Everything else → `sendDocument`.
 
-A single message can carry one attachment plus a caption. For
-multi-file replies, post a media group via repeated calls.
+A single message can carry one attachment plus a caption. Multiple
+`files` or compatible `attachments` are sent with `sendMediaGroup`.
 
 ## Telegram quirks worth remembering
 

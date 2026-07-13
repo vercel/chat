@@ -10,14 +10,17 @@ import {
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { Actions, Button, Card } from "chat";
+import type { ChatInstance } from "chat";
+import { Actions, Button, Card, Select, SelectOption } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDiscordAdapter,
   DiscordAdapter,
+  DiscordContentFormat,
   DiscordInteractionResponseFlag,
+  DiscordMessageFlag,
   type DiscordThreadId,
 } from "./index";
 import { DiscordFormatConverter } from "./markdown";
@@ -2820,6 +2823,190 @@ describe("postChannelMessage", () => {
   });
 });
 
+describe("componentsv2 content format card payloads", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+    contentFormat: DiscordContentFormat.ComponentsV2,
+  });
+
+  const cardMessage = {
+    card: Card({
+      title: "Components v2",
+      children: [
+        Actions([
+          Select({
+            id: "priority",
+            label: "Priority",
+            options: [SelectOption({ label: "High", value: "high" })],
+          }),
+          Button({ id: "btn1", label: "Click me" }),
+        ]),
+      ],
+    }),
+  };
+
+  function createMessageResponse(id: string): Response {
+    return new Response(
+      JSON.stringify({
+        id,
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  it("posts Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-post"));
+
+    await adapter.postMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("edits messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-edit"));
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg-v2-edit",
+      cardMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string | null;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeNull();
+    expect(calledPayload.embeds).toEqual([]);
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("posts channel messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-channel"));
+
+    await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("renders Components v2 card file uploads as components", async () => {
+    const mockRawMessage = {
+      id: "msg-v2-files",
+      threadId: "discord:guild1:channel456",
+      raw: {},
+    };
+    const spy = vi
+      .spyOn(adapter as any, "postMessageWithFiles")
+      .mockResolvedValue(mockRawMessage);
+    const cardWithFiles = {
+      ...cardMessage,
+      files: [
+        {
+          data: Buffer.from("image"),
+          filename: "chart.png",
+          mimeType: "image/png",
+        },
+        {
+          data: Buffer.from("hello"),
+          filename: "test.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    };
+
+    const threadResult = await adapter.postMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+    const channelResult = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+
+    expect(threadResult).toEqual(mockRawMessage);
+    expect(channelResult).toEqual(mockRawMessage);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: Array<{
+        components?: Array<{
+          file?: { url: string };
+          items?: Array<{ media: { url: string } }>;
+          type: number;
+        }>;
+        type: number;
+      }>;
+      flags?: number;
+    };
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]?.components).toEqual(
+      expect.arrayContaining([
+        {
+          type: 12,
+          items: [
+            {
+              media: { url: "attachment://chart.png" },
+              description: "chart.png",
+            },
+          ],
+        },
+        {
+          type: 13,
+          file: { url: "attachment://test.txt" },
+        },
+      ])
+    );
+
+    const uploadedFiles = spy.mock.calls[0]?.[3] as Array<{ filename: string }>;
+    expect(uploadedFiles.map((file) => file.filename)).toEqual([
+      "chart.png",
+      "test.txt",
+    ]);
+    expect(spy.mock.calls[1]?.[2]).toEqual(calledPayload);
+
+    spy.mockRestore();
+  });
+});
+
 // ============================================================================
 // listThreads Tests
 // ============================================================================
@@ -3274,6 +3461,30 @@ describe("fetchThread", () => {
 
     expect(result.isDM).toBe(true);
     expect(result.channelName).toBe("Group Chat");
+
+    spy.mockRestore();
+  });
+});
+
+describe("setThreadTitle", () => {
+  it("renames Discord thread channels", async () => {
+    const spy = vi
+      .spyOn(threadIdAdapter as any, "discordFetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456:thread789",
+      "New thread title"
+    );
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456",
+      "Ignored channel title"
+    );
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("/channels/thread789", "PATCH", {
+      name: "New thread title",
+    });
 
     spy.mockRestore();
   });
@@ -4151,6 +4362,77 @@ describe("handleWebhook - component interaction edge cases", () => {
     );
   });
 
+  it("uses selected values from select interactions", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processAction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.MessageComponent,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      message: {
+        id: "message123",
+        channel_id: "channel456",
+        author: { id: "bot", username: "bot", discriminator: "0000" },
+        content: "Test message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+      data: {
+        custom_id: "priority",
+        component_type: 3,
+        values: ["high"],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    await adapter.handleWebhook(request);
+
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "priority",
+        value: "high",
+      }),
+      undefined
+    );
+  });
+
   it("handles slash command in a thread", async () => {
     const adapter = createDiscordAdapter({
       botToken: "test-token",
@@ -4317,6 +4599,242 @@ describe("mentionRoleIds handling", () => {
       "/channels/channel456/messages/msg123/threads",
       "POST",
       expect.anything()
+    );
+
+    fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// Global Mention (@everyone/@here) Tests
+// ============================================================================
+
+describe("respondToGlobalMentions handling", () => {
+  function createForwardedEveryoneRequest() {
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "@everyone big announcement",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        mention_roles: [],
+        mention_everyone: true,
+        attachments: [],
+      },
+    });
+
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+  }
+
+  function createAdapterWithThreadSpy(config?: {
+    respondToGlobalMentions?: boolean;
+  }) {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      ...config,
+    });
+
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    return { adapter, fetchSpy };
+  }
+
+  it("ignores @everyone in forwarded gateway messages by default", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    // No thread created and message is not flagged as a mention
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in forwarded gateway messages as a mention when respondToGlobalMentions is true", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy({
+      respondToGlobalMentions: true,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client, isShuttingDown = () => false) {
+      this.setupLegacyGatewayHandlers(client, isShuttingDown);
+    }
+  }
+
+  function createEveryoneGatewayMessage() {
+    // Mirrors discord.js MessageMentions semantics: has() matches
+    // @everyone pings unless ignoreEveryone is set
+    const mentions = {
+      everyone: true,
+      roles: [] as Array<{ id: string }>,
+      has: (_id: string, options?: { ignoreEveryone?: boolean }) =>
+        !options?.ignoreEveryone,
+    };
+
+    return {
+      id: "msg123",
+      channelId: "channel456",
+      guildId: "guild1",
+      content: "@everyone big announcement",
+      author: {
+        id: "user789",
+        username: "testuser",
+        displayName: "Test User",
+        bot: false,
+      },
+      mentions,
+      channel: { isThread: () => false },
+      createdAt: new Date("2021-01-01T00:00:00.000Z"),
+      editedAt: null,
+      attachments: [],
+    };
+  }
+
+  it("ignores @everyone in legacy gateway mode by default", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in legacy gateway mode as a mention when respondToGlobalMentions is true", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToGlobalMentions: true,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("still detects direct user mentions when @everyone is ignored", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const message = createEveryoneGatewayMessage();
+    // Direct bot mention alongside @everyone
+    message.mentions.has = () => true;
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, message);
+    await waitForGatewayHandlers();
+
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
     );
 
     fetchSpy.mockRestore();

@@ -20,6 +20,7 @@ import type {
   EmojiValue,
   FetchOptions,
   FetchResult,
+  FileUpload,
   FormattedContent,
   Logger,
   RawMessage,
@@ -100,6 +101,15 @@ const ATTACHMENT_UPLOADS = {
   Attachment["type"],
   { field: string; method: string }
 >;
+const ATTACHMENT_MEDIA_GROUP_TYPES = {
+  audio: "audio",
+  file: "document",
+  image: "photo",
+  video: "video",
+} as const satisfies Record<
+  Attachment["type"],
+  "photo" | "video" | "audio" | "document"
+>;
 const LEADING_AT_PATTERN = /^@+/;
 const EMOJI_PLACEHOLDER_PATTERN = /^\{\{emoji:([a-z0-9_]+)\}\}$/i;
 const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
@@ -107,6 +117,8 @@ const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
+const TELEGRAM_MEDIA_GROUP_MIN = 2;
+const TELEGRAM_MEDIA_GROUP_MAX = 10;
 const TELEGRAM_MARKDOWN_PARSE_ERROR_PATTERN =
   /can't parse (?:caption )?entities/i;
 const TELEGRAM_MAX_POLLING_LIMIT = 100;
@@ -128,6 +140,19 @@ interface ResolvedTelegramLongPollingConfig {
   limit: number;
   retryDelayMs: number;
   timeout: number;
+}
+
+type TelegramInputMediaType =
+  (typeof ATTACHMENT_MEDIA_GROUP_TYPES)[Attachment["type"]];
+
+interface TelegramMediaGroupPart {
+  buffer?: Buffer;
+  filename?: string;
+  height?: number;
+  media: string;
+  mimeType?: string;
+  type: TelegramInputMediaType;
+  width?: number;
 }
 
 type TelegramRuntimeMode = "webhook" | "polling";
@@ -860,20 +885,7 @@ export class TelegramAdapter
     );
 
     const files = extractFiles(message);
-    if (files.length > 1) {
-      throw new ValidationError(
-        "telegram",
-        "Telegram adapter supports a single file upload per message"
-      );
-    }
-
     const attachments = extractPostableAttachments(message);
-    if (attachments.length > 1) {
-      throw new ValidationError(
-        "telegram",
-        "Telegram adapter supports a single attachment upload per message"
-      );
-    }
 
     if (files.length > 0 && attachments.length > 0) {
       throw new ValidationError(
@@ -888,22 +900,35 @@ export class TelegramAdapter
       files.length,
       attachments.length
     );
-    let rawMessage: TelegramMessage;
+    let rawMessages: TelegramMessage[];
 
-    if (files.length === 1) {
+    if (files.length > 0) {
       const [file] = files;
       if (!file) {
         throw new ValidationError("telegram", "File upload payload is empty");
       }
-      rawMessage = await this.sendDocument(
-        parsedThread,
-        file,
-        text,
-        plainText,
-        replyMarkup,
-        parseMode
-      );
-    } else if (attachments.length === 1) {
+
+      rawMessages =
+        files.length === 1
+          ? [
+              await this.sendDocument(
+                parsedThread,
+                file,
+                text,
+                plainText,
+                replyMarkup,
+                parseMode
+              ),
+            ]
+          : await this.sendDocumentMediaGroup(
+              parsedThread,
+              files,
+              text,
+              plainText,
+              replyMarkup,
+              parseMode
+            );
+    } else if (attachments.length > 0) {
       const [attachment] = attachments;
       if (!attachment) {
         throw new ValidationError(
@@ -911,14 +936,27 @@ export class TelegramAdapter
           "Attachment upload payload is empty"
         );
       }
-      rawMessage = await this.sendAttachment(
-        parsedThread,
-        attachment,
-        text,
-        plainText,
-        replyMarkup,
-        parseMode
-      );
+
+      rawMessages =
+        attachments.length === 1
+          ? [
+              await this.sendAttachment(
+                parsedThread,
+                attachment,
+                text,
+                plainText,
+                replyMarkup,
+                parseMode
+              ),
+            ]
+          : await this.sendAttachmentMediaGroup(
+              parsedThread,
+              attachments,
+              text,
+              plainText,
+              replyMarkup,
+              parseMode
+            );
     } else {
       if (!text.trim()) {
         throw new ValidationError("telegram", "Message text cannot be empty");
@@ -934,48 +972,61 @@ export class TelegramAdapter
           threadId
         );
 
-      rawMessage = rich
-        ? await this.withTelegramRichFallback(
-            () =>
-              this.telegramFetch<TelegramMessage>("sendRichMessage", {
-                chat_id: parsedThread.chatId,
-                message_thread_id: parsedThread.messageThreadId,
-                rich_message: {
-                  markdown: rich.markdown,
-                },
-                reply_markup: replyMarkup,
-              }),
-            sendRegular,
-            {
-              method: "sendRichMessage",
-              threadId,
-            }
-          )
-        : await sendRegular();
+      rawMessages = [
+        rich
+          ? await this.withTelegramRichFallback(
+              () =>
+                this.telegramFetch<TelegramMessage>("sendRichMessage", {
+                  chat_id: parsedThread.chatId,
+                  message_thread_id: parsedThread.messageThreadId,
+                  rich_message: {
+                    markdown: rich.markdown,
+                  },
+                  reply_markup: replyMarkup,
+                }),
+              sendRegular,
+              {
+                method: "sendRichMessage",
+                threadId,
+              }
+            )
+          : await sendRegular(),
+      ];
     }
 
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(rawMessage.chat.id),
-      messageThreadId:
-        rawMessage.message_thread_id ?? parsedThread.messageThreadId,
-    });
-
-    const parsedMessage = this.parseTelegramMessage(
-      rawMessage,
-      resultingThreadId,
-      rich
-        ? {
-            formatted: rich.formatted,
-            text: rich.text,
-          }
-        : undefined
+    const parsedMessages = rawMessages.map((rawMessage) =>
+      this.parseTelegramMessage(
+        rawMessage,
+        this.encodeThreadId({
+          chatId: String(rawMessage.chat.id),
+          messageThreadId:
+            rawMessage.message_thread_id ?? parsedThread.messageThreadId,
+        }),
+        rich
+          ? {
+              formatted: rich.formatted,
+              text: rich.text,
+            }
+          : undefined
+      )
     );
-    this.cacheMessage(parsedMessage);
+
+    for (const parsedMessage of parsedMessages) {
+      this.cacheMessage(parsedMessage);
+    }
+
+    const sentMessage = parsedMessages.at(-1);
+    if (!sentMessage) {
+      throw new NetworkError(
+        "telegram",
+        "Telegram postMessage did not return any sent messages"
+      );
+    }
 
     return {
-      id: parsedMessage.id,
-      threadId: parsedMessage.threadId,
-      raw: rawMessage,
+      id: sentMessage.id,
+      threadId: sentMessage.threadId,
+      raw: sentMessage.raw,
     };
   }
 
@@ -1988,6 +2039,217 @@ export class TelegramAdapter
         threadId: this.encodeThreadId(thread),
       }
     );
+  }
+
+  protected async sendDocumentMediaGroup(
+    thread: TelegramThreadId,
+    files: FileUpload[],
+    text: string,
+    plainText: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+    parseMode: TelegramParseMode = "plain"
+  ): Promise<TelegramMessage[]> {
+    this.validateMediaGroupLength(files.length);
+
+    if (replyMarkup) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram media groups do not support inline keyboards"
+      );
+    }
+
+    const parts: TelegramMediaGroupPart[] = [];
+    for (const [index, file] of files.entries()) {
+      parts.push({
+        buffer: await this.toTelegramBuffer(file.data),
+        filename: file.filename,
+        media: `attach://media${index}`,
+        mimeType: file.mimeType,
+        type: "document",
+      });
+    }
+
+    return this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramMessage[]>(
+          "sendMediaGroup",
+          this.createTelegramMediaGroupFormData(
+            thread,
+            parts,
+            resolvedText,
+            resolvedParseMode
+          )
+        ),
+      {
+        initialText: text,
+        fallbackText: plainText,
+        method: "sendMediaGroup",
+        threadId: this.encodeThreadId(thread),
+      }
+    );
+  }
+
+  protected async sendAttachmentMediaGroup(
+    thread: TelegramThreadId,
+    attachments: Attachment[],
+    text: string,
+    plainText: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+    parseMode: TelegramParseMode = "plain"
+  ): Promise<TelegramMessage[]> {
+    this.validateMediaGroupLength(attachments.length);
+    this.validateAttachmentMediaGroupTypes(attachments);
+
+    if (replyMarkup) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram media groups do not support inline keyboards"
+      );
+    }
+
+    const parts: TelegramMediaGroupPart[] = [];
+    for (const [index, attachment] of attachments.entries()) {
+      const data =
+        attachment.data ??
+        (attachment.fetchData ? await attachment.fetchData() : undefined);
+
+      if (!(data || attachment.url)) {
+        throw new ValidationError(
+          "telegram",
+          `Attachment data or URL required for ${attachment.type}`
+        );
+      }
+
+      const buffer = data ? await this.toTelegramBuffer(data) : undefined;
+      const media = buffer ? `attach://media${index}` : attachment.url;
+      if (!media) {
+        throw new ValidationError(
+          "telegram",
+          `Attachment data or URL required for ${attachment.type}`
+        );
+      }
+
+      parts.push({
+        buffer,
+        filename: attachment.name ?? `attachment-${index}`,
+        height: attachment.height,
+        media,
+        mimeType: attachment.mimeType,
+        type: ATTACHMENT_MEDIA_GROUP_TYPES[attachment.type],
+        width: attachment.width,
+      });
+    }
+
+    return this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramMessage[]>(
+          "sendMediaGroup",
+          this.createTelegramMediaGroupFormData(
+            thread,
+            parts,
+            resolvedText,
+            resolvedParseMode
+          )
+        ),
+      {
+        initialText: text,
+        fallbackText: plainText,
+        method: "sendMediaGroup",
+        threadId: this.encodeThreadId(thread),
+      }
+    );
+  }
+
+  private createTelegramMediaGroupFormData(
+    thread: TelegramThreadId,
+    parts: TelegramMediaGroupPart[],
+    text: string,
+    parseMode: TelegramParseMode
+  ): FormData {
+    const formData = new FormData();
+    formData.append("chat_id", thread.chatId);
+    if (typeof thread.messageThreadId === "number") {
+      formData.append("message_thread_id", String(thread.messageThreadId));
+    }
+
+    // Telegram shows an album's caption from the first item that carries one;
+    // on a later item it renders under that media instead of the whole group.
+    const captionIndex = 0;
+    const botApiParseMode = toBotApiParseMode(parseMode);
+    const media = parts.map((part, index): Record<string, unknown> => {
+      const item: Record<string, unknown> = {
+        media: part.media,
+        type: part.type,
+      };
+
+      if (index === captionIndex && text.trim()) {
+        item.caption = truncateForTelegram(
+          text,
+          TELEGRAM_CAPTION_LIMIT,
+          parseMode
+        );
+        if (botApiParseMode) {
+          item.parse_mode = botApiParseMode;
+        }
+      }
+
+      if (part.type === "video") {
+        if (Number.isInteger(part.width)) {
+          item.width = part.width;
+        }
+        if (Number.isInteger(part.height)) {
+          item.height = part.height;
+        }
+      }
+
+      return item;
+    });
+    formData.append("media", JSON.stringify(media));
+
+    for (const [index, part] of parts.entries()) {
+      if (!part.buffer) {
+        continue;
+      }
+
+      const blob = new Blob([new Uint8Array(part.buffer)], {
+        type: part.mimeType ?? "application/octet-stream",
+      });
+      formData.append(`media${index}`, blob, part.filename ?? `media-${index}`);
+    }
+
+    return formData;
+  }
+
+  private validateMediaGroupLength(count: number): void {
+    if (count < TELEGRAM_MEDIA_GROUP_MIN || count > TELEGRAM_MEDIA_GROUP_MAX) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram media groups support 2-10 files"
+      );
+    }
+  }
+
+  private validateAttachmentMediaGroupTypes(attachments: Attachment[]): void {
+    const categories = new Set(
+      attachments.map((attachment) => {
+        if (attachment.type === "file") {
+          return "document";
+        }
+        if (attachment.type === "audio") {
+          return "audio";
+        }
+        return "visual";
+      })
+    );
+
+    if (categories.size > 1) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram media groups can mix photos and videos, but documents and audio files must be grouped only with the same type"
+      );
+    }
   }
 
   protected async toTelegramBuffer(

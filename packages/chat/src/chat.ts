@@ -20,6 +20,8 @@ import type {
   ActionEvent,
   ActionHandler,
   Adapter,
+  AppContextChangedEvent,
+  AppContextChangedHandler,
   AppHomeOpenedEvent,
   AppHomeOpenedHandler,
   AssistantContextChangedEvent,
@@ -273,6 +275,7 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly appContextChangedHandlers: AppContextChangedHandler[] = [];
   private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
     [];
 
@@ -875,6 +878,11 @@ export class Chat<
     this.logger.debug("Registered app home opened handler");
   }
 
+  onAppContextChanged(handler: AppContextChangedHandler): void {
+    this.appContextChangedHandlers.push(handler);
+    this.logger.debug("Registered app context changed handler");
+  }
+
   onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
     this.memberJoinedChannelHandlers.push(handler);
     this.logger.debug("Registered member joined channel handler");
@@ -1200,6 +1208,26 @@ export class Chat<
       }
     })().catch((err) => {
       this.logger.error("App home opened handler error", {
+        error: err,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processAppContextChanged(
+    event: AppContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = (async () => {
+      for (const handler of this.appContextChangedHandlers) {
+        await handler(event);
+      }
+    })().catch((err) => {
+      this.logger.error("App context changed handler error", {
         error: err,
         userId: event.userId,
       });
