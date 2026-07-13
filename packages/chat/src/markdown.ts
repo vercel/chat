@@ -313,11 +313,60 @@ export function stringifyMarkdown(
   return processor.stringify(ast);
 }
 
+function nodeValue(node: Content | Root): string | null {
+  if ("value" in node && typeof node.value === "string") {
+    return node.value;
+  }
+  if ("alt" in node && typeof node.alt === "string") {
+    return node.alt;
+  }
+  return null;
+}
+
+function childPlainText(node: Content | Root, separator: string): string {
+  if (!("children" in node && Array.isArray(node.children))) {
+    return "";
+  }
+
+  return (node.children as (Content | Root)[])
+    .map((child) => plainTextNode(child))
+    .filter((text) => text.length > 0)
+    .join(separator);
+}
+
+function plainTextNode(node: Content | Root): string {
+  const value = nodeValue(node);
+  if (value !== null) {
+    return value;
+  }
+
+  switch (node.type) {
+    case "root":
+      return childPlainText(node, "\n\n");
+    case "list":
+    case "table":
+      return childPlainText(node, "\n");
+    case "listItem":
+    case "blockquote":
+      return childPlainText(node, "\n");
+    case "tableRow":
+      return childPlainText(node, "\t");
+    case "break":
+      return "\n";
+    case "thematicBreak":
+      return "";
+    case "tableCell":
+      return childPlainText(node, "");
+    default:
+      return childPlainText(node, "");
+  }
+}
+
 /**
  * Extract plain text from an AST (strips all formatting).
  */
 export function toPlainText(ast: Root): string {
-  return mdastToString(ast);
+  return plainTextNode(ast);
 }
 
 /**
@@ -325,7 +374,7 @@ export function toPlainText(ast: Root): string {
  */
 export function markdownToPlainText(markdown: string): string {
   const ast = parseMarkdown(markdown);
-  return mdastToString(ast);
+  return toPlainText(ast);
 }
 
 /**
