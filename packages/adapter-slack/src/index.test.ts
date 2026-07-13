@@ -8747,6 +8747,45 @@ describe("native streaming fallback", () => {
     expect(postSpy).not.toHaveBeenCalled();
   });
 
+  it("falls back when buffered appends never hit the API and stop() fails", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // append() returning null means the delta was only buffered in memory —
+    // no API call happened, so stop() carries the first real failure.
+    const append = vi.fn().mockResolvedValue(null);
+    const stop = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      textStream("short reply")
+    );
+
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("short reply");
+  });
+
+  it("propagates stop() failures once native content has rendered", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // A non-null append response means content rendered natively.
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockRejectedValue(new Error("stop boom"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", textStream("hello"))
+    ).rejects.toThrow("stop boom");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
   it("skips structured chunks in fallback mode without failing the stream", async () => {
     const { adapter, postSpy } = createAdapter();
     const append = vi.fn().mockRejectedValue(new Error("no streaming here"));

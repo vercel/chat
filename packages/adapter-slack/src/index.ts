@@ -4388,8 +4388,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return;
       }
       try {
-        await streamer.append({ markdown_text: delta, token });
-        fallback.nativeRendered = true;
+        // append() buffers small deltas in memory and returns null until it
+        // actually calls the API — only a non-null response proves content
+        // is rendering natively.
+        const response = await streamer.append({
+          markdown_text: delta,
+          token,
+        });
+        if (response) {
+          fallback.nativeRendered = true;
+        }
         lastAppended = committable;
       } catch (error) {
         if (fallback.nativeRendered) {
@@ -4484,12 +4492,29 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         ? [buildFeedbackButtonsBlock(this.feedbackButtons)]
         : []),
     ];
-    const result = await streamer.stop({
-      token,
-      ...(stopBlocks.length > 0
-        ? { blocks: stopBlocks as ChatStopStreamArguments["blocks"] }
-        : {}),
-    });
+    let result: Awaited<ReturnType<typeof streamer.stop>>;
+    try {
+      result = await streamer.stop({
+        token,
+        ...(stopBlocks.length > 0
+          ? { blocks: stopBlocks as ChatStopStreamArguments["blocks"] }
+          : {}),
+      });
+    } catch (error) {
+      if (fallback.nativeRendered) {
+        throw error;
+      }
+      // Short streams can buffer every delta in the streamer, making stop()
+      // the FIRST real API call — on an unsupported workspace this is where
+      // the failure lands, so the post-and-edit fallback must engage here
+      // too. Stream-end blocks are skipped, as in any fallback.
+      switchToFallback(error);
+      await flushFallback(true);
+      this.logger.debug("Slack: fallback stream complete", {
+        messageId: fallback.message?.id,
+      });
+      return fallback.message;
+    }
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
