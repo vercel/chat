@@ -8716,19 +8716,33 @@ describe("native streaming fallback", () => {
 
   it("propagates mid-stream failures once native content has rendered", async () => {
     const { adapter, postSpy } = createAdapter();
-    // ts is set: chat.startStream already succeeded, content is rendering.
+    // First native call succeeds (content is rendering), the next fails.
+    const append = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValue(new Error("mid-stream boom"));
     mockClientMethod(
       adapter,
       "chatStream",
-      vi.fn().mockReturnValue({
-        append: vi.fn().mockRejectedValue(new Error("mid-stream boom")),
-        stop: vi.fn(),
-        ts: "1234567890.222222",
-      })
+      vi.fn().mockReturnValue({ append, stop: vi.fn(), ts: undefined })
     );
 
+    async function* mixedStream() {
+      // A structured chunk flushes to the native stream immediately,
+      // deterministically marking native content as rendered before the
+      // text append fails.
+      yield {
+        details: "step",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task",
+        type: "task_update" as const,
+      };
+      yield "hello";
+    }
+
     await expect(
-      adapter.stream("slack:D123:1234567890.000000", textStream("hello"))
+      adapter.stream("slack:D123:1234567890.000000", mixedStream())
     ).rejects.toThrow("mid-stream boom");
     expect(postSpy).not.toHaveBeenCalled();
   });

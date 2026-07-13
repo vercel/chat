@@ -107,6 +107,46 @@ function timingSafeStringEqual(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
+/**
+ * Surface Slack's per-block validation details on invalid_blocks errors.
+ * The @slack/web-api error message is just "An API error occurred:
+ * invalid_blocks"; the actionable details (which block, which field) live in
+ * `data.errors` and `data.response_metadata.messages`.
+ */
+function enrichInvalidBlocksError(
+  error: unknown,
+  blocks: unknown[],
+  logger: Logger
+): unknown {
+  const slackError = error as {
+    code?: string;
+    data?: {
+      error?: string;
+      errors?: unknown[];
+      response_metadata?: { messages?: string[] };
+    };
+  };
+  if (
+    slackError.code !== "slack_webapi_platform_error" ||
+    slackError.data?.error !== "invalid_blocks"
+  ) {
+    return error;
+  }
+  const details = [
+    ...(slackError.data.errors ?? []),
+    ...(slackError.data.response_metadata?.messages ?? []),
+  ];
+  logger.error("Slack rejected blocks (invalid_blocks)", {
+    details,
+    blocks: JSON.stringify(blocks),
+  });
+  const enriched = new Error(
+    `Slack rejected blocks (invalid_blocks): ${JSON.stringify(details)}`
+  );
+  (enriched as { cause?: unknown }).cause = error;
+  return enriched;
+}
+
 /** Find the next `<@` or `<#` mention in text. */
 function findNextMention(text: string): number {
   const atIdx = text.indexOf("<@");
@@ -3428,16 +3468,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this._client.chat.postMessage(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            text: fallbackText, // Fallback for notifications
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-          })
-        );
+        let result: Awaited<ReturnType<typeof this._client.chat.postMessage>>;
+        try {
+          result = await this._client.chat.postMessage(
+            await this.withToken({
+              channel,
+              thread_ts: threadTs,
+              text: fallbackText, // Fallback for notifications
+              blocks,
+              unfurl_links: false,
+              unfurl_media: false,
+            })
+          );
+        } catch (error) {
+          throw enrichInvalidBlocksError(error, blocks, this.logger);
+        }
 
         this.logger.debug("Slack API: chat.postMessage response", {
           messageId: result.ts,
@@ -4280,7 +4325,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const fallback: {
       message: RawMessage<unknown> | null;
       mode: "fallback" | "native";
-    } = { message: null, mode: "native" };
+      /**
+       * True once any native append has succeeded (chat.startStream fired and
+       * content is rendering in Slack). Tracked here rather than via the
+       * ChatStreamer `ts` accessor, which has not been public in every
+       * @slack/web-api release.
+       */
+      nativeRendered: boolean;
+    } = { message: null, mode: "native", nativeRendered: false };
     const updateIntervalMs = options?.updateIntervalMs ?? 1000;
     let fallbackSent = "";
     let lastFallbackEditAt = 0;
@@ -4337,10 +4389,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
       try {
         await streamer.append({ markdown_text: delta, token });
+        fallback.nativeRendered = true;
         lastAppended = committable;
       } catch (error) {
-        if (streamer.ts !== undefined) {
-          // chat.startStream succeeded earlier; content is already rendering
+        if (fallback.nativeRendered) {
+          // A native call succeeded earlier; content is already rendering
           // natively, so a mid-stream failure can't be recovered here.
           throw error;
         }
@@ -4378,6 +4431,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           chunks: [chunk] as ChatAppendStreamArguments["chunks"],
           token,
         });
+        fallback.nativeRendered = true;
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
