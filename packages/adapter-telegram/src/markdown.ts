@@ -99,8 +99,8 @@ export function findUnescapedPositions(text: string, marker: string): number[] {
 
 /**
  * Like `findUnescapedPositions` but skips occurrences inside fenced code
- * blocks (``` ```) or inline code spans (`` ` ``). Inside those regions
- * Telegram treats `*`, `_`, `~`, `[`, `]` as literal text.
+ * blocks (``` ```), inline code spans (`` ` ``), or the `(...)` URL part
+ * of an inline link, where Telegram treats entity markers as literal text.
  */
 function findUnescapedPositionsOutsideCode(
   text: string,
@@ -110,6 +110,8 @@ function findUnescapedPositionsOutsideCode(
   let inFence = false;
   let inInline = false;
   let backslashes = 0;
+  // Index of the `]` that opened the current `](...)` link URL, or -1.
+  let linkCloseBracket = -1;
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -122,6 +124,18 @@ function findUnescapedPositionsOutsideCode(
     const escaped = backslashes % 2 === 1;
     backslashes = 0;
 
+    if (linkCloseBracket >= 0) {
+      if (ch === ")" && !escaped) {
+        // A link's `]` only counts toward bracket pairing once its URL
+        // closes, so a slice mid-URL leaves the `[` unmatched.
+        if (marker === "]") {
+          positions.push(linkCloseBracket);
+        }
+        linkCloseBracket = -1;
+      }
+      continue;
+    }
+
     if (ch === "`" && !escaped) {
       const isTriple = text[i + 1] === "`" && text[i + 2] === "`";
       if (isTriple && !inInline) {
@@ -132,6 +146,18 @@ function findUnescapedPositionsOutsideCode(
       if (!inFence) {
         inInline = !inInline;
       }
+      continue;
+    }
+
+    if (
+      ch === "]" &&
+      !escaped &&
+      !inFence &&
+      !inInline &&
+      text[i + 1] === "("
+    ) {
+      linkCloseBracket = i;
+      i += 1;
       continue;
     }
 
@@ -158,7 +184,8 @@ export function endsWithOrphanBackslash(text: string): boolean {
  *  - orphan trailing `\` (would escape the appended ellipsis or nothing)
  *  - unclosed entity delimiter (`*`, `_`, `~`, `` ` ``) left open because
  *    the slice cut between the opener and its closer
- *  - unmatched `[` from a link whose closer was cut off
+ *  - unmatched `[` from a link whose closer was cut off, or whose `(...)`
+ *    URL part was left unterminated by the slice
  *
  * Best-effort: may drop more than strictly necessary in edge cases, but
  * guarantees the output is parseable MarkdownV2 (when the input was).

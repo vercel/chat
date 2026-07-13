@@ -175,8 +175,7 @@
 
 .home-grid-features .home-grid-cell:nth-child(3) {
   grid-row: 2;
-  grid-column: 1;
-  border-right: var(--home-guide-width) solid var(--home-guide-color);
+  grid-column: 1 / -1;
 }
 
 @media screen and (min-width: 961px) {

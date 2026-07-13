@@ -5,7 +5,12 @@ import {
   PermissionError,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
+import {
+  createMockChatInstance,
+  mockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
+import type { ChatInstance } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -14,20 +19,13 @@ import {
   TelegramAdapter,
   type TelegramMessage,
   type TelegramReactionType,
+  type TelegramThreadId,
 } from "./index";
 import {
   TELEGRAM_CAPTION_LIMIT,
   TELEGRAM_MESSAGE_LIMIT,
   TelegramFormatConverter,
 } from "./markdown";
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
 
 const mockFetch = vi.fn<typeof fetch>();
 const SERVERLESS_ENV_KEYS = [
@@ -89,22 +87,12 @@ function telegramError(
 }
 
 function createMockChat(options?: { userName?: unknown }): ChatInstance {
-  return {
-    getLogger: vi.fn().mockReturnValue(mockLogger),
-    getState: vi.fn(),
-    getUserName: vi.fn().mockReturnValue(options?.userName ?? "mybot"),
-    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
-    processMessage: vi.fn(),
-    processReaction: vi.fn(),
-    processAction: vi.fn(),
-    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-    processModalClose: vi.fn(),
-    processModalSubmit: vi.fn().mockResolvedValue(undefined),
-    processSlashCommand: vi.fn(),
-    processAssistantThreadStarted: vi.fn(),
-    processAssistantContextChanged: vi.fn(),
-    processAppHomeOpened: vi.fn(),
-  } as unknown as ChatInstance;
+  // Thin wrapper over the shared factory that preserves this adapter's
+  // "mybot" default bot username (the shared factory defaults to "test-bot").
+  return createMockChatInstance({
+    logger: mockLogger,
+    userName: (options?.userName as string | undefined) ?? "mybot",
+  });
 }
 
 function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
@@ -133,6 +121,23 @@ function readFormData(callIndex: number): FormData {
     throw new Error("Expected request body to be FormData");
   }
   return body as FormData;
+}
+
+interface TelegramMediaGroupItem {
+  caption?: string;
+  height?: number;
+  media: string;
+  parse_mode?: string;
+  type: string;
+  width?: number;
+}
+
+function readMediaGroup(callIndex: number): TelegramMediaGroupItem[] {
+  const media = readFormData(callIndex).get("media");
+  if (typeof media !== "string") {
+    throw new Error("Expected media group payload to be a string");
+  }
+  return JSON.parse(media) as TelegramMediaGroupItem[];
 }
 
 function createAbortError(): Error {
@@ -266,33 +271,39 @@ describe("constructor env var resolution", () => {
   });
 });
 
+// ============================================================================
+// Thread ID Encoding/Decoding Tests
+// ============================================================================
+
+const threadIdAdapter = createTelegramAdapter({
+  botToken: "token",
+  mode: "webhook",
+  logger: mockLogger,
+});
+
+threadIdContract<TelegramThreadId>({
+  name: "telegram",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    // Private chat / DM (positive chat ID).
+    { decoded: { chatId: "456" }, encoded: "telegram:456" },
+    // Group / supergroup chat (negative chat ID).
+    { decoded: { chatId: "-100123" }, encoded: "telegram:-100123" },
+    // Forum topic thread inside a supergroup.
+    {
+      decoded: { chatId: "-100123", messageThreadId: 42 },
+      encoded: "telegram:-100123:42",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "telegram:456",
+    nonDmThreadId: "telegram:-100123",
+  },
+});
+
 describe("TelegramAdapter", () => {
-  it("encodes and decodes thread IDs", () => {
-    const adapter = createTelegramAdapter({
-      botToken: "token",
-      mode: "webhook",
-      logger: mockLogger,
-    });
-
-    expect(
-      adapter.encodeThreadId({
-        chatId: "-100123",
-      })
-    ).toBe("telegram:-100123");
-
-    expect(
-      adapter.encodeThreadId({
-        chatId: "-100123",
-        messageThreadId: 42,
-      })
-    ).toBe("telegram:-100123:42");
-
-    expect(adapter.decodeThreadId("telegram:-100123:42")).toEqual({
-      chatId: "-100123",
-      messageThreadId: 42,
-    });
-  });
-
   it("handles webhook message updates and marks mentions", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
@@ -345,6 +356,112 @@ describe("TelegramAdapter", () => {
     expect(threadId).toBe("telegram:-100123");
     expect(parsedMessage.text).toBe("hello @mybot");
     expect(parsedMessage.isMention).toBe(true);
+    expect(
+      mockFetch.mock.calls.some(([input]) =>
+        String(input).includes("/sendChatAction")
+      )
+    ).toBe(false);
+  });
+
+  it("starts typing before processing private message updates", async () => {
+    const events: string[] = [];
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementationOnce((input) => {
+        expect(String(input)).toContain("/sendChatAction");
+        events.push("typing");
+        return Promise.resolve(telegramOk(true));
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    processMessage.mockImplementation(() => {
+      events.push("processMessage");
+    });
+
+    await adapter.initialize(chat);
+
+    const waitUntil = vi.fn();
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: "hello" }),
+        }),
+      }),
+      { waitUntil }
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["typing", "processMessage"]);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark a mention when a hyphen-suffixed name is mentioned", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 1,
+        message: sampleMessage({
+          chat: {
+            id: -100123,
+            type: "supergroup",
+            title: "General",
+          },
+          text: "see @mybot-dev for details",
+        }),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+
+    const [, , parsedMessage] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      { isMention?: boolean; text: string },
+    ];
+
+    expect(parsedMessage.isMention).toBe(false);
   });
 
   it("routes bot command messages to slash command handlers", async () => {
@@ -386,7 +503,7 @@ describe("TelegramAdapter", () => {
       typeof vi.fn
     >;
     expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processMessage");
 
     const [event] = processSlashCommand.mock.calls[0] as [
       {
@@ -401,6 +518,61 @@ describe("TelegramAdapter", () => {
     expect(event.command).toBe("/ping");
     expect(event.text).toBe("hello world");
     expect(event.user).toMatchObject({ fullName: "User", userId: "456" });
+  });
+
+  it("starts typing before processing private slash command updates", async () => {
+    const events: string[] = [];
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementationOnce((input) => {
+        expect(String(input)).toContain("/sendChatAction");
+        events.push("typing");
+        return Promise.resolve(telegramOk(true));
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    const processSlashCommand = chat.processSlashCommand as ReturnType<
+      typeof vi.fn
+    >;
+    processSlashCommand.mockImplementation(() => {
+      events.push("processSlashCommand");
+    });
+
+    await adapter.initialize(chat);
+
+    const waitUntil = vi.fn();
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          message: sampleMessage({
+            text: "/ping@mybot hello world",
+            entities: [{ type: "bot_command", offset: 0, length: 11 }],
+          }),
+        }),
+      }),
+      { waitUntil }
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["typing", "processSlashCommand"]);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
   it("routes bot command captions to slash command handlers", async () => {
@@ -451,7 +623,7 @@ describe("TelegramAdapter", () => {
       typeof vi.fn
     >;
     expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processMessage");
 
     const [event] = processSlashCommand.mock.calls[0] as [
       {
@@ -499,7 +671,7 @@ describe("TelegramAdapter", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(chat.processSlashCommand).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processSlashCommand");
     expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -538,7 +710,7 @@ describe("TelegramAdapter", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(chat.processSlashCommand).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processSlashCommand");
     expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -646,6 +818,7 @@ describe("TelegramAdapter", () => {
           },
         ])
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockImplementationOnce((_input, init) => {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -683,15 +856,17 @@ describe("TelegramAdapter", () => {
       () =>
         (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length > 0
     );
-    await waitForCondition(() => mockFetch.mock.calls.length >= 4);
+    await waitForCondition(() => mockFetch.mock.calls.length >= 5);
     await adapter.stopPolling();
 
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/deleteWebhook");
-    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/getUpdates");
-    expect(String(mockFetch.mock.calls[3]?.[0])).toContain("/getUpdates");
+    const pollCalls = mockFetch.mock.calls.filter(([input]) =>
+      String(input).includes("/getUpdates")
+    );
+    expect(pollCalls).toHaveLength(2);
 
     const firstPollBody = JSON.parse(
-      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+      String((pollCalls[0]?.[1] as RequestInit).body)
     ) as {
       allowed_updates?: string[];
       limit?: number;
@@ -699,7 +874,7 @@ describe("TelegramAdapter", () => {
       timeout?: number;
     };
     const secondPollBody = JSON.parse(
-      String((mockFetch.mock.calls[3]?.[1] as RequestInit).body)
+      String((pollCalls[1]?.[1] as RequestInit).body)
     ) as {
       offset?: number;
     };
@@ -796,6 +971,7 @@ describe("TelegramAdapter", () => {
           },
         ])
       )
+      .mockResolvedValueOnce(telegramOk(true))
       .mockImplementationOnce((_input, init) => {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -832,12 +1008,14 @@ describe("TelegramAdapter", () => {
       () =>
         (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length > 0
     );
-    await waitForCondition(() => mockFetch.mock.calls.length >= 4);
+    await waitForCondition(() => mockFetch.mock.calls.length >= 5);
     await adapter.stopPolling();
 
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/getWebhookInfo");
-    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/getUpdates");
-    expect(String(mockFetch.mock.calls[3]?.[0])).toContain("/getUpdates");
+    const pollCalls = mockFetch.mock.calls.filter(([input]) =>
+      String(input).includes("/getUpdates")
+    );
+    expect(pollCalls).toHaveLength(2);
     expect(adapter.isPolling).toBe(false);
   });
 
@@ -1756,7 +1934,181 @@ describe("TelegramAdapter", () => {
     });
   });
 
-  it("rejects multiple Telegram attachments in one message", async () => {
+  it("posts multiple files as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 21,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-1",
+              file_unique_id: "doc-unique-1",
+              file_name: "one.txt",
+            },
+          }),
+          sampleMessage({
+            message_id: 22,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-2",
+              file_unique_id: "doc-unique-2",
+              file_name: "two.txt",
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:-100123:42", {
+      markdown: "attached **files**",
+      files: [
+        {
+          data: Buffer.from("one"),
+          filename: "one.txt",
+          mimeType: "text/plain",
+        },
+        {
+          data: Buffer.from("two"),
+          filename: "two.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:22");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(formData.get("chat_id")).toBe("-100123");
+    expect(formData.get("message_thread_id")).toBe("42");
+    expect(media).toEqual([
+      {
+        caption: "attached *files*",
+        media: "attach://media0",
+        parse_mode: "MarkdownV2",
+        type: "document",
+      },
+      { media: "attach://media1", type: "document" },
+    ]);
+    expect(formData.get("media0")).toBeInstanceOf(Blob);
+    expect((formData.get("media0") as { name?: string }).name).toBe("one.txt");
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe("two.txt");
+  });
+
+  it("posts mixed image and video attachments as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 31,
+            media_group_id: "group-2",
+            photo: [
+              {
+                file_id: "photo-1",
+                file_unique_id: "p1",
+                width: 100,
+                height: 100,
+              },
+            ],
+          }),
+          sampleMessage({
+            message_id: 32,
+            media_group_id: "group-2",
+            video: {
+              file_id: "video-1",
+              file_unique_id: "v1",
+              width: 1280,
+              height: 720,
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:123", {
+      markdown: "visual **album**",
+      attachments: [
+        {
+          mimeType: "image/png",
+          name: "image.png",
+          type: "image",
+          url: "https://cdn.example.com/image.png",
+        },
+        {
+          data: Buffer.from("video"),
+          height: 720,
+          mimeType: "video/mp4",
+          name: "video.mp4",
+          type: "video",
+          width: 1280,
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:32");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(media).toEqual([
+      {
+        caption: "visual *album*",
+        media: "https://cdn.example.com/image.png",
+        parse_mode: "MarkdownV2",
+        type: "photo",
+      },
+      {
+        height: 720,
+        media: "attach://media1",
+        type: "video",
+        width: 1280,
+      },
+    ]);
+    expect(formData.get("media0")).toBeNull();
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe(
+      "video.mp4"
+    );
+  });
+
+  it("rejects incompatible Telegram media group attachment types", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
         id: 999,
@@ -1780,10 +2132,41 @@ describe("TelegramAdapter", () => {
         raw: "attachments",
         attachments: [
           { data: Buffer.from("one"), type: "image" },
-          { data: Buffer.from("two"), type: "image" },
+          { data: Buffer.from("two"), type: "file" },
         ],
       })
-    ).rejects.toThrow("single attachment upload");
+    ).rejects.toThrow("documents and audio files must be grouped only");
+    expect(mockFetch.mock.calls).toHaveLength(1);
+  });
+
+  it("rejects Telegram media groups with more than 10 files", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.postMessage("telegram:123", {
+        raw: "files",
+        files: Array.from({ length: 11 }, (_, index) => ({
+          data: Buffer.from(String(index)),
+          filename: `${index}.txt`,
+        })),
+      })
+    ).rejects.toThrow("Telegram media groups support 2-10 files");
     expect(mockFetch.mock.calls).toHaveLength(1);
   });
 
@@ -3284,7 +3667,7 @@ describe("TelegramAdapter", () => {
     expect(attachment?.size).toBe(512000);
   });
 
-  it("isDM returns true for private chats (positive chat ID)", async () => {
+  it("isDM returns false for forum topic thread IDs", async () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
       mode: "webhook",
@@ -3292,8 +3675,8 @@ describe("TelegramAdapter", () => {
       userName: "mybot",
     });
 
-    expect(adapter.isDM("telegram:456")).toBe(true);
-    expect(adapter.isDM("telegram:-100123")).toBe(false);
+    // Edge case beyond the shared threadIdContract's single DM/non-DM check:
+    // a three-part forum topic thread ID still resolves to a non-DM chat.
     expect(adapter.isDM("telegram:-100123:42")).toBe(false);
   });
 

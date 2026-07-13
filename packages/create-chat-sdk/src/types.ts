@@ -43,6 +43,11 @@ export interface ProjectConfig extends AdapterSelection {
    * Whether dependencies should be installed after files are written.
    */
   shouldInstall: boolean;
+  /**
+   * Authenticate Connect-capable adapters (Slack, GitHub, Linear) with Vercel
+   * Connect instead of native provider secrets. Defaults to `false`.
+   */
+  useConnect?: boolean;
 }
 
 /**

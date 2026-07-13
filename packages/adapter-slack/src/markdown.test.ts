@@ -215,9 +215,61 @@ describe("SlackFormatConverter", () => {
       ).toEqual({ text: "Jump https://example.com/docs#@george" });
     });
 
+    it("does not mangle @handles inside Slack links", () => {
+      expect(
+        converter.toSlackPayload(
+          "See <https://example.com/p?user=@george|George's profile>"
+        )
+      ).toEqual({
+        text: "See <https://example.com/p?user=@george|George's profile>",
+      });
+    });
+
+    it("does not mangle @handles inside Markdown links", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown: "See [profile](https://example.com/p?user=@george)",
+        })
+      ).toEqual({
+        markdown_text: "See [profile](https://example.com/p?user=@george)",
+      });
+    });
+
+    it("does not link @handles inside inline code", () => {
+      expect(
+        converter.toSlackPayload("Use `@vercel/postgres` and ping @george")
+      ).toEqual({
+        text: "Use `@vercel/postgres` and ping <@george>",
+      });
+    });
+
+    it("does not link @handles inside fenced code", () => {
+      expect(
+        converter.toSlackPayload({
+          markdown:
+            "Install:\n```\nnpm install @vercel/postgres\n```\ncc @george",
+        })
+      ).toEqual({
+        markdown_text:
+          "Install:\n```\nnpm install @vercel/postgres\n```\ncc <@george>",
+      });
+    });
+
     it("does not mangle @handles inside schemeless host paths", () => {
       expect(converter.toSlackPayload("See hackmd.io/@jkyang/abc")).toEqual({
         text: "See hackmd.io/@jkyang/abc",
+      });
+    });
+
+    it("rewrites slash-separated mentions", () => {
+      expect(converter.toSlackPayload("cc @george/@anne")).toEqual({
+        text: "cc <@george>/<@anne>",
+      });
+    });
+
+    it("rewrites mentions after schemeless host punctuation", () => {
+      expect(converter.toSlackPayload("See example.com,@george")).toEqual({
+        text: "See example.com,<@george>",
       });
     });
 
@@ -226,6 +278,25 @@ describe("SlackFormatConverter", () => {
         converter.toSlackPayload("See https://hackmd.io/@jkyang/abc cc @george")
       ).toEqual({
         text: "See https://hackmd.io/@jkyang/abc cc <@george>",
+      });
+    });
+
+    it("preserves schemeless URL handles in response URL markdown", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "See hackmd.io/@jkyang/abc cc @george",
+        })
+      ).toBe("See hackmd.io/@jkyang/abc cc <@george>");
+    });
+
+    it("handles malformed angle text without rescanning it", () => {
+      const prefix = "<".repeat(20_000);
+      expect(
+        converter.toSlackPayload(
+          `${prefix} https://example.com/@jkyang cc @george`
+        )
+      ).toEqual({
+        text: `${prefix} https://example.com/@jkyang cc <@george>`,
       });
     });
   });

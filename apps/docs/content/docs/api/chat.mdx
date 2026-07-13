@@ -27,9 +27,9 @@ const bot = new Chat(config);
       type: 'Record<string, Adapter>',
     },
     dedupeTtlMs: {
-      description: 'TTL for message deduplication entries in milliseconds. Increase if webhook cold starts cause platform retries after the default window.',
+      description: 'TTL for message deduplication entries in milliseconds. The default outlives the last Slack event retry (~5 minutes after original delivery); increase it if your platform redelivers later than that.',
       type: 'number',
-      default: '300000',
+      default: '600000',
     },
     state: {
       description: 'State adapter for subscriptions, locking, and caching.',

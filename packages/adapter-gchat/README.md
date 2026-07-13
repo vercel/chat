@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/gchat`](https://www.npmjs.com/package/@chat-adapter/gchat)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/gchat)](https://www.npmjs.com/package/@chat-adapter/gchat)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Google Chat adapter for [Chat SDK](https://chat-sdk.dev). Configure with service account authentication and optional Pub/Sub.
 

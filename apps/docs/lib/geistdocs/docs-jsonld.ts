@@ -1,5 +1,4 @@
-import type { InferPageType } from "fumadocs-core/source";
-import type { source } from "./source";
+import type { TableOfContents } from "fumadocs-core/toc";
 
 const BASE_URL = "https://chat-sdk.dev";
 
@@ -12,7 +11,16 @@ const VERCEL_ORG = {
 /** Core docs pages that emit structured data for search and answer engines. */
 const JSON_LD_DOC_SLUGS = new Set(["getting-started", "streaming", "cards"]);
 
-type DocsPage = InferPageType<typeof source>;
+interface DocsPage {
+  data: {
+    description?: string;
+    title?: string;
+    toc?: TableOfContents;
+    type?: string;
+  };
+  slugs: string[];
+  url: string;
+}
 
 const getDocsPageUrl = (pageUrl: string) =>
   pageUrl.startsWith("http") ? pageUrl : `${BASE_URL}${pageUrl}`;
@@ -33,7 +41,7 @@ const getDocsBreadcrumb = (title: string, pageUrl: string) => ({
 });
 
 const getStepNameFromTocEntry = (entry: {
-  title: DocsPage["data"]["toc"][number]["title"];
+  title: TableOfContents[number]["title"];
   url: string;
 }): string => {
   if (typeof entry.title === "string" && entry.title.length > 0) {
@@ -99,7 +107,8 @@ export const getDocsJsonLd = (page: DocsPage) => {
   }
 
   const pageUrl = getDocsPageUrl(page.url);
-  const { title, description, type, toc } = page.data;
+  const { description, type, toc } = page.data;
+  const title = page.data.title ?? "Chat SDK";
   const breadcrumb = getDocsBreadcrumb(title, pageUrl);
 
   if (type === "guide") {

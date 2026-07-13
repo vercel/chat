@@ -23,6 +23,11 @@ import {
   createWhatsAppAdapter,
   type WhatsAppAdapter,
 } from "@chat-adapter/whatsapp";
+import {
+  connectGitHubAdapter,
+  connectLinearAdapter,
+  connectSlackAdapter,
+} from "@vercel/connect/chat";
 import { ConsoleLogger } from "chat";
 import { recorder, withRecording } from "./recorder";
 
@@ -173,14 +178,30 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // Slack adapter (optional) - env vars: SLACK_SIGNING_SECRET + (SLACK_BOT_TOKEN or SLACK_CLIENT_ID/SECRET)
-  if (process.env.SLACK_SIGNING_SECRET) {
+  // Slack adapter (optional) - Vercel Connect.
+  // env vars: SLACK_CONNECTOR (the connector UID, e.g. "slack/acme-slack") plus
+  // VERCEL_OIDC_TOKEN (run `vercel env pull`). connectSlackAdapter() resolves a
+  // short-lived bot token from Vercel Connect at runtime and verifies
+  // Connect-forwarded webhooks via the Vercel OIDC token, so there's no
+  // SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET to store.
+  if (process.env.SLACK_CONNECTOR) {
     adapters.slack = withRecording(
       createSlackAdapter({
         userName: "Chat SDK Bot",
         logger: logger.child("slack"),
-        botToken: process.env.SLACK_BOT_TOKEN,
-        clientSecret: process.env.SLACK_CLIENT_SECRET,
+        ...connectSlackAdapter(process.env.SLACK_CONNECTOR),
+      }),
+      "slack",
+      SLACK_METHODS
+    );
+  } else if (process.env.SLACK_BOT_TOKEN) {
+    // Slack adapter (optional) - plain bot token.
+    // env vars: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET (auto-detected by the
+    // factory since only non-auth fields are passed here).
+    adapters.slack = withRecording(
+      createSlackAdapter({
+        userName: "Chat SDK Bot",
+        logger: logger.child("slack"),
       }),
       "slack",
       SLACK_METHODS
@@ -221,27 +242,41 @@ export function buildAdapters(): Adapters {
     }
   }
 
-  // GitHub adapter (optional) - env vars: GITHUB_WEBHOOK_SECRET + (GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)
-  if (process.env.GITHUB_WEBHOOK_SECRET) {
+  // GitHub adapter (optional) - Vercel Connect.
+  // env vars: GITHUB_CONNECTOR (the connector UID, e.g. "github/acme-github")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectGitHubAdapter()
+  // resolves a short-lived installation token from Vercel Connect at runtime
+  // (skipping the GitHub App JWT exchange) and verifies Connect-forwarded
+  // webhooks via the Vercel OIDC token instead of a webhook secret.
+  if (process.env.GITHUB_CONNECTOR) {
     try {
       adapters.github = withRecording(
         createGitHubAdapter({
           logger: logger.child("github"),
           userName: "chat-sdk-bot",
+          // In Connect mode the adapter can't auto-detect its own bot user id
+          // (the /app lookup needs an App JWT), so set GITHUB_BOT_USER_ID — the
+          // adapter auto-detects it — to skip self-authored comments and avoid
+          // reply loops across function instances.
+          ...connectGitHubAdapter(process.env.GITHUB_CONNECTOR),
         }),
         "github",
         GITHUB_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create github adapter (check GITHUB_TOKEN or GITHUB_APP_ID/PRIVATE_KEY)"
+        "[chat] Failed to create github adapter (check GITHUB_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }
 
-  // Linear adapter (optional) - env vars: LINEAR_WEBHOOK_SECRET + (LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET).
-  // Set LINEAR_MODE=agent-sessions for app-actor installs with Agent session events + app:mentionable.
-  if (process.env.LINEAR_WEBHOOK_SECRET) {
+  // Linear adapter (optional) - Vercel Connect.
+  // env vars: LINEAR_CONNECTOR (the connector UID, e.g. "linear/acme-linear")
+  // plus VERCEL_OIDC_TOKEN (run `vercel env pull`). connectLinearAdapter()
+  // resolves a short-lived access token from Vercel Connect at runtime and
+  // verifies Connect-forwarded webhooks via the Vercel OIDC token instead of a
+  // webhook secret. Set LINEAR_MODE=agent-sessions for app-actor installs.
+  if (process.env.LINEAR_CONNECTOR) {
     try {
       adapters.linear = withRecording(
         createLinearAdapter({
@@ -250,13 +285,14 @@ export function buildAdapters(): Adapters {
             process.env.LINEAR_MODE === "agent-sessions"
               ? "agent-sessions"
               : "comments",
+          ...connectLinearAdapter(process.env.LINEAR_CONNECTOR),
         }),
         "linear",
         LINEAR_METHODS
       );
     } catch {
       console.warn(
-        "[chat] Failed to create linear adapter (check LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, LINEAR_CLIENT_CREDENTIALS_*, or LINEAR_CLIENT_ID/SECRET)"
+        "[chat] Failed to create linear adapter (check LINEAR_CONNECTOR and VERCEL_OIDC_TOKEN)"
       );
     }
   }

@@ -5,23 +5,27 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { ValidationError } from "@chat-adapter/shared";
-import type { ChatInstance, Logger } from "chat";
-import { Actions, Button, Card } from "chat";
+import {
+  createMockChatInstance,
+  mockLogger,
+  threadIdContract,
+} from "@chat-adapter/tests";
+import type { ChatInstance } from "chat";
+import { Actions, Button, Card, Select, SelectOption } from "chat";
 import { type Client, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDiscordAdapter, DiscordAdapter } from "./index";
+import {
+  createDiscordAdapter,
+  DiscordAdapter,
+  DiscordContentFormat,
+  DiscordInteractionResponseFlag,
+  DiscordMessageFlag,
+  type DiscordThreadId,
+} from "./index";
 import { DiscordFormatConverter } from "./markdown";
 
 const AT_ME_REGEX = /\/@me$/;
-
-const mockLogger: Logger = {
-  debug: vi.fn(),
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  child: vi.fn().mockReturnThis(),
-};
 
 // ============================================================================
 // Test Helpers
@@ -220,106 +224,61 @@ describe("constructor env var resolution", () => {
 // Thread ID Encoding/Decoding Tests
 // ============================================================================
 
-describe("encodeThreadId", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("encodes guild and channel correctly", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "guild123",
-      channelId: "channel456",
-    });
-    expect(threadId).toBe("discord:guild123:channel456");
-  });
-
-  it("encodes with thread ID", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: "thread789",
-    });
-    expect(threadId).toBe("discord:guild123:channel456:thread789");
-  });
-
-  it("encodes DM channel", () => {
-    const threadId = adapter.encodeThreadId({
-      guildId: "@me",
-      channelId: "dm123",
-    });
-    expect(threadId).toBe("discord:@me:dm123");
-  });
+const threadIdAdapter = createDiscordAdapter({
+  botToken: "test-token",
+  publicKey: testPublicKey,
+  applicationId: "test-app-id",
+  logger: mockLogger,
 });
 
-describe("decodeThreadId", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
+threadIdContract<DiscordThreadId>({
+  name: "discord",
+  encode: (d) => threadIdAdapter.encodeThreadId(d),
+  decode: (id) => threadIdAdapter.decodeThreadId(id),
+  cases: [
+    {
+      decoded: { guildId: "guild123", channelId: "channel456" },
+      encoded: "discord:guild123:channel456",
+    },
+    {
+      decoded: {
+        guildId: "guild123",
+        channelId: "channel456",
+        threadId: "thread789",
+      },
+      encoded: "discord:guild123:channel456:thread789",
+    },
+    {
+      decoded: { guildId: "@me", channelId: "dm123" },
+      encoded: "discord:@me:dm123",
+    },
+  ],
+  isDM: {
+    fn: (id) => threadIdAdapter.isDM(id),
+    dmThreadId: "discord:@me:dm123",
+    nonDmThreadId: "discord:guild123:channel456",
+  },
+});
 
-  it("decodes valid thread ID", () => {
-    const result = adapter.decodeThreadId("discord:guild123:channel456");
-    expect(result).toEqual({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: undefined,
-    });
-  });
-
-  it("decodes thread ID with thread", () => {
-    const result = adapter.decodeThreadId(
-      "discord:guild123:channel456:thread789"
-    );
-    expect(result).toEqual({
-      guildId: "guild123",
-      channelId: "channel456",
-      threadId: "thread789",
-    });
-  });
-
-  it("decodes DM thread ID", () => {
-    const result = adapter.decodeThreadId("discord:@me:dm123");
-    expect(result).toEqual({
-      guildId: "@me",
-      channelId: "dm123",
-      threadId: undefined,
-    });
-  });
-
+describe("decodeThreadId (edge cases)", () => {
   it("throws on invalid thread ID format", () => {
-    expect(() => adapter.decodeThreadId("invalid")).toThrow(ValidationError);
-    expect(() => adapter.decodeThreadId("discord:channel")).toThrow(
+    expect(() => threadIdAdapter.decodeThreadId("invalid")).toThrow(
       ValidationError
     );
-    expect(() => adapter.decodeThreadId("slack:C12345:123")).toThrow(
+    expect(() => threadIdAdapter.decodeThreadId("discord:channel")).toThrow(
+      ValidationError
+    );
+    expect(() => threadIdAdapter.decodeThreadId("slack:C12345:123")).toThrow(
       ValidationError
     );
   });
 });
 
-describe("isDM", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("returns true for DM channels (@me prefix)", () => {
-    expect(adapter.isDM("discord:@me:dm123")).toBe(true);
-  });
-
-  it("returns false for guild channels", () => {
-    expect(adapter.isDM("discord:guild123:channel456")).toBe(false);
-  });
-
+describe("isDM (edge cases not covered by contract)", () => {
   it("returns false for threads in guilds", () => {
-    expect(adapter.isDM("discord:guild123:channel456:thread789")).toBe(false);
+    expect(threadIdAdapter.isDM("discord:guild123:channel456:thread789")).toBe(
+      false
+    );
   });
 });
 
@@ -518,11 +477,68 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
   });
 
+  it("sets initial deferred slash command interaction flags from config", async () => {
+    const interactionFlags = vi
+      .fn()
+      .mockReturnValue(DiscordInteractionResponseFlag.Ephemeral);
+    const flaggedAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      interactionFlags,
+    });
+
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: ["role123"],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        id: "cmd123",
+        name: "test",
+        type: 1,
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await flaggedAdapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const responseBody = await response.json();
+    expect(responseBody).toEqual({
+      type: 5,
+      data: { flags: DiscordInteractionResponseFlag.Ephemeral },
+    });
+    expect(interactionFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "discord:guild123:channel456",
+        command: "/test",
+        interaction: expect.objectContaining({
+          id: "interaction123",
+          member: expect.objectContaining({ roles: ["role123"] }),
+        }),
+        text: "",
+        user: expect.objectContaining({ id: "user789" }),
+      })
+    );
+  });
+
   it("dispatches slash command to chat core", async () => {
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      processSlashCommand,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -564,8 +580,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/test",
         text: "status true",
@@ -583,10 +599,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
   });
 
   it("expands subcommand path into event.command", async () => {
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      processSlashCommand,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -632,8 +646,8 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
 
-    expect(processSlashCommand).toHaveBeenCalledTimes(1);
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/project issue create",
         text: "Login fails high",
@@ -676,11 +690,14 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     try {
       let replyTask: Promise<unknown> | undefined;
 
-      await adapter.initialize({
-        processSlashCommand: (event: { channelId: string }) => {
-          replyTask = adapter.postChannelMessage(event.channelId, "Pong!");
+      const chat = createMockChatInstance({
+        overrides: {
+          processSlashCommand: (event) => {
+            replyTask = adapter.postChannelMessage(event.channelId, "Pong!");
+          },
         },
-      } as unknown as ChatInstance);
+      });
+      await adapter.initialize(chat);
 
       const body = JSON.stringify({
         type: InteractionType.ApplicationCommand,
@@ -1144,6 +1161,36 @@ describe("renderFormatted", () => {
 
     const result = adapter.renderFormatted(ast);
     expect(result).toContain("<@someone>");
+  });
+});
+
+describe("rehydrateAttachment", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("rebuilds fetchData to download the attachment from its CDN url", async () => {
+    const url =
+      "https://cdn.discordapp.com/attachments/1/2/photo.png?ex=abc&is=def&hm=123";
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("photo", { status: 200 }));
+
+    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+    const data = await attachment.fetchData?.();
+
+    expect(data?.toString()).toBe("photo");
+    expect(fetch).toHaveBeenCalledWith(url);
+  });
+
+  it("returns the attachment unchanged when it has no url", () => {
+    const attachment = { type: "image" as const };
+    const rehydrated = adapter.rehydrateAttachment(attachment);
+    expect(rehydrated).toBe(attachment);
+    expect(rehydrated.fetchData).toBeUndefined();
   });
 });
 
@@ -2776,6 +2823,190 @@ describe("postChannelMessage", () => {
   });
 });
 
+describe("componentsv2 content format card payloads", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+    contentFormat: DiscordContentFormat.ComponentsV2,
+  });
+
+  const cardMessage = {
+    card: Card({
+      title: "Components v2",
+      children: [
+        Actions([
+          Select({
+            id: "priority",
+            label: "Priority",
+            options: [SelectOption({ label: "High", value: "high" })],
+          }),
+          Button({ id: "btn1", label: "Click me" }),
+        ]),
+      ],
+    }),
+  };
+
+  function createMessageResponse(id: string): Response {
+    return new Response(
+      JSON.stringify({
+        id,
+        channel_id: "channel456",
+        content: "",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  it("posts Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-post"));
+
+    await adapter.postMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("edits messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-edit"));
+
+    await adapter.editMessage(
+      "discord:guild1:channel456",
+      "msg-v2-edit",
+      cardMessage
+    );
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string | null;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeNull();
+    expect(calledPayload.embeds).toEqual([]);
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("posts channel messages with Components v2 card payloads", async () => {
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(createMessageResponse("msg-v2-channel"));
+
+    await adapter.postChannelMessage("discord:guild1:channel456", cardMessage);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: { type: number }[];
+      content?: string;
+      embeds?: unknown[];
+      flags?: number;
+    };
+    expect(calledPayload.content).toBeUndefined();
+    expect(calledPayload.embeds).toBeUndefined();
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]).toMatchObject({ type: 17 });
+
+    spy.mockRestore();
+  });
+
+  it("renders Components v2 card file uploads as components", async () => {
+    const mockRawMessage = {
+      id: "msg-v2-files",
+      threadId: "discord:guild1:channel456",
+      raw: {},
+    };
+    const spy = vi
+      .spyOn(adapter as any, "postMessageWithFiles")
+      .mockResolvedValue(mockRawMessage);
+    const cardWithFiles = {
+      ...cardMessage,
+      files: [
+        {
+          data: Buffer.from("image"),
+          filename: "chart.png",
+          mimeType: "image/png",
+        },
+        {
+          data: Buffer.from("hello"),
+          filename: "test.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    };
+
+    const threadResult = await adapter.postMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+    const channelResult = await adapter.postChannelMessage(
+      "discord:guild1:channel456",
+      cardWithFiles
+    );
+
+    expect(threadResult).toEqual(mockRawMessage);
+    expect(channelResult).toEqual(mockRawMessage);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    const calledPayload = spy.mock.calls[0]?.[2] as {
+      components?: Array<{
+        components?: Array<{
+          file?: { url: string };
+          items?: Array<{ media: { url: string } }>;
+          type: number;
+        }>;
+        type: number;
+      }>;
+      flags?: number;
+    };
+    expect(calledPayload.flags).toBe(DiscordMessageFlag.IsComponentsV2);
+    expect(calledPayload.components?.[0]?.components).toEqual(
+      expect.arrayContaining([
+        {
+          type: 12,
+          items: [
+            {
+              media: { url: "attachment://chart.png" },
+              description: "chart.png",
+            },
+          ],
+        },
+        {
+          type: 13,
+          file: { url: "attachment://test.txt" },
+        },
+      ])
+    );
+
+    const uploadedFiles = spy.mock.calls[0]?.[3] as Array<{ filename: string }>;
+    expect(uploadedFiles.map((file) => file.filename)).toEqual([
+      "chart.png",
+      "test.txt",
+    ]);
+    expect(spy.mock.calls[1]?.[2]).toEqual(calledPayload);
+
+    spy.mockRestore();
+  });
+});
+
 // ============================================================================
 // listThreads Tests
 // ============================================================================
@@ -3235,6 +3466,30 @@ describe("fetchThread", () => {
   });
 });
 
+describe("setThreadTitle", () => {
+  it("renames Discord thread channels", async () => {
+    const spy = vi
+      .spyOn(threadIdAdapter as any, "discordFetch")
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456:thread789",
+      "New thread title"
+    );
+    await threadIdAdapter.setThreadTitle(
+      "discord:guild1:channel456",
+      "Ignored channel title"
+    );
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("/channels/thread789", "PATCH", {
+      name: "New thread title",
+    });
+
+    spy.mockRestore();
+  });
+});
+
 describe("legacy gateway interactions", () => {
   class TestGatewayDiscordAdapter extends DiscordAdapter {
     listen(client: Client, isShuttingDown = () => false) {
@@ -3247,7 +3502,6 @@ describe("legacy gateway interactions", () => {
   }
 
   it("handles slash command interactions from the gateway", async () => {
-    const processSlashCommand = vi.fn();
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3255,12 +3509,8 @@ describe("legacy gateway interactions", () => {
       logger: mockLogger,
     });
 
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand,
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const client = createGatewayClient();
     const deferReply = vi.fn().mockResolvedValue(undefined);
@@ -3300,7 +3550,7 @@ describe("legacy gateway interactions", () => {
     await waitForGatewayHandlers();
 
     expect(deferReply).toHaveBeenCalled();
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/test",
         text: "status true",
@@ -3315,8 +3565,76 @@ describe("legacy gateway interactions", () => {
     );
   });
 
+  it("sets gateway deferred slash command interaction flags from config", async () => {
+    const interactionFlags = vi
+      .fn()
+      .mockReturnValue(DiscordInteractionResponseFlag.Ephemeral);
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      interactionFlags,
+    });
+
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = createGatewayClient();
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+
+    adapter.listen(client);
+    client.emit(Events.InteractionCreate, {
+      id: "interaction123",
+      applicationId: "test-app-id",
+      token: "interaction-token",
+      type: InteractionType.ApplicationCommand,
+      version: 1,
+      guildId: "guild123",
+      channelId: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      user: {
+        id: "user789",
+        username: "testuser",
+        discriminator: "0001",
+        globalName: "Test User",
+        bot: false,
+      },
+      commandName: "test",
+      commandType: 1,
+      options: {
+        data: [{ name: "topic", type: 3, value: "status" }],
+      },
+      isChatInputCommand: () => true,
+      isMessageComponent: () => false,
+      deferReply,
+    });
+    await waitForGatewayHandlers();
+
+    expect(deferReply).toHaveBeenCalledWith({
+      flags: DiscordInteractionResponseFlag.Ephemeral,
+    });
+    expect(interactionFlags).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: "discord:guild123:channel456",
+        command: "/test",
+        text: "status",
+        user: expect.objectContaining({ id: "user789" }),
+      })
+    );
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "/test",
+        text: "status",
+      }),
+      undefined
+    );
+  });
+
   it("handles component interactions from the gateway", async () => {
-    const processAction = vi.fn();
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
       publicKey: testPublicKey,
@@ -3324,12 +3642,8 @@ describe("legacy gateway interactions", () => {
       logger: mockLogger,
     });
 
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction,
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const client = createGatewayClient();
     const deferUpdate = vi.fn().mockResolvedValue(undefined);
@@ -3366,7 +3680,7 @@ describe("legacy gateway interactions", () => {
     await waitForGatewayHandlers();
 
     expect(deferUpdate).toHaveBeenCalled();
-    expect(processAction).toHaveBeenCalledWith(
+    expect(chat.processAction).toHaveBeenCalledWith(
       expect.objectContaining({
         actionId: "approve_btn",
         value: "approve_btn",
@@ -3445,14 +3759,8 @@ describe("handleWebhook - forwarded gateway events", () => {
   });
 
   it("handles GATEWAY_MESSAGE_CREATE event", async () => {
-    const processMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: processMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -3484,18 +3792,12 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processMessage).toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalled();
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -3526,7 +3828,7 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         added: true,
         messageId: "msg123",
@@ -3535,14 +3837,8 @@ describe("handleWebhook - forwarded gateway events", () => {
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_REMOVE event", async () => {
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_REMOVE",
@@ -3573,7 +3869,7 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         added: false,
         messageId: "msg123",
@@ -3595,13 +3891,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -3637,7 +3928,7 @@ describe("handleForwardedMessage - thread handling", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
       expect.anything()
@@ -3652,13 +3943,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     // Mock discordFetch to return parent channel info
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
@@ -3700,7 +3986,7 @@ describe("handleForwardedMessage - thread handling", () => {
     await adapter.handleWebhook(request);
 
     expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
       expect.anything()
@@ -3717,13 +4003,8 @@ describe("handleForwardedMessage - thread handling", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const fetchSpy = vi
       .spyOn(adapter as any, "discordFetch")
@@ -3789,13 +4070,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
       new Response(JSON.stringify({ parent_id: "channel456" }), {
@@ -3834,14 +4110,14 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     // Should have fetched parent channel
     expect(fetchSpy).toHaveBeenCalledWith("/channels/thread789", "GET");
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "discord:guild1:channel456:thread789",
       })
     );
 
     fetchSpy.mockClear();
-    processReaction.mockClear();
+    vi.mocked(chat.processReaction).mockClear();
 
     // Second reaction on same thread - should use cache
     const body2 = JSON.stringify({
@@ -3873,7 +4149,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     // Should NOT have fetched again (used cache)
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "discord:guild1:channel456:thread789",
       })
@@ -3890,13 +4166,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -3923,7 +4194,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
     // Should not call processReaction since there's no user info
-    expect(processReaction).not.toHaveBeenCalled();
+    expect(chat).not.toHaveDispatched("processReaction");
   });
 
   it("handles custom emoji with ID in reaction", async () => {
@@ -3934,13 +4205,8 @@ describe("handleForwardedReaction - thread parent caching", () => {
       logger: mockLogger,
     });
 
-    const processReaction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction,
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_REACTION_ADD",
@@ -3968,7 +4234,7 @@ describe("handleForwardedReaction - thread parent caching", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processReaction).toHaveBeenCalledWith(
+    expect(chat.processReaction).toHaveBeenCalledWith(
       expect.objectContaining({
         rawEmoji: "<:custom_emoji:emoji123>",
       })
@@ -3989,12 +4255,7 @@ describe("initialize", () => {
       logger: mockLogger,
     });
 
-    const mockChat = {
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance;
+    const mockChat = createMockChatInstance();
 
     await adapter.initialize(mockChat);
 
@@ -4042,13 +4303,8 @@ describe("handleWebhook - component interaction edge cases", () => {
       logger: mockLogger,
     });
 
-    const processAction = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand: vi.fn(),
-      processAction,
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.MessageComponent,
@@ -4097,10 +4353,81 @@ describe("handleWebhook - component interaction edge cases", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processAction).toHaveBeenCalledWith(
+    expect(chat.processAction).toHaveBeenCalledWith(
       expect.objectContaining({
         actionId: "approve_btn",
         threadId: "discord:guild123:channel789:thread456",
+      }),
+      undefined
+    );
+  });
+
+  it("uses selected values from select interactions", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+
+    const processAction = vi.fn();
+    await adapter.initialize({
+      handleIncomingMessage: vi.fn(),
+      processSlashCommand: vi.fn(),
+      processAction,
+      processReaction: vi.fn(),
+    } as unknown as ChatInstance);
+
+    const body = JSON.stringify({
+      type: InteractionType.MessageComponent,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      channel: {
+        id: "channel456",
+        type: 0,
+      },
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      message: {
+        id: "message123",
+        channel_id: "channel456",
+        author: { id: "bot", username: "bot", discriminator: "0000" },
+        content: "Test message",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        tts: false,
+        mention_everyone: false,
+        mentions: [],
+        mention_roles: [],
+        attachments: [],
+        embeds: [],
+        pinned: false,
+        type: 0,
+      },
+      data: {
+        custom_id: "priority",
+        component_type: 3,
+        values: ["high"],
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    await adapter.handleWebhook(request);
+
+    expect(processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "priority",
+        value: "high",
       }),
       undefined
     );
@@ -4114,13 +4441,8 @@ describe("handleWebhook - component interaction edge cases", () => {
       logger: mockLogger,
     });
 
-    const processSlashCommand = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage: vi.fn(),
-      processSlashCommand,
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: InteractionType.ApplicationCommand,
@@ -4153,7 +4475,7 @@ describe("handleWebhook - component interaction edge cases", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(processSlashCommand).toHaveBeenCalledWith(
+    expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "/status",
         channelId: "discord:guild123:channel789:thread456",
@@ -4176,13 +4498,8 @@ describe("handleForwardedMessage - DM messages", () => {
       logger: mockLogger,
     });
 
-    const handleIncomingMessage = vi.fn();
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -4214,7 +4531,7 @@ describe("handleForwardedMessage - DM messages", () => {
 
     await adapter.handleWebhook(request);
 
-    expect(handleIncomingMessage).toHaveBeenCalledWith(
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:@me:dm456",
       expect.anything()
@@ -4236,7 +4553,6 @@ describe("mentionRoleIds handling", () => {
       mentionRoleIds: ["role123"],
     });
 
-    const handleIncomingMessage = vi.fn();
     const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
       new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
         status: 200,
@@ -4244,12 +4560,8 @@ describe("mentionRoleIds handling", () => {
       })
     );
 
-    await adapter.initialize({
-      handleIncomingMessage,
-      processSlashCommand: vi.fn(),
-      processAction: vi.fn(),
-      processReaction: vi.fn(),
-    } as unknown as ChatInstance);
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
 
     const body = JSON.stringify({
       type: "GATEWAY_MESSAGE_CREATE",
@@ -4287,6 +4599,242 @@ describe("mentionRoleIds handling", () => {
       "/channels/channel456/messages/msg123/threads",
       "POST",
       expect.anything()
+    );
+
+    fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
+// Global Mention (@everyone/@here) Tests
+// ============================================================================
+
+describe("respondToGlobalMentions handling", () => {
+  function createForwardedEveryoneRequest() {
+    const body = JSON.stringify({
+      type: "GATEWAY_MESSAGE_CREATE",
+      timestamp: Date.now(),
+      data: {
+        id: "msg123",
+        channel_id: "channel456",
+        guild_id: "guild1",
+        content: "@everyone big announcement",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: {
+          id: "user789",
+          username: "testuser",
+          bot: false,
+        },
+        mentions: [],
+        mention_roles: [],
+        mention_everyone: true,
+        attachments: [],
+      },
+    });
+
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "test-token",
+        "content-type": "application/json",
+      },
+      body,
+    });
+  }
+
+  function createAdapterWithThreadSpy(config?: {
+    respondToGlobalMentions?: boolean;
+  }) {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      ...config,
+    });
+
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    return { adapter, fetchSpy };
+  }
+
+  it("ignores @everyone in forwarded gateway messages by default", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    // No thread created and message is not flagged as a mention
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in forwarded gateway messages as a mention when respondToGlobalMentions is true", async () => {
+    const { adapter, fetchSpy } = createAdapterWithThreadSpy({
+      respondToGlobalMentions: true,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(createForwardedEveryoneRequest());
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client, isShuttingDown = () => false) {
+      this.setupLegacyGatewayHandlers(client, isShuttingDown);
+    }
+  }
+
+  function createEveryoneGatewayMessage() {
+    // Mirrors discord.js MessageMentions semantics: has() matches
+    // @everyone pings unless ignoreEveryone is set
+    const mentions = {
+      everyone: true,
+      roles: [] as Array<{ id: string }>,
+      has: (_id: string, options?: { ignoreEveryone?: boolean }) =>
+        !options?.ignoreEveryone,
+    };
+
+    return {
+      id: "msg123",
+      channelId: "channel456",
+      guildId: "guild1",
+      content: "@everyone big announcement",
+      author: {
+        id: "user789",
+        username: "testuser",
+        displayName: "Test User",
+        bot: false,
+      },
+      mentions,
+      channel: { isThread: () => false },
+      createdAt: new Date("2021-01-01T00:00:00.000Z"),
+      editedAt: null,
+      attachments: [],
+    };
+  }
+
+  it("ignores @everyone in legacy gateway mode by default", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: false })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("treats @everyone in legacy gateway mode as a mention when respondToGlobalMentions is true", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToGlobalMentions: true,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, createEveryoneGatewayMessage());
+    await waitForGatewayHandlers();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/channels/channel456/messages/msg123/threads",
+      "POST",
+      expect.anything()
+    );
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
+    );
+
+    fetchSpy.mockRestore();
+  });
+
+  it("still detects direct user mentions when @everyone is ignored", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(adapter as any, "discordFetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "new-thread", name: "Thread" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const message = createEveryoneGatewayMessage();
+    // Direct bot mention alongside @everyone
+    message.mentions.has = () => true;
+
+    const client = new EventEmitter() as Client;
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, message);
+    await waitForGatewayHandlers();
+
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({ isMention: true })
     );
 
     fetchSpy.mockRestore();

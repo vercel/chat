@@ -198,6 +198,57 @@ export const ADAPTERS = {
     slug: "agentphone",
     type: "platform",
   },
+  "cloudflare-agents": {
+    description:
+      "Cloudflare Agents state adapter for Chat SDK. Stores subscriptions, locks, queues, and history in Durable Object SQLite via ChatSdkStateAgent sub-agents.",
+    env: {
+      config: ["parent", "agent", "name", "shardKey", "keyShard"],
+      notes:
+        "No environment variables are required. State is stored in Durable Object SQLite via ChatSdkStateAgent sub-agents; add the parent Agent to your Durable Object migration and re-export ChatSdkStateAgent from the Worker entry point.",
+    },
+    factoryExport: "createChatSdkState",
+    group: "vendor-official",
+    name: "Cloudflare Agents",
+    packageName: "agents",
+    peerDeps: [],
+    slug: "cloudflare-agents",
+    type: "state",
+  },
+  dial: {
+    description:
+      "SMS, MMS, iMessage, and inbound voice-call transcripts for Chat SDK, built and maintained by Dial. One handler answers phone traffic the same way it answers Slack/Teams/Discord, with HMAC-signed webhooks and replies over @getdial/sdk.",
+    env: {
+      config: ["apiBaseUrl", "botName", "logger"],
+      optional: [
+        secretEnv(
+          "DIAL_WEBHOOK_SECRET",
+          "HMAC-SHA256 signing secret from the Dial webhook subscription; enables signature verification of inbound requests."
+        ),
+        env(
+          "DIAL_API_URL",
+          "Override the Dial API host. Defaults to https://api.getdial.ai."
+        ),
+        env(
+          "BOT_USERNAME",
+          'Display name Chat SDK uses for the bot. Defaults to "bot".'
+        ),
+      ],
+      required: [
+        secretEnv("DIAL_API_KEY", "Dial API key (sk_live_…)."),
+        env(
+          "DIAL_FROM_NUMBER_ID",
+          "Dial's ID of the phone number the bot sends from."
+        ),
+      ],
+    },
+    factoryExport: "createDialAdapter",
+    group: "vendor-official",
+    name: "Dial",
+    packageName: "@getdial/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "dial",
+    type: "platform",
+  },
   discord: {
     description:
       "Create Discord bots with slash commands, threads, and rich embeds.",
@@ -246,6 +297,10 @@ export const ADAPTERS = {
           "Installation ID for single-installation app deployments."
         ),
         env("GITHUB_BOT_USERNAME", "Bot username for mention detection."),
+        env(
+          "GITHUB_BOT_USER_ID",
+          "Numeric bot user ID for self-message detection; recommended on serverless and with Vercel Connect to prevent reply loops."
+        ),
         urlEnv("GITHUB_API_URL", "Override the GitHub API base URL."),
       ],
       required: [secretEnv("GITHUB_WEBHOOK_SECRET", "Webhook signing secret.")],
@@ -446,6 +501,27 @@ export const ADAPTERS = {
     slug: "linear",
     type: "platform",
   },
+  linq: {
+    description:
+      "iMessage and SMS adapter for Chat SDK, built and maintained by Linq.",
+    env: {
+      config: ["baseURL"],
+      required: [
+        secretEnv("LINQ_API_KEY", "Linq API key for outbound API calls."),
+        secretEnv(
+          "LINQ_WEBHOOK_SECRET",
+          "Webhook signing secret used to verify inbound HMAC-SHA256 signatures."
+        ),
+      ],
+    },
+    factoryExport: "createLinqAdapter",
+    group: "vendor-official",
+    name: "Linq",
+    packageName: "@linqapp/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "linq",
+    type: "platform",
+  },
   liveblocks: {
     description:
       "Liveblocks Comments adapter for building conversational bots on top of Liveblocks rooms, threads, and comments.",
@@ -558,6 +634,88 @@ export const ADAPTERS = {
     packageName: "@chat-adapter/messenger",
     peerDeps: [],
     slug: "messenger",
+    type: "platform",
+  },
+  novu: {
+    description:
+      "Multi-channel agents with one-click channel setup, identity and multi-tenancy",
+    env: {
+      optional: [
+        urlEnv(
+          "NOVU_API_BASE_URL",
+          "API base URL. Defaults to https://api.novu.co."
+        ),
+      ],
+      required: [
+        secretEnv(
+          "NOVU_SECRET_KEY",
+          "Novu API key that authorizes replies and verifies the inbound HMAC. Set automatically by npx novu connect."
+        ),
+        env(
+          "NOVU_AGENT_IDENTIFIER",
+          "Bridge agent ID set automatically by npx novu connect."
+        ),
+      ],
+    },
+    factoryExport: "createNovuAdapter",
+    group: "vendor-official",
+    name: "Novu",
+    packageName: "@novu/chat-sdk-adapter",
+    peerDeps: [],
+    slug: "novu",
+    type: "platform",
+  },
+  photon: {
+    description:
+      "iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (macOS) iMessage over spectrum-ts.",
+    env: {
+      config: ["clients", "logger"],
+      credentialModes: [
+        {
+          label: "Spectrum Cloud",
+          vars: [
+            env("IMESSAGE_PROJECT_ID", "Spectrum Cloud project ID."),
+            secretEnv(
+              "IMESSAGE_PROJECT_SECRET",
+              "Spectrum Cloud project secret."
+            ),
+          ],
+        },
+        {
+          label: "Self-hosted",
+          vars: [
+            urlEnv(
+              "IMESSAGE_SERVER_URL",
+              "gRPC host:port of a self-hosted iMessage server (not an https URL)."
+            ),
+            secretEnv(
+              "IMESSAGE_API_KEY",
+              "Auth token for the self-hosted server."
+            ),
+          ],
+        },
+      ],
+      optional: [
+        env(
+          "IMESSAGE_LOCAL",
+          'Set to "false" for cloud/self-host; on-device (local, macOS) mode is the default.'
+        ),
+        secretEnv(
+          "IMESSAGE_WEBHOOK_SECRET",
+          "Per-webhook signing secret for verifying Spectrum Cloud deliveries."
+        ),
+        env(
+          "IMESSAGE_PHONE",
+          "Routing/identity phone for multi-number setups."
+        ),
+      ],
+    },
+    factoryExport: "createiMessageAdapter",
+    group: "vendor-official",
+    name: "Photon",
+    packageName: "@photon-ai/chat-adapter-imessage",
+    peerDeps: [],
+    slug: "photon",
     type: "platform",
   },
   postgres: {
@@ -794,7 +952,7 @@ export const ADAPTERS = {
   },
   velt: {
     description:
-      "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
+      "Velt Comments adapter for bots that read, reply, mention, and start threads in anchored comments across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
     env: {
       config: [
         "botUserId",
@@ -866,6 +1024,65 @@ export const ADAPTERS = {
     packageName: "@chat-adapter/whatsapp",
     peerDeps: [],
     slug: "whatsapp",
+    type: "platform",
+  },
+  x: {
+    description:
+      "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+    env: {
+      credentialModes: [
+        {
+          label: "Static access token",
+          vars: [
+            secretEnv(
+              "X_USER_ACCESS_TOKEN",
+              "OAuth 2.0 user-context access token for outbound API calls."
+            ),
+          ],
+        },
+        {
+          label: "Managed OAuth refresh",
+          vars: [
+            env("X_CLIENT_ID", "OAuth 2.0 client ID."),
+            secretEnv(
+              "X_REFRESH_TOKEN",
+              "OAuth 2.0 refresh token (requires the offline.access scope)."
+            ),
+          ],
+        },
+      ],
+      optional: [
+        secretEnv(
+          "X_CLIENT_SECRET",
+          "OAuth 2.0 client secret for confidential clients."
+        ),
+        secretEnv(
+          "X_ENCRYPTION_KEY",
+          "AES-256-GCM key for encrypting stored OAuth tokens."
+        ),
+        env(
+          "X_USER_ID",
+          "Bot account user ID. Fetched from /2/users/me when omitted."
+        ),
+        env(
+          "X_USERNAME",
+          "Bot account handle used for mention detection. Fetched when omitted."
+        ),
+        urlEnv("X_API_BASE_URL", "Override the X API base URL."),
+      ],
+      required: [
+        secretEnv(
+          "X_CONSUMER_SECRET",
+          "App API key secret used for webhook CRC and signature verification."
+        ),
+      ],
+    },
+    factoryExport: "createXAdapter",
+    group: "official",
+    name: "X",
+    packageName: "@chat-adapter/x",
+    peerDeps: [],
+    slug: "x",
     type: "platform",
   },
   zernio: {

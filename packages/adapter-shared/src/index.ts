@@ -52,3 +52,6 @@ export {
   ResourceNotFoundError,
   ValidationError,
 } from "./errors";
+
+// Bare @mention resolution (skips code, URLs, hosts, and existing tokens)
+export { type MentionReplacer, replaceBareMentions } from "./mentions";

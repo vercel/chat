@@ -10,9 +10,5 @@
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true
   },
-  "ignore": [
-    "example-nextjs-chat",
-    "example-telegram-chat",
-    "@chat-adapter/integration-tests"
-  ]
+  "ignore": ["example-*", "@chat-adapter/integration-tests"]
 }

@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/slack`](https://www.npmjs.com/package/@chat-adapter/slack)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/slack)](https://www.npmjs.com/package/@chat-adapter/slack)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Slack adapter for [Chat SDK](https://chat-sdk.dev). Configure single-workspace or multi-workspace OAuth deployments.
 
@@ -146,6 +146,21 @@ openssl rand -base64 32
 ```
 
 When `encryptionKey` is set, `setInstallation()` encrypts the token before storing and `getInstallation()` decrypts it transparently.
+
+### Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the bot token at runtime instead of storing one. The `connectSlackAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires both a `botToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { connectSlackAdapter } from "@vercel/connect/chat";
+
+createSlackAdapter({
+  ...connectSlackAdapter("slack/acme-slack"),
+});
+```
+
+This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
 
 ### External installation provider
 
@@ -383,7 +398,8 @@ SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted g
 | Buttons | Yes |
 | Link buttons | Yes |
 | Select menus | Yes |
-| Tables | Block Kit |
+| Tables | Block Kit data table (paginated, sortable) |
+| Charts | Block Kit data visualization (pie, bar, area, line) |
 | Fields | Yes |
 | Images in cards | Yes |
 | Modals | Yes |

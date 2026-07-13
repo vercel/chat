@@ -1,5 +1,33 @@
 # chat
 
+## 4.33.0
+
+### Minor Changes
+
+- ef2542c: add X (Twitter) adapter: reply to public mentions, send and receive direct messages, post and edit from the bot account, and like posts, using the X API v2 with OAuth 2.0 and managed token refresh
+
+### Patch Changes
+
+- 3abdc69: docs(adapters): add Cloudflare Agents as a vendor-official state adapter (`agents/chat-sdk`) to the catalog and docs listing. It is hidden from the create-chat-sdk CLI (Worker/Durable Objects runtime), and the interactive state picker now filters out CLI-incompatible state adapters.
+- 0b63791: Raise the default message dedupe TTL from 5 to 10 minutes so it outlives the longest platform redelivery window. Slack's Events API retries up to ~5 minutes after the original delivery — exactly at the old TTL boundary, where a retried event could miss the expired dedupe entry from its first processing and be handled twice. Configurable behavior is unchanged (`dedupeTtlMs` still overrides).
+- 0c761f1: docs(adapters): add Dial as a vendor-official adapter (`@getdial/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec
+- 24a04d5: docs(adapters): add Photon as a vendor-official adapter (`@photon-ai/chat-adapter-imessage`) to the catalog, docs listing, and CLI scaffold spec
+- 076fe5d: preserve skipped mention routing for debounce and message patterns
+
+## 4.32.0
+
+### Minor Changes
+
+- 2e47351: Add `autoCompletePrevious` option to `Plan.addTask()`. Defaults to `true` so sequential workflows keep auto-completing existing in-progress tasks; pass `false` to keep multiple tasks in progress for parallel execution.
+
+### Patch Changes
+
+- eccc6b9: detect bot mentions in skipped queue and burst messages
+- 438f551: Fix lightweight thread handles so streaming posts without an incoming message context no longer crash.
+- d034b8b: docs(adapters): add Linq as a vendor-official adapter (`@linqapp/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec
+- 06af3e1: docs(adapters): add Novu as a vendor-official adapter (`@novu/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec
+- efa9610: Sync bundled KB resources from Edge Config: add four new guides (Vercel Connect, the Slack Vercel Connect bot, AI Gateway + AI SDK, and the daily digest bot), refresh existing guide bodies, and regenerate `resources/templates.json`. The `sync-resources` script now fetches and validates all guides before writing (so a failed fetch leaves the tree untouched), validates the source config shape, rejects duplicate slugs, retries transient fetches, and mirrors `SKILL.md` to all four committed copies.
+
 ## 4.31.0
 
 ### Minor Changes

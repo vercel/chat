@@ -22,12 +22,18 @@ export const GET = async (
   });
 
   for (const page of source.getPages(lang)) {
+    const { description, lastModified, title: pageTitle } = page.data as {
+      description?: string;
+      lastModified?: Date;
+      title?: string;
+    };
+
     feed.addItem({
       id: page.url,
-      title: page.data.title,
-      description: page.data.description,
+      title: pageTitle ?? title,
+      description,
       link: `${baseUrl}${page.url}`,
-      date: new Date(page.data.lastModified ?? new Date()),
+      date: new Date(lastModified ?? new Date()),
       author: [
         {
           name: "Vercel",

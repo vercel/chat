@@ -1,54 +1,58 @@
+import { threadIdContract } from "@chat-adapter/tests";
 import { describe, expect, it } from "vitest";
-import { decodeThreadId, encodeThreadId, isDMThread } from "./thread-utils";
+import {
+  decodeThreadId,
+  encodeThreadId,
+  type GoogleChatThreadId,
+  isDMThread,
+} from "./thread-utils";
 
-describe("Thread ID Encoding/Decoding", () => {
-  describe("encodeThreadId", () => {
-    it("should encode space name only", () => {
-      const id = encodeThreadId({ spaceName: "spaces/ABC123" });
-      expect(id).toBe("gchat:spaces/ABC123");
-    });
-
-    it("should encode space name with thread name", () => {
-      const id = encodeThreadId({
+threadIdContract<GoogleChatThreadId>({
+  name: "gchat",
+  encode: (d) => encodeThreadId(d),
+  decode: (id) => decodeThreadId(id),
+  cases: [
+    {
+      decoded: { spaceName: "spaces/ABC123", isDM: false },
+      encoded: "gchat:spaces/ABC123",
+    },
+    {
+      decoded: {
         spaceName: "spaces/ABC123",
         threadName: "spaces/ABC123/threads/xyz",
-      });
-      expect(id.startsWith("gchat:spaces/ABC123:")).toBe(true);
-      // Should contain base64url encoded thread name
-      const parts = id.split(":");
-      expect(parts.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it("should add :dm suffix for DM threads", () => {
-      const id = encodeThreadId({
-        spaceName: "spaces/DM123",
-        isDM: true,
-      });
-      expect(id).toBe("gchat:spaces/DM123:dm");
-    });
-
-    it("should add :dm suffix with thread name", () => {
-      const id = encodeThreadId({
+        isDM: false,
+      },
+      // base64url of the thread name segment
+      encoded: "gchat:spaces/ABC123:c3BhY2VzL0FCQzEyMy90aHJlYWRzL3h5eg",
+    },
+    {
+      decoded: { spaceName: "spaces/DM123", isDM: true },
+      encoded: "gchat:spaces/DM123:dm",
+    },
+    {
+      decoded: {
         spaceName: "spaces/DM123",
         threadName: "spaces/DM123/threads/t1",
         isDM: true,
-      });
-      expect(id.endsWith(":dm")).toBe(true);
-    });
-  });
+      },
+      encoded: "gchat:spaces/DM123:c3BhY2VzL0RNMTIzL3RocmVhZHMvdDE:dm",
+    },
+  ],
+  isDM: {
+    fn: (id) => isDMThread(id),
+    dmThreadId: "gchat:spaces/DM123:dm",
+    nonDmThreadId: "gchat:spaces/ABC123",
+  },
+});
 
+describe("Thread ID Encoding/Decoding", () => {
   describe("decodeThreadId", () => {
-    it("should decode space-only thread ID", () => {
-      const result = decodeThreadId("gchat:spaces/ABC123");
+    it("should decode a base64url-encoded thread name segment", () => {
+      const threadName = "spaces/ABC123/threads/xyz";
+      const segment = Buffer.from(threadName).toString("base64url");
+      const result = decodeThreadId(`gchat:spaces/ABC123:${segment}`);
       expect(result.spaceName).toBe("spaces/ABC123");
-      expect(result.threadName).toBeUndefined();
-      expect(result.isDM).toBe(false);
-    });
-
-    it("should decode DM thread ID", () => {
-      const result = decodeThreadId("gchat:spaces/DM123:dm");
-      expect(result.spaceName).toBe("spaces/DM123");
-      expect(result.isDM).toBe(true);
+      expect(result.threadName).toBe(threadName);
     });
 
     it("should throw on invalid format", () => {
@@ -64,44 +68,8 @@ describe("Thread ID Encoding/Decoding", () => {
     });
   });
 
-  describe("round-trip", () => {
-    it("should round-trip space-only", () => {
-      const original = { spaceName: "spaces/ABC" };
-      const encoded = encodeThreadId(original);
-      const decoded = decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-    });
-
-    it("should round-trip with thread name", () => {
-      const original = {
-        spaceName: "spaces/ABC",
-        threadName: "spaces/ABC/threads/xyz",
-      };
-      const encoded = encodeThreadId(original);
-      const decoded = decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.threadName).toBe(original.threadName);
-    });
-
-    it("should round-trip DM", () => {
-      const original = { spaceName: "spaces/DM1", isDM: true };
-      const encoded = encodeThreadId(original);
-      const decoded = decodeThreadId(encoded);
-      expect(decoded.spaceName).toBe(original.spaceName);
-      expect(decoded.isDM).toBe(true);
-    });
-  });
-
   describe("isDMThread", () => {
-    it("should return true for DM thread IDs", () => {
-      expect(isDMThread("gchat:spaces/DM123:dm")).toBe(true);
-    });
-
-    it("should return false for non-DM thread IDs", () => {
-      expect(isDMThread("gchat:spaces/ABC123")).toBe(false);
-    });
-
-    it("should return false for thread IDs with :dm in middle", () => {
+    it("should return false for thread IDs with :dm in the middle", () => {
       expect(isDMThread("gchat:dm:spaces/ABC")).toBe(false);
     });
   });

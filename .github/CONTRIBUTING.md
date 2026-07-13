@@ -31,6 +31,13 @@ The repo uses [konsistent](https://www.npmjs.com/package/konsistent) (configured
 
 `${Name}` is the kebab-case package suffix in PascalCase — most cases are mechanical (`discord` → `Discord`), but a few overrides live in `kebabToPascalMap` in the config (e.g. `gchat` → `GoogleChat`, `whatsapp` → `WhatsApp`).
 
+**Example apps (`examples/*`)** must:
+
+- Be marked `"private": true` (they are never published)
+- Name their `package.json` `name` field `example-*` (e.g. `example-nextjs-chat`)
+
+The `example-*` name lets the `ignore` glob in `.changeset/config.json` exclude every example from versioning and publishing automatically, so adding a new example needs no changeset and no edit to the changesets config. A test in `packages/integration-tests` asserts every `examples/*` package follows this convention and is in the resolved changesets `ignore` list.
+
 ## Signed Commits
 
 All commits to this repository must be **signed and verified**. Pull requests with unsigned commits will not be merged.
@@ -39,9 +46,36 @@ GitHub has a guide on setting this up: [Signing commits](https://docs.github.com
 
 Verify your setup by checking that new commits show a "Verified" badge on github.com.
 
+## Developer Certificate of Origin (DCO)
+
+In addition to signing, every commit must be **signed off** to certify that you wrote the patch (or otherwise have the right to submit it under the project's license), per the [Developer Certificate of Origin](https://developercertificate.org/).
+
+Sign off by adding the `-s` flag when you commit:
+
+```bash
+git commit -s -m "feat: add a thing"
+```
+
+This appends a trailer to your commit message:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+The name and email must match the author of the commit. To set them once:
+
+```bash
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+```
+
+If the DCO check fails on existing commits, the simplest fixes are to amend (`git commit --amend -s`) or rebase (`git rebase --signoff main`) and force-push. The DCO app also accepts a single remediation commit if you'd rather not rewrite history — follow the instructions in the failed check's details.
+
 ## Commit messages
 
-We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`). The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
+We follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `docs:`, `chore:`, etc., optionally with a scope (e.g., `fix(slack): ...`).
+
+The release workflow's auto-generated version PRs also use this convention (`chore(release): version packages`), so keeping new commits consistent makes changelogs and release PRs predictable.
 
 ## Development
 
@@ -99,7 +133,7 @@ This creates a markdown file in `.changeset/` describing your change. Commit thi
 ### When to Add a Changeset
 
 - **Do add** for: bug fixes, new features, breaking changes, dependency updates affecting behavior
-- **Don't add** for: documentation changes, internal refactors, test changes, CI updates
+- **Don't add** for: documentation changes, internal refactors, test changes, CI updates, or changes to example apps (`examples/*` are private and ignored by changesets)
 
 ### Changeset Types
 
@@ -123,7 +157,7 @@ pnpm --filter docs dev
 
 ## Preview Branch Testing
 
-The example app includes a middleware that can proxy webhook requests to a preview branch deployment. This allows testing preview branches with real webhook traffic from Slack/Teams/GChat.
+The example app includes a proxy that can forward webhook requests to a preview branch deployment. This allows testing preview branches with real webhook traffic from Slack/Teams/GChat.
 
 ### Setup
 
@@ -137,6 +171,6 @@ Clear the URL on the settings page.
 
 ### Files
 
-- `examples/nextjs-chat/src/middleware.ts` - The proxy middleware
+- `examples/nextjs-chat/src/proxy.ts` - The proxy logic
 - `examples/nextjs-chat/src/app/settings/page.tsx` - Settings UI
 - `examples/nextjs-chat/src/app/api/settings/preview-branch/route.ts` - API to get/set the URL

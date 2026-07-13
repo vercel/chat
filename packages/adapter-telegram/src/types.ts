@@ -440,6 +440,7 @@ export interface TelegramMessage {
   edit_date?: number;
   entities?: TelegramMessageEntity[];
   from?: TelegramUser;
+  media_group_id?: string;
   message_id: number;
   message_thread_id?: number;
   photo?: TelegramPhotoSize[];

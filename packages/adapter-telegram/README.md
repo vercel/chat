@@ -4,8 +4,8 @@
 
 > npm package: [`@chat-adapter/telegram`](https://www.npmjs.com/package/@chat-adapter/telegram)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/telegram)](https://www.npmjs.com/package/@chat-adapter/telegram)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/telegram)](https://www.npmjs.com/package/@chat-adapter/telegram)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Telegram adapter for [Chat SDK](https://chat-sdk.dev). Configure for bot webhooks and messaging.
 
@@ -158,8 +158,8 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Post message | Yes |
 | Edit message | Yes |
 | Delete message | Yes |
-| File uploads | Single file (`sendDocument`) |
-| Attachment uploads | Single image/audio/video/file (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`) |
+| File uploads | Yes (`sendDocument`, `sendMediaGroup`) |
+| Attachment uploads | Yes (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`, `sendMediaGroup`) |
 | Streaming | Private chat rich draft previews + post/edit fallback |
 
 ### Rich content
@@ -217,7 +217,7 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
-- `files` upload as Telegram documents. `attachments` preserve the normalized media type for single image, audio, video, or file uploads. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
+- `files` upload as Telegram documents. Multiple `files` are sent as Telegram media groups. `attachments` preserve image, audio, video, or file media type and also use media groups when multiple compatible attachments are posted. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 - Other rich card elements (images/select menus/radios) render as fallback text only.
 
 ## AI Coding Agents

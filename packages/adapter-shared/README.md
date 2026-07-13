@@ -2,8 +2,8 @@
 
 > npm package: [`@chat-adapter/shared`](https://www.npmjs.com/package/@chat-adapter/shared)
 
-[![npm version](https://img.shields.io/npm/v/@chat-adapter/shared)](https://www.npmjs.com/package/@chat-adapter/shared)
-[![npm downloads](https://img.shields.io/npm/dm/@chat-adapter/shared)](https://www.npmjs.com/package/@chat-adapter/shared)
+[![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
+[![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
 Shared utilities for [Chat SDK](https://chat-sdk.dev) adapters. Provides common helpers used across adapter implementations.
 

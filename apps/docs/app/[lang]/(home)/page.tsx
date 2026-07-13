@@ -25,8 +25,7 @@ const metadataTitle = "Chat SDK";
 const heroTitleDisplay = (
   <>
     Universal chat layer for
-    <br />
-    building bots and agents
+    <br className="hidden sm:block" /> building bots and agents
   </>
 );
 const heroDescription =
@@ -37,6 +36,7 @@ export const metadata: Metadata = {
   description: heroDescription,
   openGraph: {
     title: { absolute: metadataTitle },
+    images: "/opengraph-image.png",
   },
   twitter: {
     card: "summary_large_image",
@@ -45,15 +45,15 @@ export const metadata: Metadata = {
 
 const templates = [
   {
-    title: "Slack Agent Guide",
-    description: "Stream agent responses and tool calls into Slack threads.",
-    link: "https://vercel.com/kb/guide/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk",
-    code: `bot.onNewMention(async (thread, msg) => {
-  await thread.subscribe();
-  const result = await agent.stream({
-    prompt: msg.text,
-  });
-  await thread.post(result.fullStream);
+    title: "Vercel Connect Guide",
+    description:
+      "Authenticate a Slack bot with Vercel Connect instead of stored secrets.",
+    link: "https://vercel.com/kb/guide/build-a-slack-bot-with-vercel-connect",
+    code: `import { createSlackAdapter } from "@chat-adapter/slack";
+import { connectSlackAdapter } from "@vercel/connect/chat";
+
+const slack = createSlackAdapter({
+  ...connectSlackAdapter("slack/acme-slack"),
 });`,
   },
   {

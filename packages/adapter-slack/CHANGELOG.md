@@ -1,5 +1,35 @@
 # @chat-adapter/slack
 
+## 4.33.0
+
+### Patch Changes
+
+- 0b63791: Process Slack Socket Mode retry envelopes instead of discarding them. Slack redelivers an event (immediately, +1 min, +5 min) when a prior delivery wasn't acknowledged — including events sent while the app had no open socket, e.g. during a restart or a routine connection refresh. The adapter previously acked and dropped every envelope with `retry_num > 0`, so such events were permanently lost even though Slack redelivered them. Retries are now routed like first deliveries (logged at info with `retry_num`/`retry_reason`); `Chat.processMessage`'s message-id dedupe drops true duplicates.
+- Updated dependencies [3abdc69]
+- Updated dependencies [0b63791]
+- Updated dependencies [0c761f1]
+- Updated dependencies [ef2542c]
+- Updated dependencies [24a04d5]
+- Updated dependencies [d4c52ca]
+- Updated dependencies [076fe5d]
+  - chat@4.33.0
+  - @chat-adapter/shared@4.33.0
+
+## 4.32.0
+
+### Patch Changes
+
+- a8c4af7: prevent cached slack display names inside urls from being resolved as user mentions before payload formatting
+- 07c1112: Fix `@mention` rewriting so handles inside inline code spans (`` `@vercel/postgres` ``) and fenced code blocks (` ``` `) are no longer turned into `<@USER_ID>` Slack mentions. Agents printing npm package names or shell snippets previously had those handles corrupted into bot user IDs. Mention linking now skips whole code spans and code blocks; handles outside code (including the same name mentioned elsewhere in the message) still resolve normally.
+- Updated dependencies [eccc6b9]
+- Updated dependencies [438f551]
+- Updated dependencies [d034b8b]
+- Updated dependencies [06af3e1]
+- Updated dependencies [2e47351]
+- Updated dependencies [efa9610]
+  - chat@4.32.0
+  - @chat-adapter/shared@4.32.0
+
 ## 4.31.0
 
 ### Minor Changes
