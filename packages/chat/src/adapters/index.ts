@@ -794,7 +794,7 @@ export const ADAPTERS = {
   },
   velt: {
     description:
-      "Velt Comments adapter for bots that read, reply, mention, and start threads in anchored comments across documents, rich-text editors, canvases, PDFs, and video. Includes per-comment document context and an AI streaming-reply sample app.",
+      "Velt Comments adapter for building bots that read and respond in Velt comment threads on documents, text editors, and canvases.",
     env: {
       config: [
         "botUserId",
