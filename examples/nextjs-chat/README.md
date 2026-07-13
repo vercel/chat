@@ -1,6 +1,6 @@
 # Next.js Chat Example
 
-A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear — configure whichever platforms you need via environment variables.
+A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, Linear, Notion, and more — configure whichever platforms you need via environment variables.
 
 ## Getting started
 
@@ -82,6 +82,10 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | `GITHUB_CONNECTOR` | GitHub [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_CONNECTOR` | Linear [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_MODE` | Linear inbound mode: `comments` or `agent-sessions` |
+| `NOTION_TOKEN` | Notion connection access token |
+| `NOTION_VERIFICATION_TOKEN` | Notion webhook HMAC key (from subscription verification handshake) |
+| `NOTION_MENTION_MODE` | Optional: `mention` \| `all-comments` \| `keyword` (adapter default `mention`) |
+| `NOTION_KEYWORDS` | Optional: comma-separated keywords when `NOTION_MENTION_MODE=keyword` |
 | `REDIS_URL` | Redis connection string |
 
 See the [Chat SDK docs](https://chat-sdk.dev/docs) for full platform setup guides.

@@ -636,6 +636,46 @@ export const ADAPTERS = {
     slug: "messenger",
     type: "platform",
   },
+  notion: {
+    description:
+      "Participate in Notion page and block comment discussions via webhooks and the Comments API.",
+    env: {
+      config: [
+        "apiBaseUrl",
+        "streamingEditIntervalMs",
+        "externalUrlPollDelaysMs",
+      ],
+      optional: [
+        env("NOTION_BOT_USERNAME", "Bot display name for mention detection."),
+        env(
+          "NOTION_MENTION_MODE",
+          'Mention detection mode: "mention" | "all-comments" | "keyword" (default "mention" = plain-text @userName/@botUserId).'
+        ),
+        env(
+          "NOTION_KEYWORDS",
+          "Comma-separated keywords when NOTION_MENTION_MODE=keyword."
+        ),
+        env(
+          "NOTION_VERSION",
+          "Override Notion-Version header (default 2026-03-11)."
+        ),
+      ],
+      required: [
+        secretEnv("NOTION_TOKEN", "Connection access token (Bearer token)."),
+        secretEnv(
+          "NOTION_VERIFICATION_TOKEN",
+          "Webhook HMAC key from the subscription verification handshake."
+        ),
+      ],
+    },
+    factoryExport: "createNotionAdapter",
+    group: "official",
+    name: "Notion",
+    packageName: "@chat-adapter/notion",
+    peerDeps: [],
+    slug: "notion",
+    type: "platform",
+  },
   novu: {
     description:
       "Multi-channel agents with one-click channel setup, identity and multi-tenancy",

@@ -255,6 +255,7 @@ describe("Official platform adapter OG images", () => {
         "gchat",
         "linear",
         "messenger",
+        "notion",
         "slack",
         "teams",
         "telegram",
