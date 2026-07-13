@@ -1,5 +1,25 @@
 # @chat-adapter/web
 
+## 4.34.0
+
+### Minor Changes
+
+- 6714efc: Support AI SDK v7 as a peer dependency.
+
+  - `chat` now accepts `ai@^6.0.182 || ^7.0.0` (`chat/ai` tools work with both majors).
+  - `@chat-adapter/web` now accepts `ai@^6 || ^7`, `@ai-sdk/react@^3 || ^4`, `@ai-sdk/svelte@^4 || ^5`, and `@ai-sdk/vue@^3 || ^4`.
+  - The `chat/ai` tool factories now declare explicit `Tool<Input, Output>` return types instead of relying on inference, so the published declarations no longer depend on `ai` internals that changed in v7. The public type surface is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

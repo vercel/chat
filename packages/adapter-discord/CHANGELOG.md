@@ -1,5 +1,23 @@
 # @chat-adapter/discord
 
+## 4.34.0
+
+### Minor Changes
+
+- 0fdb902: Add opt-in Discord Components v2 rendering for Chat SDK cards via `contentFormat: DiscordContentFormat.ComponentsV2`.
+- 5341f90: Ignore `@everyone`/`@here` pings by default in gateway mode. Previously the legacy gateway listener treated global pings as bot mentions, so the bot responded to announcements. A new `respondToGlobalMentions` config option (default `false`) restores the old behavior when enabled, and also lets forwarded gateway messages opt in via the `mention_everyone` field.
+- 6c2a391: Add support for renaming native Discord thread channels.
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

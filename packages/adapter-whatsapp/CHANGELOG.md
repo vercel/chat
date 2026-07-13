@@ -1,5 +1,24 @@
 # @chat-adapter/whatsapp
 
+## 4.34.0
+
+### Minor Changes
+
+- 2338a66: Add `sendTemplate()` for sending pre-approved template messages, enabling business-initiated conversations outside the 24-hour customer service window
+- 8bd8a57: Implement outbound file and attachment sending for the WhatsApp adapter.
+
+  Supports binary `FileUpload` uploads, typed `Attachment` payloads (binary or HTTPS link passthrough), multi-file sequential sends, smart MIME-to-message-type mapping, caption placement with audio/long-text fallbacks, and card+file sequencing.
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

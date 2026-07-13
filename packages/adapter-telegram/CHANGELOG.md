@@ -1,5 +1,22 @@
 # @chat-adapter/telegram
 
+## 4.34.0
+
+### Minor Changes
+
+- 8d7ccdb: Add Telegram media group uploads for multiple files and attachments.
+
+### Patch Changes
+
+- 2531a42: Fix `detectMention` (and the Telegram adapter's `isBotMentioned`) falsely matching `@bot` when `@bot-dev` is mentioned. `\b` (word boundary) matches between a word character and a hyphen, so `/@bot\b/` incorrectly matches `@bot-dev`. Replaced with `(?![\w-])` to exclude hyphens.
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes
