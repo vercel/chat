@@ -127,6 +127,14 @@ export interface SlackAdapterConfig {
   logger?: Logger;
   /** Connection mode: "webhook" (default) or "socket" */
   mode?: SlackAdapterMode;
+  /**
+   * Use Slack's native streaming API (`chat.startStream` / `chat.appendStream`
+   * / `chat.stopStream`) for streamed posts. Defaults to true. Set false on
+   * Slack flavours without the streaming methods (e.g. GovSlack) to always
+   * stream via post-and-edit; the adapter also falls back automatically when
+   * the workspace rejects the first native call.
+   */
+  nativeStreaming?: boolean;
   /** Signing secret for webhook verification. Defaults to SLACK_SIGNING_SECRET env var. */
   signingSecret?: string;
   /** Shared secret for authenticating forwarded socket mode events. Auto-detected from SLACK_SOCKET_FORWARDING_SECRET. Falls back to appToken if not set. */

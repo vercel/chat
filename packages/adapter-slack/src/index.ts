@@ -11,7 +11,11 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
+import {
+  type ChatAppendStreamArguments,
+  type ChatStopStreamArguments,
+  WebClient,
+} from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -157,6 +161,27 @@ export type {
 
 /** Slack displays at most this many suggested prompts per thread. */
 const MAX_SUGGESTED_PROMPTS = 4;
+
+/**
+ * Slack platform errors indicating the workspace will never accept the native
+ * streaming methods (as opposed to transient/request-specific failures).
+ */
+const NATIVE_STREAMING_UNSUPPORTED_ERRORS = new Set([
+  "feature_not_enabled",
+  "method_deprecated",
+  "unknown_method",
+]);
+
+/**
+ * Extract the Slack platform error code (`data.error`) from a WebClient
+ * error, or undefined for non-platform errors (network failures, timeouts).
+ */
+function slackPlatformErrorCode(error: unknown): string | undefined {
+  const slackError = error as { code?: string; data?: { error?: string } };
+  return slackError?.code === "slack_webapi_platform_error"
+    ? slackError.data?.error
+    : undefined;
+}
 
 /**
  * Normalize a SlackBotToken config value to a resolver function, or undefined
@@ -499,6 +524,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly agentView: boolean;
   protected readonly suggestedPrompts?: SlackSuggestedPrompts;
   protected readonly loadingMessages?: string[];
+  protected readonly nativeStreaming: boolean;
+  /**
+   * Latched when the workspace rejects native streaming with an error that
+   * won't heal (e.g. `unknown_method` on GovSlack) so later streams skip the
+   * doomed native attempt and go straight to post-and-edit.
+   */
+  protected nativeStreamingBroken = false;
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
@@ -662,6 +694,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this.agentView = config.agentView ?? false;
     this.suggestedPrompts = config.suggestedPrompts;
     this.loadingMessages = config.loadingMessages;
+    this.nativeStreaming = config.nativeStreaming ?? true;
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -4164,6 +4197,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.debug("Slack: using fallback stream - no recipient context");
       return null;
     }
+    if (!this.nativeStreaming || this.nativeStreamingBroken) {
+      this.logger.debug(
+        "Slack: using fallback stream - native streaming disabled",
+        { configured: this.nativeStreaming, broken: this.nativeStreamingBroken }
+      );
+      return null;
+    }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
@@ -4186,11 +4226,85 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       wrapTablesForAppend: false,
     });
 
-    const flushMarkdownDelta = async (delta: string): Promise<void> => {
+    // In-stream fallback state. If the very first native call is rejected
+    // (streaming methods unavailable — e.g. GovSlack — or the feature is off
+    // for the workspace), nothing has rendered yet, so the rest of the stream
+    // is delivered via throttled post-and-edit instead. The already-consumed
+    // text lives in the renderer, so nothing is lost. Failures after content
+    // has rendered natively still propagate — mixing the two modes would
+    // duplicate output.
+    // Held in an object because the mode flips inside closures, which
+    // TypeScript's control-flow narrowing can't track on a plain `let`.
+    const fallback: {
+      message: RawMessage<unknown> | null;
+      mode: "fallback" | "native";
+    } = { message: null, mode: "native" };
+    const updateIntervalMs = options?.updateIntervalMs ?? 1000;
+    let fallbackSent = "";
+    let lastFallbackEditAt = 0;
+
+    const flushFallback = async (force: boolean): Promise<void> => {
+      const committable = renderer.getCommittableText();
+      if (committable.length === 0 || committable === fallbackSent) {
+        return;
+      }
+      const now = Date.now();
+      if (!(force || now - lastFallbackEditAt >= updateIntervalMs)) {
+        return;
+      }
+      if (fallback.message) {
+        await this.editMessage(threadId, fallback.message.id, committable);
+      } else {
+        fallback.message = await this.postMessage(threadId, committable);
+      }
+      fallbackSent = committable;
+      lastFallbackEditAt = now;
+    };
+
+    const switchToFallback = (error: unknown): void => {
+      fallback.mode = "fallback";
+      const platformError = slackPlatformErrorCode(error);
+      if (
+        platformError &&
+        NATIVE_STREAMING_UNSUPPORTED_ERRORS.has(platformError)
+      ) {
+        // The workspace will reject every future attempt too — latch so
+        // later streams skip straight to post-and-edit.
+        this.nativeStreamingBroken = true;
+      }
+      this.logger.warn(
+        "Slack native streaming unavailable, falling back to post-and-edit",
+        { channel, error }
+      );
+    };
+
+    /**
+     * Flush committed renderer text: as a markdown_text delta on the native
+     * stream, or as a throttled post/edit in fallback mode. A failure of the
+     * FIRST native flush (chat.startStream) switches to fallback mode.
+     */
+    const flushCommitted = async (force = false): Promise<void> => {
+      if (fallback.mode === "fallback") {
+        await flushFallback(force);
+        return;
+      }
+      const committable = renderer.getCommittableText();
+      const delta = committable.slice(lastAppended.length);
       if (delta.length === 0) {
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+      try {
+        await streamer.append({ markdown_text: delta, token });
+        lastAppended = committable;
+      } catch (error) {
+        if (streamer.ts !== undefined) {
+          // chat.startStream succeeded earlier; content is already rendering
+          // natively, so a mid-stream failure can't be recovered here.
+          throw error;
+        }
+        switchToFallback(error);
+        await flushFallback(force);
+      }
     };
 
     /**
@@ -4198,26 +4312,30 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * directly to Slack's streaming API. Any buffered markdown text is
      * flushed first to maintain correct ordering.
      *
-     * If the Slack API rejects the chunk (e.g. missing assistant:write scope,
-     * older @slack/web-api version, or Assistant features not enabled in the
-     * app manifest), the error is logged and the chunk is silently skipped.
-     * Text streaming continues unaffected.
+     * If the Slack API rejects the chunk (e.g. missing assistant:write scope
+     * or Assistant features not enabled in the app manifest), the error is
+     * logged and the chunk is silently skipped. Text streaming continues
+     * unaffected. In fallback mode structured chunks are skipped — task
+     * cards only exist on the native streaming surface.
      */
     let structuredChunksSupported = true;
     const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
-      if (!structuredChunksSupported) {
+      // Flush any buffered markdown before sending the structured chunk
+      await flushCommitted();
+
+      if (fallback.mode === "fallback" || !structuredChunksSupported) {
+        this.logger.debug("Slack: structured chunk skipped", {
+          chunkType: chunk.type,
+          mode: fallback.mode,
+        });
         return;
       }
 
-      // Flush any buffered markdown before sending the structured chunk
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
-
       try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
+        await streamer.append({
+          chunks: [chunk] as ChatAppendStreamArguments["chunks"],
+          token,
+        });
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
@@ -4225,26 +4343,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         structuredChunksSupported = false;
         this.logger.warn(
           "Structured streaming chunk failed, falling back to text-only streaming. " +
-            "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
-            "and @slack/web-api >= 7.14.0",
+            "Ensure your Slack app manifest includes the agent/assistant feature " +
+            "and the assistant:write scope",
           { chunkType: chunk.type, error }
         );
       }
     };
 
-    const pushTextAndFlush = async (text: string): Promise<void> => {
-      renderer.push(text);
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
-    };
-
     for await (const chunk of textStream) {
       if (typeof chunk === "string") {
-        await pushTextAndFlush(chunk);
+        renderer.push(chunk);
+        await flushCommitted();
       } else if (chunk.type === "markdown_text") {
-        await pushTextAndFlush(chunk.text);
+        renderer.push(chunk.text);
+        await flushCommitted();
       } else {
         // Structured chunk (task_update, plan_update) — send directly to Slack
         await sendStructuredChunk(chunk);
@@ -4253,9 +4365,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Flush any remaining buffered content (e.g. held table rows at end of stream).
     renderer.finish();
-    const finalCommittable = renderer.getCommittableText();
-    const finalDelta = finalCommittable.slice(lastAppended.length);
-    await flushMarkdownDelta(finalDelta);
+    await flushCommitted(true);
+
+    if (fallback.mode === "fallback") {
+      if (options?.stopBlocks) {
+        this.logger.warn(
+          "Slack: stopBlocks skipped - post-and-edit fallback cannot attach stream blocks",
+          { channel }
+        );
+      }
+      this.logger.debug("Slack: fallback stream complete", {
+        messageId: fallback.message?.id,
+      });
+      return fallback.message;
+    }
 
     const result = await streamer.stop({
       token,
@@ -5213,6 +5336,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     installationProvider: config?.installationProvider,
     loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
+    nativeStreaming: config?.nativeStreaming,
     suggestedPrompts: config?.suggestedPrompts,
     socketForwardingSecret:
       config?.socketForwardingSecret ??

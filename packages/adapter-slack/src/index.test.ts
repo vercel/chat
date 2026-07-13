@@ -8597,6 +8597,168 @@ describe("stream with empty threadTs", () => {
   });
 });
 
+describe("native streaming fallback", () => {
+  function createAdapter(config?: Record<string, unknown>) {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      ...config,
+    });
+    const postSpy = vi
+      .spyOn(adapter, "postMessage")
+      .mockResolvedValue({ id: "fallback-ts", threadId: "t", raw: {} });
+    const editSpy = vi
+      .spyOn(adapter, "editMessage")
+      .mockResolvedValue({ id: "fallback-ts", threadId: "t", raw: {} });
+    return { adapter, postSpy, editSpy };
+  }
+
+  async function* textStream(...parts: string[]) {
+    for (const part of parts) {
+      yield part;
+    }
+  }
+
+  it("returns null before consuming the stream when nativeStreaming is false", async () => {
+    const { adapter } = createAdapter({ nativeStreaming: false });
+    const chatStream = vi.fn();
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    const next = vi.fn();
+    const stream = { [Symbol.asyncIterator]: () => ({ next }) };
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", stream)
+    ).resolves.toBeNull();
+    expect(next).not.toHaveBeenCalled();
+    expect(chatStream).not.toHaveBeenCalled();
+  });
+
+  it("falls back to post-and-edit when the first native call fails", async () => {
+    const { adapter, postSpy, editSpy } = createAdapter();
+    const append = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    const stop = vi.fn();
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      textStream("hello ", "world")
+    );
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    // Whatever the throttle did mid-stream, the final forced flush must have
+    // delivered the full text — via the initial post or a closing edit.
+    const lastPosted = editSpy.mock.calls.length
+      ? editSpy.mock.calls.at(-1)?.[2]
+      : postSpy.mock.calls.at(-1)?.[1];
+    expect(lastPosted).toContain("world");
+  });
+
+  it("latches native streaming off after an unsupported-method platform error", async () => {
+    const { adapter } = createAdapter();
+    const platformError = Object.assign(new Error("unknown_method"), {
+      code: "slack_webapi_platform_error",
+      data: { error: "unknown_method" },
+    });
+    const chatStream = vi.fn().mockReturnValue({
+      append: vi.fn().mockRejectedValue(platformError),
+      stop: vi.fn(),
+      ts: undefined,
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+    expect(chatStream).toHaveBeenCalledTimes(1);
+
+    // Second stream skips the doomed native attempt entirely.
+    const next = vi.fn();
+    const stream = { [Symbol.asyncIterator]: () => ({ next }) };
+    await expect(
+      adapter.stream("slack:D123:1234567890.111111", stream)
+    ).resolves.toBeNull();
+    expect(chatStream).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("does not latch native streaming off after a transient error", async () => {
+    const { adapter } = createAdapter();
+    const chatStream = vi.fn().mockReturnValue({
+      append: vi.fn().mockRejectedValue(new Error("socket hang up")),
+      stop: vi.fn(),
+      ts: undefined,
+    });
+    mockClientMethod(adapter, "chatStream", chatStream);
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+    await adapter.stream(
+      "slack:D123:1234567890.111111",
+      textStream("hello again")
+    );
+
+    // Native streaming is re-attempted on the next stream.
+    expect(chatStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates mid-stream failures once native content has rendered", async () => {
+    const { adapter, postSpy } = createAdapter();
+    // ts is set: chat.startStream already succeeded, content is rendering.
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({
+        append: vi.fn().mockRejectedValue(new Error("mid-stream boom")),
+        stop: vi.fn(),
+        ts: "1234567890.222222",
+      })
+    );
+
+    await expect(
+      adapter.stream("slack:D123:1234567890.000000", textStream("hello"))
+    ).rejects.toThrow("mid-stream boom");
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips structured chunks in fallback mode without failing the stream", async () => {
+    const { adapter, postSpy } = createAdapter();
+    const append = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop: vi.fn(), ts: undefined })
+    );
+
+    async function* mixedStream() {
+      yield "hello";
+      yield {
+        details: "step",
+        id: "task-1",
+        status: "in_progress" as const,
+        title: "Task",
+        type: "task_update" as const,
+      };
+      yield " world";
+    }
+
+    const result = await adapter.stream(
+      "slack:D123:1234567890.000000",
+      mixedStream()
+    );
+
+    expect(result).toMatchObject({ id: "fallback-ts" });
+    // The structured chunk didn't fail the stream, and the text still
+    // arrived via the post-and-edit fallback.
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("hello");
+  });
+});
+
 describe("scheduleMessage with empty threadTs", () => {
   it("normalizes empty threadTs to undefined", async () => {
     const adapter = createSlackAdapter({
