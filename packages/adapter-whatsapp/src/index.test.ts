@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
-import type { CardElement } from "chat";
 import {
   createMockChatInstance,
   createMockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
+import type { CardElement } from "chat";
 import {
   afterEach,
   beforeEach,
