@@ -29,7 +29,8 @@ export async function POST(
 }
 
 // GET handler — serves as health check, but also forwards to webhook handler
-// for platforms that need GET verification (e.g. WhatsApp/Facebook challenge-response)
+// for platforms that need GET verification (e.g. WhatsApp/Facebook hub
+// challenge, X CRC challenge)
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ platform: string }> }
@@ -45,7 +46,8 @@ export async function GET(
   const url = new URL(request.url);
   if (
     url.searchParams.has("hub.mode") ||
-    url.searchParams.has("hub.verify_token")
+    url.searchParams.has("hub.verify_token") ||
+    url.searchParams.has("crc_token")
   ) {
     return webhookHandler(request);
   }
