@@ -11,6 +11,9 @@ author: Dial
 mdxBody: true
 features:
   postMessage: yes
+  threadedReplies:
+    status: yes
+    label: Native quoted replies on iMessage; regular message on SMS; inbound replies carry the target message ID
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -170,8 +173,6 @@ The adapter recomputes the HMAC with Node's `crypto.createHmac` + `timingSafeEqu
 | Outbound  | SMS / MMS / iMessage   | ✅   | ✅ (via attachment URLs) |
 
 Voice calls surface as their transcript via the `call.transcribed` event — the adapter fetches the transcript through `@getdial/sdk.getCall()` and forwards it as a message on the caller's thread.
-
-**Threaded replies and reactions** ride the same channels. Replies are delivered as native quoted replies on iMessage (regular messages on SMS), reactions as native Tapbacks (`love`, `like`, `dislike`, `laugh`, `emphasize`, `question`, or any single emoji) — and inbound replies and Tapbacks arrive carrying the ID of the message they target.
 
 ## Threads
 
