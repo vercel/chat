@@ -2471,6 +2471,9 @@ export class TelegramAdapter
     return chat.username;
   }
 
+  private _mentionRegexUsername?: string;
+  private _mentionRegex?: RegExp;
+
   protected isBotMentioned(message: TelegramMessage, text: string): boolean {
     if (!text) {
       return false;
@@ -2504,11 +2507,17 @@ export class TelegramAdapter
       }
     }
 
-    const mentionRegex = new RegExp(
-      `@${this.escapeRegex(username)}(?![\\w-])`,
-      "i"
-    );
+    const mentionRegex = this.getMentionRegex(username);
     return mentionRegex.test(text);
+  }
+
+  protected getMentionRegex(username: string): RegExp {
+    if (!this._mentionRegex || this._mentionRegexUsername !== username) {
+      this._mentionRegexUsername = username;
+      this._mentionRegex = new RegExp(`@${this.escapeRegex(username)}\\b`, "i");
+    }
+
+    return this._mentionRegex;
   }
 
   protected entityText(text: string, entity: TelegramMessageEntity): string {
@@ -2861,13 +2870,24 @@ export class TelegramAdapter
     return error instanceof Error && error.name === "AbortError";
   }
 
-  protected async sleep(delayMs: number): Promise<void> {
-    if (delayMs <= 0) {
+  protected async sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (delayMs <= 0 || signal?.aborted) {
       return;
     }
 
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, delayMs);
+      const timeoutId = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, delayMs);
+
+      const onAbort = () => {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      };
+
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
