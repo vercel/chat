@@ -175,8 +175,6 @@ The adapter recomputes the HMAC with Node's `crypto.createHmac` + `timingSafeEqu
 
 Voice calls surface as their transcript via the `call.transcribed` event — the adapter fetches the transcript through `@getdial/sdk.getCall()` and forwards it as a message on the caller's thread.
 
-**Threaded replies** flow inbound: when the peer quotes one of your messages on an iMessage number, the parsed message's `raw.replyToId` carries the targeted message's ID. Chat SDK has no primitive for *sending* a quoted reply, so outbound posts are always regular messages.
-
 ## Threads
 
 A Chat SDK thread here is a **pair of phone numbers** — your Dial-owned number and the peer's — encoded as:
