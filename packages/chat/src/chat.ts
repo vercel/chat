@@ -243,7 +243,7 @@ export class Chat<
   private readonly userName: string;
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
-  private readonly _fallbackStreamingPlaceholderText: string | null;
+  private readonly _fallbackStreamingPlaceholderText: string | null | undefined;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
   private readonly _threadHistory: ThreadHistoryCache;
@@ -296,9 +296,7 @@ export class Chat<
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
     this._fallbackStreamingPlaceholderText =
-      config.fallbackStreamingPlaceholderText !== undefined
-        ? config.fallbackStreamingPlaceholderText
-        : "...";
+      config.fallbackStreamingPlaceholderText;
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
     this._onLockConflict = config.onLockConflict;
     this._lockScope = config.lockScope;

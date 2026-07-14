@@ -1177,12 +1177,24 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
-    _options?: StreamOptions
-  ): Promise<RawMessage<unknown>> {
+    options?: StreamOptions
+  ): Promise<RawMessage<unknown> | null> {
     const activeStream = this.activeStreams.get(threadId);
 
     if (activeStream && !activeStream.canceled) {
-      return this.streamViaEmit(threadId, textStream, activeStream);
+      return this.streamViaEmit(
+        threadId,
+        textStream,
+        activeStream,
+        options?.fallbackStreamingPlaceholderText
+      );
+    }
+
+    if (
+      !activeStream &&
+      typeof options?.fallbackStreamingPlaceholderText === "string"
+    ) {
+      return null;
     }
 
     // No native streamer available (group chats, proactive messages) —
@@ -1212,7 +1224,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected async streamViaEmit(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
-    stream: IStreamer
+    stream: IStreamer,
+    placeholderText?: string | null
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1224,6 +1237,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
+      if (typeof placeholderText === "string") {
+        stream.update(placeholderText);
+      }
+
       for await (const chunk of textStream) {
         if (stream.canceled) {
           this.logger.debug("Teams stream canceled by user", { threadId });

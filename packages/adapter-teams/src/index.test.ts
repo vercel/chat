@@ -7,6 +7,7 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
+import type { IStreamer } from "@microsoft/teams.apps";
 import { ConsoleLogger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
@@ -242,6 +243,111 @@ describe("TeamsAdapter", () => {
         logger,
       });
       expect(adapter.name).toBe("teams");
+    });
+  });
+
+  describe("streaming", () => {
+    class StreamingTestAdapter extends TeamsAdapter {
+      streamNatively(
+        textStream: AsyncIterable<string>,
+        stream: IStreamer,
+        placeholderText?: string | null
+      ) {
+        return this.streamViaEmit(
+          "teams:dm",
+          textStream,
+          stream,
+          placeholderText
+        );
+      }
+    }
+
+    let adapter: StreamingTestAdapter;
+
+    beforeEach(() => {
+      adapter = new StreamingTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+    });
+
+    const textStream = async function* (chunks: string[]) {
+      yield* chunks;
+    };
+
+    const createStreamer = () => {
+      let onChunk: ((activity: { id: string }) => void) | undefined;
+      return {
+        canceled: false,
+        close: vi.fn(),
+        emit: vi.fn(() => onChunk?.({ id: "answer-id" })),
+        events: {
+          once: vi.fn((_event, listener) => {
+            onChunk = listener;
+          }),
+        },
+        update: vi.fn(),
+      } as unknown as IStreamer;
+    };
+
+    it("uses core fallback for an explicit group-chat placeholder", async () => {
+      let consumed = false;
+      const source = {
+        async *[Symbol.asyncIterator]() {
+          consumed = true;
+          yield "Done";
+        },
+      };
+
+      const result = await adapter.stream("teams:group", source, {
+        fallbackStreamingPlaceholderText: "Working...",
+      });
+
+      expect(result).toBeNull();
+      expect(consumed).toBe(false);
+    });
+
+    it.each([
+      undefined,
+      null,
+    ])("preserves buffered group-chat streaming for placeholder %s", async (placeholderText) => {
+      const postMessage = vi.spyOn(adapter, "postMessage").mockResolvedValue({
+        id: "answer-id",
+        threadId: "teams:group",
+        raw: {},
+      });
+
+      const result = await adapter.stream(
+        "teams:group",
+        textStream(["Do", "ne"]),
+        placeholderText === undefined
+          ? undefined
+          : { fallbackStreamingPlaceholderText: placeholderText }
+      );
+
+      expect(postMessage).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledWith("teams:group", {
+        markdown: "Done",
+      });
+      expect(result?.id).toBe("answer-id");
+    });
+
+    it("sends an explicit placeholder as native status before the first chunk", async () => {
+      const stream = createStreamer();
+
+      const result = await adapter.streamNatively(
+        textStream(["Do", "ne"]),
+        stream,
+        "Working..."
+      );
+
+      expect(stream.update).toHaveBeenCalledWith("Working...");
+      expect(vi.mocked(stream.update).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(stream.emit).mock.invocationCallOrder[0] ?? 0
+      );
+      expect(stream.emit).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ id: "answer-id", threadId: "teams:dm" });
     });
   });
 
