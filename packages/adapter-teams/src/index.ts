@@ -911,7 +911,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       return {
         avatarUrl: undefined,
-        email: graphUser.mail ?? undefined,
+        email: graphUser.mail ?? graphUser.userPrincipalName ?? undefined,
         fullName: graphUser.displayName ?? aadObjectId,
         isBot: false,
         userId,

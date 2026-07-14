@@ -1015,7 +1015,7 @@ describe("TeamsAdapter", () => {
       mockApp.graph = {
         call: vi.fn(async () => ({
           displayName: "Alice Smith",
-          mail: "alice@contoso.com",
+          mail: "alice.smith@contoso.com",
           userPrincipalName: "alice@contoso.com",
           id: "aad-object-id-456",
         })),
@@ -1026,7 +1026,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Alice Smith");
-      expect(user?.email).toBe("alice@contoso.com");
+      expect(user?.email).toBe("alice.smith@contoso.com");
       expect(user?.userName).toBe("alice@contoso.com");
       expect(user?.userId).toBe("29:user-123");
       expect(user?.isBot).toBe(false);
@@ -1086,7 +1086,7 @@ describe("TeamsAdapter", () => {
       expect(user).toBeNull();
     });
 
-    it("should handle missing mail gracefully", async () => {
+    it("should fall back to userPrincipalName when mail is missing", async () => {
       const adapter = new TeamsAdapter({
         appId: "test",
         appPassword: "test",
@@ -1120,7 +1120,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Bob Jones");
-      expect(user?.email).toBeUndefined();
+      expect(user?.email).toBe("bob@contoso.com");
       expect(user?.userName).toBe("bob@contoso.com");
     });
 
