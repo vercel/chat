@@ -1110,6 +1110,26 @@ describe("parseMessage", () => {
     expect(message.author.isBot).toBe(true);
   });
 
+  it("marks USLACK messages as system-authored", () => {
+    const event = {
+      type: "message",
+      user: "USLACK",
+      channel: "D456",
+      channel_type: "im",
+      text: "<@U123> archived the channel <#C123>",
+      ts: "1234567890.123456",
+    };
+
+    const message = adapter.parseMessage(event);
+
+    expect(message.author).toMatchObject({
+      userId: "USLACK",
+      isBot: false,
+      isSystem: true,
+      isMe: false,
+    });
+  });
+
   it("detects messages from self", () => {
     const event = {
       type: "message",
@@ -3097,6 +3117,53 @@ describe("DM message handling", () => {
       .mock.calls[0][2];
     const message = await factory();
     expect(message.isMention).toBeUndefined();
+  });
+
+  it("USLACK system notifications in DMs are dispatched with isSystem set", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "slackbot", profile: { display_name: "Slackbot" } },
+      })
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "USLACK",
+        channel: "D_DM_CHAN",
+        channel_type: "im",
+        text: "<@U_USER> archived the channel <#C_CHANNEL>",
+        ts: "1234567890.555555",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+    expect(message.author).toMatchObject({
+      userId: "USLACK",
+      isBot: false,
+      isSystem: true,
+      isMe: false,
+    });
   });
 
   it("channel messages do NOT have isMention auto-set", async () => {
