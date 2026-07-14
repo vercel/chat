@@ -11,9 +11,6 @@ author: Dial
 mdxBody: true
 features:
   postMessage: yes
-  threadedReplies:
-    status: partial
-    label: Inbound replies carry their target message; no outbound quote primitive in Chat SDK
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -177,6 +174,8 @@ The adapter recomputes the HMAC with Node's `crypto.createHmac` + `timingSafeEqu
 | Outbound  | SMS / MMS / iMessage   | ✅   | ✅ (via attachment URLs) |
 
 Voice calls surface as their transcript via the `call.transcribed` event — the adapter fetches the transcript through `@getdial/sdk.getCall()` and forwards it as a message on the caller's thread.
+
+**Threaded replies** flow inbound: when the peer quotes one of your messages on an iMessage number, the parsed message's `raw.replyToId` carries the targeted message's ID. Chat SDK has no primitive for *sending* a quoted reply, so outbound posts are always regular messages.
 
 ## Threads
 
