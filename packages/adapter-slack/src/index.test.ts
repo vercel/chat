@@ -7505,6 +7505,81 @@ describe("reverse user lookup", () => {
     });
   });
 
+  describe("system-authored messages", () => {
+    it("marks messages from USLACK as isSystem", async () => {
+      const { adapter } = createAdapterWithState();
+
+      const mockClient = (
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
+      mockClient.users.info = vi.fn().mockResolvedValue({
+        user: {
+          profile: { display_name: "Slackbot", real_name: "Slackbot" },
+          real_name: "Slackbot",
+          name: "slackbot",
+        },
+      });
+
+      const event = {
+        type: "message",
+        user: "USLACK",
+        channel_type: "im",
+        text: "<@U123> archived the channel <#C123>",
+        ts: "1234567890.123456",
+        channel: "D123",
+      };
+
+      const message = (await (
+        adapter as unknown as {
+          parseSlackMessage(
+            event: Record<string, unknown>,
+            threadId: string
+          ): Promise<{ author: Record<string, unknown> }>;
+        }
+      ).parseSlackMessage(event, "slack:D123:1234567890.123456")) as {
+        author: Record<string, unknown>;
+      };
+
+      expect(message.author).toMatchObject({
+        userId: "USLACK",
+        isBot: false,
+        isSystem: true,
+        isMe: false,
+      });
+    });
+
+    it("marks human-authored messages as not isSystem", async () => {
+      const { adapter } = createAdapterWithState();
+
+      const event = {
+        type: "message",
+        user: "U_HUMAN_1",
+        username: "human",
+        text: "Hello",
+        ts: "1234567890.123456",
+        channel: "C123",
+      };
+
+      const message = (await (
+        adapter as unknown as {
+          parseSlackMessage(
+            event: Record<string, unknown>,
+            threadId: string
+          ): Promise<{ author: Record<string, unknown> }>;
+        }
+      ).parseSlackMessage(event, "slack:C123:1234567890.123456")) as {
+        author: Record<string, unknown>;
+      };
+
+      expect(message.author).toMatchObject({
+        userId: "U_HUMAN_1",
+        isBot: false,
+        isSystem: false,
+        isMe: false,
+      });
+    });
+  });
+
   describe("user_change event", () => {
     it("invalidates user cache on profile change", async () => {
       const state = createMockState();

@@ -59,3 +59,9 @@
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_home_opened","user":"U00FAKEUSER1","channel":"D00FAKEDM001","tab":"messages","event_ts":"1771460700.333100","context":{"entities":[{"type":"slack#/types/channel_id","value":"C00FAKECHAN1"}]}},"type":"event_callback","event_id":"Ev0AGENTHOME1","event_time":1771460700}'
 }
 ```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"message","user":"USLACK","channel":"D00FAKEDM001","channel_type":"im","text":"<@U00FAKEUSER1> archived the channel <#C00FAKECHAN1>","ts":"1771460800.444100","event_ts":"1771460800.444100"},"type":"event_callback","event_id":"Ev0ASYSTEM01","event_time":1771460800}'
+}
+```

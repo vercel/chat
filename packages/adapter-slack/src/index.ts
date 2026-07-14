@@ -88,6 +88,10 @@ import { verifySlackRequest } from "./webhook/index";
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
 
+// Reserved user ID Slack uses for platform-generated messages (e.g.
+// "@user archived the channel") that carry no bot_id or system subtype.
+const SLACK_SYSTEM_USER_ID = "USLACK";
+
 // Slack expects block_suggestion responses within 3s. Leave headroom for
 // network latency so the HTTP response lands before Slack gives up.
 const OPTIONS_LOAD_TIMEOUT_MS = 2500;
@@ -3106,6 +3110,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userName,
         fullName,
         isBot: !!event.bot_id,
+        isSystem: event.user === SLACK_SYSTEM_USER_ID,
         isMe,
       },
       metadata: {
@@ -4899,6 +4904,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userName,
         fullName,
         isBot: !!event.bot_id,
+        isSystem: event.user === SLACK_SYSTEM_USER_ID,
         isMe,
       },
       metadata: {
