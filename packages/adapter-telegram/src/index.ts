@@ -2514,7 +2514,10 @@ export class TelegramAdapter
   protected getMentionRegex(username: string): RegExp {
     if (!this._mentionRegex || this._mentionRegexUsername !== username) {
       this._mentionRegexUsername = username;
-      this._mentionRegex = new RegExp(`@${this.escapeRegex(username)}\\b`, "i");
+      this._mentionRegex = new RegExp(
+        `@${this.escapeRegex(username)}(?![\\w-])`,
+        "i"
+      );
     }
 
     return this._mentionRegex;
