@@ -587,6 +587,8 @@ export interface PlanUpdateChunk {
  * Platform-specific options are passed through to the adapter.
  */
 export interface StreamOptions {
+  /** Placeholder text when explicitly configured for fallback streaming. */
+  fallbackStreamingPlaceholderText?: string | null;
   /** Slack: The team/workspace ID */
   recipientTeamId?: string;
   /** Slack: The user ID to stream to (for AI assistant context) */
@@ -1428,6 +1430,8 @@ export interface RawMessage<TRawMessage = unknown> {
 }
 
 export interface Author {
+  /** Email address when provided by the platform */
+  email?: string;
   /** Display name */
   fullName: string;
   /** Whether the author is a bot */

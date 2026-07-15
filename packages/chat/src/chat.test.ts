@@ -1993,6 +1993,38 @@ describe("Chat", () => {
       expect(mockAdapter.editMessage).toHaveBeenCalled();
     });
 
+    it.each([
+      [{}, undefined],
+      [{ fallbackStreamingPlaceholderText: "Working..." }, "Working..."],
+      [{ fallbackStreamingPlaceholderText: null }, null],
+    ] as const)("passes only explicit placeholder config to adapter streaming", async (placeholderConfig, expected) => {
+      const adapter = createMockAdapter("teams");
+      const stream = vi.fn().mockResolvedValue({
+        id: "answer-id",
+        threadId: "teams:C123:1234.5678",
+        raw: {},
+      });
+      adapter.stream = stream;
+      const customChat = new Chat({
+        userName: "testbot",
+        adapters: { teams: adapter },
+        state: createMockState(),
+        ...placeholderConfig,
+      });
+
+      await customChat.thread("teams:C123:1234.5678").post(chunks());
+
+      const options = stream.mock.calls[0]?.[2];
+      if (expected !== undefined) {
+        expect(options).toHaveProperty(
+          "fallbackStreamingPlaceholderText",
+          expected
+        );
+      } else {
+        expect(options).not.toHaveProperty("fallbackStreamingPlaceholderText");
+      }
+    });
+
     it("should throw for an invalid thread ID", () => {
       expect(() => chat.thread("")).toThrow("Invalid thread ID");
     });

@@ -7,6 +7,7 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
+import type { IStreamer } from "@microsoft/teams.apps";
 import { ConsoleLogger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
@@ -242,6 +243,111 @@ describe("TeamsAdapter", () => {
         logger,
       });
       expect(adapter.name).toBe("teams");
+    });
+  });
+
+  describe("streaming", () => {
+    class StreamingTestAdapter extends TeamsAdapter {
+      streamNatively(
+        textStream: AsyncIterable<string>,
+        stream: IStreamer,
+        placeholderText?: string | null
+      ) {
+        return this.streamViaEmit(
+          "teams:dm",
+          textStream,
+          stream,
+          placeholderText
+        );
+      }
+    }
+
+    let adapter: StreamingTestAdapter;
+
+    beforeEach(() => {
+      adapter = new StreamingTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+    });
+
+    const textStream = async function* (chunks: string[]) {
+      yield* chunks;
+    };
+
+    const createStreamer = () => {
+      let onChunk: ((activity: { id: string }) => void) | undefined;
+      return {
+        canceled: false,
+        close: vi.fn(),
+        emit: vi.fn(() => onChunk?.({ id: "answer-id" })),
+        events: {
+          once: vi.fn((_event, listener) => {
+            onChunk = listener;
+          }),
+        },
+        update: vi.fn(),
+      } as unknown as IStreamer;
+    };
+
+    it("uses core fallback for an explicit group-chat placeholder", async () => {
+      let consumed = false;
+      const source = {
+        async *[Symbol.asyncIterator]() {
+          consumed = true;
+          yield "Done";
+        },
+      };
+
+      const result = await adapter.stream("teams:group", source, {
+        fallbackStreamingPlaceholderText: "Working...",
+      });
+
+      expect(result).toBeNull();
+      expect(consumed).toBe(false);
+    });
+
+    it.each([
+      undefined,
+      null,
+    ])("preserves buffered group-chat streaming for placeholder %s", async (placeholderText) => {
+      const postMessage = vi.spyOn(adapter, "postMessage").mockResolvedValue({
+        id: "answer-id",
+        threadId: "teams:group",
+        raw: {},
+      });
+
+      const result = await adapter.stream(
+        "teams:group",
+        textStream(["Do", "ne"]),
+        placeholderText === undefined
+          ? undefined
+          : { fallbackStreamingPlaceholderText: placeholderText }
+      );
+
+      expect(postMessage).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledWith("teams:group", {
+        markdown: "Done",
+      });
+      expect(result?.id).toBe("answer-id");
+    });
+
+    it("sends an explicit placeholder as native status before the first chunk", async () => {
+      const stream = createStreamer();
+
+      const result = await adapter.streamNatively(
+        textStream(["Do", "ne"]),
+        stream,
+        "Working..."
+      );
+
+      expect(stream.update).toHaveBeenCalledWith("Working...");
+      expect(vi.mocked(stream.update).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(stream.emit).mock.invocationCallOrder[0] ?? 0
+      );
+      expect(stream.emit).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ id: "answer-id", threadId: "teams:dm" });
     });
   });
 
@@ -991,6 +1097,164 @@ describe("TeamsAdapter", () => {
   // getUser Tests
   // ==========================================================================
 
+  describe("incoming sender email", () => {
+    class IncomingMessageTestAdapter extends TeamsAdapter {
+      handleIncoming(activity: Record<string, unknown>) {
+        return this.handleMessageActivity({ activity } as never);
+      }
+    }
+
+    const activity = (aadObjectId?: string) => ({
+      type: "message",
+      id: "msg-100",
+      text: "Hello world",
+      from: {
+        id: "29:user-123",
+        name: "Alice",
+        aadObjectId,
+      },
+      conversation: { id: "19:abc@thread.tacv2" },
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    const setup = async (
+      graphResult: Record<string, unknown> | Error,
+      cachedAadObjectId?: string
+    ) => {
+      const adapter = new IncomingMessageTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+      const state = createMockState();
+      if (cachedAadObjectId) {
+        state.cache.set("teams:aadObjectId:29:user-123", cachedAadObjectId);
+      }
+      const chat = createMockChatInstance({ state });
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => {
+          if (graphResult instanceof Error) {
+            throw graphResult;
+          }
+          return graphResult;
+        }),
+      };
+      await adapter.initialize(chat);
+      return { adapter, chat, mockApp, state };
+    };
+
+    it("hydrates email from the activity AAD object ID without cached state", async () => {
+      const { adapter, chat, mockApp, state } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(state.get).not.toHaveBeenCalledWith(
+        "teams:aadObjectId:29:user-123"
+      );
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "activity-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("falls back to the cached AAD object ID", async () => {
+      const { adapter, chat, mockApp } = await setup(
+        {
+          displayName: "Alice",
+          mail: null,
+          userPrincipalName: "alice@contoso.com",
+        },
+        "cached-aad-id"
+      );
+
+      await adapter.handleIncoming(activity());
+
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "cached-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@contoso.com");
+    });
+
+    it("dispatches the message when Graph lookup fails", async () => {
+      const { adapter, chat } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+
+    it("caches the Graph lookup across messages", async () => {
+      const { adapter, chat, mockApp } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("caches failed Graph lookups without retrying", async () => {
+      const { adapter, chat, mockApp } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      expect(chat.processMessage).toHaveBeenCalledTimes(2);
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+
+    it("hydrates email on the DM path and completes processing", async () => {
+      const { adapter, chat } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+      // DM handling blocks on a waitUntil-driven promise for native
+      // streaming, so the mock must invoke waitUntil for the handler
+      // to resolve.
+      vi.mocked(chat.processMessage).mockImplementation(
+        (_adapter, _threadId, _message, options) => {
+          (
+            options as { waitUntil?: (task: Promise<unknown>) => void }
+          )?.waitUntil?.(Promise.resolve());
+        }
+      );
+
+      await adapter.handleIncoming({
+        ...activity("activity-aad-id"),
+        conversation: { id: "a:1dm-conversation" },
+      });
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+  });
+
   describe("getUser", () => {
     it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
       const adapter = new TeamsAdapter({
@@ -1015,7 +1279,7 @@ describe("TeamsAdapter", () => {
       mockApp.graph = {
         call: vi.fn(async () => ({
           displayName: "Alice Smith",
-          mail: "alice@contoso.com",
+          mail: "alice.smith@contoso.com",
           userPrincipalName: "alice@contoso.com",
           id: "aad-object-id-456",
         })),
@@ -1026,7 +1290,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Alice Smith");
-      expect(user?.email).toBe("alice@contoso.com");
+      expect(user?.email).toBe("alice.smith@contoso.com");
       expect(user?.userName).toBe("alice@contoso.com");
       expect(user?.userId).toBe("29:user-123");
       expect(user?.isBot).toBe(false);
@@ -1086,7 +1350,7 @@ describe("TeamsAdapter", () => {
       expect(user).toBeNull();
     });
 
-    it("should handle missing mail gracefully", async () => {
+    it("should fall back to userPrincipalName when mail is missing", async () => {
       const adapter = new TeamsAdapter({
         appId: "test",
         appPassword: "test",
@@ -1120,7 +1384,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Bob Jones");
-      expect(user?.email).toBeUndefined();
+      expect(user?.email).toBe("bob@contoso.com");
       expect(user?.userName).toBe("bob@contoso.com");
     });
 

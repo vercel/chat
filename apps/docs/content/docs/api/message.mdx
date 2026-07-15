@@ -77,6 +77,10 @@ import { Message } from "chat";
       description: 'Display name.',
       type: 'string',
     },
+    email: {
+      description: 'Email address when provided by the platform. Availability may require additional permissions.',
+      type: 'string | undefined',
+    },
     isBot: {
       description: 'Whether the author is a bot.',
       type: 'boolean | "unknown"',

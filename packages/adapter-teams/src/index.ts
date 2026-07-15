@@ -80,6 +80,11 @@ interface ActionSubmitData {
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const USER_INFO_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const USER_INFO_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Sentinel cached when a Graph lookup fails, so tenants without Graph
+// consent don't pay a failing network call on every message.
+const USER_INFO_NEGATIVE_SENTINEL = "unresolvable";
 const DEFAULT_DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
@@ -334,6 +339,15 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     const message = this.parseTeamsMessage(activity, threadId);
+    const user = activity.from?.aadObjectId
+      ? await this.getUserByAadObjectId(
+          message.author.userId,
+          activity.from.aadObjectId
+        )
+      : await this.getUser(message.author.userId);
+    if (user?.email) {
+      message.author.email = user.email;
+    }
 
     // Detect @mention by checking if any mentioned entity matches our app ID
     const entities = activity.entities || [];
@@ -905,24 +919,81 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         return null;
       }
 
+      return await this.getUserByAadObjectId(userId, aadObjectId);
+    } catch (error) {
+      this.logger.warn("Failed to read cached aadObjectId from state", {
+        userId,
+        error,
+      });
+      return null;
+    }
+  }
+
+  private async getUserByAadObjectId(
+    userId: string,
+    aadObjectId: string
+  ): Promise<UserInfo | null> {
+    const cacheKey = `teams:userInfo:${aadObjectId}`;
+    const cached = await this.readCachedUserInfo(cacheKey);
+    if (cached === USER_INFO_NEGATIVE_SENTINEL) {
+      return null;
+    }
+    if (cached) {
+      return { ...cached, userId };
+    }
+
+    try {
       const graphUser = await this.app.graph.call(users.get, {
         "user-id": aadObjectId,
       });
 
-      return {
+      const userInfo: UserInfo = {
         avatarUrl: undefined,
-        email: graphUser.mail ?? undefined,
+        email: graphUser.mail ?? graphUser.userPrincipalName ?? undefined,
         fullName: graphUser.displayName ?? aadObjectId,
         isBot: false,
         userId,
         userName:
           graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
       };
+      this.chat
+        ?.getState()
+        .set(cacheKey, JSON.stringify(userInfo), USER_INFO_CACHE_TTL_MS)
+        .catch(() => {});
+      return userInfo;
     } catch (error) {
       this.logger.warn("Failed to fetch user info from Graph API", {
         userId,
         error,
       });
+      this.chat
+        ?.getState()
+        .set(
+          cacheKey,
+          USER_INFO_NEGATIVE_SENTINEL,
+          USER_INFO_NEGATIVE_CACHE_TTL_MS
+        )
+        .catch(() => {});
+      return null;
+    }
+  }
+
+  private async readCachedUserInfo(
+    cacheKey: string
+  ): Promise<UserInfo | typeof USER_INFO_NEGATIVE_SENTINEL | null> {
+    if (!this.chat) {
+      return null;
+    }
+    try {
+      const cached = await this.chat.getState().get<string>(cacheKey);
+      if (!cached) {
+        return null;
+      }
+      if (cached === USER_INFO_NEGATIVE_SENTINEL) {
+        return USER_INFO_NEGATIVE_SENTINEL;
+      }
+      return JSON.parse(cached) as UserInfo;
+    } catch {
       return null;
     }
   }
@@ -1177,12 +1248,24 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   async stream(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
-    _options?: StreamOptions
-  ): Promise<RawMessage<unknown>> {
+    options?: StreamOptions
+  ): Promise<RawMessage<unknown> | null> {
     const activeStream = this.activeStreams.get(threadId);
 
     if (activeStream && !activeStream.canceled) {
-      return this.streamViaEmit(threadId, textStream, activeStream);
+      return this.streamViaEmit(
+        threadId,
+        textStream,
+        activeStream,
+        options?.fallbackStreamingPlaceholderText
+      );
+    }
+
+    if (
+      !activeStream &&
+      typeof options?.fallbackStreamingPlaceholderText === "string"
+    ) {
+      return null;
     }
 
     // No native streamer available (group chats, proactive messages) —
@@ -1212,7 +1295,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected async streamViaEmit(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
-    stream: IStreamer
+    stream: IStreamer,
+    placeholderText?: string | null
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1224,6 +1308,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
+      if (typeof placeholderText === "string") {
+        stream.update(placeholderText);
+      }
+
       for await (const chunk of textStream) {
         if (stream.canceled) {
           this.logger.debug("Teams stream canceled by user", { threadId });

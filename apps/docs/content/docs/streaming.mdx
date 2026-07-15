@@ -97,6 +97,8 @@ const bot = new Chat({
 });
 ```
 
+On Teams, a custom placeholder becomes an informative status during native direct-message streaming, while group chats edit the placeholder into the final answer. Leave the option unset to preserve native DM and buffered group-chat behavior, or set it to `null` to disable the status.
+
 ## Markdown healing
 
 During streaming, chunks often arrive mid-word or mid-syntax — for example, `**bold` before the closing `**` arrives. The SDK automatically heals incomplete markdown in intermediate renders using [remend](https://www.npmjs.com/package/remend), so messages always display with correct formatting while streaming.

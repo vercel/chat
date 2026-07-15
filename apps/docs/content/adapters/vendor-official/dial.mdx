@@ -15,7 +15,7 @@ features:
   deleteMessage: no
   fileUploads:
     status: yes
-    label: MMS via public URLs
+    label: MMS & iMessage media
   streaming: no
   scheduledMessages: no
   cardFormat: no
@@ -32,21 +32,27 @@ features:
   mentions:
     status: partial
     label: DMs only — every phone pair is 1:1
-  addReactions: no
+  addReactions:
+    status: yes
+    label: Native Tapbacks on iMessage, both directions; emoji delivered as text on SMS
   removeReactions: no
-  typingIndicator: no
+  typingIndicator:
+    status: partial
+    label: iMessage numbers only; silently ignored on SMS
   directMessages: yes
   ephemeralMessages: no
   userLookup: no
   customApiEndpoint:
     status: yes
     label: apiBaseUrl override
-  fetchMessages: no
+  fetchMessages:
+    status: partial
+    label: Backfills from the account's 100 most recent messages; no pagination
   fetchSingleMessage: no
   fetchThreadInfo: yes
   fetchChannelMessages: no
   listThreads: no
-  fetchChannelInfo: no
+  fetchChannelInfo: yes
   postChannelMessage: no
 ---
 
