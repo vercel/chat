@@ -69,6 +69,7 @@ export interface SerializedMessage {
     fullName: string;
     isBot: boolean | "unknown";
     isMe: boolean;
+    isSystem?: boolean;
   };
   formatted: Root;
   id: string;
@@ -216,6 +217,7 @@ export class Message<TRawMessage = unknown> {
         fullName: this.author.fullName,
         isBot: this.author.isBot,
         isMe: this.author.isMe,
+        isSystem: this.author.isSystem,
       },
       metadata: {
         dateSent: this.metadata.dateSent.toISOString(),
