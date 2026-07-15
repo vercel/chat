@@ -1097,6 +1097,108 @@ describe("TeamsAdapter", () => {
   // getUser Tests
   // ==========================================================================
 
+  describe("incoming sender email", () => {
+    class IncomingMessageTestAdapter extends TeamsAdapter {
+      handleIncoming(activity: Record<string, unknown>) {
+        return this.handleMessageActivity({ activity } as never);
+      }
+    }
+
+    const activity = (aadObjectId?: string) => ({
+      type: "message",
+      id: "msg-100",
+      text: "Hello world",
+      from: {
+        id: "29:user-123",
+        name: "Alice",
+        aadObjectId,
+      },
+      conversation: { id: "19:abc@thread.tacv2" },
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    const setup = async (
+      graphResult: Record<string, unknown> | Error,
+      cachedAadObjectId?: string
+    ) => {
+      const adapter = new IncomingMessageTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+      const state = createMockState();
+      if (cachedAadObjectId) {
+        state.cache.set("teams:aadObjectId:29:user-123", cachedAadObjectId);
+      }
+      const chat = createMockChatInstance({ state });
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => {
+          if (graphResult instanceof Error) {
+            throw graphResult;
+          }
+          return graphResult;
+        }),
+      };
+      await adapter.initialize(chat);
+      return { adapter, chat, mockApp, state };
+    };
+
+    it("hydrates email from the activity AAD object ID without cached state", async () => {
+      const { adapter, chat, mockApp, state } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(state.get).not.toHaveBeenCalled();
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "activity-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("falls back to the cached AAD object ID", async () => {
+      const { adapter, chat, mockApp } = await setup(
+        {
+          displayName: "Alice",
+          mail: null,
+          userPrincipalName: "alice@contoso.com",
+        },
+        "cached-aad-id"
+      );
+
+      await adapter.handleIncoming(activity());
+
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "cached-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@contoso.com");
+    });
+
+    it("dispatches the message when Graph lookup fails", async () => {
+      const { adapter, chat } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+  });
+
   describe("getUser", () => {
     it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
       const adapter = new TeamsAdapter({

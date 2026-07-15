@@ -334,6 +334,15 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     const message = this.parseTeamsMessage(activity, threadId);
+    const user = activity.from?.aadObjectId
+      ? await this.getUserByAadObjectId(
+          message.author.userId,
+          activity.from.aadObjectId
+        )
+      : await this.getUser(message.author.userId);
+    if (user?.email) {
+      message.author.email = user.email;
+    }
 
     // Detect @mention by checking if any mentioned entity matches our app ID
     const entities = activity.entities || [];
@@ -905,6 +914,21 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         return null;
       }
 
+      return await this.getUserByAadObjectId(userId, aadObjectId);
+    } catch (error) {
+      this.logger.warn("Failed to fetch user info from Graph API", {
+        userId,
+        error,
+      });
+      return null;
+    }
+  }
+
+  private async getUserByAadObjectId(
+    userId: string,
+    aadObjectId: string
+  ): Promise<UserInfo | null> {
+    try {
       const graphUser = await this.app.graph.call(users.get, {
         "user-id": aadObjectId,
       });

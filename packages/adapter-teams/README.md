@@ -218,7 +218,9 @@ console.log(user?.email);    // "alice@contoso.com"
 console.log(user?.fullName); // "Alice Smith"
 ```
 
-The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot. Returns `null` if the user hasn't been seen or the Graph call fails.
+Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without blocking message delivery.
+
+The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
 
 ## Message history (`fetchMessages`)
 
