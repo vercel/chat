@@ -4511,3 +4511,97 @@ describe("subclass extensibility", () => {
     expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });
+
+describe("sleep abort support", () => {
+  class SleepTestAdapter extends TelegramAdapter {
+    sleepFor(delayMs: number, signal?: AbortSignal): Promise<void> {
+      return this.sleep(delayMs, signal);
+    }
+  }
+
+  const makeAdapter = () =>
+    new SleepTestAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves immediately when the signal is already aborted", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    controller.abort();
+
+    await makeAdapter().sleepFor(10_000, controller.signal);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resolves early and clears the timeout when aborted mid-sleep", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let resolved = false;
+    const promise = makeAdapter()
+      .sleepFor(10_000, controller.signal)
+      .then(() => {
+        resolved = true;
+      });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    controller.abort();
+    await promise;
+    expect(resolved).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("sleeps the full delay when no signal is provided", async () => {
+    vi.useFakeTimers();
+    let resolved = false;
+    const promise = makeAdapter()
+      .sleepFor(1000)
+      .then(() => {
+        resolved = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
+    expect(resolved).toBe(true);
+  });
+});
+
+describe("mention regex caching", () => {
+  class MentionTestAdapter extends TelegramAdapter {
+    checkMention(text: string): boolean {
+      return this.isBotMentioned({} as TelegramMessage, text);
+    }
+
+    setUserName(name: string): void {
+      this._userName = name;
+    }
+  }
+
+  it("matches with the cached regex and recompiles when the username changes", () => {
+    const adapter = new MentionTestAdapter({
+      botToken: "token",
+      mode: "webhook",
+      userName: "first_bot",
+      logger: mockLogger,
+    });
+
+    expect(adapter.checkMention("hi @first_bot")).toBe(true);
+    // Second call exercises the cached-regex path.
+    expect(adapter.checkMention("hi @first_bot, again")).toBe(true);
+    expect(adapter.checkMention("hi @second_bot")).toBe(false);
+
+    adapter.setUserName("second_bot");
+    expect(adapter.checkMention("hi @second_bot")).toBe(true);
+    expect(adapter.checkMention("hi @first_bot")).toBe(false);
+  });
+});

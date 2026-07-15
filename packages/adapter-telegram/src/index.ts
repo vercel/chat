@@ -266,6 +266,8 @@ export class TelegramAdapter
   protected chat: ChatInstance | null = null;
   protected _botUserId?: string;
   protected _userName: string;
+  private _mentionRegexUsername?: string;
+  private _mentionRegex?: RegExp;
   protected readonly hasExplicitUserName: boolean;
   protected readonly mode: TelegramAdapterMode;
   protected readonly longPolling?: TelegramLongPollingConfig;
@@ -2471,9 +2473,6 @@ export class TelegramAdapter
     return chat.username;
   }
 
-  private _mentionRegexUsername?: string;
-  private _mentionRegex?: RegExp;
-
   protected isBotMentioned(message: TelegramMessage, text: string): boolean {
     if (!text) {
       return false;
@@ -2511,7 +2510,7 @@ export class TelegramAdapter
     return mentionRegex.test(text);
   }
 
-  protected getMentionRegex(username: string): RegExp {
+  private getMentionRegex(username: string): RegExp {
     if (!this._mentionRegex || this._mentionRegexUsername !== username) {
       this._mentionRegexUsername = username;
       this._mentionRegex = new RegExp(
@@ -2811,7 +2810,7 @@ export class TelegramAdapter
           return;
         }
 
-        await this.sleep(backoffMs);
+        await this.sleep(backoffMs, this.pollingAbortController?.signal);
       } finally {
         this.pollingAbortController = null;
       }
