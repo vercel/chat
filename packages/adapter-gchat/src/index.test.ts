@@ -2788,15 +2788,28 @@ describe("GoogleChatAdapter", () => {
 
   describe("webhook verification", () => {
     let verifyIdTokenSpy: ReturnType<typeof vi.spyOn>;
+    let verifySignedJwtSpy: ReturnType<typeof vi.spyOn>;
+    let fetchSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
       verifyIdTokenSpy = vi
         .spyOn(auth.OAuth2.prototype, "verifyIdToken")
         .mockRejectedValue(new Error("Invalid token"));
+      // Project-number tokens are self-signed by chat@system and verified
+      // against its X.509 certs, not via verifyIdToken.
+      verifySignedJwtSpy = vi
+        .spyOn(auth.OAuth2.prototype, "verifySignedJwtWithCertsAsync")
+        .mockRejectedValue(new Error("Invalid token"));
+      // Stub the Chat issuer cert fetch — never hit the network in unit tests.
+      fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(Response.json({ "test-kid": "test-cert" }));
     });
 
     afterEach(() => {
       verifyIdTokenSpy.mockRestore();
+      verifySignedJwtSpy.mockRestore();
+      fetchSpy.mockRestore();
     });
 
     it("should reject direct webhook without Authorization header when project number is configured", async () => {
@@ -2813,8 +2826,9 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
-      // Should not even call verifyIdToken — no Bearer token present
+      // Should not even attempt verification — no Bearer token present
       expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      expect(verifySignedJwtSpy).not.toHaveBeenCalled();
     });
 
     it("should reject direct webhook with invalid Bearer token when project number is configured", async () => {
@@ -2834,18 +2848,48 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
-      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
-        idToken: "invalid-token",
-        audience: "123456789",
+      // Project-number tokens are verified against the Chat service
+      // account's certs with issuer chat@system.gserviceaccount.com.
+      expect(verifySignedJwtSpy).toHaveBeenCalledWith(
+        "invalid-token",
+        { "test-kid": "test-cert" },
+        "123456789",
+        ["chat@system.gserviceaccount.com"]
+      );
+    });
+
+    it("should not infer an endpoint URL from a request that fails verification", async () => {
+      // An unauthenticated caller must not be able to poison the
+      // button-click routing URL: inference only happens after the request
+      // has been verified (or verification explicitly disabled).
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
       });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://attacker.example/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(401);
+      expect(
+        (adapter as unknown as { inferredEndpointUrl?: string })
+          .inferredEndpointUrl
+      ).toBeUndefined();
     });
 
     it("should allow direct webhook with valid Bearer token when project number is configured", async () => {
-      verifyIdTokenSpy.mockResolvedValue({
+      // Real project-number tokens are self-signed JWTs from
+      // chat@system.gserviceaccount.com — verifiable only against that
+      // service account's X.509 certs, never via verifyIdToken (whose
+      // default issuer allowlist is accounts.google.com).
+      verifySignedJwtSpy.mockResolvedValue({
         getPayload: () => ({
           iss: "chat@system.gserviceaccount.com",
           aud: "123456789",
-          email: "chat@system.gserviceaccount.com",
         }),
       });
 
@@ -2865,10 +2909,13 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
-      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
-        idToken: "valid-google-jwt",
-        audience: "123456789",
-      });
+      expect(verifySignedJwtSpy).toHaveBeenCalledWith(
+        "valid-google-jwt",
+        { "test-kid": "test-cert" },
+        "123456789",
+        ["chat@system.gserviceaccount.com"]
+      );
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
     });
 
     it("should allow direct webhook with valid Bearer token when only endpointUrl is configured (URL audience)", async () => {
@@ -3014,15 +3061,18 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      // verifyIdToken must be called with only the explicit project number,
-      // never the inferred URL.
-      expect(verifyIdTokenSpy).toHaveBeenCalledWith({
-        idToken: "attacker-token",
-        audience: "123456789",
-      });
+      // Only the project-number verifier runs; the inferred URL must never
+      // be used as an OIDC audience.
+      expect(verifyIdTokenSpy).not.toHaveBeenCalled();
+      expect(verifySignedJwtSpy).toHaveBeenCalledWith(
+        "attacker-token",
+        { "test-kid": "test-cert" },
+        "123456789",
+        ["chat@system.gserviceaccount.com"]
+      );
     });
 
-    it("should accept either audience when both googleChatProjectNumber and endpointUrl are configured", async () => {
+    it("should accept an endpoint-URL token when both googleChatProjectNumber and endpointUrl are configured", async () => {
       verifyIdTokenSpy.mockResolvedValue({
         getPayload: () => ({
           iss: "https://accounts.google.com",
@@ -3051,8 +3101,45 @@ describe("GoogleChatAdapter", () => {
       expect(response.status).toBe(200);
       expect(verifyIdTokenSpy).toHaveBeenCalledWith({
         idToken: "valid-google-jwt",
-        audience: ["123456789", "https://example.com/webhook"],
+        audience: "https://example.com/webhook",
       });
+      // The project-number verifier is not needed when the OIDC path passes.
+      expect(verifySignedJwtSpy).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to the project-number verifier when both are configured and the OIDC check fails", async () => {
+      // verifyIdTokenSpy keeps its default rejection (not an OIDC token);
+      // the self-signed project-number verification succeeds.
+      verifySignedJwtSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "chat@system.gserviceaccount.com",
+          aud: "123456789",
+        }),
+      });
+
+      const { adapter } = await createInitializedAdapter({
+        googleChatProjectNumber: "123456789",
+        endpointUrl: "https://example.com/webhook",
+      });
+
+      const event = makeMessageEvent({ messageText: "Hello" });
+      const request = new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer self-signed-chat-jwt",
+        },
+        body: JSON.stringify(event),
+      });
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+      expect(verifySignedJwtSpy).toHaveBeenCalledWith(
+        "self-signed-chat-jwt",
+        { "test-kid": "test-cert" },
+        "123456789",
+        ["chat@system.gserviceaccount.com"]
+      );
     });
 
     it("should not throw in constructor when only endpointUrl is configured", () => {

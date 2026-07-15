@@ -79,6 +79,14 @@ const SPACE_SUB_KEY_PREFIX = "gchat:space-sub:";
 const GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL = "chat@system.gserviceaccount.com";
 const GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN =
   /^service-\d+@gcp-sa-gsuiteaddons\.iam\.gserviceaccount\.com$/;
+/**
+ * X.509 certificates for verifying project-number-audience webhook tokens,
+ * which are self-signed by the Google Chat service account (not standard
+ * OIDC tokens). See
+ * https://developers.google.com/workspace/chat/verify-requests-from-chat
+ */
+const GOOGLE_CHAT_ISSUER_CERTS_URL = `https://www.googleapis.com/service_accounts/v1/metadata/x509/${GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL}`;
+const CHAT_ISSUER_CERTS_TTL_MS = 60 * 60 * 1000;
 const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 
 // Re-export GoogleChatThreadId from thread-utils
@@ -234,6 +242,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    * header in serverless environments.
    */
   private inferredEndpointUrl?: string;
+  /** Cached Google Chat issuer certificates for project-number JWT verification */
+  private chatIssuerCerts?: {
+    certs: Record<string, string>;
+    fetchedAt: number;
+  };
   /** Google Cloud project number for verifying direct webhook JWTs */
   protected readonly googleChatProjectNumber?: string;
   /** Expected audience for Pub/Sub push message JWT verification */
@@ -643,7 +656,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    */
   protected async verifyBearerToken(
     request: Request,
-    expectedAudience: string | string[],
+    expectedAudience: string,
     validatePayload?: (payload: {
       aud?: string | string[];
       email?: string;
@@ -651,13 +664,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       iss?: string;
     }) => boolean
   ): Promise<boolean> {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    const token = this.getBearerToken(request);
+    if (!token) {
       this.logger.warn("Missing or invalid Authorization header");
       return false;
     }
 
-    const token = authHeader.slice(7);
     try {
       const ticket = await this.oauth2Client.verifyIdToken({
         idToken: token,
@@ -688,36 +700,112 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
   }
 
-  private validateDirectWebhookTokenPayload(payload: {
-    aud?: string | string[];
+  private getBearerToken(request: Request): string | null {
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return null;
+    }
+    return authHeader.slice(7);
+  }
+
+  /**
+   * Claim validation for endpoint-URL-audience tokens. These are standard
+   * Google OIDC ID tokens, so anyone can mint one with `aud` set to our
+   * public endpoint URL — the token is only trustworthy if it was issued
+   * to Google Chat itself: `email` must be the Chat system service
+   * account (or the Workspace Add-on service identity) and verified.
+   */
+  private validateEndpointUrlTokenPayload(payload: {
     email?: string;
     email_verified?: boolean;
-    iss?: string;
   }): boolean {
-    const audiences = Array.isArray(payload.aud)
-      ? payload.aud
-      : [payload.aud].filter((aud): aud is string => Boolean(aud));
-
-    if (
-      this.endpointUrl &&
-      audiences.includes(this.endpointUrl) &&
+    return (
       payload.email_verified === true &&
       (payload.email === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL ||
         GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN.test(
           payload.email ?? ""
         ))
-    ) {
-      return true;
-    }
+    );
+  }
 
+  private async getChatIssuerCerts(): Promise<Record<string, string>> {
+    const now = Date.now();
     if (
-      this.googleChatProjectNumber &&
-      audiences.includes(this.googleChatProjectNumber) &&
-      payload.iss === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL
+      this.chatIssuerCerts &&
+      now - this.chatIssuerCerts.fetchedAt < CHAT_ISSUER_CERTS_TTL_MS
     ) {
-      return true;
+      return this.chatIssuerCerts.certs;
     }
+    const response = await fetch(GOOGLE_CHAT_ISSUER_CERTS_URL);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch Google Chat issuer certificates: HTTP ${response.status}`
+      );
+    }
+    const certs = (await response.json()) as Record<string, string>;
+    this.chatIssuerCerts = { certs, fetchedAt: now };
+    return certs;
+  }
 
+  /**
+   * Verify a project-number-audience webhook token. These are NOT standard
+   * OIDC ID tokens: they are self-signed by `chat@system.gserviceaccount.com`
+   * with its own key set, so `verifyIdToken` (which checks Google's OIDC
+   * federated certs and only accepts accounts.google.com issuers) can never
+   * validate them. Per Google's docs, verify the signature against the Chat
+   * service account's X.509 certs with issuer chat@system.gserviceaccount.com.
+   */
+  private async verifyProjectNumberToken(
+    token: string,
+    projectNumber: string
+  ): Promise<boolean> {
+    try {
+      const certs = await this.getChatIssuerCerts();
+      await this.oauth2Client.verifySignedJwtWithCertsAsync(
+        token,
+        certs,
+        projectNumber,
+        [GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL]
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn("Project-number JWT verification failed", { error });
+      return false;
+    }
+  }
+
+  /**
+   * Verify a direct Google Chat webhook. The token shape depends on the Chat
+   * app's "Authentication audience" setting:
+   *
+   * - "HTTP endpoint URL" (and all Workspace Add-on Chat apps): a standard
+   *   Google OIDC ID token with `aud` = endpoint URL — verified with
+   *   `verifyIdToken` plus Chat service-account email claim checks.
+   * - "Project number": a JWT self-signed by chat@system.gserviceaccount.com
+   *   with `aud` = project number — verified against the Chat service
+   *   account's own certs.
+   *
+   * When both verifiers are configured, either token type is accepted.
+   */
+  private async verifyDirectWebhookToken(request: Request): Promise<boolean> {
+    const token = this.getBearerToken(request);
+    if (!token) {
+      this.logger.warn("Missing or invalid Authorization header");
+      return false;
+    }
+    if (this.endpointUrl) {
+      const valid = await this.verifyBearerToken(
+        request,
+        this.endpointUrl,
+        (payload) => this.validateEndpointUrlTokenPayload(payload)
+      );
+      if (valid) {
+        return true;
+      }
+    }
+    if (this.googleChatProjectNumber) {
+      return this.verifyProjectNumberToken(token, this.googleChatProjectNumber);
+    }
     return false;
   }
 
@@ -764,22 +852,6 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return new Response("Invalid JSON", { status: 400 });
     }
 
-    // Infer an endpoint URL for button-click routing if one isn't explicitly
-    // configured. This is intentionally separate from the verification audience
-    // (which only ever uses `this.endpointUrl`), because `request.url` derives
-    // from the Host header in serverless runtimes and is therefore
-    // attacker-controllable.
-    if (!(this.endpointUrl || this.inferredEndpointUrl)) {
-      try {
-        this.inferredEndpointUrl = new URL(request.url).toString();
-        this.logger.debug("Inferred button-click endpoint URL from request", {
-          inferredEndpointUrl: this.inferredEndpointUrl,
-        });
-      } catch {
-        // request.url not a valid URL — leave inference unset
-      }
-    }
-
     // Check if this is a Pub/Sub push message (from Workspace Events subscription)
     const maybePubSub = parsed as PubSubPushMessage;
     if (maybePubSub.message?.data && maybePubSub.subscription) {
@@ -819,25 +891,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Verify direct Google Chat webhook JWT if a verifier is configured.
     // Same reasoning as the Pub/Sub branch: each shape requires its own
     // verifier (or explicit opt-out) to prevent cross-transport bypass.
-    //
-    // The expected `aud` depends on the Chat app's "Authentication audience"
-    // setting: it's the project number when set to "Project number", and
-    // the endpoint URL when set to "HTTP endpoint URL". We accept either
-    // when both are configured so a single deployment can support both
-    // modes (e.g. across envs) without code changes.
-    const directAudiences = [
-      this.googleChatProjectNumber,
-      this.endpointUrl,
-    ].filter((a): a is string => Boolean(a));
-    if (directAudiences.length > 0) {
-      // Pass a string when only one verifier is configured to keep the
-      // common single-audience case identical to prior behavior; pass an
-      // array only when both are configured (verifyIdToken accepts either).
-      const audience =
-        directAudiences.length === 1 ? directAudiences[0] : directAudiences;
-      const valid = await this.verifyBearerToken(request, audience, (payload) =>
-        this.validateDirectWebhookTokenPayload(payload)
-      );
+    // See `verifyDirectWebhookToken` for the two token types Google sends
+    // depending on the Chat app's "Authentication audience" setting.
+    if (this.googleChatProjectNumber || this.endpointUrl) {
+      const valid = await this.verifyDirectWebhookToken(request);
       if (!valid) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -853,6 +910,24 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         "Rejected direct Google Chat webhook: neither googleChatProjectNumber nor endpointUrl is configured. Set one of them, or set disableSignatureVerification to accept unverified payloads."
       );
       return new Response("Unauthorized", { status: 401 });
+    }
+
+    // Infer an endpoint URL for button-click routing if one isn't explicitly
+    // configured. This runs only after the request has been verified (or
+    // verification explicitly disabled) so an unauthenticated caller can't
+    // poison the routing URL, and it is intentionally separate from the
+    // verification audience (which only ever uses `this.endpointUrl`),
+    // because `request.url` derives from the Host header in serverless
+    // runtimes and is therefore attacker-controllable.
+    if (!(this.endpointUrl || this.inferredEndpointUrl)) {
+      try {
+        this.inferredEndpointUrl = new URL(request.url).toString();
+        this.logger.debug("Inferred button-click endpoint URL from request", {
+          inferredEndpointUrl: this.inferredEndpointUrl,
+        });
+      } catch {
+        // request.url not a valid URL — leave inference unset
+      }
     }
 
     // Otherwise, treat as a direct Google Chat webhook event

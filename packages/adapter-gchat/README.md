@@ -240,7 +240,9 @@ createGoogleChatAdapter({
 });
 ```
 
-Use `endpointUrl` when the setting is **HTTP endpoint URL**. Workspace Add-on Chat apps always use URL audience tokens. When both `googleChatProjectNumber` and `endpointUrl` are set, either audience is accepted.
+Use `endpointUrl` when the setting is **HTTP endpoint URL**. Workspace Add-on Chat apps always use URL audience tokens. When both `googleChatProjectNumber` and `endpointUrl` are set, either token type is accepted.
+
+The two modes carry different token types, and the adapter verifies each per [Google's reference implementation](https://developers.google.com/workspace/chat/verify-requests-from-chat): endpoint-URL tokens are standard Google OIDC ID tokens (checked against Google's public certs, plus the Chat service-account `email` claim with `email_verified`), while project-number tokens are JWTs self-signed by `chat@system.gserviceaccount.com` (checked against that service account's X.509 certificates with issuer `chat@system.gserviceaccount.com`). The configured `endpointUrl` must exactly match the URL registered in the Chat API console — a trailing-slash or scheme mismatch fails verification.
 
 ### Pub/Sub push messages
 
