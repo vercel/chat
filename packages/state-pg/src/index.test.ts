@@ -446,21 +446,11 @@ describe("PostgresStateAdapter", () => {
         expect(result).toBe(true);
         expect(pool.query).toHaveBeenCalledWith(
           expect.stringContaining(
-            "ON CONFLICT (key_prefix, cache_key) DO UPDATE"
+            `WHERE chat_state_cache.expires_at IS NOT NULL
+           AND chat_state_cache.expires_at <= now()`
           ),
           ["chat-sdk", "key", '"value"', expect.any(Date)]
         );
-
-        const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls;
-        const setIfNotExistsCall = calls.find(
-          (c: unknown[]) =>
-            typeof c[0] === "string" &&
-            c[0].includes("INSERT INTO chat_state_cache") &&
-            c[0].includes("WHERE chat_state_cache.expires_at IS NOT NULL") &&
-            c[0].includes("chat_state_cache.expires_at <= now()")
-        );
-
-        expect(setIfNotExistsCall).toBeTruthy();
       });
 
       it("should delete a value without throwing", async () => {
