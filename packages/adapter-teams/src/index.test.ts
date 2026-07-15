@@ -1197,6 +1197,33 @@ describe("TeamsAdapter", () => {
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
       expect(message?.author.email).toBeUndefined();
     });
+
+    it("hydrates email on the DM path and completes processing", async () => {
+      const { adapter, chat } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+      // DM handling blocks on a waitUntil-driven promise for native
+      // streaming, so the mock must invoke waitUntil for the handler
+      // to resolve.
+      vi.mocked(chat.processMessage).mockImplementation(
+        (_adapter, _threadId, _message, options) => {
+          (
+            options as { waitUntil?: (task: Promise<unknown>) => void }
+          )?.waitUntil?.(Promise.resolve());
+        }
+      );
+
+      await adapter.handleIncoming({
+        ...activity("activity-aad-id"),
+        conversation: { id: "a:1dm-conversation" },
+      });
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
   });
 
   describe("getUser", () => {

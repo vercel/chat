@@ -916,7 +916,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       return await this.getUserByAadObjectId(userId, aadObjectId);
     } catch (error) {
-      this.logger.warn("Failed to fetch user info from Graph API", {
+      this.logger.warn("Failed to read cached aadObjectId from state", {
         userId,
         error,
       });

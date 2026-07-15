@@ -1,6 +1,6 @@
 ---
-"@chat-adapter/teams": patch
-"chat": patch
+"@chat-adapter/teams": minor
+"chat": minor
 ---
 
 Expose Microsoft Graph email addresses on normalized incoming Teams message authors.

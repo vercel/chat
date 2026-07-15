@@ -218,7 +218,7 @@ console.log(user?.email);    // "alice@contoso.com"
 console.log(user?.fullName); // "Alice Smith"
 ```
 
-Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without preventing message delivery.
+Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only — authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email.
 
 The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
 
