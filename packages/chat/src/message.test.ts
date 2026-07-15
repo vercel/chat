@@ -145,6 +145,23 @@ describe("Message", () => {
       const json = makeMessage({ isMention: true }).toJSON();
       expect(json.isMention).toBe(true);
     });
+
+    it("should preserve author email through serialization", () => {
+      const original = makeMessage({
+        author: {
+          userId: "U123",
+          userName: "testuser",
+          fullName: "Test User",
+          email: "test@example.com",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const json = original.toJSON();
+      expect(json.author.email).toBe("test@example.com");
+      expect(Message.fromJSON(json).author.email).toBe("test@example.com");
+    });
   });
 
   describe("fromJSON()", () => {

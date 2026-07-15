@@ -67,6 +67,7 @@ export interface SerializedMessage {
     userId: string;
     userName: string;
     fullName: string;
+    email?: string;
     isBot: boolean | "unknown";
     isMe: boolean;
   };
@@ -214,6 +215,9 @@ export class Message<TRawMessage = unknown> {
         userId: this.author.userId,
         userName: this.author.userName,
         fullName: this.author.fullName,
+        ...(this.author.email === undefined
+          ? {}
+          : { email: this.author.email }),
         isBot: this.author.isBot,
         isMe: this.author.isMe,
       },
