@@ -1161,7 +1161,9 @@ describe("TeamsAdapter", () => {
 
       await adapter.handleIncoming(activity("activity-aad-id"));
 
-      expect(state.get).not.toHaveBeenCalled();
+      expect(state.get).not.toHaveBeenCalledWith(
+        "teams:aadObjectId:29:user-123"
+      );
       expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
         "user-id": "activity-aad-id",
       });
@@ -1195,6 +1197,33 @@ describe("TeamsAdapter", () => {
 
       expect(chat.processMessage).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+
+    it("caches the Graph lookup across messages", async () => {
+      const { adapter, chat, mockApp } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("caches failed Graph lookups without retrying", async () => {
+      const { adapter, chat, mockApp } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      expect(chat.processMessage).toHaveBeenCalledTimes(2);
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
       expect(message?.author.email).toBeUndefined();
     });
 
