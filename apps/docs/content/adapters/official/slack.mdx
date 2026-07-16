@@ -479,6 +479,8 @@ settings:
     request_url: https://your-domain.com/api/webhooks/slack
 ```
 
+To expose sender email addresses on incoming messages (`message.author.email`), also add the `users:read.email` scope. Without it the field is `undefined`.
+
 After creating the app, copy:
 
 - **Signing Secret** → `SLACK_SIGNING_SECRET`

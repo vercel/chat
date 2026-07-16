@@ -428,6 +428,10 @@ SLACK_API_URL=...                    # Optional, for GovSlack or a self-hosted g
 | Fetch channel info | Yes |
 | Post channel message | Yes |
 
+### Author emails
+
+Incoming message authors include `message.author.email` when your app has the `users:read.email` scope (add it to the manifest alongside `users:read`). Without the scope, or when Slack omits the profile email, the field is `undefined`. The email comes from the same cached `users.info` lookup the adapter already performs for display names, so no extra API call is made per message.
+
 ### Platform-specific
 
 | Feature | Supported |
