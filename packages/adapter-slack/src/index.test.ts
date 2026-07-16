@@ -7971,6 +7971,115 @@ describe("socket mode - routeSocketEvent", () => {
     expect(chatInstance).toHaveDispatched("processAction");
   });
 
+  describe("multi-workspace token context (installationProvider)", () => {
+    async function createMultiWorkspaceSocketAdapter(
+      getInstallation: (
+        installationId: string,
+        isEnterpriseInstall: boolean
+      ) => Promise<{ botToken: string; botUserId?: string } | null>
+    ) {
+      mockSocketStart.mockClear();
+      mockSocketOn.mockClear();
+      mockSocketDisconnect.mockClear();
+
+      const state = createMockState();
+      const chatInstance = createMockChatInstance({ state });
+      const adapter = createSlackAdapter({
+        mode: "socket",
+        appToken: "xapp-test-token",
+        // No botToken → multi-workspace mode (defaultBotTokenProvider undefined).
+        installationProvider: { getInstallation },
+        logger: mockLogger,
+      });
+      await adapter.initialize(chatInstance);
+
+      const slackEventHandler = mockSocketOn.mock.calls.find(
+        (call: unknown[]) => call[0] === "slack_event"
+      )?.[1] as (args: {
+        ack: (response?: Record<string, unknown>) => Promise<void>;
+        body: Record<string, unknown>;
+        type: string;
+      }) => Promise<void>;
+
+      return { adapter, chatInstance, slackEventHandler };
+    }
+
+    it("events_api resolves the per-team token via installationProvider", async () => {
+      const getInstallation = vi
+        .fn()
+        .mockResolvedValue({ botToken: "xoxb-team-A", botUserId: "U_BOT_A" });
+      const { chatInstance, slackEventHandler } =
+        await createMultiWorkspaceSocketAdapter(getInstallation);
+
+      await slackEventHandler({
+        ack: vi.fn().mockResolvedValue(undefined),
+        type: "events_api",
+        body: {
+          team_id: "T_TEAM_A",
+          event: {
+            type: "message",
+            channel: "C123",
+            ts: "1234567890.123456",
+            text: "hello",
+            user: "U_USER",
+          },
+        },
+      });
+
+      expect(getInstallation).toHaveBeenCalledWith("T_TEAM_A", false);
+      expect(chatInstance).toHaveDispatched("processMessage");
+    });
+
+    it("slash_commands resolves the per-team token via installationProvider", async () => {
+      const getInstallation = vi
+        .fn()
+        .mockResolvedValue({ botToken: "xoxb-team-B", botUserId: "U_BOT_B" });
+      const { slackEventHandler } =
+        await createMultiWorkspaceSocketAdapter(getInstallation);
+
+      await slackEventHandler({
+        ack: vi.fn().mockResolvedValue(undefined),
+        type: "slash_commands",
+        body: {
+          team_id: "T_TEAM_B",
+          command: "/test",
+          text: "arg",
+          user_id: "U_USER",
+          channel_id: "C123",
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(getInstallation).toHaveBeenCalledWith("T_TEAM_B", false);
+      });
+    });
+
+    it("interactive resolves the per-team token from payload.team.id", async () => {
+      const getInstallation = vi
+        .fn()
+        .mockResolvedValue({ botToken: "xoxb-team-C", botUserId: "U_BOT_C" });
+      const { slackEventHandler } =
+        await createMultiWorkspaceSocketAdapter(getInstallation);
+
+      await slackEventHandler({
+        ack: vi.fn().mockResolvedValue(undefined),
+        type: "interactive",
+        body: {
+          type: "block_actions",
+          team: { id: "T_TEAM_C" },
+          actions: [{ type: "button", action_id: "a", value: "v" }],
+          channel: { id: "C123", name: "test" },
+          container: { type: "message", message_ts: "1.1", channel_id: "C123" },
+          message: { ts: "1.1" },
+          trigger_id: "t123",
+          user: { id: "U_USER", username: "u" },
+        },
+      });
+
+      expect(getInstallation).toHaveBeenCalledWith("T_TEAM_C", false);
+    });
+  });
+
   it("acks interactive with response payload for view_submission", async () => {
     const { slackEventHandler } = await createSocketAdapter();
     const ack = vi.fn().mockResolvedValue(undefined);

@@ -1974,6 +1974,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event_time: body.event_time as number | undefined,
         };
         try {
+          // Multi-workspace: establish the per-team token context before
+          // dispatch, mirroring the webhook `event_callback` path. Without this,
+          // Socket Mode dispatched with no token in multi-workspace mode, so
+          // every downstream API call threw AuthenticationError ("No bot token
+          // available. In multi-workspace mode, ensure the webhook is being
+          // processed.").
+          if (!this.defaultBotTokenProvider) {
+            const isEnterpriseInstall = Boolean(
+              body.is_enterprise_install ?? body.enterprise_id
+            );
+            const installationId = (
+              isEnterpriseInstall ? body.enterprise_id : body.team_id
+            ) as string | undefined;
+            if (installationId) {
+              const ctx = await this.resolveTokenForTeam(
+                installationId,
+                isEnterpriseInstall
+              );
+              if (ctx) {
+                this.requestContext.run(
+                  {
+                    ...ctx,
+                    enterpriseId: body.enterprise_id as string | undefined,
+                    isEnterpriseInstall,
+                  },
+                  () => this.processEventPayload(payload, options)
+                );
+                return;
+              }
+              this.logger.warn(
+                "Could not resolve token for socket events_api",
+                {
+                  installationId,
+                  isEnterpriseInstall,
+                }
+              );
+              return;
+            }
+          }
           this.processEventPayload(payload, options);
         } catch (error) {
           this.logger.error("Error processing socket mode events_api", {
@@ -1991,13 +2030,88 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             params.set(key, value);
           }
         }
+        // Multi-workspace: establish the per-team token context before dispatch
+        // (webhook slash-command parity).
+        if (!this.defaultBotTokenProvider) {
+          const isEnterpriseInstall =
+            params.get("is_enterprise_install") === "true";
+          const installationId = isEnterpriseInstall
+            ? params.get("enterprise_id")
+            : params.get("team_id");
+          if (installationId) {
+            const ctx = await this.resolveTokenForTeam(
+              installationId,
+              isEnterpriseInstall
+            );
+            if (ctx) {
+              this.requestContext.run(
+                {
+                  ...ctx,
+                  enterpriseId: params.get("enterprise_id") ?? undefined,
+                  isEnterpriseInstall,
+                },
+                () => wrapAsync(this.handleSlashCommand(params, options))
+              );
+              return;
+            }
+            this.logger.warn(
+              "Could not resolve token for socket slash command",
+              {
+                installationId,
+                isEnterpriseInstall,
+              }
+            );
+            return;
+          }
+        }
         wrapAsync(this.handleSlashCommand(params, options));
         break;
       }
 
       case "interactive": {
         const payload = body as unknown as SlackInteractivePayload;
-        const result = this.dispatchInteractivePayload(payload, options);
+        const runDispatch = (): Response | Promise<Response> =>
+          this.dispatchInteractivePayload(payload, options);
+        // Multi-workspace: establish the per-team token context around dispatch
+        // (webhook interactive parity) so block_actions / view handlers can post.
+        let result: Response | Promise<Response>;
+        if (this.defaultBotTokenProvider) {
+          result = runDispatch();
+        } else {
+          const install = payload as {
+            team?: { id?: string };
+            enterprise?: { id?: string };
+            is_enterprise_install?: boolean;
+          };
+          const isEnterpriseInstall = Boolean(install.is_enterprise_install);
+          const installationId = isEnterpriseInstall
+            ? install.enterprise?.id
+            : install.team?.id;
+          const ctx = installationId
+            ? await this.resolveTokenForTeam(
+                installationId,
+                isEnterpriseInstall
+              )
+            : null;
+          if (ctx) {
+            result = this.requestContext.run(
+              {
+                ...ctx,
+                enterpriseId: install.enterprise?.id,
+                isEnterpriseInstall,
+              },
+              runDispatch
+            );
+          } else {
+            if (installationId) {
+              this.logger.warn(
+                "Could not resolve token for socket interactive",
+                { installationId, isEnterpriseInstall }
+              );
+            }
+            result = runDispatch();
+          }
+        }
         const response = result instanceof Promise ? await result : result;
         const responseBody = response.headers
           .get("content-type")
