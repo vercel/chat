@@ -5090,6 +5090,7 @@ describe("postChannelMessage", () => {
     );
 
     expect(result.id).toBe("2222222222.000000");
+    expect(result.threadId).toBe("slack:C123:2222222222.000000");
 
     const client = getClient(adapter);
     expect(client.chat.postMessage).toHaveBeenCalledWith(
