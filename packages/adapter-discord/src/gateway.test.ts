@@ -86,7 +86,7 @@ describe("Gateway client configuration", () => {
     expect(clientOptions.intents).toContain(GatewayIntentBits.DirectMessages);
   });
 
-  it("forwards the parent channel for thread messages", async () => {
+  it("forwards the parent channel only for allowlisted thread messages", async () => {
     mockClientInstance.on.mockClear();
     mockClientInstance.channels.fetch.mockResolvedValue({
       id: "thread789",
@@ -136,6 +136,21 @@ describe("Gateway client configuration", () => {
         author: { bot: false },
         thread: { id: "thread789", parent_id: "channel456" },
       },
+    });
+
+    mockClientInstance.channels.fetch.mockResolvedValue({
+      id: "thread000",
+      parentId: "other-channel",
+      isThread: () => true,
+    });
+    await rawHandler({
+      t: "MESSAGE_CREATE",
+      d: { channel_id: "thread000", author: { bot: false } },
+    });
+    const otherRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(otherRequest.body as string).data).toEqual({
+      channel_id: "thread000",
+      author: { bot: false },
     });
 
     controller.abort();

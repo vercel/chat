@@ -2066,7 +2066,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
                 );
                 return null;
               });
-            if (channel?.isThread() && channel.parentId) {
+            if (
+              channel?.isThread() &&
+              channel.parentId &&
+              this.respondToChannelIds.includes(channel.parentId)
+            ) {
               data = {
                 ...message,
                 thread: { id: channel.id, parent_id: channel.parentId },
