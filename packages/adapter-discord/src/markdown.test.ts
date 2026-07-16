@@ -34,16 +34,16 @@ describe("DiscordFormatConverter", () => {
       // a bare URL as `[url](url)` shows up as literal text in a normal message.
       const ast = converter.toAst("https://example.com");
       const result = converter.fromAst(ast);
-      expect(result).toContain("https://example.com");
+      expect(result).toBe("https://example.com");
       expect(result).not.toContain(
         "[https://example.com](https://example.com)"
       );
     });
 
-    it("should render an autolink as a bare URL, not a masked link", () => {
+    it("should preserve an angle-wrapped autolink", () => {
       const ast = converter.toAst("<https://example.com>");
       const result = converter.fromAst(ast);
-      expect(result).toContain("https://example.com");
+      expect(result).toBe("<https://example.com>");
       expect(result).not.toContain(
         "[https://example.com](https://example.com)"
       );
@@ -256,6 +256,13 @@ describe("DiscordFormatConverter", () => {
       });
       expect(result).toContain("**world**");
       expect(result).toContain("<@user>");
+    });
+
+    it("should preserve angle-wrapped autolinks in markdown messages", () => {
+      const result = converter.renderPostable({
+        markdown: "<https://example.com>",
+      });
+      expect(result).toBe("<https://example.com>");
     });
 
     it("should handle empty message", () => {

@@ -1535,6 +1535,31 @@ describe("postMessage", () => {
     spy.mockRestore();
   });
 
+  it("preserves angle-wrapped autolinks in markdown message payloads", async () => {
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg-autolink",
+        channel_id: "channel456",
+        content: "<https://google.com>",
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.postMessage("discord:guild1:channel456", {
+      markdown: "<https://google.com>",
+    });
+
+    const calledPayload = spy.mock.calls[0]?.[2] as { content?: string };
+    expect(calledPayload.content).toBe("<https://google.com>");
+
+    spy.mockRestore();
+  });
+
   it("posts to thread channel when threadId is present", async () => {
     const mockResponse = new Response(
       JSON.stringify({
