@@ -30,6 +30,7 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
+  type Link,
   parseMarkdown,
   type Root,
   tableToAscii,
@@ -147,9 +148,14 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       const linkText = getNodeChildren(node)
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
-      // Bare URLs / autolinks (label === url) must stay bare: Discord only
-      // renders masked links `[text](url)` inside embeds, so `[url](url)` in a
-      // normal message shows up as literal text instead of a clickable link.
+
+      if (isAngleWrappedAutolink(node, linkText)) {
+        return `<${node.url}>`;
+      }
+
+      // Bare URLs (label === url) must stay bare: Discord only renders masked
+      // links `[text](url)` inside embeds, so `[url](url)` in a normal message
+      // shows up as literal text instead of a clickable link.
       if (linkText === node.url) {
         return node.url;
       }
@@ -185,4 +191,31 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       this.nodeToDiscordMarkdown(child)
     );
   }
+}
+
+// Check if a link is an angle-wrapped URL autolink.
+// Angle-wrapped autolinks are <http://example.com> or <https://example.com>.
+function isAngleWrappedAutolink(node: Link, linkText: string): boolean {
+  const isWebUrl =
+    node.url.startsWith("http://") || node.url.startsWith("https://");
+  if (linkText !== node.url || !isWebUrl) {
+    return false;
+  }
+
+  const child = node.children[0];
+  if (node.children.length !== 1 || child?.type !== "text") {
+    return false;
+  }
+
+  const linkStart = node.position?.start.offset;
+  const linkEnd = node.position?.end.offset;
+  const textStart = child.position?.start.offset;
+  const textEnd = child.position?.end.offset;
+
+  return (
+    linkStart !== undefined &&
+    linkEnd !== undefined &&
+    textStart === linkStart + 1 &&
+    textEnd === linkEnd - 1
+  );
 }
