@@ -122,6 +122,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly applicationId: string;
   protected readonly mentionRoleIds: string[];
   protected readonly contentFormat: DiscordContentFormat;
+  protected readonly respondToChannelIds: string[];
   protected readonly respondToGlobalMentions: boolean;
   protected readonly interactionFlags?: DiscordAdapterConfig["interactionFlags"];
   protected chat: ChatInstance | null = null;
@@ -180,6 +181,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
+    this.respondToChannelIds = config.respondToChannelIds ?? [];
     this.respondToGlobalMentions = config.respondToGlobalMentions ?? false;
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
     this.contentFormat = contentFormat;
@@ -854,7 +856,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const isEveryoneMentioned =
       this.respondToGlobalMentions && data.mention_everyone === true;
     const isMentioned =
-      isUserMentioned || isRoleMentioned || isEveryoneMentioned;
+      isUserMentioned ||
+      isRoleMentioned ||
+      isEveryoneMentioned ||
+      (!data.author.bot && this.respondToChannelIds.includes(parentChannelId));
 
     // If mentioned and not in a thread, create one
     if (!discordThreadId && isMentioned) {
@@ -2037,11 +2042,44 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           type: packet.t,
         });
 
+        let data = packet.d;
+        if (
+          packet.t === "MESSAGE_CREATE" &&
+          this.respondToChannelIds.length > 0
+        ) {
+          const message = packet.d as DiscordGatewayMessageData;
+          if (
+            !(
+              message.author.bot ||
+              this.respondToChannelIds.includes(message.channel_id)
+            )
+          ) {
+            const channel = await client.channels
+              .fetch(message.channel_id)
+              .catch((error) => {
+                this.logger.warn(
+                  "Failed to resolve forwarded message channel",
+                  {
+                    channelId: message.channel_id,
+                    error: String(error),
+                  }
+                );
+                return null;
+              });
+            if (channel?.isThread() && channel.parentId) {
+              data = {
+                ...message,
+                thread: { id: channel.id, parent_id: channel.parentId },
+              };
+            }
+          }
+        }
+
         // Forward to webhook
         await this.forwardGatewayEvent(webhookUrl, {
           type: `GATEWAY_${packet.t}` as DiscordGatewayEventType,
           timestamp: Date.now(),
-          data: packet.d,
+          data,
         });
       });
     } else {
@@ -2140,7 +2178,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       const isEveryoneMentioned =
         this.respondToGlobalMentions && message.mentions.everyone;
       const isMentioned =
-        isUserMentioned || isRoleMentioned || isEveryoneMentioned;
+        isUserMentioned ||
+        isRoleMentioned ||
+        isEveryoneMentioned ||
+        this.respondToChannelIds.includes(
+          message.channel.isThread()
+            ? (message.channel.parentId ?? message.channelId)
+            : message.channelId
+        );
 
       this.logger.info("Discord Gateway message received", {
         channelId: message.channelId,

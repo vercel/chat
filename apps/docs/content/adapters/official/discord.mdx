@@ -103,6 +103,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Role IDs that should trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated).",
     },
+    respondToChannelIds: {
+      type: "string[]",
+      description:
+        "Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Defaults to `[]`.",
+    },
     respondToGlobalMentions: {
       type: "boolean",
       description:

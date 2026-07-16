@@ -7,11 +7,12 @@
 
 import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
 import { GatewayIntentBits, Partials } from "discord.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDiscordAdapter } from "./index";
 
 const { MockClient, mockClientInstance } = vi.hoisted(() => {
   const mockClientInstance = {
+    channels: { fetch: vi.fn() },
     on: vi.fn(),
     login: vi.fn().mockResolvedValue("token"),
     destroy: vi.fn(),
@@ -32,6 +33,10 @@ vi.mock("discord.js", async () => {
     ...actual,
     Client: MockClient,
   };
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("Gateway client configuration", () => {
@@ -79,5 +84,61 @@ describe("Gateway client configuration", () => {
 
     expect(clientOptions.partials).toContain(Partials.Channel);
     expect(clientOptions.intents).toContain(GatewayIntentBits.DirectMessages);
+  });
+
+  it("forwards the parent channel for thread messages", async () => {
+    mockClientInstance.on.mockClear();
+    mockClientInstance.channels.fetch.mockResolvedValue({
+      id: "thread789",
+      parentId: "channel456",
+      isThread: () => true,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: "a".repeat(64),
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToChannelIds: ["channel456"],
+    });
+    await adapter.initialize(createMockChatInstance());
+
+    const controller = new AbortController();
+    let listenerPromise: Promise<unknown> | undefined;
+    await adapter.startGatewayListener(
+      {
+        waitUntil: (promise) => {
+          listenerPromise = promise as Promise<unknown>;
+        },
+      },
+      1000,
+      controller.signal,
+      "https://example.com/webhook"
+    );
+
+    const rawHandler = mockClientInstance.on.mock.calls.find(
+      ([event]) => event === "raw"
+    )?.[1] as (packet: { t: string; d: unknown }) => Promise<void>;
+    await rawHandler({
+      t: "MESSAGE_CREATE",
+      d: { channel_id: "thread789", author: { bot: false } },
+    });
+
+    expect(mockClientInstance.channels.fetch).toHaveBeenCalledWith("thread789");
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      data: {
+        channel_id: "thread789",
+        author: { bot: false },
+        thread: { id: "thread789", parent_id: "channel456" },
+      },
+    });
+
+    controller.abort();
+    await listenerPromise;
   });
 });
