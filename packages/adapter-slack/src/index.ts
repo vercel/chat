@@ -629,6 +629,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     isExtSharedChannel?: boolean;
     enterpriseId?: string;
     isEnterpriseInstall?: boolean;
+    /** team_id (or enterprise_id for org-wide installs) the current request resolved its token from */
+    installationId?: string;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -945,11 +947,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle the Slack OAuth V2 callback.
    * Accepts the incoming request, extracts the authorization code,
    * exchanges it for tokens, and saves the installation.
+   *
+   * For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack
+   * returns `team: null` and the installation is keyed by the enterprise ID
+   * instead — the returned `teamId` is always the storage key, so it can be
+   * passed back to `getInstallation` / `deleteInstallation` for both install
+   * types.
    */
   async handleOAuthCallback(
     request: Request,
     options?: SlackOAuthCallbackOptions
-  ): Promise<{ teamId: string; installation: SlackInstallation }> {
+  ): Promise<{
+    teamId: string;
+    enterpriseId?: string;
+    isEnterpriseInstall: boolean;
+    installation: SlackInstallation;
+  }> {
     if (!(this.clientId && this.clientSecret)) {
       throw new ValidationError(
         "slack",
@@ -976,23 +989,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
-    if (!(result.ok && result.access_token && result.team?.id)) {
+    // Org-wide installs return `team: null` and identify the org via
+    // `enterprise.id` — key the installation by whichever ID webhook
+    // token resolution will later look up (see resolveTokenForTeam).
+    const isEnterpriseInstall = Boolean(result.is_enterprise_install);
+    const enterpriseId = result.enterprise?.id;
+    const installationId = isEnterpriseInstall ? enterpriseId : result.team?.id;
+
+    if (!(result.ok && result.access_token && installationId)) {
+      const missing = isEnterpriseInstall
+        ? "missing access_token or enterprise.id"
+        : "missing access_token or team.id";
       throw new AuthenticationError(
         "slack",
-        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`
+        `Slack OAuth failed: ${result.error || missing}`
       );
     }
 
-    const teamId = result.team.id;
     const installation: SlackInstallation = {
       botToken: result.access_token,
       botUserId: result.bot_user_id,
-      teamName: result.team.name,
+      teamName: result.team?.name ?? result.enterprise?.name,
+      ...(enterpriseId ? { enterpriseId } : {}),
+      ...(isEnterpriseInstall ? { isEnterpriseInstall } : {}),
     };
 
-    await this.setInstallation(teamId, installation);
+    await this.setInstallation(installationId, installation);
 
-    return { teamId, installation };
+    return {
+      teamId: installationId,
+      enterpriseId,
+      isEnterpriseInstall,
+      installation,
+    };
   }
 
   /**
@@ -1089,21 +1118,114 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (!payloadStr) {
         return null;
       }
-      const payload = JSON.parse(payloadStr);
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
-      const enterpriseId: string | undefined =
-        payload.enterprise?.id || payload.enterprise_id || undefined;
-      const teamId: string | undefined =
-        payload.team?.id || payload.team_id || undefined;
-      const installationId = isEnterpriseInstall ? enterpriseId : teamId;
-
-      if (!installationId) {
-        return null;
-      }
-      return { installationId, isEnterpriseInstall, enterpriseId };
+      return this.extractInstallationFromInteractivePayload(
+        JSON.parse(payloadStr)
+      );
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Extract installation info from an already-parsed interactive payload
+   * (socket mode delivers these as objects rather than form-urlencoded).
+   */
+  protected extractInstallationFromInteractivePayload(
+    payload: Record<string, unknown>
+  ): {
+    installationId: string;
+    isEnterpriseInstall: boolean;
+    enterpriseId?: string;
+  } | null {
+    const isEnterpriseInstall =
+      payload.is_enterprise_install === true ||
+      payload.is_enterprise_install === "true";
+    const enterprise = payload.enterprise as { id?: string } | null | undefined;
+    const team = payload.team as { id?: string } | null | undefined;
+    const enterpriseId: string | undefined =
+      enterprise?.id ||
+      (payload.enterprise_id as string | null | undefined) ||
+      undefined;
+    const teamId: string | undefined =
+      team?.id || (payload.team_id as string | null | undefined) || undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+
+    if (!installationId) {
+      return null;
+    }
+    return { installationId, isEnterpriseInstall, enterpriseId };
+  }
+
+  /**
+   * Resolve the multi-workspace request context for an event_callback
+   * payload. Shared by the HTTP webhook path and the socket-mode path so
+   * both resolve per-installation tokens the same way.
+   *
+   * Returns:
+   * - the resolved context to run the event under,
+   * - `"not-applicable"` when no resolution is needed (single-workspace
+   *   mode, or the payload carries no installation ID) — process without
+   *   a request context,
+   * - `"unresolved"` when an installation ID was present but no
+   *   installation was found — drop the event.
+   */
+  protected async resolveEventRequestContext(
+    payload: SlackWebhookPayload
+  ): Promise<
+    | {
+        token: string;
+        botUserId?: string;
+        enterpriseId?: string;
+        isEnterpriseInstall: boolean;
+        installationId: string;
+      }
+    | "not-applicable"
+    | "unresolved"
+  > {
+    if (this.defaultBotTokenProvider || payload.type !== "event_callback") {
+      return "not-applicable";
+    }
+
+    // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
+    const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
+    const installationId = isEnterpriseInstall
+      ? payload.enterprise_id
+      : payload.team_id;
+    if (!installationId) {
+      return "not-applicable";
+    }
+
+    const ctx = await this.resolveTokenForTeam(
+      installationId,
+      isEnterpriseInstall
+    );
+    if (!ctx) {
+      this.logger.warn("Could not resolve token for installation", {
+        installationId,
+        isEnterpriseInstall,
+      });
+      return "unresolved";
+    }
+
+    return {
+      ...ctx,
+      enterpriseId: payload.enterprise_id,
+      isEnterpriseInstall,
+      installationId,
+    };
+  }
+
+  /**
+   * Scope prefix for per-user state keys (profile cache, display-name
+   * reverse index). In multi-workspace deployments these must not be shared
+   * across installations: profiles fetched with one workspace's token would
+   * bleed into another, and display names collide across workspaces, so
+   * mention resolution could pick a user from the wrong org. Single-workspace
+   * mode (and code running outside a webhook context) uses the unscoped key.
+   */
+  protected userCacheScope(): string {
+    const installationId = this.requestContext.getStore()?.installationId;
+    return installationId ? `${installationId}:` : "";
   }
 
   /**
@@ -1111,7 +1233,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Returns null when the API call fails.
    */
   protected async lookupUser(userId: string): Promise<CachedUser | null> {
-    const cacheKey = `slack:user:${userId}`;
+    const cacheKey = `slack:user:${this.userCacheScope()}${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
@@ -1163,7 +1285,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
         // Build reverse index: display name → user IDs (skip if already present)
         const normalizedName = displayName.toLowerCase();
-        const reverseKey = `slack:user-by-name:${normalizedName}`;
+        const reverseKey = `slack:user-by-name:${this.userCacheScope()}${normalizedName}`;
         const existing = await this.chat.getState().getList<string>(reverseKey);
         if (!existing.includes(userId)) {
           await this.chat.getState().appendToList(reverseKey, userId, {
@@ -1302,36 +1424,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (contentType.includes("application/x-www-form-urlencoded")) {
       const params = new URLSearchParams(body);
       if (params.has("command") && !params.has("payload")) {
-        if (!this.defaultBotTokenProvider) {
-          // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-          const isEnterpriseInstall =
-            params.get("is_enterprise_install") === "true";
-          const installationId = isEnterpriseInstall
-            ? params.get("enterprise_id")
-            : params.get("team_id");
-
-          if (installationId) {
-            const ctx = await this.resolveTokenForTeam(
-              installationId,
-              isEnterpriseInstall
-            );
-            if (ctx) {
-              return this.requestContext.run(
-                {
-                  ...ctx,
-                  enterpriseId: params.get("enterprise_id") ?? undefined,
-                  isEnterpriseInstall,
-                },
-                () => this.handleSlashCommand(params, options)
-              );
-            }
-            this.logger.warn("Could not resolve token for slash command", {
-              installationId,
-              isEnterpriseInstall,
-            });
-          }
-        }
-        return this.handleSlashCommand(params, options);
+        return this.runSlashCommand(params, options);
       }
       // In multi-workspace mode, resolve token before processing interactive payloads
       if (!this.defaultBotTokenProvider) {
@@ -1347,6 +1440,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 ...ctx,
                 enterpriseId: installationInfo.enterpriseId,
                 isEnterpriseInstall: installationInfo.isEnterpriseInstall,
+                installationId: installationInfo.installationId,
               },
               () => this.handleInteractivePayload(body, options)
             );
@@ -1371,12 +1465,38 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     // In multi-workspace mode, resolve token before processing events
-    if (!this.defaultBotTokenProvider && payload.type === "event_callback") {
+    const resolved = await this.resolveEventRequestContext(payload);
+    if (resolved === "unresolved") {
+      // Installation ID present but no installation found — drop the event
+      return new Response("ok", { status: 200 });
+    }
+    if (resolved !== "not-applicable") {
+      return this.requestContext.run(resolved, () => {
+        this.processEventPayload(payload, options);
+        return new Response("ok", { status: 200 });
+      });
+    }
+
+    // Single-workspace mode or fallback
+    this.processEventPayload(payload, options);
+    return new Response("ok", { status: 200 });
+  }
+
+  /**
+   * Handle a slash command, resolving the per-installation token first in
+   * multi-workspace mode. Shared by the HTTP webhook and socket-mode paths.
+   */
+  protected async runSlashCommand(
+    params: URLSearchParams,
+    options?: WebhookOptions
+  ): Promise<Response> {
+    if (!this.defaultBotTokenProvider) {
       // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
+      const isEnterpriseInstall =
+        params.get("is_enterprise_install") === "true";
       const installationId = isEnterpriseInstall
-        ? payload.enterprise_id
-        : payload.team_id;
+        ? params.get("enterprise_id")
+        : params.get("team_id");
 
       if (installationId) {
         const ctx = await this.resolveTokenForTeam(
@@ -1387,26 +1507,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return this.requestContext.run(
             {
               ...ctx,
-              enterpriseId: payload.enterprise_id,
+              enterpriseId: params.get("enterprise_id") ?? undefined,
               isEnterpriseInstall,
+              installationId,
             },
-            () => {
-              this.processEventPayload(payload, options);
-              return new Response("ok", { status: 200 });
-            }
+            () => this.handleSlashCommand(params, options)
           );
         }
-        this.logger.warn("Could not resolve token for installation", {
+        this.logger.warn("Could not resolve token for slash command", {
           installationId,
           isEnterpriseInstall,
         });
-        return new Response("ok", { status: 200 });
       }
     }
-
-    // Single-workspace mode or fallback
-    this.processEventPayload(payload, options);
-    return new Response("ok", { status: 200 });
+    return this.handleSlashCommand(params, options);
   }
 
   /** Extract and dispatch events from a validated payload */
@@ -1970,11 +2084,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           type: "event_callback",
           event: body.event as SlackWebhookPayload["event"],
           team_id: body.team_id as string | undefined,
+          enterprise_id:
+            (body.enterprise_id as string | null | undefined) ?? undefined,
+          is_enterprise_install: Boolean(body.is_enterprise_install),
+          is_ext_shared_channel: body.is_ext_shared_channel as
+            | boolean
+            | undefined,
           event_id: body.event_id as string | undefined,
           event_time: body.event_time as number | undefined,
         };
         try {
-          this.processEventPayload(payload, options);
+          // Resolve the per-installation token exactly like the HTTP path
+          const resolved = await this.resolveEventRequestContext(payload);
+          if (resolved === "unresolved") {
+            break;
+          }
+          if (resolved === "not-applicable") {
+            this.processEventPayload(payload, options);
+          } else {
+            this.requestContext.run(resolved, () =>
+              this.processEventPayload(payload, options)
+            );
+          }
         } catch (error) {
           this.logger.error("Error processing socket mode events_api", {
             error,
@@ -1989,15 +2120,48 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         for (const [key, value] of Object.entries(body)) {
           if (typeof value === "string") {
             params.set(key, value);
+          } else if (typeof value === "boolean") {
+            // Socket mode delivers form fields as JSON, so flags like
+            // is_enterprise_install arrive as booleans
+            params.set(key, String(value));
           }
         }
-        wrapAsync(this.handleSlashCommand(params, options));
+        wrapAsync(this.runSlashCommand(params, options));
         break;
       }
 
       case "interactive": {
         const payload = body as unknown as SlackInteractivePayload;
-        const result = this.dispatchInteractivePayload(payload, options);
+        const dispatch = () =>
+          this.dispatchInteractivePayload(payload, options);
+        let result: Response | Promise<Response>;
+        if (this.defaultBotTokenProvider) {
+          result = dispatch();
+        } else {
+          const info = this.extractInstallationFromInteractivePayload(body);
+          const ctx = info
+            ? await this.resolveTokenForTeam(
+                info.installationId,
+                info.isEnterpriseInstall
+              )
+            : null;
+          if (info && ctx) {
+            result = this.requestContext.run(
+              {
+                ...ctx,
+                enterpriseId: info.enterpriseId,
+                isEnterpriseInstall: info.isEnterpriseInstall,
+                installationId: info.installationId,
+              },
+              dispatch
+            );
+          } else {
+            this.logger.warn(
+              "Could not resolve token for socket interactive payload"
+            );
+            result = dispatch();
+          }
+        }
         const response = result instanceof Promise ? await result : result;
         const responseBody = response.headers
           .get("content-type")
@@ -2706,7 +2870,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      await this.chat.getState().delete(`slack:user:${event.user.id}`);
+      await this.chat
+        .getState()
+        .delete(`slack:user:${this.userCacheScope()}${event.user.id}`);
     } catch (error) {
       this.logger.warn("Failed to invalidate user cache", {
         userId: event.user.id,
@@ -3337,7 +3503,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Look up user IDs for each mentioned name
     for (const name of mentions.keys()) {
-      const userIds = await state.getList<string>(`slack:user-by-name:${name}`);
+      const userIds = await state.getList<string>(
+        `slack:user-by-name:${this.userCacheScope()}${name}`
+      );
       // Dedup
       const unique = [...new Set(userIds)];
       mentions.set(name, unique);

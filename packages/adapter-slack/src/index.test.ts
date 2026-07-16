@@ -2529,6 +2529,120 @@ describe("handleOAuthCallback", () => {
     });
   });
 
+  it("keys org-wide installs by enterprise ID (team is null)", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    mockAccess.mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-org-bot-token",
+      bot_user_id: "U_BOT_ORG",
+      team: null,
+      enterprise: { id: "E_ORG_1", name: "Acme Org" },
+      is_enterprise_install: true,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-org"
+    );
+    const result = await adapter.handleOAuthCallback(request);
+
+    expect(result.teamId).toBe("E_ORG_1");
+    expect(result.enterpriseId).toBe("E_ORG_1");
+    expect(result.isEnterpriseInstall).toBe(true);
+    expect(result.installation.teamName).toBe("Acme Org");
+
+    // Stored under the enterprise ID — the same key org-wide webhooks
+    // (is_enterprise_install: true) resolve tokens by
+    const stored = await adapter.getInstallation("E_ORG_1");
+    expect(stored?.botToken).toBe("xoxb-org-bot-token");
+    expect(stored?.enterpriseId).toBe("E_ORG_1");
+    expect(stored?.isEnterpriseInstall).toBe(true);
+  });
+
+  it("records the enterprise ID on workspace installs within a Grid org", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    mockAccess.mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-grid-workspace-token",
+      bot_user_id: "U_BOT_GRID",
+      team: { id: "T_GRID_1", name: "Grid Workspace" },
+      enterprise: { id: "E_ORG_1", name: "Acme Org" },
+      is_enterprise_install: false,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-grid"
+    );
+    const result = await adapter.handleOAuthCallback(request);
+
+    expect(result.teamId).toBe("T_GRID_1");
+    expect(result.enterpriseId).toBe("E_ORG_1");
+    expect(result.isEnterpriseInstall).toBe(false);
+
+    const stored = await adapter.getInstallation("T_GRID_1");
+    expect(stored?.botToken).toBe("xoxb-grid-workspace-token");
+    expect(stored?.enterpriseId).toBe("E_ORG_1");
+    expect(stored?.isEnterpriseInstall).toBeUndefined();
+  });
+
+  it("throws when an org-wide install response is missing enterprise.id", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    mockAccess.mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-org-bot-token",
+      team: null,
+      enterprise: null,
+      is_enterprise_install: true,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+
+    const request = new Request(
+      "https://example.com/auth/callback/slack?code=oauth-code-org"
+    );
+    await expect(adapter.handleOAuthCallback(request)).rejects.toThrow(
+      "missing access_token or enterprise.id"
+    );
+  });
+
+  it("org-wide OAuth install round-trips with org-wide event webhooks", async () => {
+    const { adapter, state, mockAccess } = createOAuthAdapter();
+    mockAccess.mockResolvedValue({
+      ok: true,
+      access_token: "xoxb-org-bot-token",
+      bot_user_id: "U_BOT_ORG",
+      team: null,
+      enterprise: { id: "E_ORG_1", name: "Acme Org" },
+      is_enterprise_install: true,
+    });
+    const chatInstance = createMockChatInstance({ state });
+    await adapter.initialize(chatInstance);
+
+    await adapter.handleOAuthCallback(
+      new Request("https://example.com/auth/callback/slack?code=oauth-code")
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T_GRID_1",
+      enterprise_id: "E_ORG_1",
+      is_enterprise_install: true,
+      event: {
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "Hello org",
+        ts: "1234567890.123456",
+      },
+    });
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
+    expect(chatInstance).toHaveDispatched("processMessage");
+  });
+
   it("forwards redirect_uri from callback options", async () => {
     const { adapter, state, mockAccess } = createOAuthAdapter();
     await adapter.initialize(createMockChatInstance({ state }));
@@ -9668,5 +9782,287 @@ describe("subclass extensibility", () => {
       }
     }
     expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
+  });
+});
+
+// ============================================================================
+// Enterprise Grid: socket mode token resolution
+// ============================================================================
+
+describe("socket mode - multi-workspace token resolution", () => {
+  const messageEvent = {
+    type: "message",
+    user: "U_USER",
+    channel: "C123",
+    text: "hello from socket",
+    ts: "1234567890.123456",
+  };
+
+  interface SocketRoutingAdapter {
+    resolveTokenForTeam(
+      installationId: string,
+      isEnterpriseInstall?: boolean
+    ): Promise<unknown>;
+    routeSocketEvent(
+      body: Record<string, unknown>,
+      eventType: string,
+      ack: (response?: Record<string, unknown>) => Promise<void>
+    ): Promise<void>;
+  }
+
+  async function createMultiWorkspaceAdapter() {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+    const routing = adapter as unknown as SocketRoutingAdapter;
+    const resolveSpy = vi.spyOn(
+      routing as {
+        resolveTokenForTeam: SocketRoutingAdapter["resolveTokenForTeam"];
+      },
+      "resolveTokenForTeam"
+    );
+    return { adapter, chatInstance, routing, resolveSpy };
+  }
+
+  it("resolves the per-workspace token for events_api", async () => {
+    const { adapter, chatInstance, routing, resolveSpy } =
+      await createMultiWorkspaceAdapter();
+    await adapter.setInstallation("T_SOCK_1", {
+      botToken: "xoxb-sock-token",
+      botUserId: "U_BOT_SOCK",
+    });
+
+    await routing.routeSocketEvent(
+      { team_id: "T_SOCK_1", event: messageEvent },
+      "events_api",
+      vi.fn().mockResolvedValue(undefined)
+    );
+
+    expect(resolveSpy).toHaveBeenCalledWith("T_SOCK_1", false);
+    expect(chatInstance).toHaveDispatched("processMessage");
+  });
+
+  it("resolves org-wide installs by enterprise_id for events_api", async () => {
+    const { adapter, chatInstance, routing, resolveSpy } =
+      await createMultiWorkspaceAdapter();
+    await adapter.setInstallation("E_ORG_1", {
+      botToken: "xoxb-org-token",
+      botUserId: "U_BOT_ORG",
+      isEnterpriseInstall: true,
+    });
+
+    await routing.routeSocketEvent(
+      {
+        team_id: "T_ANY",
+        enterprise_id: "E_ORG_1",
+        is_enterprise_install: true,
+        event: messageEvent,
+      },
+      "events_api",
+      vi.fn().mockResolvedValue(undefined)
+    );
+
+    expect(resolveSpy).toHaveBeenCalledWith("E_ORG_1", true);
+    expect(chatInstance).toHaveDispatched("processMessage");
+  });
+
+  it("drops events_api events when no installation is found", async () => {
+    const { chatInstance, routing } = await createMultiWorkspaceAdapter();
+
+    await routing.routeSocketEvent(
+      { team_id: "T_UNKNOWN", event: messageEvent },
+      "events_api",
+      vi.fn().mockResolvedValue(undefined)
+    );
+
+    expect(chatInstance).not.toHaveDispatched("processMessage");
+  });
+
+  it("resolves tokens for slash_commands with boolean is_enterprise_install", async () => {
+    const { adapter, chatInstance, routing, resolveSpy } =
+      await createMultiWorkspaceAdapter();
+    await adapter.setInstallation("E_ORG_1", {
+      botToken: "xoxb-org-token",
+      isEnterpriseInstall: true,
+    });
+
+    await routing.routeSocketEvent(
+      {
+        command: "/test",
+        text: "arg1",
+        user_id: "U_USER",
+        channel_id: "C123",
+        team_id: "T_ANY",
+        enterprise_id: "E_ORG_1",
+        // Socket mode delivers form fields as JSON, so this arrives boolean
+        is_enterprise_install: true,
+      },
+      "slash_commands",
+      vi.fn().mockResolvedValue(undefined)
+    );
+
+    await vi.waitFor(() => {
+      expect(chatInstance).toHaveDispatched("processSlashCommand");
+    });
+    expect(resolveSpy).toHaveBeenCalledWith("E_ORG_1", true);
+  });
+
+  it("resolves tokens for interactive payloads", async () => {
+    const { adapter, chatInstance, routing, resolveSpy } =
+      await createMultiWorkspaceAdapter();
+    await adapter.setInstallation("T_SOCK_2", {
+      botToken: "xoxb-sock-token-2",
+    });
+
+    await routing.routeSocketEvent(
+      {
+        type: "block_actions",
+        team: { id: "T_SOCK_2" },
+        actions: [{ type: "button", action_id: "test_action", value: "v" }],
+        channel: { id: "C123", name: "test" },
+        container: {
+          type: "message",
+          message_ts: "1234567890.123456",
+          channel_id: "C123",
+        },
+        message: { ts: "1234567890.123456" },
+        trigger_id: "trigger123",
+        user: { id: "U_USER", username: "testuser" },
+      },
+      "interactive",
+      vi.fn().mockResolvedValue(undefined)
+    );
+
+    expect(resolveSpy).toHaveBeenCalledWith("T_SOCK_2", false);
+    expect(chatInstance).toHaveDispatched("processAction");
+  });
+});
+
+// ============================================================================
+// Enterprise Grid: installation-scoped user caches
+// ============================================================================
+
+describe("installation-scoped user caches", () => {
+  interface CacheTestAdapter {
+    _client: { users: { info: unknown } };
+    handleUserChange(event: {
+      type: string;
+      user: { id: string };
+    }): Promise<void>;
+    lookupUser(userId: string): Promise<{ displayName: string } | null>;
+    requestContext: {
+      run<T>(ctx: { token: string; installationId?: string }, fn: () => T): T;
+    };
+    resolveOutgoingMentions(text: string, threadId: string): Promise<string>;
+  }
+
+  async function createCacheAdapter() {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+    const internals = adapter as unknown as CacheTestAdapter;
+    const usersInfoMock = vi.fn().mockResolvedValue({
+      user: {
+        name: "alice",
+        profile: { display_name: "Alice", real_name: "Alice Example" },
+        real_name: "Alice Example",
+      },
+    });
+    internals._client.users.info = usersInfoMock;
+    return { internals, state, usersInfoMock };
+  }
+
+  it("scopes the user profile cache by installation", async () => {
+    const { internals, state, usersInfoMock } = await createCacheAdapter();
+
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.lookupUser("U1")
+    );
+    await internals.requestContext.run(
+      { token: "xoxb-team-b", installationId: "T_B" },
+      () => internals.lookupUser("U1")
+    );
+
+    // Each installation fetched and cached independently
+    expect(usersInfoMock).toHaveBeenCalledTimes(2);
+    expect(await state.get("slack:user:T_A:U1")).not.toBeNull();
+    expect(await state.get("slack:user:T_B:U1")).not.toBeNull();
+    expect(await state.get("slack:user:U1")).toBeNull();
+  });
+
+  it("uses unscoped keys without a request context (single-workspace)", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-single-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+    const internals = adapter as unknown as CacheTestAdapter;
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: {
+        name: "alice",
+        profile: { display_name: "Alice", real_name: "Alice Example" },
+        real_name: "Alice Example",
+      },
+    });
+
+    await internals.lookupUser("U1");
+
+    expect(await state.get("slack:user:U1")).not.toBeNull();
+  });
+
+  it("scopes the display-name reverse index by installation", async () => {
+    const { internals, state } = await createCacheAdapter();
+
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.lookupUser("U1")
+    );
+
+    expect(await state.getList("slack:user-by-name:T_A:alice")).toContain("U1");
+    expect(await state.getList("slack:user-by-name:alice")).toHaveLength(0);
+  });
+
+  it("resolves outgoing mentions from the installation-scoped index", async () => {
+    const { internals, state } = await createCacheAdapter();
+    await state.appendToList("slack:user-by-name:T_A:alice", "U_ALICE_A");
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_GLOBAL");
+
+    const resolved = await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.resolveOutgoingMentions("hi @alice", "slack:C1:1.1")
+    );
+
+    expect(resolved).toBe("hi <@U_ALICE_A>");
+  });
+
+  it("invalidates the scoped cache entry on user_change", async () => {
+    const { internals, state } = await createCacheAdapter();
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.lookupUser("U1")
+    );
+    expect(await state.get("slack:user:T_A:U1")).not.toBeNull();
+
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () =>
+        internals.handleUserChange({
+          type: "user_change",
+          user: { id: "U1" },
+        })
+    );
+
+    expect(await state.get("slack:user:T_A:U1")).toBeNull();
   });
 });

@@ -115,6 +115,8 @@ export async function GET(request: Request) {
 
 If your install flow uses a specific redirect URI, pass the same value here that you used during the authorize step. This is especially useful when one app supports multiple redirect URLs. When no option is provided, the adapter still falls back to `redirect_uri` on the callback request URL.
 
+For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key — the enterprise ID for org-wide installs — so it round-trips with `getInstallation` and `deleteInstallation` for both install types. The result also includes `enterpriseId` and `isEnterpriseInstall` when you need to distinguish them.
+
 ### Using the adapter outside webhooks
 
 During webhook handling, the adapter resolves tokens automatically from `team_id`. Outside that context (e.g. cron jobs or background workers), use `getInstallation` and `withBotToken`:
@@ -209,7 +211,7 @@ const bot = new Chat({
 3. Generate an **App-Level Token** with the `connections:write` scope — this is your `SLACK_APP_TOKEN` (`xapp-...`)
 4. Event subscriptions and interactivity still need to be configured, but no public request URL is required
 
-> Socket mode is not compatible with multi-workspace OAuth (`clientId`/`clientSecret`). It's designed for single-workspace deployments.
+> Socket mode works with both single-workspace tokens and multi-workspace OAuth: events arriving over the socket (or forwarded from a socket listener) resolve per-installation tokens by `team_id` — or `enterprise_id` for Enterprise Grid org-wide installs — the same way the webhook path does.
 
 ### Socket mode on serverless (Vercel)
 

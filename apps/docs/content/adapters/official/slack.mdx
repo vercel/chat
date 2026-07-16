@@ -228,6 +228,8 @@ export async function GET(request: Request) {
 }
 ```
 
+For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key, so it round-trips with `getInstallation` and `deleteInstallation` for both install types; the result also includes `enterpriseId` and `isEnterpriseInstall`.
+
 #### Using the adapter outside webhooks
 
 During webhook handling, the adapter resolves tokens automatically. Outside that context (cron jobs, background workers), use `getInstallation` and `withBotToken`:
@@ -575,7 +577,7 @@ const bot = new Chat({
 });
 ```
 
-Socket mode is not compatible with multi-workspace OAuth.
+Socket mode works with both single-workspace tokens and multi-workspace OAuth: events arriving over the socket (or forwarded from a socket listener) resolve per-installation tokens by `team_id` — or `enterprise_id` for Enterprise Grid org-wide installs — the same way the webhook path does.
 
 #### Socket mode on serverless (Vercel)
 
