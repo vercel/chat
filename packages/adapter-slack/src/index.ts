@@ -86,7 +86,8 @@ import {
 import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
-const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+// Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
+const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
 
 // Reserved user ID Slack uses for platform-generated messages (e.g.
 // "@user archived the channel") that carry no bot_id or system subtype.

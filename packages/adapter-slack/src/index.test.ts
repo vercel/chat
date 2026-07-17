@@ -10322,3 +10322,70 @@ describe("event delivery deduplication", () => {
     expect(dispatches).toBe(1);
   });
 });
+
+// ============================================================================
+// Enterprise Grid: W-prefixed user IDs
+// ============================================================================
+
+describe("W-prefixed enterprise user IDs", () => {
+  interface WPrefixAdapter {
+    _client: { users: { info: unknown } };
+    chat: ChatInstance | null;
+    parseSlackMessage(
+      event: Record<string, unknown>,
+      threadId: string
+    ): Promise<{ text: string }>;
+    resolveOutgoingMentions(text: string, threadId: string): Promise<string>;
+  }
+
+  async function createWAdapter() {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+    return { internals: adapter as unknown as WPrefixAdapter, state };
+  }
+
+  it("treats bare @W… mentions as raw user IDs, not display names", async () => {
+    const { internals, state } = await createWAdapter();
+    const getListSpy = vi.spyOn(state, "getList");
+
+    const result = await internals.resolveOutgoingMentions(
+      "Hey @W012345AB, ping",
+      "slack:C1:1.1"
+    );
+
+    // Left for the markdown layer to render as <@W012345AB>, with no
+    // reverse-index lookup attempted for "w012345ab"
+    expect(result).toBe("Hey @W012345AB, ping");
+    expect(getListSpy).not.toHaveBeenCalledWith("slack:user-by-name:w012345ab");
+  });
+
+  it("resolves incoming <@W…> mentions like U-prefixed ones", async () => {
+    const { internals } = await createWAdapter();
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: {
+        name: "wanda",
+        profile: { display_name: "Wanda", real_name: "Wanda Grid" },
+        real_name: "Wanda Grid",
+      },
+    });
+
+    const message = await internals.parseSlackMessage(
+      {
+        type: "message",
+        user: "W_SENDER_1",
+        username: "sender",
+        text: "hello <@W012345AB>",
+        ts: "1234567890.123456",
+        channel: "C123",
+      },
+      "slack:C123:1234567890.123456"
+    );
+
+    expect(message.text).toContain("Wanda");
+  });
+});
