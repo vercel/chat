@@ -283,6 +283,8 @@ function normalizeBotTokenProvider(
 interface SlackForwardedSocketEvent {
   body: Record<string, unknown>;
   eventType: string;
+  /** Slack redelivery count for the original socket delivery, used for event dedup */
+  retryNum?: number;
   timestamp: number;
   type: "socket_event";
 }
@@ -592,6 +594,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min; 1 hour also covers delayed redeliveries. */
+  protected static readonly EVENT_DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
@@ -631,6 +635,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     isEnterpriseInstall?: boolean;
     /** team_id (or enterprise_id for org-wide installs) the current request resolved its token from */
     installationId?: string;
+    /** Workspace the current event occurred in — required as an explicit team_id on workspace-scoped API calls when using an org-wide token */
+    teamId?: string;
+    /** context_team_id from the incoming event, echoed back as client_context_team_id on channel-addressed calls (away-hosted shared channels) */
+    contextTeamId?: string;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -826,12 +834,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Add the current token to API call options.
    * Workaround for Slack WebClient types not including `token` in per-method args.
+   *
+   * For Enterprise Grid org-wide installs the token spans every workspace in
+   * the org, so workspace-scoped Web API methods (conversations.list,
+   * users.list, usergroups.*, …) require an explicit `team_id`. Slack
+   * documents always passing it as safe — the field is ignored on
+   * workspace-level tokens and on methods that don't take it.
+   *
+   * When the incoming event carried a `context_team_id` (shared channels
+   * hosted on an "away" workspace), it is echoed back as
+   * `client_context_team_id` on channel-addressed calls, per Slack's
+   * Enterprise Grid guidance.
    */
   protected async withToken<
     // biome-ignore lint/suspicious/noExplicitAny: Slack types don't include token in method args
     T extends Record<string, any>,
   >(options: T): Promise<T & { token: string }> {
-    return { ...options, token: await this.getToken() };
+    const ctx = this.requestContext.getStore();
+    const extras: Record<string, unknown> = {};
+    if (
+      ctx?.isEnterpriseInstall &&
+      ctx.teamId &&
+      options.team_id === undefined
+    ) {
+      extras.team_id = ctx.teamId;
+    }
+    if (
+      ctx?.contextTeamId &&
+      options.channel !== undefined &&
+      options.client_context_team_id === undefined
+    ) {
+      extras.client_context_team_id = ctx.contextTeamId;
+    }
+    return { ...options, ...extras, token: await this.getToken() };
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -1111,6 +1146,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     installationId: string;
     isEnterpriseInstall: boolean;
     enterpriseId?: string;
+    teamId?: string;
   } | null {
     try {
       const params = new URLSearchParams(body);
@@ -1136,6 +1172,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     installationId: string;
     isEnterpriseInstall: boolean;
     enterpriseId?: string;
+    teamId?: string;
   } | null {
     const isEnterpriseInstall =
       payload.is_enterprise_install === true ||
@@ -1153,7 +1190,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (!installationId) {
       return null;
     }
-    return { installationId, isEnterpriseInstall, enterpriseId };
+    return { installationId, isEnterpriseInstall, enterpriseId, teamId };
   }
 
   /**
@@ -1178,6 +1215,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         enterpriseId?: string;
         isEnterpriseInstall: boolean;
         installationId: string;
+        teamId?: string;
+        contextTeamId?: string;
       }
     | "not-applicable"
     | "unresolved"
@@ -1212,6 +1251,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       enterpriseId: payload.enterprise_id,
       isEnterpriseInstall,
       installationId,
+      teamId: payload.team_id,
+      contextTeamId: (payload.event as { context_team_id?: string } | undefined)
+        ?.context_team_id,
     };
   }
 
@@ -1393,7 +1435,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event.body,
           event.eventType,
           noopAck,
-          options
+          options,
+          event.retryNum
         );
         return new Response("ok", { status: 200 });
       } catch {
@@ -1441,6 +1484,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 enterpriseId: installationInfo.enterpriseId,
                 isEnterpriseInstall: installationInfo.isEnterpriseInstall,
                 installationId: installationInfo.installationId,
+                teamId: installationInfo.teamId,
               },
               () => this.handleInteractivePayload(body, options)
             );
@@ -1462,6 +1506,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Handle URL verification challenge (signature already verified above)
     if (payload.type === "url_verification" && payload.challenge) {
       return Response.json({ challenge: payload.challenge });
+    }
+
+    // Drop redeliveries of events that were already dispatched
+    const retryNum = Number(request.headers.get("x-slack-retry-num") ?? "0");
+    if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+      return new Response("ok", { status: 200 });
     }
 
     // In multi-workspace mode, resolve token before processing events
@@ -1510,6 +1560,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
               enterpriseId: params.get("enterprise_id") ?? undefined,
               isEnterpriseInstall,
               installationId,
+              teamId: params.get("team_id") ?? undefined,
             },
             () => this.handleSlashCommand(params, options)
           );
@@ -1523,12 +1574,65 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return this.handleSlashCommand(params, options);
   }
 
+  /**
+   * Record that an event delivery was dispatched, so redeliveries
+   * (`x-slack-retry-num` / socket `retry_num`) can be dropped. Fire-and-forget:
+   * a failed write only means a retry gets reprocessed, which downstream
+   * message dedup already tolerates.
+   */
+  protected markEventDelivered(payload: SlackWebhookPayload): void {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat)) {
+      return;
+    }
+    this.chat
+      .getState()
+      .set(
+        `slack:event-delivered:${eventId}`,
+        true,
+        SlackAdapter.EVENT_DEDUPE_TTL_MS
+      )
+      .catch(() => {});
+  }
+
+  /**
+   * Check whether a retried event delivery was already dispatched. Only
+   * consulted on retries (retryNum > 0), so first deliveries pay no state
+   * read. Events missed entirely (never dispatched, e.g. delivered while
+   * disconnected) have no marker and are still recovered via the retry.
+   */
+  protected async isDuplicateEventDelivery(
+    payload: SlackWebhookPayload,
+    retryNum?: number
+  ): Promise<boolean> {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat && retryNum && retryNum > 0)) {
+      return false;
+    }
+    try {
+      const seen = await this.chat
+        .getState()
+        .get(`slack:event-delivered:${eventId}`);
+      if (seen) {
+        this.logger.info("Skipping duplicate event delivery", {
+          eventId,
+          retryNum,
+        });
+        return true;
+      }
+    } catch {
+      // State unavailable — process rather than drop
+    }
+    return false;
+  }
+
   /** Extract and dispatch events from a validated payload */
   protected processEventPayload(
     payload: SlackWebhookPayload,
     options?: WebhookOptions
   ): void {
     if (payload.type === "event_callback" && payload.event) {
+      this.markEventDelivered(payload);
       const event = payload.event;
 
       // Track external/shared channel status from payload-level flag
@@ -2043,7 +2147,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         await this.routeSocketEvent(
           body as Record<string, unknown>,
           type as string,
-          ack
+          ack,
+          undefined,
+          retry_num
         );
       }
     );
@@ -2059,7 +2165,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     body: Record<string, unknown>,
     eventType: string,
     ack: (response?: Record<string, unknown>) => Promise<void>,
-    options?: WebhookOptions
+    options?: WebhookOptions,
+    retryNum?: number
   ): Promise<void> {
     const wrapAsync = (promise: Promise<unknown>): void => {
       if (options?.waitUntil) {
@@ -2094,6 +2201,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event_time: body.event_time as number | undefined,
         };
         try {
+          // Drop redeliveries of events that were already dispatched
+          if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+            break;
+          }
           // Resolve the per-installation token exactly like the HTTP path
           const resolved = await this.resolveEventRequestContext(payload);
           if (resolved === "unresolved") {
@@ -2152,6 +2263,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 enterpriseId: info.enterpriseId,
                 isEnterpriseInstall: info.isEnterpriseInstall,
                 installationId: info.installationId,
+                teamId: info.teamId,
               },
               dispatch
             );
@@ -2271,6 +2383,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             type: "socket_event",
             eventType,
             body: body as Record<string, unknown>,
+            retryNum: retry_num,
             timestamp: Date.now(),
           });
         } else {
@@ -2278,7 +2391,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             body as Record<string, unknown>,
             eventType,
             ack,
-            options
+            options,
+            retry_num
           );
         }
       }

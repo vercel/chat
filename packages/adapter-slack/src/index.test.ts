@@ -62,7 +62,11 @@ function createSlackSignature(
 function createWebhookRequest(
   body: string,
   secret: string,
-  options?: { timestampOffset?: number; contentType?: string }
+  options?: {
+    timestampOffset?: number;
+    contentType?: string;
+    headers?: Record<string, string>;
+  }
 ): Request {
   const timestamp =
     Math.floor(Date.now() / 1000) + (options?.timestampOffset ?? 0);
@@ -74,6 +78,7 @@ function createWebhookRequest(
       "x-slack-request-timestamp": String(timestamp),
       "x-slack-signature": signature,
       "content-type": options?.contentType ?? "application/json",
+      ...options?.headers,
     },
     body,
   });
@@ -10064,5 +10069,256 @@ describe("installation-scoped user caches", () => {
     );
 
     expect(await state.get("slack:user:T_A:U1")).toBeNull();
+  });
+});
+
+// ============================================================================
+// Enterprise Grid: org-token team_id injection + context echo
+// ============================================================================
+
+describe("withToken enterprise context injection", () => {
+  interface TokenTestAdapter {
+    requestContext: {
+      run<T>(
+        ctx: {
+          token: string;
+          isEnterpriseInstall?: boolean;
+          teamId?: string;
+          contextTeamId?: string;
+        },
+        fn: () => T
+      ): T;
+    };
+    withToken<T extends Record<string, unknown>>(
+      options: T
+    ): Promise<T & { token: string }>;
+  }
+
+  function createContextAdapter() {
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    return adapter as unknown as TokenTestAdapter;
+  }
+
+  it("injects team_id on org-wide install calls", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      { token: "xoxb-org", isEnterpriseInstall: true, teamId: "T_EVENT_1" },
+      () => internals.withToken({ channel: "C1" })
+    );
+
+    expect(result).toEqual({
+      channel: "C1",
+      team_id: "T_EVENT_1",
+      token: "xoxb-org",
+    });
+  });
+
+  it("does not inject team_id for workspace installs", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      { token: "xoxb-team", isEnterpriseInstall: false, teamId: "T_EVENT_1" },
+      () => internals.withToken({ channel: "C1" })
+    );
+
+    expect(result).toEqual({ channel: "C1", token: "xoxb-team" });
+  });
+
+  it("does not override a caller-specified team_id", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      { token: "xoxb-org", isEnterpriseInstall: true, teamId: "T_EVENT_1" },
+      () => internals.withToken({ channel: "C1", team_id: "T_EXPLICIT" })
+    );
+
+    expect(result.team_id).toBe("T_EXPLICIT");
+  });
+
+  it("echoes context_team_id as client_context_team_id on channel calls", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      { token: "xoxb-team", contextTeamId: "T_AWAY_HOST" },
+      () => internals.withToken({ channel: "C1", text: "hi" })
+    );
+
+    expect(result.client_context_team_id).toBe("T_AWAY_HOST");
+  });
+
+  it("does not add client_context_team_id to non-channel calls", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      { token: "xoxb-team", contextTeamId: "T_AWAY_HOST" },
+      () => internals.withToken({ user: "U1" })
+    );
+
+    expect(result).toEqual({ user: "U1", token: "xoxb-team" });
+  });
+
+  it("captures teamId and contextTeamId in the event request context", async () => {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+    await adapter.setInstallation("E_ORG_1", {
+      botToken: "xoxb-org",
+      isEnterpriseInstall: true,
+    });
+
+    const resolved = await (
+      adapter as unknown as {
+        resolveEventRequestContext(payload: {
+          type: string;
+          team_id?: string;
+          enterprise_id?: string;
+          is_enterprise_install?: boolean;
+          event?: Record<string, unknown>;
+        }): Promise<Record<string, unknown> | string>;
+      }
+    ).resolveEventRequestContext({
+      type: "event_callback",
+      team_id: "T_GRID_1",
+      enterprise_id: "E_ORG_1",
+      is_enterprise_install: true,
+      event: {
+        type: "message",
+        channel: "C1",
+        ts: "1.1",
+        context_team_id: "T_AWAY_HOST",
+      },
+    });
+
+    expect(resolved).toMatchObject({
+      installationId: "E_ORG_1",
+      isEnterpriseInstall: true,
+      teamId: "T_GRID_1",
+      contextTeamId: "T_AWAY_HOST",
+    });
+  });
+});
+
+// ============================================================================
+// Enterprise Grid: event_id retry deduplication
+// ============================================================================
+
+describe("event delivery deduplication", () => {
+  const secret = "test-signing-secret";
+
+  function eventBody(eventId: string) {
+    return JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event_id: eventId,
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "C123",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    });
+  }
+
+  async function createDedupeAdapter() {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+    return { adapter, chatInstance, state };
+  }
+
+  it("drops a retried delivery of an already-dispatched event", async () => {
+    const { adapter, chatInstance } = await createDedupeAdapter();
+
+    await adapter.handleWebhook(createWebhookRequest(eventBody("Ev1"), secret));
+    // Fire-and-forget marker write
+    await vi.waitFor(async () => {
+      expect(chatInstance).toHaveDispatched("processMessage");
+    });
+
+    const retry = createWebhookRequest(eventBody("Ev1"), secret, {
+      headers: { "x-slack-retry-num": "1" },
+    });
+    const response = await adapter.handleWebhook(retry);
+
+    expect(response.status).toBe(200);
+    const dispatches = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls.length;
+    expect(dispatches).toBe(1);
+  });
+
+  it("processes a retry when the original delivery was never dispatched", async () => {
+    const { adapter, chatInstance } = await createDedupeAdapter();
+
+    const retry = createWebhookRequest(eventBody("Ev_missed"), secret, {
+      headers: { "x-slack-retry-num": "2" },
+    });
+    const response = await adapter.handleWebhook(retry);
+
+    expect(response.status).toBe(200);
+    expect(chatInstance).toHaveDispatched("processMessage");
+  });
+
+  it("does not consult state on first deliveries", async () => {
+    const { adapter, chatInstance, state } = await createDedupeAdapter();
+    const getSpy = vi.spyOn(state, "get");
+
+    await adapter.handleWebhook(createWebhookRequest(eventBody("Ev2"), secret));
+
+    expect(chatInstance).toHaveDispatched("processMessage");
+    expect(getSpy).not.toHaveBeenCalledWith("slack:event-delivered:Ev2");
+  });
+
+  it("dedupes retried socket deliveries by event_id", async () => {
+    const { adapter, chatInstance } = await createDedupeAdapter();
+    const routing = adapter as unknown as {
+      routeSocketEvent(
+        body: Record<string, unknown>,
+        eventType: string,
+        ack: () => Promise<void>,
+        options?: undefined,
+        retryNum?: number
+      ): Promise<void>;
+    };
+    const body = {
+      team_id: "T123",
+      event_id: "Ev_sock",
+      event: {
+        type: "message",
+        user: "U_USER",
+        channel: "C123",
+        text: "hello",
+        ts: "1234567890.123456",
+      },
+    };
+
+    await routing.routeSocketEvent(body, "events_api", async () => {});
+    await vi.waitFor(() => {
+      expect(chatInstance).toHaveDispatched("processMessage");
+    });
+
+    await routing.routeSocketEvent(
+      body,
+      "events_api",
+      async () => {},
+      undefined,
+      1
+    );
+
+    const dispatches = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls.length;
+    expect(dispatches).toBe(1);
   });
 });

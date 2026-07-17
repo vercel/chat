@@ -230,6 +230,8 @@ export async function GET(request: Request) {
 
 For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key, so it round-trips with `getInstallation` and `deleteInstallation` for both install types; the result also includes `enterpriseId` and `isEnterpriseInstall`.
 
+The adapter handles the other Enterprise Grid mechanics automatically: API calls during event handling pass the event's `team_id` explicitly (required for workspace-scoped methods on org-wide tokens), `context_team_id` from away-hosted shared channels is echoed back as `client_context_team_id`, retried event deliveries are deduplicated by `event_id`, and user caches are scoped per installation.
+
 #### Using the adapter outside webhooks
 
 During webhook handling, the adapter resolves tokens automatically. Outside that context (cron jobs, background workers), use `getInstallation` and `withBotToken`:

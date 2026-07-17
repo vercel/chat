@@ -184,6 +184,16 @@ createSlackAdapter({
 
 When configured, the provider's `getInstallation` is called for every webhook event, slash command, and interactive payload. It is read-only — the adapter's `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` continue to write to the internal state adapter, so callers using a provider should manage their own writes through their external system.
 
+### Enterprise Grid
+
+For Enterprise Grid org-wide installs the adapter handles the Grid-specific mechanics automatically:
+
+- Installations are keyed by `enterprise_id` and incoming payloads resolve tokens the same way (`is_enterprise_install`).
+- API calls made while handling an event pass the event's `team_id` explicitly — org-wide tokens span every workspace in the org, and Slack requires the ID on workspace-scoped methods.
+- When an event arrives from a shared channel hosted on another workspace (`context_team_id`), channel-addressed calls echo it back as `client_context_team_id`.
+- Retried event deliveries are deduplicated by `event_id` via the state adapter, so Slack's redelivery of slow-acked events doesn't double-process reactions or assistant events.
+- User profile caches and mention resolution are scoped per installation, so same-named users in different workspaces never cross-resolve.
+
 ## Socket mode
 
 For environments behind firewalls that can't expose public HTTP endpoints, the adapter supports [Slack Socket Mode](https://api.slack.com/apis/socket-mode). Instead of receiving webhooks, the adapter connects to Slack over a WebSocket.
