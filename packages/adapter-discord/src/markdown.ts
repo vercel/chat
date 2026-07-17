@@ -201,7 +201,8 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       const linkText = children
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
-      const discordLinkStyle = (node.data as DiscordLinkData | undefined)?.discordLinkStyle;
+      const discordLinkStyle = (node.data as DiscordLinkData | undefined)
+        ?.discordLinkStyle;
       if (discordLinkStyle === DiscordLinkStyle.SuppressedAutolink) {
         return `<${node.url}>`;
       }
