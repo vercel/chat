@@ -446,6 +446,16 @@ interface SlackUserChangeEvent {
 
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
+  /**
+   * Installation the event is delivered for (truncated to one entry).
+   * Slack documents this — not the top-level fields — as the authoritative
+   * location of is_enterprise_install/enterprise_id on event envelopes.
+   */
+  authorizations?: Array<{
+    enterprise_id?: string | null;
+    team_id?: string | null;
+    is_enterprise_install?: boolean;
+  }>;
   challenge?: string;
   /** Enterprise ID for Enterprise Grid org-wide installs */
   enterprise_id?: string;
@@ -595,8 +605,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
-  /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min; 1 hour also covers delayed redeliveries. */
-  protected static readonly EVENT_DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 hour
+  /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min, and the opt-in Delayed Events feature redelivers hourly for up to 24 hours. */
+  protected static readonly EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
@@ -640,6 +650,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     teamId?: string;
     /** context_team_id from the incoming event, echoed back as client_context_team_id on channel-addressed calls (away-hosted shared channels) */
     contextTeamId?: string;
+    /** Channel the context_team_id came from — the echo only applies to calls targeting that channel */
+    contextChannel?: string;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -863,6 +875,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (
       ctx?.contextTeamId &&
       options.channel !== undefined &&
+      options.channel === ctx.contextChannel &&
       options.client_context_team_id === undefined
     ) {
       extras.client_context_team_id = ctx.contextTeamId;
@@ -1218,6 +1231,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         installationId: string;
         teamId?: string;
         contextTeamId?: string;
+        contextChannel?: string;
       }
     | "not-applicable"
     | "unresolved"
@@ -1226,11 +1240,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return "not-applicable";
     }
 
-    // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-    const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
-    const installationId = isEnterpriseInstall
-      ? payload.enterprise_id
-      : payload.team_id;
+    // Prefer authorizations[0] — Slack documents it as the authoritative
+    // installation identity for the event; the top-level fields can name a
+    // different (e.g. Slack Connect-ed) workspace. Fall back to top-level
+    // for payloads that omit authorizations (some event types, forwarded
+    // socket events from older listeners).
+    const auth = payload.authorizations?.[0];
+    const isEnterpriseInstall = Boolean(
+      auth?.is_enterprise_install ?? payload.is_enterprise_install
+    );
+    const enterpriseId =
+      (auth?.enterprise_id || payload.enterprise_id) ?? undefined;
+    const teamId = (auth?.team_id || payload.team_id) ?? undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
     if (!installationId) {
       return "not-applicable";
     }
@@ -1247,14 +1269,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return "unresolved";
     }
 
+    const event = payload.event as
+      | { channel?: string; context_team_id?: string }
+      | undefined;
     return {
       ...ctx,
-      enterpriseId: payload.enterprise_id,
+      enterpriseId,
       isEnterpriseInstall,
       installationId,
-      teamId: payload.team_id,
-      contextTeamId: (payload.event as { context_team_id?: string } | undefined)
-        ?.context_team_id,
+      teamId,
+      contextTeamId: event?.context_team_id,
+      contextChannel: event?.channel,
     };
   }
 
@@ -2191,6 +2216,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const payload: SlackWebhookPayload = {
           type: "event_callback",
           event: body.event as SlackWebhookPayload["event"],
+          authorizations:
+            body.authorizations as SlackWebhookPayload["authorizations"],
           team_id: body.team_id as string | undefined,
           enterprise_id:
             (body.enterprise_id as string | null | undefined) ?? undefined,

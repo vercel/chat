@@ -10085,6 +10085,7 @@ describe("withToken enterprise context injection", () => {
           isEnterpriseInstall?: boolean;
           teamId?: string;
           contextTeamId?: string;
+          contextChannel?: string;
         },
         fn: () => T
       ): T;
@@ -10139,22 +10140,49 @@ describe("withToken enterprise context injection", () => {
     expect(result.team_id).toBe("T_EXPLICIT");
   });
 
-  it("echoes context_team_id as client_context_team_id on channel calls", async () => {
+  it("echoes context_team_id as client_context_team_id on calls to the originating channel", async () => {
     const internals = createContextAdapter();
 
     const result = await internals.requestContext.run(
-      { token: "xoxb-team", contextTeamId: "T_AWAY_HOST" },
+      {
+        token: "xoxb-team",
+        contextTeamId: "T_AWAY_HOST",
+        contextChannel: "C1",
+      },
       () => internals.withToken({ channel: "C1", text: "hi" })
     );
 
     expect(result.client_context_team_id).toBe("T_AWAY_HOST");
   });
 
+  it("does not echo client_context_team_id to a different channel", async () => {
+    const internals = createContextAdapter();
+
+    const result = await internals.requestContext.run(
+      {
+        token: "xoxb-team",
+        contextTeamId: "T_AWAY_HOST",
+        contextChannel: "C1",
+      },
+      () => internals.withToken({ channel: "C_OTHER", text: "hi" })
+    );
+
+    expect(result).toEqual({
+      channel: "C_OTHER",
+      text: "hi",
+      token: "xoxb-team",
+    });
+  });
+
   it("does not add client_context_team_id to non-channel calls", async () => {
     const internals = createContextAdapter();
 
     const result = await internals.requestContext.run(
-      { token: "xoxb-team", contextTeamId: "T_AWAY_HOST" },
+      {
+        token: "xoxb-team",
+        contextTeamId: "T_AWAY_HOST",
+        contextChannel: "C1",
+      },
       () => internals.withToken({ user: "U1" })
     );
 
@@ -10387,5 +10415,116 @@ describe("W-prefixed enterprise user IDs", () => {
     );
 
     expect(message.text).toContain("Wanda");
+  });
+});
+
+// ============================================================================
+// Enterprise Grid: authorizations[] event routing
+// ============================================================================
+
+describe("event routing via authorizations[]", () => {
+  interface ResolvingAdapter {
+    resolveEventRequestContext(
+      payload: Record<string, unknown>
+    ): Promise<Record<string, unknown> | string>;
+  }
+
+  async function createResolvingAdapter() {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
+    return { adapter, internals: adapter as unknown as ResolvingAdapter };
+  }
+
+  const event = {
+    type: "message",
+    user: "U_USER",
+    channel: "C123",
+    text: "hi",
+    ts: "1234567890.123456",
+  };
+
+  it("prefers authorizations[0] over top-level fields for org installs", async () => {
+    const { adapter, internals } = await createResolvingAdapter();
+    await adapter.setInstallation("E_ORG_1", {
+      botToken: "xoxb-org",
+      isEnterpriseInstall: true,
+    });
+
+    // Envelope where the org identity lives only in authorizations —
+    // the documented location; top-level omits is_enterprise_install
+    const resolved = await internals.resolveEventRequestContext({
+      type: "event_callback",
+      team_id: "T_GRID_1",
+      event,
+      authorizations: [
+        {
+          enterprise_id: "E_ORG_1",
+          team_id: null,
+          is_enterprise_install: true,
+        },
+      ],
+    });
+
+    expect(resolved).toMatchObject({
+      installationId: "E_ORG_1",
+      isEnterpriseInstall: true,
+      token: "xoxb-org",
+      teamId: "T_GRID_1",
+    });
+  });
+
+  it("uses the authorization's team over a Slack Connect top-level team", async () => {
+    const { adapter, internals } = await createResolvingAdapter();
+    await adapter.setInstallation("T_RECIPIENT", {
+      botToken: "xoxb-recipient",
+    });
+
+    // Shared-channel envelope: top-level names the other org's workspace,
+    // authorizations[0] names the actual recipient installation
+    const resolved = await internals.resolveEventRequestContext({
+      type: "event_callback",
+      team_id: "T_OTHER_ORG",
+      enterprise_id: "E_OTHER_ORG",
+      event,
+      authorizations: [
+        {
+          enterprise_id: null,
+          team_id: "T_RECIPIENT",
+          is_enterprise_install: false,
+        },
+      ],
+    });
+
+    expect(resolved).toMatchObject({
+      installationId: "T_RECIPIENT",
+      isEnterpriseInstall: false,
+      token: "xoxb-recipient",
+    });
+  });
+
+  it("falls back to top-level fields when authorizations is absent", async () => {
+    const { adapter, internals } = await createResolvingAdapter();
+    await adapter.setInstallation("E_ORG_1", {
+      botToken: "xoxb-org",
+      isEnterpriseInstall: true,
+    });
+
+    const resolved = await internals.resolveEventRequestContext({
+      type: "event_callback",
+      team_id: "T_GRID_1",
+      enterprise_id: "E_ORG_1",
+      is_enterprise_install: true,
+      event,
+    });
+
+    expect(resolved).toMatchObject({
+      installationId: "E_ORG_1",
+      isEnterpriseInstall: true,
+      token: "xoxb-org",
+    });
   });
 });
