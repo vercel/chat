@@ -127,10 +127,30 @@ export interface WhatsAppInboundMessage {
     payload: string;
     text: string;
   };
-  /** Context for quoted replies */
+  /**
+   * Context accompanying quoted replies, forwarded messages, and catalog
+   * product inquiries. The shape depends on the message origin: replies (and
+   * interactions with a business message) carry `from` and `id`, forwarded
+   * messages carry only `forwarded` or `frequently_forwarded`, and catalog
+   * product inquiries add `referred_product`. No field is present in every
+   * variant.
+   *
+   * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text
+   */
   context?: {
-    from: string;
-    id: string;
+    /** True when the message was forwarded five or fewer times; forwards only */
+    forwarded?: boolean;
+    /** True when the message was forwarded more than five times; forwards only */
+    frequently_forwarded?: boolean;
+    /** WhatsApp ID of the sender of the quoted message; replies only */
+    from?: string;
+    /** ID of the quoted message; replies only */
+    id?: string;
+    /** Product the customer is asking about; catalog inquiries only */
+    referred_product?: {
+      catalog_id: string;
+      product_retailer_id: string;
+    };
   };
   /** Document message content */
   document?: {
