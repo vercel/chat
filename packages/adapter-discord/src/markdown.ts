@@ -35,6 +35,29 @@ import {
   tableToAscii,
 } from "chat";
 
+const SUPPRESSED_AUTOLINK_REGEX = /^<https?:\/\/[^<>\s]+>$/i;
+const SUPPRESSED_MASKED_LINK_REGEX = /\]\(<https?:\/\/[^<>\s]+>\)$/i;
+
+// biome-ignore lint/style/noEnum: Link styles must use an enum.
+enum DiscordLinkStyle {
+  SuppressedAutolink = "suppressed-autolink",
+  SuppressedMaskedLink = "suppressed-masked-link",
+}
+
+interface DiscordLinkData {
+  discordLinkStyle?: DiscordLinkStyle;
+}
+
+function getDiscordLinkStyle(source: string): DiscordLinkStyle | undefined {
+  if (SUPPRESSED_AUTOLINK_REGEX.test(source)) {
+    return DiscordLinkStyle.SuppressedAutolink;
+  }
+  if (SUPPRESSED_MASKED_LINK_REGEX.test(source)) {
+    return DiscordLinkStyle.SuppressedMaskedLink;
+  }
+  return undefined;
+}
+
 export class DiscordFormatConverter extends BaseFormatConverter {
   /**
    * Convert bare `@mentions` to Discord format (`@name` → `<@name>`), leaving
@@ -55,7 +78,7 @@ export class DiscordFormatConverter extends BaseFormatConverter {
       return this.convertMentionsToDiscord(message.raw);
     }
     if ("markdown" in message) {
-      return this.fromAst(parseMarkdown(message.markdown));
+      return this.fromAst(this.parseDiscordMarkdown(message.markdown));
     }
     if ("ast" in message) {
       return this.fromAst(message.ast);
@@ -95,7 +118,37 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     // (no direct markdown equivalent, convert to placeholder)
     markdown = markdown.replace(/\|\|([^|]+)\|\|/g, "[spoiler: $1]");
 
-    return parseMarkdown(markdown);
+    return this.parseDiscordMarkdown(markdown);
+  }
+
+  /**
+   * mdast normalizes Discord's two angle-bracketed link forms, so retain their
+   * source style in the node's adapter-specific data before rendering.
+   */
+  private parseDiscordMarkdown(markdown: string): Root {
+    const ast = parseMarkdown(markdown);
+    this.markDiscordLinkStyles(ast.children, markdown);
+    return ast;
+  }
+
+  private markDiscordLinkStyles(nodes: Content[], markdown: string): void {
+    for (const node of nodes) {
+      if (isLinkNode(node)) {
+        const start = node.position?.start.offset;
+        const end = node.position?.end.offset;
+
+        if (start !== undefined && end !== undefined) {
+          const source = markdown.slice(start, end);
+          const discordLinkStyle = getDiscordLinkStyle(source);
+
+          if (discordLinkStyle !== undefined) {
+            node.data = { ...node.data, discordLinkStyle };
+          }
+        }
+      }
+
+      this.markDiscordLinkStyles(getNodeChildren(node), markdown);
+    }
   }
 
   private nodeToDiscordMarkdown(node: Content): string {
@@ -144,12 +197,21 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isLinkNode(node)) {
-      const linkText = getNodeChildren(node)
+      const children = getNodeChildren(node);
+      const linkText = children
         .map((child) => this.nodeToDiscordMarkdown(child))
         .join("");
-      // Bare URLs / autolinks (label === url) must stay bare: Discord only
-      // renders masked links `[text](url)` inside embeds, so `[url](url)` in a
-      // normal message shows up as literal text instead of a clickable link.
+      const discordLinkStyle = (node.data as DiscordLinkData | undefined)?.discordLinkStyle;
+      if (discordLinkStyle === DiscordLinkStyle.SuppressedAutolink) {
+        return `<${node.url}>`;
+      }
+      if (discordLinkStyle === DiscordLinkStyle.SuppressedMaskedLink) {
+        return `[${linkText}](<${node.url}>)`;
+      }
+
+      // Bare URLs (label === url) must stay bare: Discord only renders masked
+      // links `[text](url)` inside embeds, so `[url](url)` in a normal message
+      // shows up as literal text instead of a clickable link.
       if (linkText === node.url) {
         return node.url;
       }

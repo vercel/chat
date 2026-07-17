@@ -1535,6 +1535,33 @@ describe("postMessage", () => {
     spy.mockRestore();
   });
 
+  it("preserves suppressed links in the Discord API payload", async () => {
+    const markdown = "<https://google.com> [Google](<https://google.com>)";
+    const mockResponse = new Response(
+      JSON.stringify({
+        id: "msg-suppressed-links",
+        channel_id: "channel456",
+        content: markdown,
+        timestamp: "2021-01-01T00:00:00.000Z",
+        author: { id: "test-app-id", username: "bot" },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+    const spy = vi
+      .spyOn(adapter as any, "discordFetch")
+      .mockResolvedValue(mockResponse);
+
+    await adapter.postMessage("discord:guild1:channel456", { markdown });
+
+    expect(spy).toHaveBeenCalledWith(
+      "/channels/channel456/messages",
+      "POST",
+      expect.objectContaining({ content: markdown })
+    );
+
+    spy.mockRestore();
+  });
+
   it("posts to thread channel when threadId is present", async () => {
     const mockResponse = new Response(
       JSON.stringify({
