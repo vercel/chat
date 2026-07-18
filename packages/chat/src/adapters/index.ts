@@ -258,6 +258,10 @@ export const ADAPTERS = {
           "DISCORD_MENTION_ROLE_IDS",
           "Comma-separated role IDs that should trigger mention handlers."
         ),
+        env(
+          "DISCORD_RESPOND_TO_CHANNEL_IDS",
+          "Comma-separated parent channel IDs whose non-bot messages trigger mention handlers without an @mention."
+        ),
         urlEnv("DISCORD_API_URL", "Override the Discord API base URL."),
       ],
       required: [
