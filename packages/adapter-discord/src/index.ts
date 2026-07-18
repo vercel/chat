@@ -181,7 +181,13 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
-    this.respondToChannelIds = config.respondToChannelIds ?? [];
+    this.respondToChannelIds =
+      config.respondToChannelIds ??
+      (process.env.DISCORD_RESPOND_TO_CHANNEL_IDS
+        ? process.env.DISCORD_RESPOND_TO_CHANNEL_IDS.split(",").map((id) =>
+            id.trim()
+          )
+        : []);
     this.respondToGlobalMentions = config.respondToGlobalMentions ?? false;
     this.botUserId = applicationId; // Discord app ID is the bot's user ID
     this.contentFormat = contentFormat;
@@ -2181,15 +2187,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         );
       const isEveryoneMentioned =
         this.respondToGlobalMentions && message.mentions.everyone;
+      const isChannelAllowlisted = this.respondToChannelIds.includes(
+        message.channel.isThread()
+          ? (message.channel.parentId ?? message.channelId)
+          : message.channelId
+      );
       const isMentioned =
         isUserMentioned ||
         isRoleMentioned ||
         isEveryoneMentioned ||
-        this.respondToChannelIds.includes(
-          message.channel.isThread()
-            ? (message.channel.parentId ?? message.channelId)
-            : message.channelId
-        );
+        isChannelAllowlisted;
 
       this.logger.info("Discord Gateway message received", {
         channelId: message.channelId,
@@ -2199,6 +2206,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         isUserMentioned,
         isRoleMentioned,
         isEveryoneMentioned,
+        isChannelAllowlisted,
         content: message.content.slice(0, 100),
       });
 

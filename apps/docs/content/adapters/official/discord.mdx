@@ -106,7 +106,7 @@ bot.onNewMention(async (thread, message) => {
     respondToChannelIds: {
       type: "string[]",
       description:
-        "Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Defaults to `[]`.",
+        "Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Auto-detected from `DISCORD_RESPOND_TO_CHANNEL_IDS` (comma-separated). Defaults to `[]`.",
     },
     respondToGlobalMentions: {
       type: "boolean",

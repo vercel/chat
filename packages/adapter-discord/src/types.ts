@@ -39,7 +39,7 @@ export interface DiscordAdapterConfig {
   mentionRoleIds?: string[];
   /** Discord application public key for webhook signature verification. Defaults to DISCORD_PUBLIC_KEY env var. */
   publicKey?: string;
-  /** Parent channel IDs whose non-bot messages, including messages in child threads, should trigger mention handlers without a mention. Defaults to an empty array. */
+  /** Parent channel IDs whose non-bot messages, including messages in child threads, should trigger mention handlers without a mention. Defaults to DISCORD_RESPOND_TO_CHANNEL_IDS env var (comma-separated), or an empty array. */
   respondToChannelIds?: string[];
   /** Treat @everyone/@here pings as mentions of the bot. Defaults to false. */
   respondToGlobalMentions?: boolean;

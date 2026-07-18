@@ -226,7 +226,7 @@ All options are auto-detected from environment variables when not provided.
 | `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
 | `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
-| `respondToChannelIds` | No | Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Defaults to `[]` |
+| `respondToChannelIds` | No | Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Auto-detected from `DISCORD_RESPOND_TO_CHANNEL_IDS` (comma-separated). Defaults to `[]` |
 | `respondToGlobalMentions` | No | Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false` |
 | `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
