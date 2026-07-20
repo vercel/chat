@@ -4,11 +4,6 @@
  * typography/material utilities, and the Shiki palette.
  */
 
-@source "../../node_modules/@vercel/geistdocs/dist/**/*.js";
-@source "../../node_modules/streamdown/dist/*.js";
-@source "../../node_modules/@streamdown/code/dist/*.js";
-@source "../../node_modules/@streamdown/cjk/dist/*.js";
-
 /* shadcn/ui token mappings for the local components/ui primitives */
 @theme inline {
   --color-background: var(--background);
@@ -149,9 +144,20 @@
   content: none;
 }
 
-/* Align docs content with navbar on mobile */
-#nd-page {
-  @apply max-md:px-6;
+/*
+ * On mobile the sticky MobileDocsBar abuts the navbar via a negative top
+ * margin, which would otherwise overlap and clip the page breadcrumb rendered
+ * above it. Hide the breadcrumb on mobile so the bar sits flush under the
+ * navbar; it stays visible on desktop, where the bar is hidden.
+ */
+@container (max-width: 960px) {
+  #nd-page {
+    @apply px-6;
+  }
+
+  #nd-page > .text-fd-muted-foreground:first-child {
+    @apply hidden;
+  }
 }
 
 /* TOC and footer links use gray-1000 */
