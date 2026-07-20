@@ -9963,6 +9963,11 @@ describe("installation-scoped user caches", () => {
       run<T>(ctx: { token: string; installationId?: string }, fn: () => T): T;
     };
     resolveOutgoingMentions(text: string, threadId: string): Promise<string>;
+    withBotToken<T>(
+      token: string,
+      fn: () => T,
+      options?: { installationId?: string }
+    ): T;
   }
 
   async function createCacheAdapter() {
@@ -10022,6 +10027,28 @@ describe("installation-scoped user caches", () => {
     });
 
     await internals.lookupUser("U1");
+
+    expect(await state.get("slack:user:U1")).not.toBeNull();
+  });
+
+  it("scopes the cache under withBotToken when installationId is passed", async () => {
+    const { internals, state, usersInfoMock } = await createCacheAdapter();
+
+    await internals.withBotToken(
+      "xoxb-team-a",
+      () => internals.lookupUser("U1"),
+      { installationId: "T_A" }
+    );
+
+    expect(usersInfoMock).toHaveBeenCalledTimes(1);
+    expect(await state.get("slack:user:T_A:U1")).not.toBeNull();
+    expect(await state.get("slack:user:U1")).toBeNull();
+  });
+
+  it("uses unscoped keys under withBotToken without installationId", async () => {
+    const { internals, state } = await createCacheAdapter();
+
+    await internals.withBotToken("xoxb-token", () => internals.lookupUser("U1"));
 
     expect(await state.get("slack:user:U1")).not.toBeNull();
   });

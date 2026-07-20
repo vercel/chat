@@ -1099,9 +1099,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Run a function with a specific bot token in context.
    * Use this for operations outside webhook handling (cron jobs, workflows).
+   *
+   * In multi-workspace deployments, pass `installationId` (the `team_id`, or
+   * `enterprise_id` for org-wide installs — the same key the installation was
+   * stored under) so per-user caches (profile cache and display-name mention
+   * index) are scoped to that installation. Without it these fall back to the
+   * unscoped global key, which can bleed one tenant's cached profiles and
+   * mention resolution into another when the same process posts for multiple
+   * workspaces.
    */
-  withBotToken<T>(token: string, fn: () => T): T {
-    return this.requestContext.run({ token }, fn);
+  withBotToken<T>(
+    token: string,
+    fn: () => T,
+    options?: { installationId?: string }
+  ): T {
+    return this.requestContext.run(
+      { token, installationId: options?.installationId },
+      fn
+    );
   }
 
   // ===========================================================================

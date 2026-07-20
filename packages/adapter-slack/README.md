@@ -125,13 +125,17 @@ During webhook handling, the adapter resolves tokens automatically from `team_id
 const install = await slackAdapter.getInstallation(teamId);
 if (!install) throw new Error("Workspace not installed");
 
-await slackAdapter.withBotToken(install.botToken, async () => {
-  const thread = bot.thread("slack:C12345:1234567890.123456");
-  await thread.post("Hello from a cron job!");
-});
+await slackAdapter.withBotToken(
+  install.botToken,
+  async () => {
+    const thread = bot.thread("slack:C12345:1234567890.123456");
+    await thread.post("Hello from a cron job!");
+  },
+  { installationId: teamId }
+);
 ```
 
-`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated.
+`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated. In multi-workspace deployments, pass `installationId` (the `team_id`, or `enterprise_id` for org-wide installs) so per-user caches are scoped to that installation and don't bleed across tenants.
 
 ### Removing installations
 
