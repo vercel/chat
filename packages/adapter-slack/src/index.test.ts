@@ -7647,6 +7647,118 @@ describe("reverse user lookup", () => {
     });
   });
 
+  describe("incoming author email", () => {
+    interface ParsingAdapter {
+      parseSlackMessage(
+        event: Record<string, unknown>,
+        threadId: string
+      ): Promise<{ author: Record<string, unknown> }>;
+    }
+
+    const humanEvent = {
+      type: "message",
+      user: "U_HUMAN_1",
+      text: "Hello",
+      ts: "1234567890.123456",
+      channel: "C123",
+    };
+
+    it("hydrates author email from users.info", async () => {
+      const { adapter } = createAdapterWithState();
+      const mockClient = (
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
+      mockClient.users.info = vi.fn().mockResolvedValue({
+        user: {
+          profile: {
+            display_name: "Alice",
+            real_name: "Alice Example",
+            email: "alice@example.com",
+          },
+          real_name: "Alice Example",
+          name: "alice",
+        },
+      });
+
+      const message = await (
+        adapter as unknown as ParsingAdapter
+      ).parseSlackMessage(humanEvent, "slack:C123:1234567890.123456");
+
+      expect(message.author.email).toBe("alice@example.com");
+    });
+
+    it("leaves email undefined when the profile has none", async () => {
+      const { adapter } = createAdapterWithState();
+      const mockClient = (
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
+      mockClient.users.info = vi.fn().mockResolvedValue({
+        user: {
+          profile: { display_name: "Alice", real_name: "Alice Example" },
+          real_name: "Alice Example",
+          name: "alice",
+        },
+      });
+
+      const message = await (
+        adapter as unknown as ParsingAdapter
+      ).parseSlackMessage(humanEvent, "slack:C123:1234567890.123456");
+
+      expect(message.author.email).toBeUndefined();
+    });
+
+    it("leaves email undefined when the user lookup is skipped", async () => {
+      const { adapter } = createAdapterWithState();
+      const mockClient = (
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
+      const usersInfoMock = vi.fn();
+      mockClient.users.info = usersInfoMock;
+
+      const message = await (
+        adapter as unknown as ParsingAdapter
+      ).parseSlackMessage(
+        { ...humanEvent, username: "webhook-bot", user: undefined },
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(usersInfoMock).not.toHaveBeenCalled();
+      expect(message.author.email).toBeUndefined();
+    });
+
+    it("serves email from the user cache without a second users.info call", async () => {
+      const { adapter } = createAdapterWithState();
+      const mockClient = (
+        adapter as unknown as { _client: { users: { info: unknown } } }
+      )._client;
+      const usersInfoMock = vi.fn().mockResolvedValue({
+        user: {
+          profile: {
+            display_name: "Alice",
+            real_name: "Alice Example",
+            email: "alice@example.com",
+          },
+          real_name: "Alice Example",
+          name: "alice",
+        },
+      });
+      mockClient.users.info = usersInfoMock;
+
+      const parsingAdapter = adapter as unknown as ParsingAdapter;
+      await parsingAdapter.parseSlackMessage(
+        humanEvent,
+        "slack:C123:1234567890.123456"
+      );
+      const second = await parsingAdapter.parseSlackMessage(
+        humanEvent,
+        "slack:C123:1234567890.123456"
+      );
+
+      expect(usersInfoMock).toHaveBeenCalledOnce();
+      expect(second.author.email).toBe("alice@example.com");
+    });
+  });
+
   describe("user_change event", () => {
     it("invalidates user cache on profile change", async () => {
       const state = createMockState();

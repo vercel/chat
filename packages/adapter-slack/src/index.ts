@@ -3066,12 +3066,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // since Slack events only include the user ID, not the username
     let userName = event.username || "unknown";
     let fullName = event.username || "unknown";
+    let email: string | undefined;
 
     // If we have a user ID but no username, look up the user info
     if (event.user && !event.username) {
       const userInfo = await this.lookupUser(event.user);
       userName = userInfo?.displayName ?? event.user;
       fullName = userInfo?.realName ?? userName;
+      email = userInfo?.email;
     }
 
     // Track thread participants for outgoing mention resolution (skip dupes)
@@ -3109,6 +3111,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId: event.user || event.bot_id || "unknown",
         userName,
         fullName,
+        email,
         isBot: !!event.bot_id,
         isSystem: event.user === SLACK_SYSTEM_USER_ID,
         isMe,
