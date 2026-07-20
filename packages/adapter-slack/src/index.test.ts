@@ -10048,7 +10048,9 @@ describe("installation-scoped user caches", () => {
   it("uses unscoped keys under withBotToken without installationId", async () => {
     const { internals, state } = await createCacheAdapter();
 
-    await internals.withBotToken("xoxb-token", () => internals.lookupUser("U1"));
+    await internals.withBotToken("xoxb-token", () =>
+      internals.lookupUser("U1")
+    );
 
     expect(await state.get("slack:user:U1")).not.toBeNull();
   });
