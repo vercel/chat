@@ -457,6 +457,13 @@ interface SlackWebhookPayload {
     is_enterprise_install?: boolean;
   }>;
   challenge?: string;
+  /**
+   * Workspace the event is contextualized to. Delivered at the envelope top
+   * level (not inside `event`); set on Slack Connect events hosted on an
+   * "away" workspace so calls to the originating channel can echo it back as
+   * `client_context_team_id`.
+   */
+  context_team_id?: string;
   /** Enterprise ID for Enterprise Grid org-wide installs */
   enterprise_id?: string;
   event?:
@@ -1269,16 +1276,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return "unresolved";
     }
 
-    const event = payload.event as
-      | { channel?: string; context_team_id?: string }
-      | undefined;
+    const event = payload.event as { channel?: string } | undefined;
     return {
       ...ctx,
       enterpriseId,
       isEnterpriseInstall,
       installationId,
       teamId,
-      contextTeamId: event?.context_team_id,
+      // context_team_id is an envelope top-level field, not inside `event`.
+      contextTeamId: payload.context_team_id,
       contextChannel: event?.channel,
     };
   }
@@ -2219,6 +2225,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           authorizations:
             body.authorizations as SlackWebhookPayload["authorizations"],
           team_id: body.team_id as string | undefined,
+          context_team_id: body.context_team_id as string | undefined,
           enterprise_id:
             (body.enterprise_id as string | null | undefined) ?? undefined,
           is_enterprise_install: Boolean(body.is_enterprise_install),

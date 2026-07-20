@@ -10208,6 +10208,7 @@ describe("withToken enterprise context injection", () => {
           team_id?: string;
           enterprise_id?: string;
           is_enterprise_install?: boolean;
+          context_team_id?: string;
           event?: Record<string, unknown>;
         }): Promise<Record<string, unknown> | string>;
       }
@@ -10216,11 +10217,12 @@ describe("withToken enterprise context injection", () => {
       team_id: "T_GRID_1",
       enterprise_id: "E_ORG_1",
       is_enterprise_install: true,
+      // context_team_id is a top-level envelope field, not inside `event`.
+      context_team_id: "T_AWAY_HOST",
       event: {
         type: "message",
         channel: "C1",
         ts: "1.1",
-        context_team_id: "T_AWAY_HOST",
       },
     });
 
