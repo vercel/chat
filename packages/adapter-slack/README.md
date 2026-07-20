@@ -115,6 +115,8 @@ export async function GET(request: Request) {
 
 If your install flow uses a specific redirect URI, pass the same value here that you used during the authorize step. This is especially useful when one app supports multiple redirect URLs. When no option is provided, the adapter still falls back to `redirect_uri` on the callback request URL.
 
+For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key — the enterprise ID for org-wide installs — so it round-trips with `getInstallation` and `deleteInstallation` for both install types. The result also includes `enterpriseId` and `isEnterpriseInstall` when you need to distinguish them.
+
 ### Using the adapter outside webhooks
 
 During webhook handling, the adapter resolves tokens automatically from `team_id`. Outside that context (e.g. cron jobs or background workers), use `getInstallation` and `withBotToken`:
@@ -123,13 +125,17 @@ During webhook handling, the adapter resolves tokens automatically from `team_id
 const install = await slackAdapter.getInstallation(teamId);
 if (!install) throw new Error("Workspace not installed");
 
-await slackAdapter.withBotToken(install.botToken, async () => {
-  const thread = bot.thread("slack:C12345:1234567890.123456");
-  await thread.post("Hello from a cron job!");
-});
+await slackAdapter.withBotToken(
+  install.botToken,
+  async () => {
+    const thread = bot.thread("slack:C12345:1234567890.123456");
+    await thread.post("Hello from a cron job!");
+  },
+  { installationId: teamId }
+);
 ```
 
-`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated.
+`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated. In multi-workspace deployments, pass `installationId` (the `team_id`, or `enterprise_id` for org-wide installs) so per-user caches are scoped to that installation and don't bleed across tenants.
 
 ### Removing installations
 
@@ -182,6 +188,16 @@ createSlackAdapter({
 
 When configured, the provider's `getInstallation` is called for every webhook event, slash command, and interactive payload. It is read-only — the adapter's `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` continue to write to the internal state adapter, so callers using a provider should manage their own writes through their external system.
 
+### Enterprise Grid
+
+For Enterprise Grid org-wide installs the adapter handles the Grid-specific mechanics automatically:
+
+- Installations are keyed by `enterprise_id` and incoming payloads resolve tokens the same way (`is_enterprise_install`).
+- API calls made while handling an event pass the event's `team_id` explicitly — org-wide tokens span every workspace in the org, and Slack requires the ID on workspace-scoped methods.
+- When an event arrives from a shared channel hosted on another workspace (`context_team_id`), channel-addressed calls echo it back as `client_context_team_id`.
+- Retried event deliveries are deduplicated by `event_id` via the state adapter, so Slack's redelivery of slow-acked events doesn't double-process reactions or assistant events.
+- User profile caches and mention resolution are scoped per installation, so same-named users in different workspaces never cross-resolve.
+
 ## Socket mode
 
 For environments behind firewalls that can't expose public HTTP endpoints, the adapter supports [Slack Socket Mode](https://api.slack.com/apis/socket-mode). Instead of receiving webhooks, the adapter connects to Slack over a WebSocket.
@@ -209,7 +225,7 @@ const bot = new Chat({
 3. Generate an **App-Level Token** with the `connections:write` scope — this is your `SLACK_APP_TOKEN` (`xapp-...`)
 4. Event subscriptions and interactivity still need to be configured, but no public request URL is required
 
-> Socket mode is not compatible with multi-workspace OAuth (`clientId`/`clientSecret`). It's designed for single-workspace deployments.
+> Socket mode works with both single-workspace tokens and multi-workspace OAuth: events arriving over the socket (or forwarded from a socket listener) resolve per-installation tokens by `team_id` — or `enterprise_id` for Enterprise Grid org-wide installs — the same way the webhook path does.
 
 ### Socket mode on serverless (Vercel)
 

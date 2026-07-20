@@ -86,7 +86,8 @@ import {
 import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
-const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+// Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
+const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
 
 // Reserved user ID Slack uses for platform-generated messages (e.g.
 // "@user archived the channel") that carry no bot_id or system subtype.
@@ -283,6 +284,8 @@ function normalizeBotTokenProvider(
 interface SlackForwardedSocketEvent {
   body: Record<string, unknown>;
   eventType: string;
+  /** Slack redelivery count for the original socket delivery, used for event dedup */
+  retryNum?: number;
   timestamp: number;
   type: "socket_event";
 }
@@ -443,7 +446,24 @@ interface SlackUserChangeEvent {
 
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
+  /**
+   * Installation the event is delivered for (truncated to one entry).
+   * Slack documents this — not the top-level fields — as the authoritative
+   * location of is_enterprise_install/enterprise_id on event envelopes.
+   */
+  authorizations?: Array<{
+    enterprise_id?: string | null;
+    team_id?: string | null;
+    is_enterprise_install?: boolean;
+  }>;
   challenge?: string;
+  /**
+   * Workspace the event is contextualized to. Delivered at the envelope top
+   * level (not inside `event`); set on Slack Connect events hosted on an
+   * "away" workspace so calls to the originating channel can echo it back as
+   * `client_context_team_id`.
+   */
+  context_team_id?: string;
   /** Enterprise ID for Enterprise Grid org-wide installs */
   enterprise_id?: string;
   event?:
@@ -592,6 +612,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min, and the opt-in Delayed Events feature redelivers hourly for up to 24 hours. */
+  protected static readonly EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
@@ -629,6 +651,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     isExtSharedChannel?: boolean;
     enterpriseId?: string;
     isEnterpriseInstall?: boolean;
+    /** team_id (or enterprise_id for org-wide installs) the current request resolved its token from */
+    installationId?: string;
+    /** Workspace the current event occurred in — required as an explicit team_id on workspace-scoped API calls when using an org-wide token */
+    teamId?: string;
+    /** context_team_id from the incoming event, echoed back as client_context_team_id on channel-addressed calls (away-hosted shared channels) */
+    contextTeamId?: string;
+    /** Channel the context_team_id came from — the echo only applies to calls targeting that channel */
+    contextChannel?: string;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -824,12 +854,40 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Add the current token to API call options.
    * Workaround for Slack WebClient types not including `token` in per-method args.
+   *
+   * For Enterprise Grid org-wide installs the token spans every workspace in
+   * the org, so workspace-scoped Web API methods (conversations.list,
+   * users.list, usergroups.*, …) require an explicit `team_id`. Slack
+   * documents always passing it as safe — the field is ignored on
+   * workspace-level tokens and on methods that don't take it.
+   *
+   * When the incoming event carried a `context_team_id` (shared channels
+   * hosted on an "away" workspace), it is echoed back as
+   * `client_context_team_id` on channel-addressed calls, per Slack's
+   * Enterprise Grid guidance.
    */
   protected async withToken<
     // biome-ignore lint/suspicious/noExplicitAny: Slack types don't include token in method args
     T extends Record<string, any>,
   >(options: T): Promise<T & { token: string }> {
-    return { ...options, token: await this.getToken() };
+    const ctx = this.requestContext.getStore();
+    const extras: Record<string, unknown> = {};
+    if (
+      ctx?.isEnterpriseInstall &&
+      ctx.teamId &&
+      options.team_id === undefined
+    ) {
+      extras.team_id = ctx.teamId;
+    }
+    if (
+      ctx?.contextTeamId &&
+      options.channel !== undefined &&
+      options.channel === ctx.contextChannel &&
+      options.client_context_team_id === undefined
+    ) {
+      extras.client_context_team_id = ctx.contextTeamId;
+    }
+    return { ...options, ...extras, token: await this.getToken() };
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -945,11 +1003,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle the Slack OAuth V2 callback.
    * Accepts the incoming request, extracts the authorization code,
    * exchanges it for tokens, and saves the installation.
+   *
+   * For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack
+   * returns `team: null` and the installation is keyed by the enterprise ID
+   * instead — the returned `teamId` is always the storage key, so it can be
+   * passed back to `getInstallation` / `deleteInstallation` for both install
+   * types.
    */
   async handleOAuthCallback(
     request: Request,
     options?: SlackOAuthCallbackOptions
-  ): Promise<{ teamId: string; installation: SlackInstallation }> {
+  ): Promise<{
+    teamId: string;
+    enterpriseId?: string;
+    isEnterpriseInstall: boolean;
+    installation: SlackInstallation;
+  }> {
     if (!(this.clientId && this.clientSecret)) {
       throw new ValidationError(
         "slack",
@@ -976,23 +1045,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
-    if (!(result.ok && result.access_token && result.team?.id)) {
+    // Org-wide installs return `team: null` and identify the org via
+    // `enterprise.id` — key the installation by whichever ID webhook
+    // token resolution will later look up (see resolveTokenForTeam).
+    const isEnterpriseInstall = Boolean(result.is_enterprise_install);
+    const enterpriseId = result.enterprise?.id;
+    const installationId = isEnterpriseInstall ? enterpriseId : result.team?.id;
+
+    if (!(result.ok && result.access_token && installationId)) {
+      const missing = isEnterpriseInstall
+        ? "missing access_token or enterprise.id"
+        : "missing access_token or team.id";
       throw new AuthenticationError(
         "slack",
-        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`
+        `Slack OAuth failed: ${result.error || missing}`
       );
     }
 
-    const teamId = result.team.id;
     const installation: SlackInstallation = {
       botToken: result.access_token,
       botUserId: result.bot_user_id,
-      teamName: result.team.name,
+      teamName: result.team?.name ?? result.enterprise?.name,
+      ...(enterpriseId ? { enterpriseId } : {}),
+      ...(isEnterpriseInstall ? { isEnterpriseInstall } : {}),
     };
 
-    await this.setInstallation(teamId, installation);
+    await this.setInstallation(installationId, installation);
 
-    return { teamId, installation };
+    return {
+      teamId: installationId,
+      enterpriseId,
+      isEnterpriseInstall,
+      installation,
+    };
   }
 
   /**
@@ -1014,9 +1099,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Run a function with a specific bot token in context.
    * Use this for operations outside webhook handling (cron jobs, workflows).
+   *
+   * In multi-workspace deployments, pass `installationId` (the `team_id`, or
+   * `enterprise_id` for org-wide installs — the same key the installation was
+   * stored under) so per-user caches (profile cache and display-name mention
+   * index) are scoped to that installation. Without it these fall back to the
+   * unscoped global key, which can bleed one tenant's cached profiles and
+   * mention resolution into another when the same process posts for multiple
+   * workspaces.
    */
-  withBotToken<T>(token: string, fn: () => T): T {
-    return this.requestContext.run({ token }, fn);
+  withBotToken<T>(
+    token: string,
+    fn: () => T,
+    options?: { installationId?: string }
+  ): T {
+    return this.requestContext.run(
+      { token, installationId: options?.installationId },
+      fn
+    );
   }
 
   // ===========================================================================
@@ -1082,6 +1182,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     installationId: string;
     isEnterpriseInstall: boolean;
     enterpriseId?: string;
+    teamId?: string;
   } | null {
     try {
       const params = new URLSearchParams(body);
@@ -1089,21 +1190,131 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (!payloadStr) {
         return null;
       }
-      const payload = JSON.parse(payloadStr);
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
-      const enterpriseId: string | undefined =
-        payload.enterprise?.id || payload.enterprise_id || undefined;
-      const teamId: string | undefined =
-        payload.team?.id || payload.team_id || undefined;
-      const installationId = isEnterpriseInstall ? enterpriseId : teamId;
-
-      if (!installationId) {
-        return null;
-      }
-      return { installationId, isEnterpriseInstall, enterpriseId };
+      return this.extractInstallationFromInteractivePayload(
+        JSON.parse(payloadStr)
+      );
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Extract installation info from an already-parsed interactive payload
+   * (socket mode delivers these as objects rather than form-urlencoded).
+   */
+  protected extractInstallationFromInteractivePayload(
+    payload: Record<string, unknown>
+  ): {
+    installationId: string;
+    isEnterpriseInstall: boolean;
+    enterpriseId?: string;
+    teamId?: string;
+  } | null {
+    const isEnterpriseInstall =
+      payload.is_enterprise_install === true ||
+      payload.is_enterprise_install === "true";
+    const enterprise = payload.enterprise as { id?: string } | null | undefined;
+    const team = payload.team as { id?: string } | null | undefined;
+    const enterpriseId: string | undefined =
+      enterprise?.id ||
+      (payload.enterprise_id as string | null | undefined) ||
+      undefined;
+    const teamId: string | undefined =
+      team?.id || (payload.team_id as string | null | undefined) || undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+
+    if (!installationId) {
+      return null;
+    }
+    return { installationId, isEnterpriseInstall, enterpriseId, teamId };
+  }
+
+  /**
+   * Resolve the multi-workspace request context for an event_callback
+   * payload. Shared by the HTTP webhook path and the socket-mode path so
+   * both resolve per-installation tokens the same way.
+   *
+   * Returns:
+   * - the resolved context to run the event under,
+   * - `"not-applicable"` when no resolution is needed (single-workspace
+   *   mode, or the payload carries no installation ID) — process without
+   *   a request context,
+   * - `"unresolved"` when an installation ID was present but no
+   *   installation was found — drop the event.
+   */
+  protected async resolveEventRequestContext(
+    payload: SlackWebhookPayload
+  ): Promise<
+    | {
+        token: string;
+        botUserId?: string;
+        enterpriseId?: string;
+        isEnterpriseInstall: boolean;
+        installationId: string;
+        teamId?: string;
+        contextTeamId?: string;
+        contextChannel?: string;
+      }
+    | "not-applicable"
+    | "unresolved"
+  > {
+    if (this.defaultBotTokenProvider || payload.type !== "event_callback") {
+      return "not-applicable";
+    }
+
+    // Prefer authorizations[0] — Slack documents it as the authoritative
+    // installation identity for the event; the top-level fields can name a
+    // different (e.g. Slack Connect-ed) workspace. Fall back to top-level
+    // for payloads that omit authorizations (some event types, forwarded
+    // socket events from older listeners).
+    const auth = payload.authorizations?.[0];
+    const isEnterpriseInstall = Boolean(
+      auth?.is_enterprise_install ?? payload.is_enterprise_install
+    );
+    const enterpriseId =
+      (auth?.enterprise_id || payload.enterprise_id) ?? undefined;
+    const teamId = (auth?.team_id || payload.team_id) ?? undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+    if (!installationId) {
+      return "not-applicable";
+    }
+
+    const ctx = await this.resolveTokenForTeam(
+      installationId,
+      isEnterpriseInstall
+    );
+    if (!ctx) {
+      this.logger.warn("Could not resolve token for installation", {
+        installationId,
+        isEnterpriseInstall,
+      });
+      return "unresolved";
+    }
+
+    const event = payload.event as { channel?: string } | undefined;
+    return {
+      ...ctx,
+      enterpriseId,
+      isEnterpriseInstall,
+      installationId,
+      teamId,
+      // context_team_id is an envelope top-level field, not inside `event`.
+      contextTeamId: payload.context_team_id,
+      contextChannel: event?.channel,
+    };
+  }
+
+  /**
+   * Scope prefix for per-user state keys (profile cache, display-name
+   * reverse index). In multi-workspace deployments these must not be shared
+   * across installations: profiles fetched with one workspace's token would
+   * bleed into another, and display names collide across workspaces, so
+   * mention resolution could pick a user from the wrong org. Single-workspace
+   * mode (and code running outside a webhook context) uses the unscoped key.
+   */
+  protected userCacheScope(): string {
+    const installationId = this.requestContext.getStore()?.installationId;
+    return installationId ? `${installationId}:` : "";
   }
 
   /**
@@ -1111,7 +1322,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Returns null when the API call fails.
    */
   protected async lookupUser(userId: string): Promise<CachedUser | null> {
-    const cacheKey = `slack:user:${userId}`;
+    const cacheKey = `slack:user:${this.userCacheScope()}${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
@@ -1163,7 +1374,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
         // Build reverse index: display name → user IDs (skip if already present)
         const normalizedName = displayName.toLowerCase();
-        const reverseKey = `slack:user-by-name:${normalizedName}`;
+        const reverseKey = `slack:user-by-name:${this.userCacheScope()}${normalizedName}`;
         const existing = await this.chat.getState().getList<string>(reverseKey);
         if (!existing.includes(userId)) {
           await this.chat.getState().appendToList(reverseKey, userId, {
@@ -1271,7 +1482,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event.body,
           event.eventType,
           noopAck,
-          options
+          options,
+          event.retryNum
         );
         return new Response("ok", { status: 200 });
       } catch {
@@ -1302,36 +1514,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (contentType.includes("application/x-www-form-urlencoded")) {
       const params = new URLSearchParams(body);
       if (params.has("command") && !params.has("payload")) {
-        if (!this.defaultBotTokenProvider) {
-          // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-          const isEnterpriseInstall =
-            params.get("is_enterprise_install") === "true";
-          const installationId = isEnterpriseInstall
-            ? params.get("enterprise_id")
-            : params.get("team_id");
-
-          if (installationId) {
-            const ctx = await this.resolveTokenForTeam(
-              installationId,
-              isEnterpriseInstall
-            );
-            if (ctx) {
-              return this.requestContext.run(
-                {
-                  ...ctx,
-                  enterpriseId: params.get("enterprise_id") ?? undefined,
-                  isEnterpriseInstall,
-                },
-                () => this.handleSlashCommand(params, options)
-              );
-            }
-            this.logger.warn("Could not resolve token for slash command", {
-              installationId,
-              isEnterpriseInstall,
-            });
-          }
-        }
-        return this.handleSlashCommand(params, options);
+        return this.runSlashCommand(params, options);
       }
       // In multi-workspace mode, resolve token before processing interactive payloads
       if (!this.defaultBotTokenProvider) {
@@ -1347,6 +1530,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 ...ctx,
                 enterpriseId: installationInfo.enterpriseId,
                 isEnterpriseInstall: installationInfo.isEnterpriseInstall,
+                installationId: installationInfo.installationId,
+                teamId: installationInfo.teamId,
               },
               () => this.handleInteractivePayload(body, options)
             );
@@ -1370,13 +1555,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return Response.json({ challenge: payload.challenge });
     }
 
+    // Drop redeliveries of events that were already dispatched
+    const retryNum = Number(request.headers.get("x-slack-retry-num") ?? "0");
+    if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+      return new Response("ok", { status: 200 });
+    }
+
     // In multi-workspace mode, resolve token before processing events
-    if (!this.defaultBotTokenProvider && payload.type === "event_callback") {
+    const resolved = await this.resolveEventRequestContext(payload);
+    if (resolved === "unresolved") {
+      // Installation ID present but no installation found — drop the event
+      return new Response("ok", { status: 200 });
+    }
+    if (resolved !== "not-applicable") {
+      return this.requestContext.run(resolved, () => {
+        this.processEventPayload(payload, options);
+        return new Response("ok", { status: 200 });
+      });
+    }
+
+    // Single-workspace mode or fallback
+    this.processEventPayload(payload, options);
+    return new Response("ok", { status: 200 });
+  }
+
+  /**
+   * Handle a slash command, resolving the per-installation token first in
+   * multi-workspace mode. Shared by the HTTP webhook and socket-mode paths.
+   */
+  protected async runSlashCommand(
+    params: URLSearchParams,
+    options?: WebhookOptions
+  ): Promise<Response> {
+    if (!this.defaultBotTokenProvider) {
       // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
+      const isEnterpriseInstall =
+        params.get("is_enterprise_install") === "true";
       const installationId = isEnterpriseInstall
-        ? payload.enterprise_id
-        : payload.team_id;
+        ? params.get("enterprise_id")
+        : params.get("team_id");
 
       if (installationId) {
         const ctx = await this.resolveTokenForTeam(
@@ -1387,26 +1604,73 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return this.requestContext.run(
             {
               ...ctx,
-              enterpriseId: payload.enterprise_id,
+              enterpriseId: params.get("enterprise_id") ?? undefined,
               isEnterpriseInstall,
+              installationId,
+              teamId: params.get("team_id") ?? undefined,
             },
-            () => {
-              this.processEventPayload(payload, options);
-              return new Response("ok", { status: 200 });
-            }
+            () => this.handleSlashCommand(params, options)
           );
         }
-        this.logger.warn("Could not resolve token for installation", {
+        this.logger.warn("Could not resolve token for slash command", {
           installationId,
           isEnterpriseInstall,
         });
-        return new Response("ok", { status: 200 });
       }
     }
+    return this.handleSlashCommand(params, options);
+  }
 
-    // Single-workspace mode or fallback
-    this.processEventPayload(payload, options);
-    return new Response("ok", { status: 200 });
+  /**
+   * Record that an event delivery was dispatched, so redeliveries
+   * (`x-slack-retry-num` / socket `retry_num`) can be dropped. Fire-and-forget:
+   * a failed write only means a retry gets reprocessed, which downstream
+   * message dedup already tolerates.
+   */
+  protected markEventDelivered(payload: SlackWebhookPayload): void {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat)) {
+      return;
+    }
+    this.chat
+      .getState()
+      .set(
+        `slack:event-delivered:${eventId}`,
+        true,
+        SlackAdapter.EVENT_DEDUPE_TTL_MS
+      )
+      .catch(() => {});
+  }
+
+  /**
+   * Check whether a retried event delivery was already dispatched. Only
+   * consulted on retries (retryNum > 0), so first deliveries pay no state
+   * read. Events missed entirely (never dispatched, e.g. delivered while
+   * disconnected) have no marker and are still recovered via the retry.
+   */
+  protected async isDuplicateEventDelivery(
+    payload: SlackWebhookPayload,
+    retryNum?: number
+  ): Promise<boolean> {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat && retryNum && retryNum > 0)) {
+      return false;
+    }
+    try {
+      const seen = await this.chat
+        .getState()
+        .get(`slack:event-delivered:${eventId}`);
+      if (seen) {
+        this.logger.info("Skipping duplicate event delivery", {
+          eventId,
+          retryNum,
+        });
+        return true;
+      }
+    } catch {
+      // State unavailable — process rather than drop
+    }
+    return false;
   }
 
   /** Extract and dispatch events from a validated payload */
@@ -1415,6 +1679,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     options?: WebhookOptions
   ): void {
     if (payload.type === "event_callback" && payload.event) {
+      this.markEventDelivered(payload);
       const event = payload.event;
 
       // Track external/shared channel status from payload-level flag
@@ -1929,7 +2194,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         await this.routeSocketEvent(
           body as Record<string, unknown>,
           type as string,
-          ack
+          ack,
+          undefined,
+          retry_num
         );
       }
     );
@@ -1945,7 +2212,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     body: Record<string, unknown>,
     eventType: string,
     ack: (response?: Record<string, unknown>) => Promise<void>,
-    options?: WebhookOptions
+    options?: WebhookOptions,
+    retryNum?: number
   ): Promise<void> {
     const wrapAsync = (promise: Promise<unknown>): void => {
       if (options?.waitUntil) {
@@ -1969,12 +2237,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const payload: SlackWebhookPayload = {
           type: "event_callback",
           event: body.event as SlackWebhookPayload["event"],
+          authorizations:
+            body.authorizations as SlackWebhookPayload["authorizations"],
           team_id: body.team_id as string | undefined,
+          context_team_id: body.context_team_id as string | undefined,
+          enterprise_id:
+            (body.enterprise_id as string | null | undefined) ?? undefined,
+          is_enterprise_install: Boolean(body.is_enterprise_install),
+          is_ext_shared_channel: body.is_ext_shared_channel as
+            | boolean
+            | undefined,
           event_id: body.event_id as string | undefined,
           event_time: body.event_time as number | undefined,
         };
         try {
-          this.processEventPayload(payload, options);
+          // Drop redeliveries of events that were already dispatched
+          if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+            break;
+          }
+          // Resolve the per-installation token exactly like the HTTP path
+          const resolved = await this.resolveEventRequestContext(payload);
+          if (resolved === "unresolved") {
+            break;
+          }
+          if (resolved === "not-applicable") {
+            this.processEventPayload(payload, options);
+          } else {
+            this.requestContext.run(resolved, () =>
+              this.processEventPayload(payload, options)
+            );
+          }
         } catch (error) {
           this.logger.error("Error processing socket mode events_api", {
             error,
@@ -1989,15 +2281,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         for (const [key, value] of Object.entries(body)) {
           if (typeof value === "string") {
             params.set(key, value);
+          } else if (typeof value === "boolean") {
+            // Socket mode delivers form fields as JSON, so flags like
+            // is_enterprise_install arrive as booleans
+            params.set(key, String(value));
           }
         }
-        wrapAsync(this.handleSlashCommand(params, options));
+        wrapAsync(this.runSlashCommand(params, options));
         break;
       }
 
       case "interactive": {
         const payload = body as unknown as SlackInteractivePayload;
-        const result = this.dispatchInteractivePayload(payload, options);
+        const dispatch = () =>
+          this.dispatchInteractivePayload(payload, options);
+        let result: Response | Promise<Response>;
+        if (this.defaultBotTokenProvider) {
+          result = dispatch();
+        } else {
+          const info = this.extractInstallationFromInteractivePayload(body);
+          const ctx = info
+            ? await this.resolveTokenForTeam(
+                info.installationId,
+                info.isEnterpriseInstall
+              )
+            : null;
+          if (info && ctx) {
+            result = this.requestContext.run(
+              {
+                ...ctx,
+                enterpriseId: info.enterpriseId,
+                isEnterpriseInstall: info.isEnterpriseInstall,
+                installationId: info.installationId,
+                teamId: info.teamId,
+              },
+              dispatch
+            );
+          } else {
+            this.logger.warn(
+              "Could not resolve token for socket interactive payload"
+            );
+            result = dispatch();
+          }
+        }
         const response = result instanceof Promise ? await result : result;
         const responseBody = response.headers
           .get("content-type")
@@ -2107,6 +2433,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             type: "socket_event",
             eventType,
             body: body as Record<string, unknown>,
+            retryNum: retry_num,
             timestamp: Date.now(),
           });
         } else {
@@ -2114,7 +2441,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             body as Record<string, unknown>,
             eventType,
             ack,
-            options
+            options,
+            retry_num
           );
         }
       }
@@ -2706,7 +3034,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      await this.chat.getState().delete(`slack:user:${event.user.id}`);
+      await this.chat
+        .getState()
+        .delete(`slack:user:${this.userCacheScope()}${event.user.id}`);
     } catch (error) {
       this.logger.warn("Failed to invalidate user cache", {
         userId: event.user.id,
@@ -3340,7 +3670,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Look up user IDs for each mentioned name
     for (const name of mentions.keys()) {
-      const userIds = await state.getList<string>(`slack:user-by-name:${name}`);
+      const userIds = await state.getList<string>(
+        `slack:user-by-name:${this.userCacheScope()}${name}`
+      );
       // Dedup
       const unique = [...new Set(userIds)];
       mentions.set(name, unique);

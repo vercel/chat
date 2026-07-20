@@ -228,6 +228,10 @@ export async function GET(request: Request) {
 }
 ```
 
+For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack returns no `team` and the installation is keyed by the enterprise ID instead. The returned `teamId` is always the storage key, so it round-trips with `getInstallation` and `deleteInstallation` for both install types; the result also includes `enterpriseId` and `isEnterpriseInstall`.
+
+The adapter handles the other Enterprise Grid mechanics automatically: API calls during event handling pass the event's `team_id` explicitly (required for workspace-scoped methods on org-wide tokens), `context_team_id` from away-hosted shared channels is echoed back as `client_context_team_id`, retried event deliveries are deduplicated by `event_id`, and user caches are scoped per installation.
+
 #### Using the adapter outside webhooks
 
 During webhook handling, the adapter resolves tokens automatically. Outside that context (cron jobs, background workers), use `getInstallation` and `withBotToken`:
@@ -236,13 +240,17 @@ During webhook handling, the adapter resolves tokens automatically. Outside that
 const install = await slackAdapter.getInstallation(teamId);
 if (!install) throw new Error("Workspace not installed");
 
-await slackAdapter.withBotToken(install.botToken, async () => {
-  const thread = bot.thread("slack:C12345:1234567890.123456");
-  await thread.post("Hello from a cron job!");
-});
+await slackAdapter.withBotToken(
+  install.botToken,
+  async () => {
+    const thread = bot.thread("slack:C12345:1234567890.123456");
+    await thread.post("Hello from a cron job!");
+  },
+  { installationId: teamId }
+);
 ```
 
-`withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated.
+`withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated. In multi-workspace deployments, pass `installationId` (the `team_id`, or `enterprise_id` for org-wide installs — the key the installation was stored under) so per-user caches are scoped to that installation and don't bleed across tenants.
 
 ### Direct API client
 
@@ -577,7 +585,7 @@ const bot = new Chat({
 });
 ```
 
-Socket mode is not compatible with multi-workspace OAuth.
+Socket mode works with both single-workspace tokens and multi-workspace OAuth: events arriving over the socket (or forwarded from a socket listener) resolve per-installation tokens by `team_id` — or `enterprise_id` for Enterprise Grid org-wide installs — the same way the webhook path does.
 
 #### Socket mode on serverless (Vercel)
 

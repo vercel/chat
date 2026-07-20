@@ -19,6 +19,10 @@ export type SlackBotToken = string | (() => string | Promise<string>);
 export interface SlackInstallation {
   botToken: string;
   botUserId?: string;
+  /** Enterprise Grid org ID, when the workspace belongs to (or the app is installed org-wide on) a Grid org */
+  enterpriseId?: string;
+  /** True when this is an Enterprise Grid org-wide installation (stored under the enterprise ID) */
+  isEnterpriseInstall?: boolean;
   teamName?: string;
 }
 
