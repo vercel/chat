@@ -125,6 +125,9 @@ const TIMED_OUT = Symbol("timed-out");
  * Post an approval card to a thread and suspend the workflow until a user
  * approves or denies, or the timeout elapses. Must run inside a
  * `"use workflow"` function.
+ *
+ * By default any authenticated user who clicks decides; pass `approvers` to
+ * restrict who may approve (recommended for consequential actions).
  */
 export async function requestApproval(
   thread: Thread,
@@ -198,6 +201,9 @@ function startTimeout(
   if (timeout === undefined) {
     return;
   }
+  // sleep() is overloaded (number | duration-string | Date). The branches look
+  // identical, but the typeof narrows the union so a single overload matches.
+  // Calling sleep(number | string) with the union directly does not type-check.
   const sleeping =
     typeof timeout === "number" ? sleep(timeout) : sleep(timeout);
   return sleeping.then(() => TIMED_OUT);

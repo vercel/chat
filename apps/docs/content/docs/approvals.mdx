@@ -76,6 +76,21 @@ chat.registerSingleton();
 
 Once a decision lands (or the timeout elapses), the card is edited in place: the buttons are removed and replaced with an outcome line, leaving an audit trail in the thread and preventing stale clicks.
 
+## Who can approve
+
+By default, any user who can see the card and click a button decides the approval. The click is authenticated (Chat SDK verifies the platform signature, and the button's callback URL is never exposed to end users), so the `user.id` on the result is trustworthy.
+
+To restrict *who* may decide, pass `approvers` with the allowed user IDs. Clicks from anyone else post a notice and the workflow keeps waiting:
+
+```typescript
+await requestApproval(thread, {
+  title: `Deploy ${version}?`,
+  approvers: ["U_ALICE", "U_BOB"],
+});
+```
+
+Set `approvers` for anything consequential (deploys, spend, destructive actions). Without it, the result tells you who clicked, not whether they were allowed to.
+
 ## Custom cards
 
 The card builders are exported for advanced flows — for example, posting an approval card whose buttons target a webhook you manage yourself:
