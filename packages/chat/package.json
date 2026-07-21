@@ -22,6 +22,10 @@
       "types": "./dist/adapters/index.d.ts",
       "import": "./dist/adapters/index.js"
     },
+    "./workflow": {
+      "types": "./dist/workflow/index.d.ts",
+      "import": "./dist/workflow/index.js"
+    },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
       "import": "./dist/jsx-runtime.js"
@@ -60,14 +64,19 @@
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18",
+    "workflow": "^4.5.0",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
     "ai": "^6.0.182 || ^7.0.0",
+    "workflow": "^4.0.0",
     "zod": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
     "ai": {
+      "optional": true
+    },
+    "workflow": {
       "optional": true
     },
     "zod": {

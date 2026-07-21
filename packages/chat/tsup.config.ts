@@ -6,6 +6,7 @@ export default defineConfig({
     "src/jsx-runtime.ts",
     "src/ai/index.ts",
     "src/adapters/index.ts",
+    "src/workflow/index.ts",
   ],
   format: ["esm"],
   dts: true,
