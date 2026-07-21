@@ -36,6 +36,16 @@ export interface TeamsAdapterConfig {
   federated?: TeamsAuthFederated;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
+  /**
+   * Custom token factory for outbound Bot Framework/Graph calls. Maps to the underlying
+   * Teams SDK's AppOptions.token. Use this on runtimes that can't reach Azure IMDS (so
+   * `federated` managed identity isn't reachable) but still need to mint access tokens
+   * through an external mechanism (e.g. a workload-identity federation bridge).
+   */
+  token?: (
+    scope: string | string[],
+    tenantId?: string
+  ) => string | Promise<string>;
   /** Override bot username (optional) */
   userName?: string;
 }

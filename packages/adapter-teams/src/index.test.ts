@@ -436,6 +436,16 @@ describe("TeamsAdapter", () => {
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
     });
+
+    it("should create adapter with a custom token factory", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        appTenantId: "test-tenant",
+        token: async () => "custom-access-token",
+        logger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
   });
 
   // ==========================================================================

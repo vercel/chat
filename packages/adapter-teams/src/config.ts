@@ -18,9 +18,10 @@ export function toAppOptions(
   }
 
   const clientId = config.appId ?? process.env.TEAMS_APP_ID;
-  const clientSecret = config.federated
-    ? undefined
-    : (config.appPassword ?? process.env.TEAMS_APP_PASSWORD);
+  const clientSecret =
+    config.federated || config.token
+      ? undefined
+      : (config.appPassword ?? process.env.TEAMS_APP_PASSWORD);
 
   // For SingleTenant, tenantId is required. For MultiTenant, omit it.
   const tenantId =
@@ -42,6 +43,7 @@ export function toAppOptions(
     ...(clientSecret ? { clientSecret } : {}),
     ...(tenantId ? { tenantId } : {}),
     ...(managedIdentityClientId ? { managedIdentityClientId } : {}),
+    ...(config.token ? { token: config.token } : {}),
     ...(serviceUrl ? { serviceUrl } : {}),
   };
 }
