@@ -531,6 +531,164 @@ describe("toAiMessages", () => {
     expect(typeof result[0]?.content).toBe("string");
   });
 
+  it("keeps image-only messages that have no text", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            name: "photo.png",
+            fetchData: async () => Buffer.from("png-data"),
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+    const content = result[0]?.content as AiMessagePart[];
+
+    expect(result).toHaveLength(1);
+    expect(Array.isArray(content)).toBe(true);
+    expect(content).toHaveLength(1);
+    expect(content[0]?.type).toBe("file");
+  });
+
+  it("keeps interleaved text and image-only messages", async () => {
+    const messages = [
+      createTestMessage("1", "Here is some context"),
+      createTestMessage("2", "", {
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            fetchData: async () => Buffer.from("png-data"),
+          },
+        ],
+      }),
+      createTestMessage("3", "What do you think?"),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toHaveLength(3);
+    expect(result[0]?.content).toBe("Here is some context");
+    expect(Array.isArray(result[1]?.content)).toBe(true);
+    expect(result[2]?.content).toBe("What do you think?");
+  });
+
+  it("keeps link-only messages that have no text", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        links: [{ url: "https://example.com", title: "Example" }],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.content).toBe(
+      "Links:\nhttps://example.com\nTitle: Example"
+    );
+  });
+
+  it("skips video-only messages with no text and reports the attachment", async () => {
+    const onUnsupported = vi.fn();
+    const messages = [
+      createTestMessage("1", "", {
+        attachments: [
+          {
+            type: "video",
+            url: "https://example.com/video.mp4",
+            mimeType: "video/mp4",
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages, {
+      onUnsupportedAttachment: onUnsupported,
+    });
+
+    expect(result).toEqual([]);
+    expect(onUnsupported).toHaveBeenCalledOnce();
+    expect(onUnsupported.mock.calls[0]?.[0].type).toBe("video");
+  });
+
+  it("skips image-only messages with no text when fetchData is unavailable", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        attachments: [
+          {
+            type: "image",
+            url: "https://example.com/photo.png",
+            mimeType: "image/png",
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toEqual([]);
+  });
+
+  it("keeps link-only assistant messages with no text", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        author: {
+          userId: "bot",
+          userName: "bot",
+          fullName: "Bot",
+          isBot: true,
+          isMe: true,
+        },
+        links: [{ url: "https://example.com", title: "Example" }],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toEqual([
+      {
+        role: "assistant",
+        content: "Links:\nhttps://example.com\nTitle: Example",
+      },
+    ]);
+  });
+
+  it("does not add a text part when an image-only message has no text", async () => {
+    const messages = [
+      createTestMessage("1", "   ", {
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            fetchData: async () => Buffer.from("png-data"),
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+    const content = result[0]?.content as AiMessagePart[];
+
+    expect(content).toHaveLength(1);
+    expect(content[0]?.type).toBe("file");
+  });
+
+  it("skips messages with no text, attachments, or links", async () => {
+    const messages = [
+      createTestMessage("1", "Real message"),
+      createTestMessage("2", ""),
+      createTestMessage("3", "   "),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toEqual([{ role: "user", content: "Real message" }]);
+  });
+
   it("includes links in text part when attachments are present", async () => {
     const messages = [
       createTestMessage("1", "Image with link", {
