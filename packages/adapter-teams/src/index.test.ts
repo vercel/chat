@@ -8,7 +8,7 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import type { IStreamer } from "@microsoft/teams.apps";
-import { ConsoleLogger } from "chat";
+import { ConsoleLogger, getEmoji } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
 
@@ -1049,6 +1049,88 @@ describe("TeamsAdapter", () => {
         adapter.deleteMessage(threadId, "del-msg-1")
       ).resolves.not.toThrow();
       expect(mockDelete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("reactions", () => {
+    function createReactionTestAdapter() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const addReaction = vi.fn(async () => undefined);
+      const deleteReaction = vi.fn(async () => undefined);
+      const mockApp = (adapter as unknown as { app: { api: unknown } }).app;
+      mockApp.api = {
+        conversations: {
+          addReaction,
+          deleteReaction,
+        },
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      };
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      return { adapter, addReaction, deleteReaction, threadId };
+    }
+
+    it("should add a raw Teams reaction ID", async () => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.addReaction(threadId, "message-1", "think");
+
+      expect(addReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        "think"
+      );
+    });
+
+    it.each([
+      ["check", "2705_whiteheavycheckmark"],
+      ["eyes", "1f440_eyes"],
+      ["pin", "1f4cc_pushpin"],
+      ["rocket", "launch"],
+      ["thinking", "think"],
+      ["thumbs_up", "like"],
+      ["x", "274c_crossmark"],
+    ])("should map %s to the Teams reaction ID %s", async (name, teamsId) => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.addReaction(threadId, "message-1", getEmoji(name));
+
+      expect(addReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        teamsId
+      );
+    });
+
+    it("should remove a reaction with the Teams conversation API", async () => {
+      const { adapter, deleteReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.removeReaction(threadId, "message-1", getEmoji("check"));
+
+      expect(deleteReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        "2705_whiteheavycheckmark"
+      );
+    });
+
+    it("should translate Teams API failures", async () => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+      addReaction.mockRejectedValueOnce(
+        new MockTeamsError({ statusCode: 401, message: "Unauthorized" })
+      );
+
+      await expect(
+        adapter.addReaction(threadId, "message-1", "like")
+      ).rejects.toThrow(AuthenticationError);
     });
   });
 

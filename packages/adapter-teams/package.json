@@ -52,15 +52,15 @@
   },
   "dependencies": {
     "@chat-adapter/shared": "workspace:*",
-    "@microsoft/teams.api": "^2.0.8",
-    "@microsoft/teams.apps": "^2.0.8",
-    "@microsoft/teams.cards": "^2.0.8",
-    "@microsoft/teams.graph-endpoints": "^2.0.8",
+    "@microsoft/teams.api": "^2.0.14",
+    "@microsoft/teams.apps": "^2.0.14",
+    "@microsoft/teams.cards": "^2.0.14",
+    "@microsoft/teams.graph-endpoints": "^2.0.14",
     "chat": "workspace:*"
   },
   "devDependencies": {
-    "@microsoft/teams.graph": "^2.0.8",
     "@chat-adapter/tests": "workspace:*",
+    "@microsoft/teams.graph": "^2.0.14",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
