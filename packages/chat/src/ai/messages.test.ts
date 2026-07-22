@@ -592,6 +592,71 @@ describe("toAiMessages", () => {
     );
   });
 
+  it("skips video-only messages with no text and reports the attachment", async () => {
+    const onUnsupported = vi.fn();
+    const messages = [
+      createTestMessage("1", "", {
+        attachments: [
+          {
+            type: "video",
+            url: "https://example.com/video.mp4",
+            mimeType: "video/mp4",
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages, {
+      onUnsupportedAttachment: onUnsupported,
+    });
+
+    expect(result).toEqual([]);
+    expect(onUnsupported).toHaveBeenCalledOnce();
+    expect(onUnsupported.mock.calls[0]?.[0].type).toBe("video");
+  });
+
+  it("skips image-only messages with no text when fetchData is unavailable", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        attachments: [
+          {
+            type: "image",
+            url: "https://example.com/photo.png",
+            mimeType: "image/png",
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toEqual([]);
+  });
+
+  it("keeps link-only assistant messages with no text", async () => {
+    const messages = [
+      createTestMessage("1", "", {
+        author: {
+          userId: "bot",
+          userName: "bot",
+          fullName: "Bot",
+          isBot: true,
+          isMe: true,
+        },
+        links: [{ url: "https://example.com", title: "Example" }],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+
+    expect(result).toEqual([
+      {
+        role: "assistant",
+        content: "Links:\nhttps://example.com\nTitle: Example",
+      },
+    ]);
+  });
+
   it("does not add a text part when an image-only message has no text", async () => {
     const messages = [
       createTestMessage("1", "   ", {
