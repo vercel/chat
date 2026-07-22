@@ -169,8 +169,8 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 |---------|-----------|
 | Slash commands | No |
 | Mentions | Yes |
-| Add reactions | No |
-| Remove reactions | No |
+| Add reactions | Yes |
+| Remove reactions | Yes |
 | Receive reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
@@ -233,6 +233,14 @@ az ad app permission admin-consent --id <appId>
 ```
 
 Without any of these permissions, `fetchMessages` will throw a `NotImplementedError`.
+
+## Reactions
+
+The adapter supports `message.addReaction()`, `message.removeReaction()`, and
+`chat.onReaction()` for Teams message reactions. Normalized emoji names are
+mapped to Teams reaction IDs where Teams has first-class support, and custom
+Teams reaction IDs such as `1f44b_wavinghand-tone4` can be passed through
+directly.
 
 ### Receiving all messages
 

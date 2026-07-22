@@ -49,7 +49,6 @@ import {
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   Message,
-  NotImplementedError,
 } from "chat";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
@@ -1131,25 +1130,69 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   async addReaction(
-    _threadId: string,
-    _messageId: string,
-    _emoji: EmojiValue | string
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
   ): Promise<void> {
-    throw new NotImplementedError(
-      "addReaction is not yet supported by the Teams SDK",
-      "addReaction"
-    );
+    const { conversationId } = this.decodeThreadId(threadId);
+    const teamsReaction = defaultEmojiResolver.toTeams(emoji);
+
+    this.logger.debug("Teams API: reactions.add", {
+      conversationId,
+      messageId,
+      emoji: teamsReaction,
+    });
+
+    try {
+      await this.app.api.reactions.add(
+        conversationId,
+        messageId,
+        teamsReaction
+      );
+    } catch (error) {
+      this.logger.error("Teams API: reactions.add failed", {
+        conversationId,
+        messageId,
+        emoji: teamsReaction,
+        error,
+      });
+      handleTeamsError(error, "addReaction");
+    }
+
+    this.logger.debug("Teams API: reactions.add response", { ok: true });
   }
 
   async removeReaction(
-    _threadId: string,
-    _messageId: string,
-    _emoji: EmojiValue | string
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
   ): Promise<void> {
-    throw new NotImplementedError(
-      "removeReaction is not yet supported by the Teams SDK",
-      "removeReaction"
-    );
+    const { conversationId } = this.decodeThreadId(threadId);
+    const teamsReaction = defaultEmojiResolver.toTeams(emoji);
+
+    this.logger.debug("Teams API: reactions.remove", {
+      conversationId,
+      messageId,
+      emoji: teamsReaction,
+    });
+
+    try {
+      await this.app.api.reactions.remove(
+        conversationId,
+        messageId,
+        teamsReaction
+      );
+    } catch (error) {
+      this.logger.error("Teams API: reactions.remove failed", {
+        conversationId,
+        messageId,
+        emoji: teamsReaction,
+        error,
+      });
+      handleTeamsError(error, "removeReaction");
+    }
+
+    this.logger.debug("Teams API: reactions.remove response", { ok: true });
   }
 
   async startTyping(threadId: string, _status?: string): Promise<void> {

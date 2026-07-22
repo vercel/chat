@@ -75,12 +75,35 @@ describe("EmojiResolver", () => {
       expect(resolver.fromTeams("surprised").name).toBe("surprised");
       expect(resolver.fromTeams("sad").name).toBe("sad");
       expect(resolver.fromTeams("angry").name).toBe("angry");
+      expect(resolver.fromTeams("1f440_eyes").name).toBe("eyes");
+      expect(resolver.fromTeams("2705_whiteheavycheckmark").name).toBe("check");
+      expect(resolver.fromTeams("launch").name).toBe("rocket");
+      expect(resolver.fromTeams("1f4cc_pushpin").name).toBe("pin");
     });
 
     it("should return EmojiValue with raw name if no mapping exists", () => {
       const resolver = new EmojiResolver();
       const result = resolver.fromTeams("custom_reaction");
       expect(result.name).toBe("custom_reaction");
+    });
+  });
+
+  describe("toTeams", () => {
+    it("should convert normalized emoji to Teams reaction IDs", () => {
+      const resolver = new EmojiResolver();
+      expect(resolver.toTeams("thumbs_up")).toBe("like");
+      expect(resolver.toTeams("heart")).toBe("heart");
+      expect(resolver.toTeams("eyes")).toBe("1f440_eyes");
+      expect(resolver.toTeams("check")).toBe("2705_whiteheavycheckmark");
+      expect(resolver.toTeams("rocket")).toBe("launch");
+      expect(resolver.toTeams("pin")).toBe("1f4cc_pushpin");
+    });
+
+    it("should return raw reaction ID if no mapping exists", () => {
+      const resolver = new EmojiResolver();
+      expect(resolver.toTeams("1f44b_wavinghand-tone4")).toBe(
+        "1f44b_wavinghand-tone4"
+      );
     });
   });
 

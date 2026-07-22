@@ -171,6 +171,26 @@ export const DEFAULT_EMOJI_MAP: Record<string, EmojiFormats> = {
   rainbow: { slack: "rainbow", gchat: "🌈" },
 };
 
+const TEAMS_REACTION_TO_NORMALIZED: Record<string, string> = {
+  "1f440_eyes": "eyes",
+  "1f4cc_pushpin": "pin",
+  "2705_whiteheavycheckmark": "check",
+  angry: "angry",
+  heart: "heart",
+  laugh: "laugh",
+  launch: "rocket",
+  like: "thumbs_up",
+  sad: "sad",
+  surprised: "surprised",
+};
+
+const NORMALIZED_TO_TEAMS_REACTION: Record<string, string> = Object.fromEntries(
+  Object.entries(TEAMS_REACTION_TO_NORMALIZED).map(([teams, normalized]) => [
+    normalized,
+    teams,
+  ])
+);
+
 /**
  * Emoji resolver that handles conversion between platform formats and normalized names.
  */
@@ -228,19 +248,13 @@ export class EmojiResolver {
 
   /**
    * Convert a Teams reaction type to normalized EmojiValue.
-   * Teams uses specific names: like, heart, laugh, surprised, sad, angry
+   * Teams uses specific names: like, heart, laugh, surprised, sad, angry,
+   * and codepoint-based IDs for newer reaction types.
    * Returns an EmojiValue for the raw reaction if no mapping exists.
    */
   fromTeams(teamsReaction: string): EmojiValue {
-    const teamsMap: Record<string, string> = {
-      like: "thumbs_up",
-      heart: "heart",
-      laugh: "laugh",
-      surprised: "surprised",
-      sad: "sad",
-      angry: "angry",
-    };
-    const normalized = teamsMap[teamsReaction] ?? teamsReaction;
+    const normalized =
+      TEAMS_REACTION_TO_NORMALIZED[teamsReaction] ?? teamsReaction;
     return getEmoji(normalized);
   }
 
@@ -277,6 +291,15 @@ export class EmojiResolver {
   toDiscord(emoji: EmojiValue | string): string {
     // Discord uses unicode emoji like GChat
     return this.toGChat(emoji);
+  }
+
+  /**
+   * Convert a normalized emoji (or EmojiValue) to a Teams reaction ID.
+   * Returns the raw name for unsupported/custom Teams reaction IDs.
+   */
+  toTeams(emoji: EmojiValue | string): string {
+    const name = typeof emoji === "string" ? emoji : emoji.name;
+    return NORMALIZED_TO_TEAMS_REACTION[name] ?? name;
   }
 
   /**

@@ -30,8 +30,8 @@ features:
   modals: yes
   slashCommands: no
   mentions: yes
-  addReactions: no
-  removeReactions: no
+  addReactions: yes
+  removeReactions: yes
   typingIndicator: yes
   directMessages: yes
   ephemeralMessages: no
@@ -208,6 +208,20 @@ console.log(user?.fullName); // "Alice Smith"
 ```
 
 The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot.
+
+### Reactions
+
+Teams message reactions are available through the standard Chat SDK reaction APIs:
+
+```typescript
+bot.onReaction(["thumbs_up"], async (event) => {
+  await event.thread.post(`${event.user.userName} liked a message`);
+});
+```
+
+Use `message.addReaction("thumbs_up")` and `message.removeReaction("thumbs_up")`
+to react from the bot. The adapter maps normalized emoji names to Teams reaction
+IDs and passes custom Teams reaction IDs through unchanged.
 
 ### Message history
 

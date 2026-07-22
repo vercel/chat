@@ -2,7 +2,9 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
-import { ConsoleLogger } from "chat";
+import type { IMessageReactionActivity } from "@microsoft/teams.api";
+import type { IActivityContext } from "@microsoft/teams.apps";
+import { ConsoleLogger, emoji } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamsAdapter, TeamsAdapter } from "./index";
 
@@ -959,6 +961,153 @@ describe("TeamsAdapter", () => {
         adapter.deleteMessage(threadId, "del-msg-1")
       ).resolves.not.toThrow();
       expect(mockDelete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("reactions", () => {
+    it("should add a Teams reaction using a normalized emoji", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockAddReaction = vi.fn(async () => undefined);
+      const mockApp = (adapter as unknown as { app: { api: unknown } }).app;
+      mockApp.api = {
+        reactions: {
+          add: mockAddReaction,
+          remove: vi.fn(),
+        },
+      };
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      await adapter.addReaction(threadId, "msg-1", emoji.thumbs_up);
+
+      expect(mockAddReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "msg-1",
+        "like"
+      );
+    });
+
+    it("should remove a Teams reaction using a normalized emoji", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockRemoveReaction = vi.fn(async () => undefined);
+      const mockApp = (adapter as unknown as { app: { api: unknown } }).app;
+      mockApp.api = {
+        reactions: {
+          add: vi.fn(),
+          remove: mockRemoveReaction,
+        },
+      };
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      await adapter.removeReaction(threadId, "msg-1", "check");
+
+      expect(mockRemoveReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "msg-1",
+        "2705_whiteheavycheckmark"
+      );
+    });
+
+    it("should pass custom Teams reaction IDs through unchanged", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockAddReaction = vi.fn(async () => undefined);
+      const mockApp = (adapter as unknown as { app: { api: unknown } }).app;
+      mockApp.api = {
+        reactions: {
+          add: mockAddReaction,
+          remove: vi.fn(),
+        },
+      };
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      await adapter.addReaction(threadId, "msg-1", "1f44b_wavinghand-tone4");
+
+      expect(mockAddReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "msg-1",
+        "1f44b_wavinghand-tone4"
+      );
+    });
+
+    it("should emit normalized reaction events for Teams reaction activities", () => {
+      class TestTeamsAdapter extends TeamsAdapter {
+        setChat(chat: Parameters<TeamsAdapter["initialize"]>[0]) {
+          this.chat = chat;
+        }
+
+        receiveReaction(activity: unknown) {
+          this.handleReactionFromContext({
+            activity,
+          } as IActivityContext<IMessageReactionActivity>);
+        }
+      }
+
+      const adapter = new TestTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const processReaction = vi.fn();
+      adapter.setChat({
+        processReaction,
+      } as unknown as Parameters<TeamsAdapter["initialize"]>[0]);
+
+      adapter.receiveReaction({
+        type: "messageReaction",
+        id: "reaction-activity-1",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+        conversation: {
+          id: "19:abc@thread.tacv2;messageid=1767297849909",
+        },
+        from: { id: "29:user-1", name: "Alice" },
+        reactionsAdded: [{ type: "1f440_eyes" }],
+        reactionsRemoved: [{ type: "like" }],
+      });
+
+      expect(processReaction).toHaveBeenCalledTimes(2);
+      expect(processReaction.mock.calls[0]?.[0]).toMatchObject({
+        added: true,
+        messageId: "1767297849909",
+        rawEmoji: "1f440_eyes",
+        user: {
+          userId: "29:user-1",
+          userName: "Alice",
+          isMe: false,
+        },
+      });
+      expect(processReaction.mock.calls[0]?.[0].emoji.name).toBe("eyes");
+      expect(processReaction.mock.calls[1]?.[0]).toMatchObject({
+        added: false,
+        messageId: "1767297849909",
+        rawEmoji: "like",
+      });
+      expect(processReaction.mock.calls[1]?.[0].emoji.name).toBe("thumbs_up");
     });
   });
 
