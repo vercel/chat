@@ -129,7 +129,7 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
-`appId` is required. Exactly one authentication method (`appPassword`, `federated`, or `token`) must be provided.
+`appId` is required, along with one authentication method (`appPassword`, `federated`, or `token`). If more than one is configured, `token` takes precedence over `federated`, which takes precedence over `appPassword`.
 
 ## Authentication
 
@@ -210,6 +210,10 @@ createTeamsAdapter({
   },
 });
 ```
+
+<Callout type="warn">
+The Teams SDK reads a generic `CLIENT_SECRET` environment variable and prefers it over the token factory. Make sure `CLIENT_SECRET` is not set in your deployment environment, or the bot will silently fall back to client-secret auth.
+</Callout>
 
 ## Advanced
 

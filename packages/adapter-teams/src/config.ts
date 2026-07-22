@@ -13,7 +13,7 @@ export function toAppOptions(
   if (config.certificate) {
     throw new Error(
       "Certificate-based authentication is not yet supported by the Teams SDK adapter. " +
-        "Use appPassword (client secret) or federated (workload identity) authentication instead."
+        "Use appPassword (client secret), federated (workload identity), or token (custom token factory) authentication instead."
     );
   }
 

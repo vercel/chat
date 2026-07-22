@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { toAppOptions } from "./config";
 
 describe("toAppOptions", () => {
@@ -25,6 +25,23 @@ describe("toAppOptions", () => {
     });
 
     expect(options.clientSecret).toBeUndefined();
+  });
+
+  it("ignores TEAMS_APP_PASSWORD env var when a token factory is provided", () => {
+    vi.stubEnv("TEAMS_APP_PASSWORD", "env-secret");
+    try {
+      const token = async () => "custom-access-token";
+
+      const options = toAppOptions({
+        appId: "test-client-id",
+        token,
+      });
+
+      expect(options.clientSecret).toBeUndefined();
+      expect(options.token).toBe(token);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("omits token when not provided", () => {
