@@ -1215,8 +1215,8 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * **Platform Behavior:**
    * - **Slack**: Native ephemeral (session-dependent, disappears on reload)
    * - **Google Chat**: Native private message (persists, only target user sees it)
+   * - **Teams**: Native targeted message (public preview)
    * - **Discord**: No native support - requires fallbackToDM: true
-   * - **Teams**: No native support - requires fallbackToDM: true
    *
    * @param user - User ID string or Author object (from message.author or event.user)
    * @param message - Message content (string, markdown, card, etc.). Streaming is not supported.

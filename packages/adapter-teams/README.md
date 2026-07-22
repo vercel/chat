@@ -190,7 +190,7 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 | Receive reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
-| Ephemeral messages | No (DM fallback) |
+| Ephemeral messages | Yes (native targeted messages, public preview) |
 | User lookup (`getUser`) | Yes (requires `User.Read.All`) |
 
 ### Message history
@@ -221,6 +221,18 @@ console.log(user?.fullName); // "Alice Smith"
 Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only — authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour (failed lookups for 5 minutes), so busy conversations don't trigger a Graph call per message.
 
 The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
+
+## Targeted / ephemeral messages
+
+Teams targeted messages are available in public preview. Use the standard Chat SDK `postEphemeral` API to send a message that is visible only to a specific Teams conversation member:
+
+```typescript
+await thread.postEphemeral(message.author, "Only you can see this.", {
+  fallbackToDM: false,
+});
+```
+
+The adapter sends these natively with Teams targeted message metadata. `usedFallback` is `false` when the Teams API accepts the message.
 
 ## Message history (`fetchMessages`)
 

@@ -983,6 +983,118 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("postEphemeral", () => {
+    it("should send a targeted text message to the requested user", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "targeted-msg-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      expect(result.id).toBe("targeted-msg-123");
+      expect(result.threadId).toBe(threadId);
+      expect(result.usedFallback).toBe(false);
+      expect(mockApp.send).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        expect.objectContaining({
+          recipient: expect.objectContaining({
+            id: "29:target-user",
+            isTargeted: true,
+            role: "user",
+          }),
+          textFormat: "markdown",
+        })
+      );
+    });
+
+    it("should send targeted adaptive cards", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "targeted-card-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        card: {
+          type: "card",
+          title: "Private card",
+          children: [],
+        },
+      });
+
+      expect(result.id).toBe("targeted-card-123");
+      expect(result.usedFallback).toBe(false);
+      expect(mockApp.send).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        expect.objectContaining({
+          attachments: expect.arrayContaining([
+            expect.objectContaining({
+              contentType: "application/vnd.microsoft.card.adaptive",
+            }),
+          ]),
+          recipient: expect.objectContaining({
+            id: "29:target-user",
+            isTargeted: true,
+          }),
+        })
+      );
+    });
+
+    it("should handle targeted send failure by calling handleTeamsError", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => {
+        throw new MockTeamsError({ statusCode: 401, message: "Unauthorized" });
+      });
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      await expect(
+        adapter.postEphemeral(threadId, "29:target-user", "Private")
+      ).rejects.toThrow(AuthenticationError);
+    });
+  });
+
   describe("editMessage", () => {
     it("should call api.conversations.activities.update", async () => {
       const adapter = createTeamsAdapter({
