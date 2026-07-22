@@ -9,7 +9,7 @@ related:
   - /docs/ai/ai-sdk-tools
 ---
 
-`requestApproval` from `chat/workflow` posts a card with Approve/Deny buttons and suspends a [Workflow SDK](https://workflow-sdk.dev) workflow until a user clicks — for seconds, hours, or days, surviving deploys and restarts. No approvals table, no `onAction` glue, no polling.
+`requestApproval` from `chat/workflow` posts a card with Approve/Deny buttons and suspends a [Workflow SDK](https://workflow-sdk.dev) workflow until a user clicks. The wait can last seconds or days and survives deploys and restarts. You don't need an approvals table, an `onAction` handler, or a polling loop.
 
 ```typescript title="workflows/deploy.ts" lineNumbers
 import { requestApproval } from "chat/workflow";
@@ -72,15 +72,15 @@ chat.registerSingleton();
 |----------|------|-------------|
 | `approved` | `boolean` | True when the approve button was clicked |
 | `timedOut` | `boolean` | True when `timeout` elapsed with no decision |
-| `user` | `{ id: string; name?: string }` | Who decided — absent on timeout |
+| `user` | `{ id: string; name?: string }` | Who decided. Absent on timeout |
 
 Once a decision lands (or the timeout elapses), the card is edited in place: the buttons are removed and replaced with an outcome line, leaving an audit trail in the thread and preventing stale clicks.
 
 ## Who can approve
 
-By default, any user who can see the card and click a button decides the approval. The click is authenticated (Chat SDK verifies the platform signature, and the button's callback URL is never exposed to end users), so the `user.id` on the result is trustworthy.
+Anyone who can see the card can decide the approval. The click itself is trustworthy: Chat SDK verifies the platform's signature on the incoming event, and the button's callback URL never reaches the client. So the `user.id` on the result really is the person who clicked.
 
-To restrict *who* may decide, pass `approvers` with the allowed user IDs. Clicks from anyone else post a notice and the workflow keeps waiting:
+If only certain people should decide, pass `approvers` with their user IDs. When anyone else clicks, the bot posts a notice in the thread and the workflow keeps waiting:
 
 ```typescript
 await requestApproval(thread, {
@@ -89,11 +89,11 @@ await requestApproval(thread, {
 });
 ```
 
-Set `approvers` for anything consequential (deploys, spend, destructive actions). Without it, the result tells you who clicked, not whether they were allowed to.
+Set `approvers` for anything consequential.
 
 ## Custom cards
 
-The card builders are exported for advanced flows — for example, posting an approval card whose buttons target a webhook you manage yourself:
+The card builders are exported for cases the wrapper doesn't cover, such as posting an approval card whose buttons target a webhook you manage yourself:
 
 ```typescript
 import { buildApprovalCard, buildResolvedCard } from "chat/workflow";
@@ -105,7 +105,7 @@ const card = buildApprovalCard(
 ```
 
 <Callout type="info">
-  For the underlying pattern — including multi-stage approvals and validating
-  approvers with `createHook()` — see the
-  [Human-in-the-Loop guide](https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk).
+  The [Human-in-the-Loop guide](https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk)
+  walks through the underlying pattern, including multi-stage approvals and
+  validating approvers with `createHook()`.
 </Callout>

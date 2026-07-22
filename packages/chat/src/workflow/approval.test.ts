@@ -226,7 +226,7 @@ describe("requestApproval", () => {
     const resolvedCard = editMessage.mock
       .calls[0]?.[2] as unknown as CardElement;
     expect(cardTexts(resolvedCard)).toContain(
-      "Timed out after 24h — no decision recorded."
+      "Timed out after 24h with no decision recorded."
     );
     expect(disposed).toBe(true);
   });

@@ -78,7 +78,7 @@ export interface ApprovalResult {
   approved: boolean;
   /** True when `timeout` elapsed with no decision */
   timedOut: boolean;
-  /** Who decided — absent on timeout */
+  /** Who decided. Absent on timeout */
   user?: ApprovalUser;
 }
 
@@ -155,7 +155,7 @@ export async function requestApproval(
         messageId,
         buildResolvedCard(
           options,
-          `Timed out after ${options.timeout} — no decision recorded.`
+          `Timed out after ${options.timeout} with no decision recorded.`
         )
       );
       return { approved: false, timedOut: true };
@@ -166,7 +166,7 @@ export async function requestApproval(
       .catch(() => null)) as ActionCallbackPayload | null;
     const decision = parseDecision(payload);
     if (!decision) {
-      // Not a recognizable button click (bad payload or foreign POST) —
+      // Not a recognizable button click (bad payload or foreign POST), so
       // keep waiting rather than resolving the approval on garbage input.
       continue;
     }
