@@ -1107,7 +1107,9 @@ describe("postMessage - file uploads", () => {
     const interactiveMessage = parseMessageBody(1);
 
     expect(mediaMessage.type).toBe("image");
-    expect((mediaMessage.image as { caption?: string }).caption).toBeUndefined();
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
     expect(interactiveMessage.type).toBe("interactive");
 
     const interactive = interactiveMessage.interactive as {
@@ -1174,9 +1176,7 @@ describe("postMessage - file uploads", () => {
           { type: "text", content: bodyLine },
           {
             type: "fields",
-            children: [
-              { type: "field", label: fieldLabel, value: fieldValue },
-            ],
+            children: [{ type: "field", label: fieldLabel, value: fieldValue }],
           },
           {
             type: "actions",
@@ -1339,7 +1339,9 @@ describe("postMessage - file uploads", () => {
     const interactiveMessage = parseMessageBody(1);
 
     expect(mediaMessage.type).toBe("image");
-    expect((mediaMessage.image as { caption?: string }).caption).toBeUndefined();
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
     expect((mediaMessage.image as { link: string }).link).toBe(
       "https://example.com/photo.jpg"
     );

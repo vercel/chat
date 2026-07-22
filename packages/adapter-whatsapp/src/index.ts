@@ -952,10 +952,20 @@ export class WhatsAppAdapter
     const card = extractCard(message);
     const cardResult = card ? cardToWhatsApp(card) : null;
 
-    const text = card
-    ? cardResult?.type === "interactive" ? ""
-      : convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp")
-      : convertEmojiPlaceholders(this.renderPostableText(message), "whatsapp");
+    let text: string;
+
+    if (card) {
+      if (cardResult?.type === "interactive") {
+        text = "";
+      } else {
+        text = convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp");
+      }
+    } else {
+      text = convertEmojiPlaceholders(
+        this.renderPostableText(message),
+        "whatsapp"
+      );
+    }
 
     const resolved = await Promise.all(
       mediaItems.map((item) => this.resolveMedia(item))
