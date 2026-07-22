@@ -950,8 +950,11 @@ export class WhatsAppAdapter
     mediaItems: Array<FileUpload | Attachment>
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const card = extractCard(message);
+    const cardResult = card ? cardToWhatsApp(card) : null;
+
     const text = card
-      ? convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp")
+    ? cardResult?.type === "interactive" ? ""
+      : convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp")
       : convertEmojiPlaceholders(this.renderPostableText(message), "whatsapp");
 
     const resolved = await Promise.all(
@@ -990,8 +993,7 @@ export class WhatsAppAdapter
       );
     }
 
-    if (card) {
-      const cardResult = cardToWhatsApp(card);
+    if (card && cardResult) {
       if (cardResult.type === "interactive") {
         const interactive = JSON.parse(
           convertEmojiPlaceholders(
