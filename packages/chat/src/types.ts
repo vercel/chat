@@ -675,6 +675,37 @@ export interface ChatInstance {
   ): Promise<void>;
 
   /**
+   * Process an incoming message delete from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   *
+   * @param event - The normalized delete event
+   * @param options - Webhook options including waitUntil
+   */
+  processMessageDeleted(
+    event: Omit<MessageDeletedEvent, "adapter" | "platform"> & {
+      adapter: Adapter;
+      platform?: string;
+    },
+    options?: WebhookOptions
+  ): Promise<void>;
+
+  /**
+   * Process an incoming message update from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   *
+   * @param adapter - The adapter that received the update
+   * @param threadId - The thread ID
+   * @param message - Either a parsed updated message, or a factory function for lazy async parsing
+   * @param options - Webhook options including waitUntil
+   */
+  processMessageUpdated(
+    adapter: Adapter,
+    threadId: string,
+    message: Message | (() => Promise<Message>),
+    options?: WebhookOptions
+  ): Promise<void>;
+
+  /**
    * Process a modal close event from an adapter.
    *
    * @param event - The modal close event (without relatedThread/relatedMessage/relatedChannel)
@@ -1762,6 +1793,21 @@ export type MessageHandler<TState = Record<string, unknown>> = (
 ) => void | Promise<void>;
 
 /**
+ * Handler for message edit/update events.
+ *
+ * Registered via `chat.onMessageUpdated(handler)`. Called when an adapter
+ * receives a platform edit event and can provide the updated message.
+ *
+ * Message updates are lifecycle events: they do not route through
+ * `onNewMessage`, `onNewMention`, or `onSubscribedMessage`.
+ */
+export type MessageUpdatedHandler<TState = Record<string, unknown>> = (
+  thread: Thread<TState>,
+  message: Message,
+  context?: MessageContext
+) => void | Promise<void>;
+
+/**
  * Handler for messages in subscribed threads.
  *
  * Called for all messages in threads that have been subscribed via `thread.subscribe()`.
@@ -2028,6 +2074,40 @@ export interface ReactionEvent<TRawMessage = unknown> {
  * ```
  */
 export type ReactionHandler = (event: ReactionEvent) => void | Promise<void>;
+
+/**
+ * Message delete event fired when a platform reports that a message was
+ * deleted. The deleted message body is usually unavailable; adapters include
+ * `previousMessage` when the platform supplied enough data to parse it.
+ */
+export interface MessageDeletedEvent<TRawMessage = unknown> {
+  /** The adapter that received the event */
+  adapter: Adapter;
+  /** Platform/channel identifier from the adapter event */
+  channelId: string;
+  /** When the delete event happened, if supplied by the platform */
+  deletedAt?: Date;
+  /** The deleted platform-native message ID */
+  messageId: string;
+  /** Adapter name, e.g. "slack" */
+  platform: string;
+  /** Previous message snapshot, if supplied by the platform */
+  previousMessage?: Message<TRawMessage>;
+  /** Platform-specific raw delete event */
+  raw: unknown;
+  /** Thread containing the deleted message */
+  threadId: string;
+}
+
+/**
+ * Handler for message delete events.
+ *
+ * Registered via `chat.onMessageDeleted(handler)`. This is a lifecycle event
+ * and does not route through normal message handlers.
+ */
+export type MessageDeletedHandler = (
+  event: MessageDeletedEvent
+) => void | Promise<void>;
 
 // =============================================================================
 // Action Events (Button Clicks)

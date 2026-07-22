@@ -278,6 +278,8 @@ export function createMockChatInstance(
 
   const base = {
     processMessage: vi.fn(),
+    processMessageUpdated: vi.fn(),
+    processMessageDeleted: vi.fn(),
     handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
     processReaction: vi.fn(),
     processAction: vi.fn(),
