@@ -86,6 +86,8 @@ const USER_INFO_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // consent don't pay a failing network call on every message.
 const USER_INFO_NEGATIVE_SENTINEL = "unresolvable";
 const DEFAULT_DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
+// Keep this list to common Chat SDK names that differ from Teams IDs.
+// Other strings are treated as native Teams reaction IDs and pass through.
 const TEAMS_REACTION_ALIASES: Readonly<Record<string, MessageReactionType>> = {
   check: "2705_whiteheavycheckmark",
   eyes: "1f440_eyes",

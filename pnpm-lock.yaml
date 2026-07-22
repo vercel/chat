@@ -6473,8 +6473,8 @@ packages:
     resolution: {integrity: sha512-Y/b0YJoCDda6DCFj8ikks06GrEWDsz/3vdgGLeectV9p+YJc76YugRjtqFdd2KTf2rnEPjalL2hcXP+x2KcSLQ==}
     engines: {node: '>=20'}
 
-  '@xhmikosr/bin-wrapper@14.4.0':
-    resolution: {integrity: sha512-Qp4YGNOIBnNEXoyM8nc0L92frBtrerzRpE/zZ4EMU9i37tGGfiuKyQTdHdVUcj7z1ZMfg2hAk+i5gMbWGc5cdw==}
+  '@xhmikosr/bin-wrapper@14.5.0':
+    resolution: {integrity: sha512-qzNWA0+YUbN3lVz79b2WK+X3QbR8+hmd6nMTAko1F/1jAeK7VbpK7TcfkYU4dL8iaLNNGYL94WsTewwH17jMTQ==}
     engines: {node: '>=20'}
 
   '@xhmikosr/decompress-tar@9.0.1':
@@ -7798,8 +7798,8 @@ packages:
     resolution: {integrity: sha512-knvyeauYhqjOYvQ66MznSMs83wmHrCycNEN6Ao+2AeYEfxUIkuiVxdEa1qlGEPK+We3n0THiDciYSsCcgW/DoA==}
     engines: {node: '>=12.0.0'}
 
-  express@4.22.2:
-    resolution: {integrity: sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==}
+  express@4.22.1:
+    resolution: {integrity: sha512-F2X8g9P1X7uCPZMA3MVf9wcTqlyNp7IhH5qPCI0izhaOIYXaW9L535tGA3qmjRzpH+bZczqq7hVKxTR4NWnu+g==}
     engines: {node: '>= 0.10.0'}
 
   express@5.2.1:
@@ -10096,6 +10096,10 @@ packages:
   proxy-from-env@2.1.0:
     resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
     engines: {node: '>=10'}
+
+  qs@6.14.2:
+    resolution: {integrity: sha512-V/yCWTTF7VJ9hIh18Ugr2zhJMP01MY7c5kh4J870L7imm6/DIzBsNLTXzMwUA3yZ5b/KBqLx8Kp3uRvd7xSe3Q==}
+    engines: {node: '>=0.6'}
 
   qs@6.15.1:
     resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
@@ -16336,7 +16340,7 @@ snapshots:
     dependencies:
       '@swc/core': 1.15.3
       '@swc/counter': 0.1.3
-      '@xhmikosr/bin-wrapper': 14.4.0
+      '@xhmikosr/bin-wrapper': 14.5.0
       commander: 8.3.0
       minimatch: 9.0.9
       piscina: 4.9.3
@@ -16692,7 +16696,7 @@ snapshots:
   '@types/jsonwebtoken@9.0.10':
     dependencies:
       '@types/ms': 2.1.0
-      '@types/node': 25.3.2
+      '@types/node': 25.9.2
 
   '@types/mdast@4.0.4':
     dependencies:
@@ -17720,7 +17724,7 @@ snapshots:
 
   '@workflow/web@4.1.5':
     dependencies:
-      express: 4.22.2
+      express: 4.22.1
     transitivePeerDependencies:
       - supports-color
 
@@ -17806,7 +17810,7 @@ snapshots:
       execa: 9.6.1
       isexe: 4.0.0
 
-  '@xhmikosr/bin-wrapper@14.4.0':
+  '@xhmikosr/bin-wrapper@14.5.0':
     dependencies:
       '@xhmikosr/bin-check': 8.2.2
       '@xhmikosr/downloader': 16.3.0
@@ -18179,7 +18183,7 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.4.24
       on-finished: 2.4.1
-      qs: 6.15.3
+      qs: 6.15.1
       raw-body: 2.5.3
       type-is: 1.6.18
       unpipe: 1.0.0
@@ -19291,7 +19295,7 @@ snapshots:
 
   expect-type@1.3.0: {}
 
-  express@4.22.2:
+  express@4.22.1:
     dependencies:
       accepts: 1.3.8
       array-flatten: 1.1.1
@@ -19314,7 +19318,7 @@ snapshots:
       parseurl: 1.3.3
       path-to-regexp: 0.1.13
       proxy-addr: 2.0.7
-      qs: 6.15.3
+      qs: 6.14.2
       range-parser: 1.2.1
       safe-buffer: 5.2.1
       send: 0.19.2
@@ -22249,6 +22253,10 @@ snapshots:
       ipaddr.js: 1.9.1
 
   proxy-from-env@2.1.0: {}
+
+  qs@6.14.2:
+    dependencies:
+      side-channel: 1.1.0
 
   qs@6.15.1:
     dependencies:
