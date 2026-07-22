@@ -101,6 +101,11 @@ bot.onNewMention(async (thread, message) => {
       type: "FederatedConfig",
       description: "Federated (workload identity) authentication config.",
     },
+    token: {
+      type: "(scope: string | string[], tenantId?: string) => string | Promise<string>",
+      description:
+        "Custom token factory for outbound Bot Framework/Graph calls, for runtimes that can't reach Azure IMDS (so `federated` isn't reachable) but can still mint access tokens through an external mechanism.",
+    },
     appType: {
       type: '"MultiTenant" | "SingleTenant"',
       default: '"MultiTenant"',
@@ -124,7 +129,7 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
-`appId` is required. Exactly one authentication method (`appPassword` or `federated`) must be provided.
+`appId` is required, along with one authentication method (`appPassword`, `federated`, or `token`). If more than one is configured, `token` takes precedence over `federated`, which takes precedence over `appPassword`.
 
 ## Authentication
 
@@ -191,6 +196,24 @@ createTeamsAdapter({
   },
 });
 ```
+
+**Custom token factory** — for runtimes without access to Azure IMDS (e.g. serverless platforms), provide your own token-minting logic. Maps to `AppOptions.token` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  appId: "your_app_id_here",
+  appTenantId: "your_tenant_id_here",
+  token: async (scope, tenantId) => {
+    // fetch or mint an access token for the given scope/tenant however your
+    // runtime supports it (e.g. a workload-identity federation bridge)
+    return await getAccessToken(scope, tenantId);
+  },
+});
+```
+
+<Callout type="warn">
+The Teams SDK reads a generic `CLIENT_SECRET` environment variable and prefers it over the token factory. Make sure `CLIENT_SECRET` is not set in your deployment environment, or the bot will silently fall back to client-secret auth.
+</Callout>
 
 ## Advanced
 
