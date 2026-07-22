@@ -32,6 +32,7 @@
     "cards",
     "modals",
     "actions",
+    "approvals",
     "slash-commands",
     "emoji",
     "---API Reference---",
