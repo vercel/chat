@@ -1099,6 +1099,16 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     userId: string,
     message: AdapterPostableMessage
   ): Promise<EphemeralMessage<unknown>> {
+    if (this.isDM(threadId)) {
+      const sent = await this.postMessage(threadId, message);
+      return {
+        id: sent.id,
+        threadId: sent.threadId,
+        usedFallback: true,
+        raw: sent.raw,
+      };
+    }
+
     const { conversationId } = this.decodeThreadId(threadId);
     const recipient = this.createTargetedRecipient(userId);
 

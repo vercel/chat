@@ -1093,6 +1093,39 @@ describe("TeamsAdapter", () => {
         adapter.postEphemeral(threadId, "29:target-user", "Private")
       ).rejects.toThrow(AuthenticationError);
     });
+
+    it("falls back to a normal post in a 1:1 chat instead of a targeted send", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "personal-msg-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "a:1personal-chat-id",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      expect(result.id).toBe("personal-msg-123");
+      expect(result.usedFallback).toBe(true);
+
+      const sentActivity = mockApp.send.mock.calls[0]?.[1] as {
+        recipient?: { isTargeted?: boolean };
+      };
+      expect(sentActivity.recipient?.isTargeted).not.toBe(true);
+    });
   });
 
   describe("editMessage", () => {
