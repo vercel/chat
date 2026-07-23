@@ -13,6 +13,7 @@ import type {
   IMessageReactionActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
+  MessageReactionType,
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
@@ -49,7 +50,6 @@ import {
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   Message,
-  NotImplementedError,
 } from "chat";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
@@ -86,6 +86,24 @@ const USER_INFO_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // consent don't pay a failing network call on every message.
 const USER_INFO_NEGATIVE_SENTINEL = "unresolvable";
 const DEFAULT_DIALOG_OPEN_TIMEOUT_MS = 5000; // Max wait for handler to call openModal()
+// Keep this list to common Chat SDK names that differ from Teams IDs.
+// Other strings are treated as native Teams reaction IDs and pass through.
+const TEAMS_REACTION_ALIASES: Readonly<Record<string, MessageReactionType>> = {
+  check: "2705_whiteheavycheckmark",
+  eyes: "1f440_eyes",
+  pin: "1f4cc_pushpin",
+  rocket: "launch",
+  thinking: "think",
+  thumbs_up: "like",
+  x: "274c_crossmark",
+};
+
+function resolveTeamsReactionType(
+  emoji: EmojiValue | string
+): MessageReactionType {
+  const name = typeof emoji === "string" ? emoji : emoji.name;
+  return TEAMS_REACTION_ALIASES[name] ?? name;
+}
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly name = "teams";
@@ -741,7 +759,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const user = {
       userId: activity.from?.id || "unknown",
       userName: activity.from?.name || "unknown",
-      fullName: activity.from?.name,
+      fullName: activity.from?.name || "unknown",
       isBot: false,
       isMe: this.isMessageFromSelf(activity),
     };
@@ -1202,25 +1220,69 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   async addReaction(
-    _threadId: string,
-    _messageId: string,
-    _emoji: EmojiValue | string
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
   ): Promise<void> {
-    throw new NotImplementedError(
-      "addReaction is not yet supported by the Teams SDK",
-      "addReaction"
-    );
+    const { conversationId } = this.decodeThreadId(threadId);
+    const reactionType = resolveTeamsReactionType(emoji);
+
+    this.logger.debug("Teams API: addReaction", {
+      conversationId,
+      messageId,
+      reactionType,
+    });
+
+    try {
+      await this.app.api.conversations.addReaction(
+        conversationId,
+        messageId,
+        reactionType
+      );
+    } catch (error) {
+      this.logger.error("Teams API: addReaction failed", {
+        conversationId,
+        messageId,
+        reactionType,
+        error,
+      });
+      handleTeamsError(error, "addReaction");
+    }
+
+    this.logger.debug("Teams API: addReaction response", { ok: true });
   }
 
   async removeReaction(
-    _threadId: string,
-    _messageId: string,
-    _emoji: EmojiValue | string
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string
   ): Promise<void> {
-    throw new NotImplementedError(
-      "removeReaction is not yet supported by the Teams SDK",
-      "removeReaction"
-    );
+    const { conversationId } = this.decodeThreadId(threadId);
+    const reactionType = resolveTeamsReactionType(emoji);
+
+    this.logger.debug("Teams API: deleteReaction", {
+      conversationId,
+      messageId,
+      reactionType,
+    });
+
+    try {
+      await this.app.api.conversations.deleteReaction(
+        conversationId,
+        messageId,
+        reactionType
+      );
+    } catch (error) {
+      this.logger.error("Teams API: deleteReaction failed", {
+        conversationId,
+        messageId,
+        reactionType,
+        error,
+      });
+      handleTeamsError(error, "removeReaction");
+    }
+
+    this.logger.debug("Teams API: deleteReaction response", { ok: true });
   }
 
   async startTyping(threadId: string, _status?: string): Promise<void> {

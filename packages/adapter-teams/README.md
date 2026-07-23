@@ -185,8 +185,8 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 |---------|-----------|
 | Slash commands | No |
 | Mentions | Yes |
-| Add reactions | No |
-| Remove reactions | No |
+| Add reactions | Yes |
+| Remove reactions | Yes |
 | Receive reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
