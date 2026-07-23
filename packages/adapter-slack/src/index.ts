@@ -5562,7 +5562,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Use the existing postMessage logic but with no threadTs
     // Build a synthetic thread ID with empty threadTs
     const syntheticThreadId = `slack:${channel}:`;
-    return await this.postMessage(syntheticThreadId, message);
+    const result = await this.postMessage(syntheticThreadId, message);
+
+    if (
+      typeof result.raw !== "object" ||
+      result.raw === null ||
+      !("ts" in result.raw) ||
+      typeof result.raw.ts !== "string"
+    ) {
+      return result;
+    }
+
+    return {
+      ...result,
+      threadId: this.encodeThreadId({ channel, threadTs: result.raw.ts }),
+    };
   }
 
   renderFormatted(content: FormattedContent): string {
