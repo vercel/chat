@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/tests",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "Vitest factories, matchers, and setup utilities for testing Chat SDK adapters and bots",
   "type": "module",
   "main": "./dist/index.js",

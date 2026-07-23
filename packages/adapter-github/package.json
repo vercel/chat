@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/github",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "GitHub adapter for Chat SDK — respond to @mentions in pull request and issue comment threads",
   "type": "module",
   "engines": {
