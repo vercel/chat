@@ -7,6 +7,7 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import type {
+  Account,
   Activity,
   IAdaptiveCardActionInvokeActivity,
   IMessageActivity,
@@ -29,6 +30,7 @@ import type {
   ChannelInfo,
   ChatInstance,
   EmojiValue,
+  EphemeralMessage,
   FetchOptions,
   FetchResult,
   FileUpload,
@@ -823,7 +825,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     activity: Activity,
     threadId: string
   ): Message<unknown> {
-    const text = (activity as MessageActivity).text || "";
+    const text = (activity as IMessageActivity).text || "";
     const normalizedText = this.normalizeMentions(text);
 
     const isMe = this.isMessageFromSelf(activity);
@@ -847,7 +849,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           : new Date(),
         edited: false,
       },
-      attachments: ((activity as MessageActivity).attachments || [])
+      attachments: ((activity as IMessageActivity).attachments || [])
         .filter(
           (att) =>
             att.contentType !== "application/vnd.microsoft.card.adaptive" &&
@@ -1090,6 +1092,115 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.logger.error("Teams API: send failed", { conversationId, error });
       handleTeamsError(error, "postMessage");
     }
+  }
+
+  async postEphemeral(
+    threadId: string,
+    userId: string,
+    message: AdapterPostableMessage
+  ): Promise<EphemeralMessage<unknown>> {
+    if (this.isDM(threadId)) {
+      const sent = await this.postMessage(threadId, message);
+      return {
+        id: sent.id,
+        threadId: sent.threadId,
+        usedFallback: true,
+        raw: sent.raw,
+      };
+    }
+
+    const { conversationId } = this.decodeThreadId(threadId);
+    const recipient = this.createTargetedRecipient(userId);
+
+    const files = extractFiles(message);
+    const fileAttachments =
+      files.length > 0 ? await this.filesToAttachments(files) : [];
+
+    const card = extractCard(message);
+
+    if (card) {
+      const adaptiveCard = cardToAdaptiveCard(card);
+      const activity = new MessageActivity().withRecipient(recipient, true);
+      activity.attachments = [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          content: adaptiveCard,
+        },
+        ...fileAttachments,
+      ];
+
+      this.logger.debug("Teams API: send (targeted adaptive card)", {
+        conversationId,
+        userId,
+        fileCount: fileAttachments.length,
+      });
+
+      try {
+        const sent = await this.app.send(conversationId, activity);
+
+        return {
+          id: sent.id || "",
+          threadId,
+          usedFallback: false,
+          raw: activity,
+        };
+      } catch (error) {
+        this.logger.error("Teams API: targeted send failed", {
+          conversationId,
+          userId,
+          error,
+        });
+        handleTeamsError(error, "postEphemeral");
+      }
+    }
+
+    const text = convertEmojiPlaceholders(
+      this.formatConverter.renderPostable(message),
+      "teams"
+    );
+
+    const activity = new MessageActivity(text).withRecipient(recipient, true);
+    activity.textFormat = "markdown";
+    if (fileAttachments.length > 0) {
+      activity.attachments = fileAttachments;
+    }
+
+    this.logger.debug("Teams API: send (targeted message)", {
+      conversationId,
+      userId,
+      textLength: text.length,
+      fileCount: fileAttachments.length,
+    });
+
+    try {
+      const sent = await this.app.send(conversationId, activity);
+
+      this.logger.debug("Teams API: targeted send response", {
+        messageId: sent.id,
+      });
+
+      return {
+        id: sent.id || "",
+        threadId,
+        usedFallback: false,
+        raw: activity,
+      };
+    } catch (error) {
+      this.logger.error("Teams API: targeted send failed", {
+        conversationId,
+        userId,
+        error,
+      });
+      handleTeamsError(error, "postEphemeral");
+    }
+  }
+
+  protected createTargetedRecipient(userId: string): Account {
+    return {
+      id: userId,
+      name: userId,
+      role: "user",
+    };
   }
 
   protected async filesToAttachments(
