@@ -25,7 +25,7 @@
     "fumadocs-ui": "16.2.2",
     "lucide-react": "^0.555.0",
     "motion": "^12.23.25",
-    "next": "16.2.6",
+    "next": "16.2.11",
     "radix-ui": "latest",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
