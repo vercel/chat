@@ -1107,10 +1107,248 @@ describe("postMessage - file uploads", () => {
     const interactiveMessage = parseMessageBody(1);
 
     expect(mediaMessage.type).toBe("image");
-    expect((mediaMessage.image as { caption: string }).caption).toContain(
-      "Approve"
-    );
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
     expect(interactiveMessage.type).toBe("interactive");
+
+    const interactive = interactiveMessage.interactive as {
+      header?: { text: string };
+      body: { text: string };
+      action: { buttons: Array<{ reply: { title: string } }> };
+    };
+    expect(interactive.header?.text).toBe("Approve?");
+    expect(interactive.action.buttons).toHaveLength(2);
+  });
+
+  it("interactive card + file does not duplicate title across caption and header", async () => {
+    const adapter = createTestAdapter();
+    const title = "Demo image card";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title,
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "ok", label: "OK" }],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "demo.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+    const caption = (mediaMessage.image as { caption?: string }).caption;
+    const header = (
+      interactiveMessage.interactive as { header?: { text: string } }
+    ).header?.text;
+
+    expect(caption).toBeUndefined();
+    expect(header).toBe(title);
+
+    const serialized = JSON.stringify([mediaMessage, interactiveMessage]);
+    expect(serialized.split(title).length - 1).toBe(1);
+  });
+
+  it("interactive card + file does not duplicate CardText/Fields in caption", async () => {
+    const adapter = createTestAdapter();
+    const bodyLine = "Your order has shipped";
+    const fieldLabel = "Tracking code";
+    const fieldValue = "SHIP-UNIQUE-VALUE";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Shipment",
+        subtitle: "Status update",
+        children: [
+          { type: "text", content: bodyLine },
+          {
+            type: "fields",
+            children: [{ type: "field", label: fieldLabel, value: fieldValue }],
+          },
+          {
+            type: "actions",
+            children: [
+              { type: "button", id: "track", label: "Track" },
+              { type: "button", id: "help", label: "Help" },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "box.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+    const caption = (mediaMessage.image as { caption?: string }).caption;
+    const interactive = interactiveMessage.interactive as {
+      header?: { text: string };
+      body: { text: string };
+    };
+
+    expect(caption).toBeUndefined();
+    expect(interactive.header?.text).toBe("Shipment");
+    expect(interactive.body.text).toContain("Status update");
+    expect(interactive.body.text).toContain(bodyLine);
+    expect(interactive.body.text).toContain(`${fieldLabel}: ${fieldValue}`);
+  });
+
+  it("interactive card + multiple files leaves all media uncaptioned", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Review docs",
+        children: [
+          {
+            type: "actions",
+            children: [
+              { type: "button", id: "approve", label: "Approve" },
+              { type: "button", id: "reject", label: "Reject" },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "a.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "b.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(3);
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+    const interactiveMessage = parseMessageBody(2);
+
+    expect(first.type).toBe("document");
+    expect(second.type).toBe("document");
+    expect((first.document as { caption?: string }).caption).toBeUndefined();
+    expect((second.document as { caption?: string }).caption).toBeUndefined();
+    expect(interactiveMessage.type).toBe("interactive");
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Review docs");
+  });
+
+  it("interactive card + audio sends audio then interactive with no leading text", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Voice note",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "ack", label: "Got it" }],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("audio"),
+          filename: "note.mp3",
+          mimeType: "audio/mpeg",
+        },
+      ],
+    });
+
+    // Audio cannot take a caption; interactive path also skips card fallback
+    // text, so there must be no leading text message with the title.
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const audioMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(audioMessage.type).toBe("audio");
+    expect(
+      (audioMessage.audio as { caption?: string }).caption
+    ).toBeUndefined();
+    expect(interactiveMessage.type).toBe("interactive");
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Voice note");
+
+    for (const message of [audioMessage, interactiveMessage]) {
+      if (message.type === "text") {
+        throw new Error("unexpected leading text message for interactive card");
+      }
+    }
+  });
+
+  it("interactive card + HTTPS attachment does not caption with card title", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Remote image card",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "open", label: "Open" }],
+          },
+        ],
+      },
+      attachments: [
+        {
+          type: "image",
+          url: "https://example.com/photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(mediaMessage.type).toBe("image");
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+    expect((mediaMessage.image as { link: string }).link).toBe(
+      "https://example.com/photo.jpg"
+    );
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Remote image card");
   });
 
   it("card with text fallback and file does not send duplicate text", async () => {
@@ -1151,6 +1389,49 @@ describe("postMessage - file uploads", () => {
     expect((mediaMessage.image as { caption: string }).caption).toContain(
       "Order update"
     );
+  });
+
+  it("text-fallback card + file puts title and body only in the caption once", async () => {
+    const adapter = createTestAdapter();
+    const title = "Receipt details";
+    const bodyLine = "Thanks for your purchase";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title,
+        children: [
+          { type: "text", content: bodyLine },
+          {
+            type: "actions",
+            children: [
+              {
+                type: "link-button",
+                url: "https://example.com/receipt",
+                label: "View",
+              },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "receipt.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const mediaMessage = parseMessageBody(0);
+    const caption = (mediaMessage.image as { caption: string }).caption;
+
+    expect(caption).toContain(title);
+    expect(caption).toContain(bodyLine);
+    expect(caption.split(title).length - 1).toBe(1);
+    expect(caption.split(bodyLine).length - 1).toBe(1);
   });
 
   it("oversize image throws ValidationError before upload", async () => {
