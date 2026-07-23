@@ -1,5 +1,22 @@
 # @chat-adapter/discord
 
+## 4.35.0
+
+### Minor Changes
+
+- 26c0522: Add an opt-in channel allowlist for treating non-bot Discord messages as directed to the bot without requiring a mention. Configure via `respondToChannelIds` or the `DISCORD_RESPOND_TO_CHANNEL_IDS` env var (comma-separated).
+
+### Patch Changes
+
+- b605cf6: Preserve Discord's angle-bracket syntax for suppressing link previews when rendering markdown.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
 ## 4.34.0
 
 ### Minor Changes

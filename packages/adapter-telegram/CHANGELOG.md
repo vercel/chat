@@ -1,5 +1,18 @@
 # @chat-adapter/telegram
 
+## 4.35.0
+
+### Patch Changes
+
+- 0701679: Cache the compiled bot-mention regex in `isBotMentioned` instead of recompiling it per message, and make the protected `sleep` helper accept an optional `AbortSignal` so `stopPolling()` interrupts the polling backoff delay immediately.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
 ## 4.34.0
 
 ### Minor Changes

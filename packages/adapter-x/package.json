@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/x",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "X (Twitter) adapter for Chat SDK: reply to mentions, send direct messages, and post from your bot account with the X API v2",
   "type": "module",
   "engines": {
