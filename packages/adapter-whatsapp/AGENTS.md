@@ -207,8 +207,13 @@ else maps to `document`. Pre-flight size checks throw
 `ValidationError` when binary size is known (image 5 MB, audio/video
 16 MB, document 100 MB).
 
-**Cards + files.** Media is sent first (caption from card fallback
-text), then an interactive card message when the card has buttons.
+**Cards + files.** When the card renders as an interactive message
+(reply buttons or a list), media is sent without a caption and the
+interactive message that follows carries the title, body, and
+buttons. Text-fallback cards (e.g. only link buttons) caption the
+first media with the fallback text. Card validation runs before
+media upload, so `ValidationError` is thrown before any media is
+sent.
 
 Media IDs expire after 30 days. For inbound media, the adapter
 exposes a lazy `fetchData()` that downloads the binary on demand.

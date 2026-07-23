@@ -1,5 +1,5 @@
 ---
-"@chat-adapter/whatsapp": minor
+"@chat-adapter/whatsapp": patch
 ---
 
 fix whatsapp card media duplication

@@ -1158,7 +1158,7 @@ describe("postMessage - file uploads", () => {
     expect(header).toBe(title);
 
     const serialized = JSON.stringify([mediaMessage, interactiveMessage]);
-    expect(serialized.match(new RegExp(title, "g"))).toHaveLength(1);
+    expect(serialized.split(title).length - 1).toBe(1);
   });
 
   it("interactive card + file does not duplicate CardText/Fields in caption", async () => {
@@ -1430,8 +1430,8 @@ describe("postMessage - file uploads", () => {
 
     expect(caption).toContain(title);
     expect(caption).toContain(bodyLine);
-    expect(caption.match(new RegExp(title, "g"))).toHaveLength(1);
-    expect(caption.match(new RegExp(bodyLine, "g"))).toHaveLength(1);
+    expect(caption.split(title).length - 1).toBe(1);
+    expect(caption.split(bodyLine).length - 1).toBe(1);
   });
 
   it("oversize image throws ValidationError before upload", async () => {

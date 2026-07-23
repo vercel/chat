@@ -952,12 +952,10 @@ export class WhatsAppAdapter
     const card = extractCard(message);
     const cardResult = card ? cardToWhatsApp(card) : null;
 
-    let text: string;
+    let text = "";
 
     if (card) {
-      if (cardResult?.type === "interactive") {
-        text = "";
-      } else {
+      if (cardResult && cardResult.type !== "interactive") {
         text = convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp");
       }
     } else {
@@ -1003,7 +1001,7 @@ export class WhatsAppAdapter
       );
     }
 
-    if (card && cardResult) {
+    if (cardResult) {
       if (cardResult.type === "interactive") {
         const interactive = JSON.parse(
           convertEmojiPlaceholders(

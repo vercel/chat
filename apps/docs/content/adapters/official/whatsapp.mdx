@@ -211,7 +211,7 @@ WhatsApp-specific behavior:
 - **One media per message** — multiple `files` or `attachments` in a single `post()` are sent as sequential messages (the last message ID is returned).
 - **Captions** — markdown (or card fallback text) is attached as a caption on the first media message when supported (max 1024 characters). Text is sent as a separate message first when the caption is too long or when the first media is audio (audio does not support captions).
 - **Binary vs link** — buffers are uploaded via the Cloud API `/media` endpoint; `attachments` with only an `url` use HTTPS link passthrough (no upload). URLs must use `https://`.
-- **Cards + files** — media is sent first (caption from card fallback text), then an interactive button message when the card has valid reply buttons. To send a photo with buttons, pass the image via `files` or `attachments` — card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
+- **Cards + files** — when the card renders as an interactive message (reply buttons or a list), media is sent first without a caption and the interactive message that follows carries the title, body, and buttons. When the card falls back to plain text (e.g. only link buttons), the fallback text captions the first media. To send a photo with buttons, pass the image via `files` or `attachments` — card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
