@@ -87,11 +87,21 @@ export interface ChatConfig<
    */
   fallbackStreamingPlaceholderText?: string | null;
   /**
-   * Resolves a stable cross-platform user key from inbound messages.
+   * Unified history configuration. Supersedes the individual
+   * `transcripts`, `identity`, `threadHistory`, and `messageHistory` fields.
    *
-   * Required when `transcripts` is configured. Called once per inbound
-   * message during dispatch; the result is attached to the Message
-   * instance as `message.userKey` for handlers to use.
+   * - `history.user` — cross-platform per-user message persistence (replaces `transcripts` + `identity`)
+   * - `history.thread` — per-thread message backfill (replaces `threadHistory` / `messageHistory`)
+   */
+  history?: HistoryConfig;
+  /**
+   * @deprecated Prefer {@link UserHistoryConfig.identity} on `history.user`.
+   * Still read when user history is enabled — the resolver may be provided
+   * here or via `history.user.identity` (preferred); one of the two is required.
+   *
+   * Resolves a stable cross-platform user key from inbound messages.
+   * Called once per inbound message during dispatch; the result is attached
+   * to the Message instance as `message.userKey` for handlers to use.
    */
   identity?: IdentityResolver;
   /**
@@ -116,6 +126,8 @@ export interface ChatConfig<
    * @deprecated Renamed to {@link ChatConfig.threadHistory}. Both fields are
    * read for backwards compatibility; `threadHistory` takes precedence when
    * both are set.
+   *
+   * Prefer {@link ChatConfig.history}.thread for new code.
    */
   messageHistory?: {
     maxMessages?: number;
@@ -149,6 +161,8 @@ export interface ChatConfig<
    */
   streamingUpdateIntervalMs?: number;
   /**
+   * @deprecated Use {@link ChatConfig.history}.thread instead.
+   *
    * Configuration for persistent per-thread message history backfill.
    *
    * Only used by adapters that set `persistThreadHistory: true` (e.g.
@@ -162,12 +176,16 @@ export interface ChatConfig<
     ttlMs?: number;
   };
   /**
+   * @deprecated Use {@link ChatConfig.history}.user instead.
+   *
    * Cross-platform per-user message persistence.
    *
-   * When set, `chat.transcripts` is available for append/list/count/delete
+   * When set (or when `history.user` is configured), `chat.history.user` and the
+   * deprecated `chat.transcripts` alias are available for append/list/count/delete
    * keyed by a resolved cross-platform user key.
    *
-   * Requires `identity` to also be set; the constructor throws otherwise.
+   * Requires an identity resolver (`history.user.identity` or deprecated top-level
+   * `identity`); the constructor throws otherwise.
    */
   transcripts?: TranscriptsConfig;
   /** Default bot username across all adapters */
@@ -623,6 +641,14 @@ export interface ChatInstance {
   ): Promise<void>;
 
   /**
+   * Unified History API. Sub-APIs:
+   * - `history.user`    — cross-platform per-user transcript store (throws if not configured)
+   * - `history.thread`  — per-thread message listing
+   * - `history.channel` — channel-level messages and thread listings
+   */
+  readonly history: HistoryApi;
+
+  /**
    * Process an incoming action event (button click) from an adapter.
    * Handles waitUntil registration and error catching internally.
    *
@@ -743,9 +769,11 @@ export interface ChatInstance {
   ): void;
 
   /**
-   * Cross-platform per-user transcript store. Throws on access when
-   * `transcripts` is not configured on the Chat instance — callers should
-   * check `ChatConfig.transcripts` if they need a no-throw guard.
+   * Cross-platform per-user transcript store. Deprecated alias for
+   * {@link ChatInstance.history}.user — throws on access when user history
+   * was not configured (`history.user` or legacy `transcripts` + `identity`).
+   *
+   * @deprecated Use {@link ChatInstance.history}.user instead.
    */
   readonly transcripts: TranscriptsApi;
 }
@@ -2471,6 +2499,159 @@ export type MemberJoinedChannelHandler = (
 ) => void | Promise<void>;
 
 // =============================================================================
+// History API (unified message/transcript history)
+// =============================================================================
+
+/**
+ * Configuration for cross-platform per-user history.
+ * Replaces the top-level `transcripts` config field.
+ *
+ * Set {@link UserHistoryConfig.identity} here, or continue using the
+ * deprecated top-level {@link ChatConfig.identity} during migration.
+ */
+export interface UserHistoryConfig {
+  /**
+   * Resolves a stable cross-platform user key from inbound messages.
+   * Preferred location for the identity resolver when using `history.user`.
+   * If omitted, {@link ChatConfig.identity} is used as a migration fallback.
+   * One of the two must be set when user history is enabled.
+   */
+  identity?: IdentityResolver;
+  /** Hard cap; older entries evicted on append. Default 200. */
+  maxPerUser?: number;
+  /**
+   * Default retention applied as the list TTL. Refreshed on every append.
+   * Omit for no expiry.
+   */
+  retention?: number | DurationString;
+  /** Persist `formatted` (mdast AST). Default false. */
+  storeFormatted?: boolean;
+}
+
+/**
+ * Unified history configuration block. Supersedes the individual
+ * `transcripts`, `threadHistory`, and `messageHistory` fields on {@link ChatConfig}.
+ */
+export interface HistoryConfig {
+  /**
+   * Per-thread message history backfill.
+   * Used by adapters that set `persistThreadHistory: true` (e.g. Telegram, WhatsApp).
+   * Replaces the top-level `threadHistory` / `messageHistory` config fields.
+   */
+  thread?: {
+    /** Maximum messages to store per thread (default: 100) */
+    maxMessages?: number;
+    /** TTL for cached history in milliseconds (default: 7 days) */
+    ttlMs?: number;
+  };
+  /**
+   * Cross-platform per-user message persistence.
+   * Replaces the top-level `transcripts` config field.
+   * Requires an identity resolver via {@link UserHistoryConfig.identity}
+   * (preferred) or the deprecated top-level {@link ChatConfig.identity}.
+   */
+  user?: UserHistoryConfig;
+}
+
+/**
+ * Per-user history sub-API.
+ * Identical in shape to {@link TranscriptsApi} — this alias lets consumers
+ * reference it through the unified `HistoryApi` interface without importing
+ * `TranscriptsApi` directly.
+ */
+export type UserHistoryApi = TranscriptsApi;
+
+/**
+ * Per-thread message history sub-API.
+ * Provides message listing and collection for a single thread.
+ */
+export interface ThreadHistoryApi {
+  /**
+   * Append a message to the local SDK-side thread history cache.
+   * Only relevant for adapters with `persistThreadHistory: true`.
+   */
+  append(threadId: string, message: Message): Promise<void>;
+  /**
+   * Async generator that yields all messages in chronological order,
+   * handling pagination automatically.
+   */
+  collect(
+    threadId: string,
+    options?: { limit?: number }
+  ): AsyncIterable<Message>;
+  /**
+   * Fetch a single page of messages from a thread.
+   * Delegates to the adapter's `fetchMessages`.
+   */
+  list(threadId: string, options?: FetchOptions): Promise<FetchResult>;
+}
+
+/**
+ * Per-channel history sub-API.
+ * Provides access to channel-level messages and thread listings.
+ */
+export interface ChannelHistoryApi {
+  /**
+   * Fetch top-level messages in a channel (not thread replies).
+   * Delegates to `adapter.fetchChannelMessages` when available, otherwise
+   * `adapter.fetchMessages`.
+   * @throws if the adapter for the channel ID is not registered
+   */
+  listMessages(channelId: string, options?: FetchOptions): Promise<FetchResult>;
+  /**
+   * List threads in a channel.
+   * Delegates to `adapter.listThreads`.
+   * @throws if the adapter does not support thread listing
+   */
+  listThreads(
+    channelId: string,
+    options?: ListThreadsOptions
+  ): Promise<ListThreadsResult>;
+  /**
+   * Convenience: list threads and fetch messages for each in parallel.
+   * Fetches up to `maxThreads` (default 5) threads, then `messagesPerThread`
+   * messages per thread.
+   */
+  listThreadsWithMessages(
+    channelId: string,
+    options?: {
+      cursor?: string;
+      messagesPerThread?: number;
+      maxThreads?: number;
+    }
+  ): Promise<{
+    nextCursor?: string;
+    threads: Array<{ threadId: string; messages: Message[] }>;
+  }>;
+}
+
+/**
+ * Unified History API available on every Chat instance.
+ *
+ * - `history.user`    — cross-platform per-user transcript store (throws if not configured)
+ * - `history.thread`  — per-thread message listing (always available)
+ * - `history.channel` — channel-level messages and thread listings (always available;
+ *   individual methods throw when the adapter does not support them)
+ */
+export interface HistoryApi {
+  /**
+   * Per-channel history operations.
+   * Individual methods throw when the adapter does not implement them.
+   */
+  readonly channel: ChannelHistoryApi;
+  /**
+   * Per-thread message history.
+   * Always available — delegates to the adapter's `fetchMessages`.
+   */
+  readonly thread: ThreadHistoryApi;
+  /**
+   * Cross-platform per-user transcript store.
+   * Throws if `history.user` (or legacy `transcripts`) is not configured.
+   */
+  readonly user: UserHistoryApi;
+}
+
+// =============================================================================
 // Transcripts API (cross-platform per-user message persistence)
 // =============================================================================
 
@@ -2501,6 +2682,9 @@ export interface IdentityContext {
  */
 export type TranscriptRole = "user" | "assistant" | "system";
 
+/**
+ * @deprecated Use {@link HistoryEntry} instead.
+ */
 export interface TranscriptEntry {
   /** mdast AST. Only present when `transcripts.storeFormatted` is true. */
   formatted?: FormattedContent;
@@ -2525,6 +2709,15 @@ export interface TranscriptEntry {
   /** Cross-platform user key from the IdentityResolver. */
   userKey: string;
 }
+
+/**
+ * Canonical name for a user-scoped history entry returned by
+ * {@link UserHistoryApi.append} and {@link UserHistoryApi.list}.
+ */
+export type HistoryEntry = TranscriptEntry;
+
+/** User-scoped history entry alias — identical to {@link HistoryEntry}. */
+export type UserHistoryEntry = HistoryEntry;
 
 /** Duration shorthand: e.g. `"7d"`, `"30m"`, `"2h"`, `"45s"`. */
 export type DurationString = `${number}${"s" | "m" | "h" | "d"}`;

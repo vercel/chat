@@ -70,8 +70,7 @@ export const fetchMessages = (
       "Fetch recent messages from a thread, ordered chronologically (oldest first within the page). Use to read the conversation before responding.",
     inputSchema: FETCH_MESSAGES_INPUT,
     execute: async ({ threadId, limit, cursor, direction }) => {
-      const thread = chat.thread(threadId);
-      const result = await thread.adapter.fetchMessages(threadId, {
+      const result = await chat.history.thread.list(threadId, {
         limit,
         cursor,
         direction,
@@ -101,14 +100,7 @@ export const fetchChannelMessages = (
       "Fetch top-level messages in a channel (not thread replies). Returns messages in chronological order within the page.",
     inputSchema: FETCH_CHANNEL_MESSAGES_INPUT,
     execute: async ({ channelId, limit, cursor, direction }) => {
-      const adapterName = channelId.split(":")[0];
-      const adapter = adapterName ? chat.getAdapter(adapterName) : undefined;
-      if (!adapter?.fetchChannelMessages) {
-        throw new Error(
-          `Adapter "${adapterName}" does not support fetching channel messages`
-        );
-      }
-      const result = await adapter.fetchChannelMessages(channelId, {
+      const result = await chat.history.channel.listMessages(channelId, {
         limit,
         cursor,
         direction,
@@ -178,14 +170,10 @@ export const listThreads = (
       "List recent threads in a channel. Returns lightweight summaries with the root message of each thread.",
     inputSchema: LIST_THREADS_INPUT,
     execute: async ({ channelId, limit, cursor }) => {
-      const adapterName = channelId.split(":")[0];
-      const adapter = adapterName ? chat.getAdapter(adapterName) : undefined;
-      if (!adapter?.listThreads) {
-        throw new Error(
-          `Adapter "${adapterName}" does not support listing threads`
-        );
-      }
-      const result = await adapter.listThreads(channelId, { limit, cursor });
+      const result = await chat.history.channel.listThreads(channelId, {
+        limit,
+        cursor,
+      });
       return {
         threads: result.threads.map((t: ThreadSummary) => ({
           id: t.id,

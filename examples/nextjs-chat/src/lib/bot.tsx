@@ -23,7 +23,7 @@ import {
   Table,
   CardText as Text,
   TextInput,
-  type TranscriptEntry,
+  type HistoryEntry,
 } from "chat";
 import { type AiMessage, createChatTools, toAiMessages } from "chat/ai";
 import { start } from "workflow/api";
@@ -77,15 +77,16 @@ export const bot = new Chat<typeof adapters, ThreadState>({
   state,
   logger: "debug",
 
-  // Hardcoded for testing — see `TEST_USER_KEY` above.
-  identity: () => TEST_USER_KEY,
-
-  // Persist a per-user transcript across every adapter the user talks
+  // Persist a per-user history across every adapter the user talks
   // through. Used below to backfill conversation context for platforms
   // that don't expose server-side message history.
-  transcripts: {
-    retention: "30d",
-    maxPerUser: 100,
+  // identity is hardcoded for testing — see `TEST_USER_KEY` above.
+  history: {
+    user: {
+      identity: () => TEST_USER_KEY,
+      retention: "30d",
+      maxPerUser: 100,
+    },
   },
 });
 
@@ -96,8 +97,8 @@ const agent = new ToolLoopAgent({
     "You are a helpful assistant in a chat thread. Answer the user's queries in a concise manner.",
 });
 
-// Map transcript entries to AI SDK chat-message shape.
-function transcriptToAiMessages(entries: TranscriptEntry[]): AiMessage[] {
+// Map history entries to AI SDK chat-message shape.
+function transcriptToAiMessages(entries: HistoryEntry[]): AiMessage[] {
   return entries.map((entry) => ({
     role: entry.role === "assistant" ? "assistant" : "user",
     content: entry.text,
@@ -898,12 +899,12 @@ bot.onModalClose("feedback_form", (event) => {
   console.log(`${event.user.userName} cancelled the feedback form`);
 });
 
-// Demonstrate bot.transcripts.list / count / delete
+// Demonstrate bot.history.user.list / count / delete
 bot.onAction("transcripts", async (event) => {
   if (!event.thread) {
     return;
   }
-  const entries = await bot.transcripts.list({
+  const entries = await bot.history.user.list({
     userKey: TEST_USER_KEY,
     limit: 50,
   });
@@ -944,7 +945,7 @@ bot.onAction("clear-transcripts", async (event) => {
   if (!event.thread) {
     return;
   }
-  const { deleted } = await bot.transcripts.delete({
+  const { deleted } = await bot.history.user.delete({
     userKey: TEST_USER_KEY,
   });
   await event.thread.post(
@@ -1260,12 +1261,12 @@ bot.onSubscribedMessage(async (thread, message) => {
 
   // If AI mode is enabled (or this is a DM), use the AI agent
   if (threadState?.aiMode) {
-    // Capture the user's message in their cross-platform transcript so we can
-    // backfill context on platforms without server-side history.
-    await bot.transcripts.append(thread, message);
+    // Capture the user's message in their cross-platform history so we can
+    // backfill context on platforms without server-side message history.
+    await bot.history.user.append(thread, message);
 
     // Build conversation history: try fetchMessages first, then fall back to
-    // the user's stored transcript (filtered to this thread) for platforms
+    // the user's stored history (filtered to this thread) for platforms
     // without a message history API.
     let history: AiMessage[];
     try {
@@ -1276,7 +1277,7 @@ bot.onSubscribedMessage(async (thread, message) => {
         result.messages.length > 0
           ? await toAiMessages(result.messages)
           : transcriptToAiMessages(
-              await bot.transcripts.list({
+              await bot.history.user.list({
                 userKey: message.userKey ?? "",
                 threadId: thread.id,
                 limit: 20,
@@ -1284,7 +1285,7 @@ bot.onSubscribedMessage(async (thread, message) => {
             );
     } catch {
       history = transcriptToAiMessages(
-        await bot.transcripts.list({
+        await bot.history.user.list({
           userKey: message.userKey ?? "",
           threadId: thread.id,
           limit: 20,
@@ -1300,9 +1301,9 @@ bot.onSubscribedMessage(async (thread, message) => {
       await thread.post(result.fullStream);
       const responseText = await result.text;
       // Persist the assistant reply alongside the user message, so the next
-      // turn can read both sides of the conversation from the transcript.
+      // turn can read both sides of the conversation from the history.
       if (message.userKey) {
-        await bot.transcripts.append(
+        await bot.history.user.append(
           thread,
           { role: "assistant", text: responseText },
           { userKey: message.userKey }

@@ -45,6 +45,10 @@ const bot = new Chat(config);
       type: 'number',
       default: '500',
     },
+    history: {
+      description: 'Configuration for the History API — user, thread, and channel scopes. `history.user` includes the identity resolver. See bot.history below.',
+      type: 'HistoryConfig | undefined',
+    },
   }}
 />
 
@@ -691,3 +695,32 @@ const data = JSON.parse(payload, reviver) as { thread: Thread; message: Message 
 ```
 
 The standalone reviver uses lazy adapter resolution - the adapter is looked up from the Chat singleton when first accessed. Call `chat.registerSingleton()` before using thread methods like `post()` (typically inside a `"use step"` function).
+
+### history
+
+Namespaced access to the History API — cross-platform user history, per-thread reads/cache, and per-channel reads.
+
+```typescript
+// User scope — cross-platform, keyed by identity resolver result
+await bot.history.user.append(thread, message);
+const entries = await bot.history.user.list({ userKey, limit: 20 });
+await bot.history.user.delete({ userKey });
+
+// Thread scope — adapter.fetchMessages with cache fallback
+const { messages } = await bot.history.thread.list(thread.id, { limit: 20 });
+
+// Channel scope — platform APIs
+const { messages: channelMessages } = await bot.history.channel.listMessages(
+  channel.id,
+  { limit: 10 }
+);
+const { threads } = await bot.history.channel.listThreads(channel.id, {
+  limit: 20,
+});
+```
+
+See [History API reference](/docs/api/history) for full details and the [History guide](/docs/history) for setup and patterns.
+
+<Callout type="info">
+  `bot.transcripts` is a deprecated alias for `bot.history.user`. Accessing either when user history is not configured throws.
+</Callout>

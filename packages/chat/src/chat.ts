@@ -9,13 +9,13 @@ import {
   hasChatSingleton,
   setChatSingleton,
 } from "./chat-singleton";
+import { HistoryApiImpl } from "./history";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
 import { reviver as standaloneReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import { ThreadHistoryCache } from "./thread-history";
-import { TranscriptsApiImpl } from "./transcripts";
 import type {
   ActionEvent,
   ActionHandler,
@@ -38,6 +38,7 @@ import type {
   DirectMessageHandler,
   EmojiValue,
   FormattedContent,
+  HistoryApi,
   IdentityResolver,
   LinkPreview,
   Lock,
@@ -210,17 +211,25 @@ export class Chat<
   /**
    * Cross-platform per-user transcript store.
    *
+   * @deprecated Use {@link Chat.history}.user instead.
+   *
    * Available only when `transcripts` is configured on the Chat instance
    * (and an `identity` resolver is set). Throws on access otherwise so
    * callers fail loudly rather than silently no-op'ing.
    */
   get transcripts(): TranscriptsApi {
-    if (!this._transcripts) {
-      throw new Error(
-        "chat.transcripts is not configured — pass `transcripts` and `identity` to ChatConfig to enable it"
-      );
-    }
-    return this._transcripts;
+    return this.history.user;
+  }
+
+  /**
+   * Unified History API.
+   *
+   * - `history.user`    — cross-platform per-user transcript store (throws if not configured)
+   * - `history.thread`  — per-thread message listing
+   * - `history.channel` — channel-level messages and thread listings
+   */
+  get history(): HistoryApi {
+    return this._history;
   }
 
   /**
@@ -248,7 +257,7 @@ export class Chat<
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
   private readonly _threadHistory: ThreadHistoryCache;
   private readonly _identity: IdentityResolver | undefined;
-  private readonly _transcripts: TranscriptsApiImpl | undefined;
+  private readonly _history: HistoryApiImpl;
   private readonly _concurrencyStrategy: ConcurrencyStrategy;
   private readonly _concurrencyConfig: Required<
     Omit<ConcurrencyConfig, "strategy">
@@ -359,23 +368,33 @@ export class Chat<
 
     this._threadHistory = new ThreadHistoryCache(
       this._stateAdapter,
-      config.threadHistory ?? config.messageHistory
+      config.history?.thread ?? config.threadHistory ?? config.messageHistory
     );
 
-    if (config.transcripts) {
-      if (!config.identity) {
+    // Resolve user-history config: prefer new config.history?.user, then fall back
+    // to legacy config.transcripts. Identity may live on history.user or the
+    // deprecated top-level config.identity field.
+    const userHistoryConfig = config.history?.user ?? config.transcripts;
+    const resolvedIdentity = config.history?.user?.identity ?? config.identity;
+
+    if (userHistoryConfig) {
+      if (!resolvedIdentity) {
         throw new Error(
-          "ChatConfig.transcripts requires ChatConfig.identity to be set — the cross-platform user key must be resolvable"
+          "ChatConfig requires an identity resolver when user history (or legacy `transcripts`) is configured — set `history.user.identity` or the deprecated top-level `identity` field"
         );
       }
-      this._identity = config.identity;
-      this._transcripts = new TranscriptsApiImpl(
-        this._stateAdapter,
-        config.transcripts
-      );
+      this._identity = resolvedIdentity;
     } else {
-      this._identity = config.identity;
+      this._identity = resolvedIdentity;
     }
+
+    this._history = new HistoryApiImpl({
+      adapterResolver: (name) => this.adapters.get(name),
+      cache: this._threadHistory,
+      user: userHistoryConfig
+        ? { config: userHistoryConfig, state: this._stateAdapter }
+        : undefined,
+    });
 
     // Register adapters and create webhook handlers
     const webhooks = {} as Record<string, WebhookHandler>;
