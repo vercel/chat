@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/twilio",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "Twilio adapter for Chat SDK — SMS and MMS bots with Messaging webhooks and the Messages API",
   "type": "module",
   "engines": {

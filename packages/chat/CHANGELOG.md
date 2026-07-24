@@ -1,5 +1,20 @@
 # chat
 
+## 4.35.0
+
+### Minor Changes
+
+- 4cb7e5d: Add a `chat/workflow` subpath with `requestApproval()`: durable human-in-the-loop approvals built on Workflow SDK. It posts an approval card with Approve/Deny buttons, suspends the workflow until a user decides (or an optional timeout elapses), validates approvers, finalizes the card with the outcome, and returns `{ approved, timedOut, user }`. Also exports the `buildApprovalCard` and `buildResolvedCard` builders. Requires the new optional `workflow` peer dependency.
+- 46681f5: Expose Microsoft Graph email addresses on normalized incoming Teams message authors. Resolved user profiles are cached in the state adapter (1 hour, failed lookups 5 minutes) so the lookup doesn't add a Graph call per message.
+
+### Patch Changes
+
+- 80def3a: Add optional `isSystem` field to the normalized message `Author` type to distinguish platform-generated messages from humans and bots. The Slack adapter now sets `isSystem: true` for messages authored by Slack's reserved `USLACK` user (e.g. "@user archived the channel" notifications in DMs), so consumers no longer need to hard-code Slack-specific user IDs.
+- 93a58af: Show explicitly configured progress as a native Teams DM status while preserving native streaming.
+- 25f3099: `toAiMessages` no longer drops messages that have no text. A message with an empty text body is now kept when it has links or attachments the converter can include: images and text files (`text/*`, JSON, XML, YAML, etc.) with a working `fetchData()`. Messages whose only attachments are unsupported (video, audio, other file types, or attachments without `fetchData()`) are still skipped, and `onUnsupportedAttachment` now fires for video/audio attachments on these previously filtered messages.
+
+  Note: multipart `content` no longer always starts with a text part. When a kept message had no text, its `content` array contains only attachment parts.
+
 ## 4.34.0
 
 ### Minor Changes

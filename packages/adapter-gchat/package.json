@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/gchat",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "Google Chat adapter for Chat SDK — service account auth, Card v2, dialogs, and Workspace Events",
   "type": "module",
   "engines": {

@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "4.34.0",
+  "version": "4.35.0",
   "description": "Chat SDK — universal TypeScript toolkit for building multi-platform chat bots and AI agents on Slack, Teams, Google Chat, Discord, WhatsApp, and more",
   "type": "module",
   "engines": {

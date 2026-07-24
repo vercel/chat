@@ -1,5 +1,17 @@
 # @chat-adapter/state-pg
 
+## 4.35.0
+
+### Patch Changes
+
+- d88789c: Fix `setIfNotExists()` so it can claim a cache key whose existing row has expired. Previously the query used `ON CONFLICT DO NOTHING`, so an expired row in `chat_state_cache` still blocked acquisition until opportunistic cleanup deleted it — diverging from the memory and Redis adapters, which treat expired entries as absent. Keys stored without a TTL remain permanent and are never overwritten.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+
 ## 4.34.0
 
 ### Patch Changes

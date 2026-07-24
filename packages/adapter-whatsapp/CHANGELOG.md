@@ -1,5 +1,23 @@
 # @chat-adapter/whatsapp
 
+## 4.35.0
+
+### Patch Changes
+
+- 09b72e9: fix whatsapp card media duplication
+
+  - Prevent card titles and body content from appearing twice when sending cards with files on WhatsApp.
+  - Avoid adding the full card fallback text as an image caption when an interactive message follows.
+  - Keep interactive WhatsApp messages responsible for rendering card titles, bodies, and actions.
+
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
 ## 4.34.0
 
 ### Minor Changes
