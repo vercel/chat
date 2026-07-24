@@ -20,6 +20,7 @@ import {
   type TelegramMessage,
   type TelegramReactionType,
   type TelegramThreadId,
+  type TelegramUpdate,
 } from "./index";
 import {
   TELEGRAM_CAPTION_LIMIT,
@@ -231,6 +232,24 @@ describe("constructor env var resolution", () => {
     expect(adapter).toBeInstanceOf(TelegramAdapter);
   });
 
+  it("should resolve allowedUserIds from TELEGRAM_ALLOWED_USER_IDS env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOWED_USER_IDS = "123, 456";
+    const adapter = new TelegramAdapter();
+    expect(
+      (adapter as unknown as { allowedUserIds: Set<string> }).allowedUserIds
+    ).toEqual(new Set(["123", "456"]));
+  });
+
+  it("should allow all users when TELEGRAM_ALLOWED_USER_IDS is empty", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOWED_USER_IDS = " , ";
+    const adapter = new TelegramAdapter();
+    expect(
+      (adapter as unknown as { allowedUserIds?: Set<string> }).allowedUserIds
+    ).toBeUndefined();
+  });
+
   it("should accept apiUrl config and prefer it over apiBaseUrl", () => {
     process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
     const adapter = new TelegramAdapter({
@@ -361,6 +380,84 @@ describe("TelegramAdapter", () => {
         String(input).includes("/sendChatAction")
       )
     ).toBe(false);
+  });
+
+  it("rejects disallowed and identityless updates before dispatch", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    class TestTelegramAdapter extends TelegramAdapter {
+      dispatch(update: TelegramUpdate): void {
+        this.processUpdate(update);
+      }
+    }
+
+    const adapter = new TestTelegramAdapter({
+      allowedUserIds: [456],
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const disallowedUser = {
+      id: 789,
+      is_bot: false,
+      first_name: "Other User",
+    };
+    const groupMessage = sampleMessage({
+      chat: { id: -100123, type: "supergroup", title: "General" },
+    });
+
+    const updates: TelegramUpdate[] = [
+      {
+        update_id: 1,
+        message: { ...groupMessage, from: disallowedUser },
+      },
+      {
+        update_id: 2,
+        callback_query: {
+          id: "callback-1",
+          from: disallowedUser,
+          message: groupMessage,
+          chat_instance: "ci_1",
+          data: "approve",
+        },
+      },
+      {
+        update_id: 3,
+        message_reaction: {
+          chat: groupMessage.chat,
+          message_id: groupMessage.message_id,
+          date: groupMessage.date,
+          old_reaction: [],
+          new_reaction: [{ type: "emoji", emoji: "👍" }],
+          user: disallowedUser,
+        },
+      },
+      {
+        update_id: 4,
+        channel_post: { ...groupMessage, from: undefined },
+      },
+    ];
+
+    for (const update of updates) {
+      adapter.dispatch(update);
+    }
+    adapter.dispatch({ update_id: 5, message: groupMessage });
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    expect(chat).not.toHaveDispatched("processSlashCommand");
+    expect(chat).not.toHaveDispatched("processAction");
+    expect(chat).not.toHaveDispatched("processReaction");
   });
 
   it("starts typing before processing private message updates", async () => {

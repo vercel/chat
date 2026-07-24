@@ -252,6 +252,7 @@ export class TelegramAdapter
   readonly lockScope = "channel" as const;
   readonly persistThreadHistory = true;
 
+  protected readonly allowedUserIds?: Set<string>;
   protected readonly botToken: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
@@ -312,6 +313,15 @@ export class TelegramAdapter
     );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    const allowedUserIds =
+      config.allowedUserIds ??
+      process.env.TELEGRAM_ALLOWED_USER_IDS?.split(",");
+    const normalizedAllowedUserIds = allowedUserIds
+      ?.map((id) => String(id).trim())
+      .filter(Boolean);
+    this.allowedUserIds = normalizedAllowedUserIds?.length
+      ? new Set(normalizedAllowedUserIds)
+      : undefined;
     this.logger = config.logger ?? new ConsoleLogger("info").child("telegram");
     const userName = config.userName ?? process.env.TELEGRAM_BOT_USERNAME;
     this._userName = this.normalizeUserName(userName ?? "bot");
@@ -593,6 +603,17 @@ export class TelegramAdapter
       update.edited_message ??
       update.channel_post ??
       update.edited_channel_post;
+    const userId =
+      update.callback_query?.from.id ??
+      update.message_reaction?.user?.id ??
+      messageUpdate?.from?.id;
+
+    if (
+      this.allowedUserIds &&
+      (userId === undefined || !this.allowedUserIds.has(String(userId)))
+    ) {
+      return;
+    }
 
     const handledSlashCommand =
       update.message !== undefined &&

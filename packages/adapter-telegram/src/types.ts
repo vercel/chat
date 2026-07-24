@@ -8,6 +8,8 @@ import type { Logger } from "chat";
  * Telegram adapter configuration.
  */
 export interface TelegramAdapterConfig {
+  /** Telegram user IDs allowed to trigger the adapter. Defaults to TELEGRAM_ALLOWED_USER_IDS env var (comma-separated). All users are allowed when omitted or empty. */
+  allowedUserIds?: Array<number | string>;
   /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
   /** Override the Telegram API base URL. Alias for apiBaseUrl — apiUrl takes precedence if both are set. Defaults to TELEGRAM_API_BASE_URL env var. */

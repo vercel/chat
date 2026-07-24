@@ -129,6 +129,7 @@ All options are auto-detected from environment variables when not provided.
 
 | Option | Required | Description |
 |--------|----------|-------------|
+| `allowedUserIds` | No | Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty |
 | `botToken` | No* | Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN` |
 | `secretToken` | No | Optional webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
@@ -142,6 +143,7 @@ All options are auto-detected from environment variables when not provided.
 ## Environment variables
 
 ```bash
+TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
 TELEGRAM_BOT_TOKEN=123456:ABCDEF...
 TELEGRAM_WEBHOOK_SECRET_TOKEN=your-webhook-secret
 TELEGRAM_BOT_USERNAME=mybot

@@ -907,6 +907,10 @@ export const ADAPTERS = {
       "Connect to Telegram with support for groups, channels, and inline keyboards.",
     env: {
       optional: [
+        env(
+          "TELEGRAM_ALLOWED_USER_IDS",
+          "Comma-separated Telegram user IDs allowed to trigger the adapter."
+        ),
         secretEnv(
           "TELEGRAM_WEBHOOK_SECRET_TOKEN",
           "Optional webhook secret token."

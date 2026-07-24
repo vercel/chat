@@ -65,7 +65,7 @@ features:
 ## Quick start
 
 <Callout type="info">
-The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, and `TELEGRAM_BOT_USERNAME` from the environment.
+The adapter auto-detects `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, and `TELEGRAM_BOT_USERNAME` from the environment.
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -107,6 +107,11 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 
 <TypeTable
   type={{
+    allowedUserIds: {
+      type: "Array<number | string>",
+      description:
+        "Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty.",
+    },
     botToken: {
       type: "string",
       description: "Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN`.",
