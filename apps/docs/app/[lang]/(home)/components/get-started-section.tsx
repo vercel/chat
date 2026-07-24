@@ -101,7 +101,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
         className="flex flex-col gap-4"
         style={{ fontFamily: "var(--font-sans)" }}
       >
-        <h2 className="font-semibold text-[24px] leading-[1.1] tracking-tight sm:text-[32px] md:text-[40px]">
+        <h2 className="text-heading-24 sm:text-heading-32 md:text-heading-40">
           Build with Chat SDK today
         </h2>
         <p className="max-w-sm text-[18px] text-muted-foreground leading-[1.4]">

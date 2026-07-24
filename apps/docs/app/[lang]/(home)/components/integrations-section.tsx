@@ -75,7 +75,7 @@ const IntegrationCard = ({
     </Link>
     <div className="flex h-full flex-col justify-between gap-6">
       <div>
-        <p className="font-medium font-mono text-base">{title}</p>
+        <p className="text-heading-16 sm:text-heading-20">{title}</p>
         <p className="mt-3 text-copy-14 text-gray-900 sm:text-copy-16">
           {description}
         </p>
