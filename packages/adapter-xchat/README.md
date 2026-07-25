@@ -151,7 +151,7 @@ All options are auto-detected from environment variables when not provided.
 | Option | Required | Description |
 |--------|----------|-------------|
 | `botToken` / `accessToken` | No* | OAuth2 user access token for the bot account. Auto-detected from `XCHAT_BOT_TOKEN` or `X_ACCESS_TOKEN` |
-| `userId` | No* | Bot's numeric X user ID. Auto-detected from `XCHAT_USER_ID` or `X_USER_ID` |
+| `userId` | No | Bot's numeric X user ID. Auto-detected from `XCHAT_USER_ID` or `X_USER_ID`, otherwise resolved from `GET /2/users/me` at startup |
 | `pin` | No | Juicebox PIN; when set, keys unlock automatically during `initialize()`. Auto-detected from `XCHAT_PIN` |
 | `consumerSecret` | No | App consumer secret for webhook signature verification. Auto-detected from `X_CONSUMER_SECRET`. When unset, incoming webhook POSTs are **not** signature-verified (a warning is logged at startup) |
 | `editSafetyDelayMs` | No | Minimum age (ms) a freshly posted message must reach before its first edit is sent, so receiving clients have stored the original the edit targets. Defaults to `5000`; `0` disables the wait |
@@ -170,7 +170,7 @@ All options are auto-detected from environment variables when not provided.
 
 ```bash
 XCHAT_BOT_TOKEN=xcbot_...          # OAuth2 user token for the bot account
-XCHAT_USER_ID=1234567890           # Bot's numeric user ID
+XCHAT_USER_ID=1234567890           # Optional: bot's numeric user ID (resolved from /2/users/me when unset)
 XCHAT_PIN=...                      # Juicebox PIN for key unlock
 X_CONSUMER_SECRET=...              # App secret (CRC + webhook signature verification)
 X_BOT_USERNAME=...                 # Optional @handle override; resolved from /2/users/me otherwise

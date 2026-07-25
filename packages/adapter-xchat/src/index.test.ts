@@ -428,13 +428,12 @@ describe("createXchatAdapter", () => {
     ).toThrow(MISSING_ACCESS_TOKEN_RE);
   });
 
-  it("should throw when userId is missing", async () => {
+  it("should not require userId (resolved from /2/users/me at initialize)", async () => {
     const { createXchatAdapter } = await import("./index");
-    expect(() =>
-      createXchatAdapter({
-        accessToken: "token",
-      })
-    ).toThrow(MISSING_USER_ID_RE);
+    const adapter = createXchatAdapter({
+      accessToken: "token",
+    });
+    expect(adapter).toBeDefined();
   });
 
   it("should create adapter with only required config (interactive mode)", async () => {

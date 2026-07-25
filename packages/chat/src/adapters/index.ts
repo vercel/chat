@@ -1107,6 +1107,11 @@ export const ADAPTERS = {
           "Bot account handle used for mention detection. Resolved from /2/users/me when omitted."
         ),
         env(
+          "XCHAT_USER_ID",
+          "Bot account numeric X user ID. Resolved from /2/users/me when omitted.",
+          { aliases: ["X_USER_ID"] }
+        ),
+        env(
           "X_VERIFY_SIGNATURES",
           "Set to false to accept messages without verifiable signatures. Defaults to true."
         ),
@@ -1121,9 +1126,6 @@ export const ADAPTERS = {
           "OAuth 2.0 user access token for the bot account.",
           { aliases: ["X_ACCESS_TOKEN"] }
         ),
-        env("XCHAT_USER_ID", "Bot account numeric X user ID.", {
-          aliases: ["X_USER_ID"],
-        }),
         secretEnv(
           "XCHAT_PIN",
           "Juicebox PIN used to unlock the bot's private keys at startup."

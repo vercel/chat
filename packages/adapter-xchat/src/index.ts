@@ -581,7 +581,8 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
   private readonly accessToken: string;
   private readonly apiHeaders: Record<string, string>;
   private readonly consumerSecret: string | undefined;
-  private readonly userId: string;
+  /** Bot user id (from config or resolved from GET /2/users/me) */
+  private userId: string;
   /** Populated during initialize() from the X API, or from config override */
   private signingKeyVersion: string | null;
   /** Juicebox PIN; when set, initialize() auto-unlocks after createChat */
@@ -648,14 +649,13 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     config: XchatAdapterConfig & {
       accessToken: string;
       logger: Logger;
-      userId: string;
     }
   ) {
     this.accessToken = config.accessToken;
     this.apiHeaders = { ...config.apiHeaders };
     this.apiBaseUrl = config.apiBaseUrl ?? DEFAULT_API_BASE_URL;
     this.consumerSecret = config.consumerSecret;
-    this.userId = config.userId;
+    this.userId = config.userId ?? "";
     this.signingKeyVersion = config.signingKeyVersion ?? null;
     this.pin = config.pin;
     this.verifySignatures = config.verifySignatures ?? true;
@@ -699,22 +699,34 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
         headers: this.apiHeaders,
       });
 
-      // Resolve @handle from /2/users/me unless the caller set userName explicitly
-      if (!this.userNameFromConfig) {
+      // Resolve identity from /2/users/me unless the caller provided both
+      // the user id and the @handle explicitly.
+      if (!(this.userId && this.userNameFromConfig)) {
         const me = await this.xdkClient.users.getMe();
+        const id = me?.data?.id;
         const username = me?.data?.username;
-        if (typeof username === "string" && username.length > 0) {
-          this._userName = username;
-          this.logger.info("Resolved bot username from /2/users/me", {
-            userName: this._userName,
-            userId: this.userId,
-          });
-        } else {
-          this.logger.warn(
-            "GET /2/users/me did not return a username; keeping placeholder",
-            { userName: this._userName }
-          );
+        if (!this.userId) {
+          if (typeof id !== "string" || id.length === 0) {
+            throw new Error(
+              "GET /2/users/me did not return a user id; set userId (or XCHAT_USER_ID) explicitly"
+            );
+          }
+          this.userId = id;
         }
+        if (!this.userNameFromConfig) {
+          if (typeof username === "string" && username.length > 0) {
+            this._userName = username;
+          } else {
+            this.logger.warn(
+              "GET /2/users/me did not return a username; keeping placeholder",
+              { userName: this._userName }
+            );
+          }
+        }
+        this.logger.info("Resolved bot identity from /2/users/me", {
+          userId: this.userId,
+          userName: this._userName,
+        });
       }
 
       // 2. Fetch signing key version + Juicebox config from the X API
@@ -2749,9 +2761,10 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
  *
  * **Required** (via config or env vars):
  * - `botToken` / `accessToken` / `XCHAT_BOT_TOKEN` / `X_ACCESS_TOKEN`: OAuth2 access token
- * - `userId` / `XCHAT_USER_ID` / `X_USER_ID`: The bot's numeric user ID
  *
  * **Optional:**
+ * - `userId` / `XCHAT_USER_ID` / `X_USER_ID`: The bot's numeric user ID.
+ *   When omitted, initialize() resolves it from GET /2/users/me.
  * - `pin` / `XCHAT_PIN`: Juicebox PIN; when set, initialize() auto-unlocks
  * - `signingKeyVersion` / `X_SIGNING_KEY_VERSION`: Override for signing key version.
  *   When omitted, fetched automatically from the X API during initialize().
@@ -2776,14 +2789,9 @@ export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
     );
   }
 
+  // Optional: when omitted, initialize() resolves the id from /2/users/me.
   const userId =
     config?.userId ?? process.env.XCHAT_USER_ID ?? process.env.X_USER_ID;
-  if (!userId) {
-    throw new ValidationError(
-      "xchat",
-      "userId is required. Set XCHAT_USER_ID or X_USER_ID, or provide it in config."
-    );
-  }
 
   const consumerSecret =
     config?.consumerSecret ?? process.env.X_CONSUMER_SECRET ?? undefined;

@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     userId: {
       type: "string",
       description:
-        "Bot's numeric X user ID. Auto-detected from `XCHAT_USER_ID` or `X_USER_ID`.",
+        "Bot's numeric X user ID. Auto-detected from `XCHAT_USER_ID` or `X_USER_ID`, otherwise resolved from `GET /2/users/me` at startup.",
     },
     pin: {
       type: "string",
@@ -220,7 +220,7 @@ Subscribe to `chat.conversation_join` as well if you want the bot to post a welc
 
 ```bash
 XCHAT_BOT_TOKEN=xcbot_...          # OAuth2 user token for the bot account
-XCHAT_USER_ID=1234567890           # Bot's numeric user ID
+XCHAT_USER_ID=1234567890           # Optional: bot's numeric user ID (resolved from /2/users/me when unset)
 XCHAT_PIN=...                      # Juicebox PIN for key unlock
 X_CONSUMER_SECRET=...              # App secret (CRC + webhook signature verification)
 X_BOT_USERNAME=...                 # Optional @handle override; resolved from /2/users/me otherwise
