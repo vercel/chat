@@ -17,7 +17,7 @@ import { cardToFallbackText } from "@chat-adapter/shared";
 import type { CardChild, CardElement } from "chat";
 
 /** A URL preview card derived from a CardElement. */
-export interface XChatUrlCardSpec {
+export interface XchatUrlCardSpec {
   /** Title shown on the preview card. */
   displayTitle?: string;
   /** Image to encrypt and attach as the card banner. */
@@ -25,10 +25,10 @@ export interface XChatUrlCardSpec {
   url: string;
 }
 
-export interface XChatCardResult {
+export interface XchatCardResult {
   text: string;
   /** The card's primary link, when it has one. */
-  urlCard?: XChatUrlCardSpec;
+  urlCard?: XchatUrlCardSpec;
 }
 
 interface CollectedLink {
@@ -77,7 +77,7 @@ function firstImageUrl(card: CardElement): string | undefined {
  * `label: url` lines so URL entities make them tappable) and the primary
  * link as a URL preview card spec.
  */
-export function cardToXChat(card: CardElement): XChatCardResult {
+export function cardToXChat(card: CardElement): XchatCardResult {
   const links: CollectedLink[] = [];
   collectLinks(card.children, links);
 
@@ -122,7 +122,7 @@ export function cardToXChat(card: CardElement): XChatCardResult {
   const fullText = [text, ...linkLines].filter(Boolean).join("\n");
 
   const primary = links[0];
-  const urlCard: XChatUrlCardSpec | undefined = primary
+  const urlCard: XchatUrlCardSpec | undefined = primary
     ? {
         url: primary.url,
         displayTitle: card.title ?? primary.label,

@@ -33,13 +33,13 @@ Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other avail
 
 ```typescript
 import { Chat } from "chat";
-import { createXChatAdapter } from "@chat-adapter/xchat";
+import { createXchatAdapter } from "@chat-adapter/xchat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 
 const bot = new Chat({
   userName: "mybot",
   adapters: {
-    xchat: createXChatAdapter(),
+    xchat: createXchatAdapter(),
   },
   state: createMemoryState(),
 });
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 }
 ```
 
-When using `createXChatAdapter()` without arguments, credentials are auto-detected from environment variables. The bot's @handle is resolved from `GET /2/users/me` at startup, so mention detection works without any hardcoding.
+When using `createXchatAdapter()` without arguments, credentials are auto-detected from environment variables. The bot's @handle is resolved from `GET /2/users/me` at startup, so mention detection works without any hardcoding.
 
 ## X Chat setup
 

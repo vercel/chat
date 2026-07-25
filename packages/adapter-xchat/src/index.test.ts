@@ -57,7 +57,7 @@ import {
   extractMediaEntries,
   extractPostAttachments,
   mentionHandlesFromEntities,
-  XChatAdapter,
+  XchatAdapter,
 } from "./index";
 import {
   b64ToBytes,
@@ -74,7 +74,7 @@ import {
   TEST_THREAD_ID,
   TEST_USER_ID,
 } from "./test-utils";
-import type { XChatRawMessage } from "./types";
+import type { XchatRawMessage } from "./types";
 
 // ── Error-message patterns asserted in tests ────────────────────────
 const MISSING_ACCESS_TOKEN_RE = /accessToken|botToken/i;
@@ -88,11 +88,11 @@ const NO_JUICEBOX_CONFIG_RE = /no Juicebox config/;
 const HTTP_404_RE = /HTTP 404/;
 
 /**
- * Create a minimal XChatAdapter for testing.
+ * Create a minimal XchatAdapter for testing.
  * Crypto and API calls are not initialized — only thread ID and parsing methods work.
  */
-function createTestAdapter(): XChatAdapter {
-  return new XChatAdapter({
+function createTestAdapter(): XchatAdapter {
+  return new XchatAdapter({
     accessToken: "test-token",
     userId: TEST_USER_ID,
     userName: "test-bot",
@@ -200,7 +200,7 @@ describe("channelIdFromThreadId", () => {
 describe("parseMessage", () => {
   it("should parse a decrypted text message", () => {
     const adapter = createTestAdapter();
-    const raw: XChatRawMessage = {
+    const raw: XchatRawMessage = {
       event: {
         id: "msg-1",
         conversationId: "12345-67890",
@@ -229,7 +229,7 @@ describe("parseMessage", () => {
 
   it("should handle messages with no decrypted content", () => {
     const adapter = createTestAdapter();
-    const raw: XChatRawMessage = {
+    const raw: XchatRawMessage = {
       event: {
         id: "msg-2",
         conversationId: "12345-67890",
@@ -246,7 +246,7 @@ describe("parseMessage", () => {
 
   it("should detect self messages", () => {
     const adapter = createTestAdapter();
-    const raw: XChatRawMessage = {
+    const raw: XchatRawMessage = {
       event: {
         id: "msg-3",
         conversationId: "12345-67890",
@@ -301,7 +301,7 @@ describe("handleWebhook", () => {
   });
 
   it("should reject POST with missing signature when consumerSecret is set", async () => {
-    const adapter = new XChatAdapter({
+    const adapter = new XchatAdapter({
       accessToken: "test-token",
       userId: TEST_USER_ID,
       consumerSecret: "test-secret",
@@ -329,7 +329,7 @@ describe("handleWebhook", () => {
   });
 
   it("should reject POST with invalid signature", async () => {
-    const adapter = new XChatAdapter({
+    const adapter = new XchatAdapter({
       accessToken: "test-token",
       userId: TEST_USER_ID,
       consumerSecret: "test-secret",
@@ -362,7 +362,7 @@ describe("handleWebhook", () => {
   it("should accept POST with valid signature", async () => {
     const { createHmac } = await import("node:crypto");
     const secret = "test-secret";
-    const adapter = new XChatAdapter({
+    const adapter = new XchatAdapter({
       accessToken: "test-token",
       userId: TEST_USER_ID,
       consumerSecret: secret,
@@ -418,73 +418,73 @@ describe("handleWebhook", () => {
   });
 });
 
-describe("createXChatAdapter", () => {
+describe("createXchatAdapter", () => {
   it("should throw when accessToken is missing", async () => {
-    const { createXChatAdapter } = await import("./index");
+    const { createXchatAdapter } = await import("./index");
     expect(() =>
-      createXChatAdapter({
+      createXchatAdapter({
         userId: "12345",
       })
     ).toThrow(MISSING_ACCESS_TOKEN_RE);
   });
 
   it("should throw when userId is missing", async () => {
-    const { createXChatAdapter } = await import("./index");
+    const { createXchatAdapter } = await import("./index");
     expect(() =>
-      createXChatAdapter({
+      createXchatAdapter({
         accessToken: "token",
       })
     ).toThrow(MISSING_USER_ID_RE);
   });
 
   it("should create adapter with only required config (interactive mode)", async () => {
-    const { createXChatAdapter } = await import("./index");
-    const adapter = createXChatAdapter({
+    const { createXchatAdapter } = await import("./index");
+    const adapter = createXchatAdapter({
       accessToken: "token",
       userId: "12345",
     });
-    expect(adapter).toBeInstanceOf(XChatAdapter);
+    expect(adapter).toBeInstanceOf(XchatAdapter);
     expect(adapter.name).toBe("xchat");
     expect(adapter.cryptoStatus).toBe("uninitialized");
   });
 
   it("should accept botToken as accessToken alias", async () => {
-    const { createXChatAdapter } = await import("./index");
-    const adapter = createXChatAdapter({
+    const { createXchatAdapter } = await import("./index");
+    const adapter = createXchatAdapter({
       botToken: "token",
       userId: "12345",
     });
-    expect(adapter).toBeInstanceOf(XChatAdapter);
+    expect(adapter).toBeInstanceOf(XchatAdapter);
   });
 
   it("should accept optional signingKeyVersion override", async () => {
-    const { createXChatAdapter } = await import("./index");
-    const adapter = createXChatAdapter({
+    const { createXchatAdapter } = await import("./index");
+    const adapter = createXchatAdapter({
       accessToken: "token",
       userId: "12345",
       signingKeyVersion: "42",
     });
-    expect(adapter).toBeInstanceOf(XChatAdapter);
+    expect(adapter).toBeInstanceOf(XchatAdapter);
   });
 
   it("should accept verifySignatures override", async () => {
-    const { createXChatAdapter } = await import("./index");
-    const adapter = createXChatAdapter({
+    const { createXchatAdapter } = await import("./index");
+    const adapter = createXchatAdapter({
       accessToken: "token",
       userId: "12345",
       verifySignatures: false,
     });
-    expect(adapter).toBeInstanceOf(XChatAdapter);
+    expect(adapter).toBeInstanceOf(XchatAdapter);
   });
 
   it("should accept pin for Juicebox auto-unlock", async () => {
-    const { createXChatAdapter } = await import("./index");
-    const adapter = createXChatAdapter({
+    const { createXchatAdapter } = await import("./index");
+    const adapter = createXchatAdapter({
       botToken: "token",
       userId: "12345",
       pin: "2580",
     });
-    expect(adapter).toBeInstanceOf(XChatAdapter);
+    expect(adapter).toBeInstanceOf(XchatAdapter);
   });
 });
 
@@ -510,7 +510,7 @@ describe("verifySignatures", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         pin: TEST_PIN,
@@ -532,7 +532,7 @@ describe("verifySignatures", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         pin: TEST_PIN,
@@ -567,7 +567,7 @@ describe("initialize (Juicebox)", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         pin: TEST_PIN,
@@ -591,7 +591,7 @@ describe("initialize (Juicebox)", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         pin: TEST_PIN,
@@ -612,7 +612,7 @@ describe("initialize (Juicebox)", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         userName: "test-bot",
@@ -633,7 +633,7 @@ describe("initialize (Juicebox)", () => {
 
     try {
       const mockChat = createMockChatInstance();
-      const adapter = new XChatAdapter({
+      const adapter = new XchatAdapter({
         accessToken: "test-token",
         userId: TEST_USER_ID,
         userName: "test-bot",
@@ -951,7 +951,7 @@ describe("handleWebhook full flow (real crypto)", () => {
 describe("read receipts on delivery (real crypto)", () => {
   /** Build the fixture chat.received webhook request and prime the adapter. */
   function primeFixtureDelivery(
-    adapter: XChatAdapter,
+    adapter: XchatAdapter,
     xdk: MockXdkClient
   ): Request {
     const vectors = loadVectors();
@@ -1114,7 +1114,7 @@ describe("mentionHandlesFromEntities", () => {
 });
 
 describe("parseMessage mention + attachment mapping", () => {
-  function rawFor(decrypted: Record<string, unknown>): XChatRawMessage {
+  function rawFor(decrypted: Record<string, unknown>): XchatRawMessage {
     return {
       event: {
         id: "evt-m1",
@@ -1122,7 +1122,7 @@ describe("parseMessage mention + attachment mapping", () => {
         senderId: TEST_OTHER_USER_ID,
         encodedEvent: "x",
       },
-      decrypted: decrypted as XChatRawMessage["decrypted"],
+      decrypted: decrypted as XchatRawMessage["decrypted"],
     };
   }
 
@@ -1501,7 +1501,7 @@ describe("reactions (real crypto)", () => {
 });
 
 describe("inbound reaction routing", () => {
-  const reactionRaw = (targetSequenceId: string): XChatRawMessage => ({
+  const reactionRaw = (targetSequenceId: string): XchatRawMessage => ({
     event: {
       id: "evt-react",
       conversationId: TEST_CONVERSATION_ID,

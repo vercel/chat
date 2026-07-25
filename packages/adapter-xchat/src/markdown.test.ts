@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { XChatFormatConverter } from "./markdown";
+import { XchatFormatConverter } from "./markdown";
 
 /** Italic markers may stringify as either `*italic*` or `_italic_`. */
 const ITALIC_MARKERS_RE = /[*_]italic[*_]/;
 
-describe("XChatFormatConverter", () => {
-  const converter = new XChatFormatConverter();
+describe("XchatFormatConverter", () => {
+  const converter = new XchatFormatConverter();
 
   describe("toAst", () => {
     it("should parse plain text", () => {

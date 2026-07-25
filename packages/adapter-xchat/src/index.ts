@@ -8,13 +8,13 @@
  * @example
  * ```typescript
  * import { Chat } from "chat";
- * import { createXChatAdapter } from "@chat-adapter/xchat";
+ * import { createXchatAdapter } from "@chat-adapter/xchat";
  * import { MemoryState } from "@chat-adapter/state-memory";
  *
  * const chat = new Chat({
  *   userName: "my-bot",
  *   adapters: {
- *     xchat: createXChatAdapter(),
+ *     xchat: createXchatAdapter(),
  *   },
  *   state: new MemoryState(),
  * });
@@ -64,16 +64,16 @@ import {
   Message,
   parseMarkdown,
 } from "chat";
-import { cardToXChat, type XChatUrlCardSpec } from "./cards";
-import { XChatFormatConverter } from "./markdown";
+import { cardToXChat, type XchatUrlCardSpec } from "./cards";
+import { XchatFormatConverter } from "./markdown";
 import type {
-  XChatAdapterConfig,
-  XChatAttachmentEntry,
-  XChatCryptoStatus,
-  XChatDecryptedEvent,
-  XChatEvent,
-  XChatRawMessage,
-  XChatThreadId,
+  XchatAdapterConfig,
+  XchatAttachmentEntry,
+  XchatCryptoStatus,
+  XchatDecryptedEvent,
+  XchatEvent,
+  XchatRawMessage,
+  XchatThreadId,
 } from "./types";
 
 /** Default base URL for X API requests */
@@ -188,7 +188,7 @@ interface XApiResponse<T> {
  * snake_case responses.
  */
 interface ConversationEventsResponse {
-  data?: Partial<XChatEvent>[];
+  data?: Partial<XchatEvent>[];
   meta?: { nextToken?: string; next_token?: string };
 }
 
@@ -362,7 +362,7 @@ export function mentionHandlesFromEntities(
 
 /** Reply-to preview (swipe reply) from decrypted content, if present. */
 function replyPreviewOf(
-  content: XChatDecryptedEvent["content"]
+  content: XchatDecryptedEvent["content"]
 ): { senderId?: string; text?: string } | null {
   const preview = fieldOf(content, "replyingToPreview", "replying_to_preview");
   if (!preview || typeof preview !== "object") {
@@ -377,7 +377,7 @@ function replyPreviewOf(
 }
 
 /** Lowercased content type, tolerant of both binding spellings. */
-function contentTypeOf(content: XChatDecryptedEvent["content"]): string {
+function contentTypeOf(content: XchatDecryptedEvent["content"]): string {
   const ct = fieldOf(content, "contentType", "content_type");
   return typeof ct === "string" ? ct.toLowerCase() : "";
 }
@@ -389,7 +389,7 @@ function contentTypeOf(content: XChatDecryptedEvent["content"]): string {
  * anything carrying attachments/media hashes; and card-like content with
  * URL entities. Reactions/edits/mark-read return null.
  */
-function processableText(decrypted: XChatDecryptedEvent | null): string | null {
+function processableText(decrypted: XchatDecryptedEvent | null): string | null {
   if (!decrypted || decrypted.type.toLowerCase() !== "message") {
     return null;
   }
@@ -441,12 +441,12 @@ function mediaTypeFromSource(source: string | undefined): string {
 
 /** Extract all media references (hash keys + metadata) from a decrypted event. */
 export function extractMediaEntries(
-  decrypted: XChatDecryptedEvent
+  decrypted: XchatDecryptedEvent
 ): MediaEntry[] {
   const entries: MediaEntry[] = [];
   const seen = new Set<string>();
 
-  const addFromAttachment = (entry: XChatAttachmentEntry): void => {
+  const addFromAttachment = (entry: XchatAttachmentEntry): void => {
     // Nested `{ media: {...} }` (wire shape) or flattened (JS binding shape)
     const media = entry.media ?? entry;
     const hashKey =
@@ -456,7 +456,7 @@ export function extractMediaEntries(
       return;
     }
     seen.add(String(hashKey));
-    const dims = (media as XChatAttachmentEntry).dimensions;
+    const dims = (media as XchatAttachmentEntry).dimensions;
     const rawType =
       fieldOf(media, "mediaType", "media_type") ??
       (media as Record<string, unknown>).type;
@@ -553,17 +553,17 @@ async function toBytes(
   return new Uint8Array(await (data as Blob).arrayBuffer());
 }
 
-export type { XChatCardResult, XChatUrlCardSpec } from "./cards";
+export type { XchatCardResult, XchatUrlCardSpec } from "./cards";
 export { cardToXChat } from "./cards";
-export { XChatFormatConverter } from "./markdown";
+export { XchatFormatConverter } from "./markdown";
 export type {
-  XChatAdapterConfig,
-  XChatAttachmentEntry,
-  XChatCryptoStatus,
-  XChatDecryptedEvent,
-  XChatEvent,
-  XChatRawMessage,
-  XChatThreadId,
+  XchatAdapterConfig,
+  XchatAttachmentEntry,
+  XchatCryptoStatus,
+  XchatDecryptedEvent,
+  XchatEvent,
+  XchatRawMessage,
+  XchatThreadId,
 } from "./types";
 
 /**
@@ -572,7 +572,7 @@ export type {
  * Handles encrypted messaging via the X API and chat-xdk WASM crypto.
  * All conversations are 1:1 DMs or group chats, always encrypted.
  */
-export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
+export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
   readonly name = "xchat";
   readonly persistMessageHistory = true;
   private _userName: string;
@@ -590,10 +590,10 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   private readonly verifySignatures: boolean;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
-  private readonly formatConverter = new XChatFormatConverter();
+  private readonly formatConverter = new XchatFormatConverter();
   private xdkClient: InstanceType<typeof Client> | null = null;
   private cryptoEngine: ChatWithJuicebox | null = null;
-  private _cryptoStatus: XChatCryptoStatus = "uninitialized";
+  private _cryptoStatus: XchatCryptoStatus = "uninitialized";
   /** Saved getAuthToken callback for re-installing on unlock() */
   private _getAuthToken: ((realmId: string) => Promise<string>) | null = null;
   /**
@@ -640,11 +640,17 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   }
 
   /** Current encryption readiness status */
-  get cryptoStatus(): XChatCryptoStatus {
+  get cryptoStatus(): XchatCryptoStatus {
     return this._cryptoStatus;
   }
 
-  constructor(config: XChatAdapterConfig) {
+  constructor(
+    config: XchatAdapterConfig & {
+      accessToken: string;
+      logger: Logger;
+      userId: string;
+    }
+  ) {
     this.accessToken = config.accessToken;
     this.apiHeaders = { ...config.apiHeaders };
     this.apiBaseUrl = config.apiBaseUrl ?? DEFAULT_API_BASE_URL;
@@ -907,11 +913,11 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
 
   // ── Thread ID encoding ────────────────────────────────────────────
 
-  encodeThreadId(data: XChatThreadId): string {
+  encodeThreadId(data: XchatThreadId): string {
     return `xchat:${data.conversationId}`;
   }
 
-  decodeThreadId(threadId: string): XChatThreadId {
+  decodeThreadId(threadId: string): XchatThreadId {
     if (!threadId.startsWith("xchat:")) {
       throw new Error(`Invalid XChat thread ID: ${threadId}`);
     }
@@ -960,7 +966,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     // XAA wraps the event in:
     //   { data: { event_type, event_uuid, filter, tag, payload: { ...event } } }
     // Wire format is snake_case (raw HTTP body — not via XDK transformKeys).
-    let event: XChatEvent;
+    let event: XchatEvent;
     let eventType: string;
     try {
       const body = JSON.parse(rawBody);
@@ -1075,7 +1081,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
    * KeyChange blob and post the welcome message (groups only).
    */
   private handleConversationJoin(
-    event: XChatEvent,
+    event: XchatEvent,
     options?: WebhookOptions
   ): void {
     const conversationId = event.conversationId;
@@ -1122,7 +1128,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   /** Route a decrypted reaction event into the Chat SDK. */
   private routeReaction(
     threadId: string,
-    parsed: Message<XChatRawMessage>,
+    parsed: Message<XchatRawMessage>,
     added: boolean,
     options?: WebhookOptions
   ): void {
@@ -1178,8 +1184,8 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
    * (own message, non-message, decrypt failure, empty text).
    */
   async handleIncomingEvent(
-    event: XChatEvent
-  ): Promise<Message<XChatRawMessage> | null> {
+    event: XchatEvent
+  ): Promise<Message<XchatRawMessage> | null> {
     if (!this.chat) {
       throw new Error("XChat adapter not initialized — call Chat.initialize()");
     }
@@ -1198,7 +1204,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
       return null;
     }
 
-    let message: Message<XChatRawMessage>;
+    let message: Message<XchatRawMessage>;
     try {
       message = await this.decryptAndParseEvent(event);
     } catch (err) {
@@ -1274,7 +1280,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
 
   // ── Message parsing ───────────────────────────────────────────────
 
-  parseMessage(raw: XChatRawMessage): Message<XChatRawMessage> {
+  parseMessage(raw: XchatRawMessage): Message<XchatRawMessage> {
     const { event, decrypted } = raw;
 
     // An edit replaces its target: the backend stops serving the superseded
@@ -1333,7 +1339,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
       ? this.attachmentsFromDecrypted(conversationId, decrypted)
       : [];
 
-    return new Message<XChatRawMessage>({
+    return new Message<XchatRawMessage>({
       id: messageId ?? event.id,
       threadId,
       text,
@@ -1363,7 +1369,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
    * undefined so the Chat SDK's plain-text `@handle` fallback applies.
    */
   private detectBotMention(
-    decrypted: XChatDecryptedEvent | null,
+    decrypted: XchatDecryptedEvent | null,
     text: string
   ): boolean | undefined {
     if (!decrypted) {
@@ -1396,7 +1402,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   /** Map media references on a decrypted event to Chat SDK attachments. */
   private attachmentsFromDecrypted(
     conversationId: string,
-    decrypted: XChatDecryptedEvent
+    decrypted: XchatDecryptedEvent
   ): Attachment[] {
     const keyVersion = decrypted.keyVersion;
     return extractMediaEntries(decrypted).map((entry) => ({
@@ -1431,7 +1437,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<XChatRawMessage>> {
+  ): Promise<RawMessage<XchatRawMessage>> {
     const { conversationId } = this.decodeThreadId(threadId);
     // Cards degrade to text plus a URL preview attachment: XChat has no
     // interactive primitives, so links become entities and the primary link
@@ -1526,7 +1532,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     this.postedAtByMessageId.set(messageId, Date.now());
 
     // Build a synthetic raw message for the return
-    const rawMessage: XChatRawMessage = {
+    const rawMessage: XchatRawMessage = {
       event: {
         id: messageId,
         conversationId,
@@ -1719,7 +1725,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     threadId: string,
     messageId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<XChatRawMessage>> {
+  ): Promise<RawMessage<XchatRawMessage>> {
     const { conversationId } = this.decodeThreadId(threadId);
     const crypto = this.getCryptoEngine();
     if (!this.signingKeyVersion) {
@@ -1910,7 +1916,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   async fetchMessages(
     threadId: string,
     options?: FetchOptions
-  ): Promise<FetchResult<XChatRawMessage>> {
+  ): Promise<FetchResult<XchatRawMessage>> {
     const { conversationId } = this.decodeThreadId(threadId);
     const client = this.getXdkClient();
     const crypto = this.getCryptoEngine();
@@ -1939,7 +1945,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
 
     // Collect encoded events, cache tokens, and map back to raw metadata.
     const encodedEvents: string[] = [];
-    const b64ToRaw = new Map<string, Partial<XChatEvent>>();
+    const b64ToRaw = new Map<string, Partial<XchatEvent>>();
     const senderIds = new Set<string>();
     for (const evt of rawEvents) {
       if (evt.conversationToken) {
@@ -2000,12 +2006,12 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
       });
     }
 
-    const messages: Message<XChatRawMessage>[] = [];
+    const messages: Message<XchatRawMessage>[] = [];
     for (const dm of result.messages) {
       const event = dm.event;
       if (
         !event ||
-        processableText(event as unknown as XChatDecryptedEvent) === null
+        processableText(event as unknown as XchatDecryptedEvent) === null
       ) {
         continue;
       }
@@ -2021,7 +2027,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
         (Number.isFinite(Number(rawCreatedAtMsec))
           ? rawCreatedAtMsec
           : undefined);
-      const rawMessage: XChatRawMessage = {
+      const rawMessage: XchatRawMessage = {
         event: {
           id: event.id ?? raw?.id ?? "",
           conversationId,
@@ -2033,7 +2039,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
           messageEventSignature: raw?.messageEventSignature,
           sequenceId: event.sequenceId ?? raw?.sequenceId,
         },
-        decrypted: event as XChatDecryptedEvent,
+        decrypted: event as XchatDecryptedEvent,
       };
       messages.push(this.parseMessage(rawMessage));
     }
@@ -2124,7 +2130,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
    */
   async markAsRead(threadId: string, message: Message): Promise<void> {
     const { conversationId } = this.decodeThreadId(threadId);
-    const raw = message.raw as XChatRawMessage | undefined;
+    const raw = message.raw as XchatRawMessage | undefined;
     let sequenceId = raw?.decrypted?.sequenceId ?? raw?.event?.sequenceId ?? "";
 
     try {
@@ -2233,8 +2239,12 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     const client = this.getXdkClient();
     const encrypted = crypto.encryptStream(bytes, keyInfo.key);
 
+    // Media routes accept only the dash-joined participant pair (or the
+    // g-prefixed group id), never the colon-joined internal form.
+    const apiConversationId = dashConversationId(conversationId);
+
     const initBody = await client.chat.mediaUploadInitialize({
-      conversationId,
+      conversationId: apiConversationId,
       totalBytes: encrypted.length,
     });
     const sessionId = initBody.data?.sessionId;
@@ -2251,7 +2261,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     ) {
       const chunk = encrypted.subarray(offset, offset + UPLOAD_CHUNK_BYTES);
       await client.chat.mediaUploadAppend(sessionId, {
-        conversationId,
+        conversationId: apiConversationId,
         mediaHashKey,
         segmentIndex,
         media: Buffer.from(chunk).toString("base64"),
@@ -2260,7 +2270,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
     }
 
     await client.chat.mediaUploadFinalize(sessionId, {
-      conversationId,
+      conversationId: apiConversationId,
       mediaHashKey,
       numParts: String(segmentIndex),
     });
@@ -2322,7 +2332,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   private async urlCardAttachment(
     conversationId: string,
     keyInfo: { key: Uint8Array; version: string },
-    spec: XChatUrlCardSpec
+    spec: XchatUrlCardSpec
   ): Promise<AttachmentDescriptor> {
     let bannerImage: UrlAttachmentImageDescriptor | undefined;
     if (spec.imageUrl) {
@@ -2588,14 +2598,14 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
   }
 
   /**
-   * Decrypt a single event, returning a XChatRawMessage.
+   * Decrypt a single event, returning a XchatRawMessage.
    * Falls back gracefully if decryption fails (returns null decrypted).
    */
   private tryDecryptEvent(
     conversationId: string,
-    event: XChatEvent,
+    event: XchatEvent,
     signingKeys: SigningKeyEntry[] = []
-  ): XChatRawMessage {
+  ): XchatRawMessage {
     const crypto = this.getCryptoEngine();
     const keyResult = this.conversationKeys.get(conversationId);
 
@@ -2608,7 +2618,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
         event.encodedEvent,
         keyResult.keys,
         signingKeys
-      ) as XChatDecryptedEvent;
+      ) as XchatDecryptedEvent;
       return { event, decrypted };
     } catch {
       this.logger.debug("Failed to decrypt event", {
@@ -2628,8 +2638,8 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
    * conversation-events poll path often embeds key material that way.
    */
   private async decryptAndParseEvent(
-    event: XChatEvent
-  ): Promise<Message<XChatRawMessage>> {
+    event: XchatEvent
+  ): Promise<Message<XchatRawMessage>> {
     const crypto = this.getCryptoEngine();
     const conversationId = event.conversationId;
 
@@ -2704,7 +2714,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
       if (dm?.event) {
         return this.parseMessage({
           event,
-          decrypted: dm.event as unknown as XChatDecryptedEvent,
+          decrypted: dm.event as unknown as XchatDecryptedEvent,
         });
       }
     } catch {
@@ -2751,37 +2761,7 @@ export class XChatAdapter implements Adapter<XChatThreadId, XChatRawMessage> {
  *   on incoming messages (default true). Set false to decrypt unverifiable
  *   messages instead of dropping them.
  */
-export function createXChatAdapter(config?: {
-  /** OAuth2 access token (alias for accessToken). */
-  botToken?: string;
-  accessToken?: string;
-  /** Base URL for X API requests. Defaults to https://api.x.com. */
-  apiBaseUrl?: string;
-  apiHeaders?: Record<string, string>;
-  /** App consumer secret for webhook CRC + signature verification. Defaults to X_CONSUMER_SECRET env var. */
-  consumerSecret?: string;
-  /**
-   * Minimum age (ms) a freshly posted message must reach before its first
-   * edit is sent, giving receiving clients time to store the original an
-   * edit targets. Defaults to 5000; 0 disables the wait.
-   */
-  editSafetyDelayMs?: number;
-  logger?: Logger;
-  /** Juicebox PIN; when set, initialize() auto-unlocks. */
-  pin?: string;
-  /** Override — normally fetched automatically during initialize(). */
-  signingKeyVersion?: string;
-  /**
-   * Require verifiable signatures on incoming messages. Defaults to true.
-   * Set to false (or X_VERIFY_SIGNATURES=false) to decrypt unverifiable
-   * messages instead of dropping them.
-   */
-  verifySignatures?: boolean;
-  userName?: string;
-  userId?: string;
-  /** Group-join welcome message; false disables, omitted uses a default. */
-  welcomeMessage?: string | false;
-}): XChatAdapter {
+export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
   const logger = config?.logger ?? new ConsoleLogger("info").child("xchat");
 
   const accessToken =
@@ -2819,7 +2799,7 @@ export function createXChatAdapter(config?: {
   // Prefer explicit config; env override; otherwise initialize() fills from /2/users/me
   const userName = config?.userName ?? process.env.X_BOT_USERNAME;
 
-  return new XChatAdapter({
+  return new XchatAdapter({
     accessToken,
     apiBaseUrl: config?.apiBaseUrl,
     apiHeaders: config?.apiHeaders,

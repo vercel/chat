@@ -16,8 +16,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ChatWithJuicebox } from "@xdevplatform/chat-xdk";
 import type { ChatInstance, Logger } from "chat";
 import { vi } from "vitest";
-import { XChatAdapter } from "./index";
-import type { XChatAdapterConfig } from "./types";
+import { XchatAdapter } from "./index";
+import type { XchatAdapterConfig } from "./types";
 
 // ── Fixture data ────────────────────────────────────────────────────
 
@@ -190,16 +190,16 @@ export interface MockXdkClient {
 }
 
 /**
- * Create and initialize an XChatAdapter with real wasm crypto.
+ * Create and initialize an XchatAdapter with real wasm crypto.
  *
  * Wires a Juicebox-shaped stub (fixture keys already imported) and an XDK
  * client without calling createChat — unit tests stay offline and avoid
  * spying on ESM exports.
  */
 export async function createInitializedTestAdapter(
-  configOverrides: Partial<XChatAdapterConfig> = {}
+  configOverrides: Partial<XchatAdapterConfig> = {}
 ): Promise<{
-  adapter: XChatAdapter;
+  adapter: XchatAdapter;
   mockChat: ReturnType<typeof createMockChatInstance>;
   /** Access the internal XDK client for mocking API calls */
   getXdkClient: () => MockXdkClient;
@@ -208,7 +208,7 @@ export async function createInitializedTestAdapter(
   const mockChat = createMockChatInstance();
   const engine = await createTestCryptoEngine();
 
-  const adapter = new XChatAdapter({
+  const adapter = new XchatAdapter({
     accessToken: "test-token",
     userId: TEST_USER_ID,
     pin: TEST_PIN,

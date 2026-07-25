@@ -1,9 +1,0 @@
----
-"@chat-adapter/xchat": minor
----
-
-XChat adapter on `@xdevplatform/chat-xdk` 0.4.3 and `@xdevplatform/xdk` 0.6.6: message ids are SDK-generated and signature-bound, the sender identity is established once per session, group quote-replies embed the raw signed original so recipients can validate the preview, replies whose preview fails that validation never count as a mention of the bot, and every REST call — including encrypted media download and upload — goes through the typed xdk client (requests target the production X API; pass `apiHeaders` to add custom headers).
-
-New capabilities: `openDM(userId)` starts (or reuses) an encrypted 1:1 conversation — it derives the pair conversation id, reuses a cached or history-recovered conversation key, and otherwise runs a full key exchange (`prepareConversationKeyChange` + key initialization) so the bot can message a user first. Cards are supported by degradation: since XChat has no interactive primitives, a card renders as plain text with tappable URL/mention entities, link buttons become `label: url` lines, and the card's primary link ships as a URL preview attachment with an optional encrypted banner image.
-
-`editMessage` and `deleteMessage` are now implemented. Edits are encrypted events targeting the original's sequence id (captured from the send echo, with a history-replay fallback) and sent through the regular message channel; fetched history renders an edit event as the edited message, since the backend stops serving superseded originals. Because receiving clients park an edit whose original has not arrived yet — leaving the message permanently invisible on that client — the first edit of a fresh message is age-gated by `editSafetyDelayMs` (default 5000ms, 0 disables). Deletes prepare a signed delete-for-all action locally (recipients verify it) and submit it to the chat delete endpoint; only the bot's own messages can be deleted.

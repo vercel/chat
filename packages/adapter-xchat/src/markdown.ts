@@ -22,7 +22,7 @@ import {
   walkAst,
 } from "chat";
 
-export class XChatFormatConverter extends BaseFormatConverter {
+export class XchatFormatConverter extends BaseFormatConverter {
   /**
    * Convert an AST to the text sent in an XChat message.
    *

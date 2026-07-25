@@ -22,13 +22,18 @@ import type { Logger } from "chat";
  *
  * Pass `pin` to auto-unlock after initialize, or call `adapter.unlock(pin)` later.
  */
-export interface XChatAdapterConfig {
-  /** OAuth2 access token for X API calls */
-  accessToken: string;
+export interface XchatAdapterConfig {
+  /**
+   * OAuth2 access token for X API calls. When omitted, resolved from the
+   * `XCHAT_BOT_TOKEN` or `X_ACCESS_TOKEN` env var by `createXchatAdapter`.
+   */
+  accessToken?: string;
   /** Base URL for X API requests. Defaults to https://api.x.com. */
   apiBaseUrl?: string;
   /** Custom HTTP headers to send with every X API request */
   apiHeaders?: Record<string, string>;
+  /** OAuth2 access token (alias for `accessToken`). */
+  botToken?: string;
   /**
    * App consumer secret (API secret key) for webhook signature verification.
    * When set, incoming POST webhooks are verified via HMAC-SHA256.
@@ -40,8 +45,11 @@ export interface XChatAdapterConfig {
    * edit targets. Defaults to 5000; 0 disables the wait.
    */
   editSafetyDelayMs?: number;
-  /** Logger instance for error reporting */
-  logger: Logger;
+  /**
+   * Logger instance for error reporting. When omitted, `createXchatAdapter`
+   * falls back to a console logger.
+   */
+  logger?: Logger;
   /**
    * Juicebox PIN. When set, initialize() calls unlock(pin) automatically
    * after createChat().
@@ -58,8 +66,11 @@ export interface XChatAdapterConfig {
    * initialize(). Only set this if you know what you're doing.
    */
   signingKeyVersion?: string;
-  /** The authenticated user's numeric X user ID */
-  userId: string;
+  /**
+   * The authenticated user's numeric X user ID. When omitted, resolved from
+   * the `XCHAT_USER_ID` or `X_USER_ID` env var by `createXchatAdapter`.
+   */
+  userId?: string;
   /**
    * Bot @handle for mention detection. When omitted, initialize() loads it
    * from GET /2/users/me.
@@ -95,7 +106,7 @@ export interface XChatAdapterConfig {
  * - `ready`: Keys loaded, adapter can encrypt/decrypt
  * - `error`: Initialization or unlock failed
  */
-export type XChatCryptoStatus =
+export type XchatCryptoStatus =
   | "uninitialized"
   | "initializing"
   | "locked"
@@ -113,7 +124,7 @@ export type XChatCryptoStatus =
  *
  * Format: xchat:{conversationId}
  */
-export interface XChatThreadId {
+export interface XchatThreadId {
   /** The raw conversation ID (e.g. "12345-67890" or "gABCDE") */
   conversationId: string;
 }
@@ -129,7 +140,7 @@ export interface XChatThreadId {
  *   - X Activity API webhook POST
  *   - X Activity API persistent HTTP stream
  */
-export interface XChatEvent {
+export interface XchatEvent {
   /** The conversation this event belongs to (e.g. "12345:67890" or "gABCDE") */
   conversationId: string;
   /** Base64 key change event for extracting/rotating conversation keys */
@@ -168,7 +179,7 @@ export interface XChatEvent {
 /**
  * XAA chat event types.
  */
-export type XChatEventType =
+export type XchatEventType =
   | "chat.received"
   | "chat.sent"
   | "chat.conversation_join";
@@ -182,11 +193,11 @@ export type XChatEventType =
  *
  * Contains both the encrypted event envelope and the decrypted content.
  */
-export interface XChatRawMessage {
+export interface XchatRawMessage {
   /** The decrypted event from chat-xdk (null if decryption failed) */
-  decrypted: XChatDecryptedEvent | null;
+  decrypted: XchatDecryptedEvent | null;
   /** The raw XAA event or API response event */
-  event: XChatEvent;
+  event: XchatEvent;
 }
 
 /**
@@ -194,15 +205,15 @@ export interface XChatRawMessage {
  * interface (instead of importing chat-xdk's types) so consumers don't need
  * chat-xdk as a type dependency.
  */
-export interface XChatDecryptedEvent {
-  attachments?: XChatAttachmentEntry[];
+export interface XchatDecryptedEvent {
+  attachments?: XchatAttachmentEntry[];
   content?: {
     text?: string;
     contentType?: string;
     emoji?: string;
     targetMessageId?: string;
     entities?: unknown[];
-    attachments?: XChatAttachmentEntry[];
+    attachments?: XchatAttachmentEntry[];
     replyingToPreview?: unknown;
     [key: string]: unknown;
   };
@@ -230,7 +241,7 @@ export interface XChatDecryptedEvent {
  * camelCase shape produced by the chat-xdk JS binding and the nested
  * snake_case `{ media: {...} }` shape seen on some wire payloads.
  */
-export interface XChatAttachmentEntry {
+export interface XchatAttachmentEntry {
   attachmentType?: string;
   dimensions?: { width?: number; height?: number };
   durationMillis?: number;
