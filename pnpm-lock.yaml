@@ -720,6 +720,37 @@ importers:
         specifier: ^4.0.18
         version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.2)(@vitest/coverage-v8@4.1.8)(vite@7.3.6(@types/node@25.9.2)(jiti@2.7.0)(lightningcss@1.30.2)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
 
+  packages/adapter-xchat:
+    dependencies:
+      '@chat-adapter/shared':
+        specifier: workspace:*
+        version: link:../adapter-shared
+      '@xdevplatform/chat-xdk':
+        specifier: ^0.4.3
+        version: 0.4.3(juicebox-sdk@0.3.6)
+      '@xdevplatform/xdk':
+        specifier: ^0.6.6
+        version: 0.6.6(node-fetch@3.3.2)
+      chat:
+        specifier: workspace:*
+        version: link:../chat
+      juicebox-sdk:
+        specifier: ^0.3.6
+        version: 0.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.9.2
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.16)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.2)(@vitest/coverage-v8@4.1.8)(vite@7.3.6(@types/node@25.9.2)(jiti@2.7.0)(lightningcss@1.30.2)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+
   packages/chat:
     dependencies:
       '@workflow/serde':
@@ -6388,6 +6419,24 @@ packages:
   '@workflow/world@5.0.0-beta.21':
     resolution: {integrity: sha512-XAOtSr7CGL/81EqEvUuDSWzil12sRJwQfU7ymVZlui33BKK8vbtgqzuY5vI6/OWt6NiAqPMeJVeahD9oMkii/A==}
 
+  '@xdevplatform/chat-xdk@0.4.3':
+    resolution: {integrity: sha512-OoR2RRJlCfrOp/iOrLotcQwgxVuahc9lQIFLx5Odgq3EwdNik7KvNeDl5sE05C2k/5FAwM/iYxOSMJEsEelasQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      juicebox-sdk: ^0.3.0
+    peerDependenciesMeta:
+      juicebox-sdk:
+        optional: true
+
+  '@xdevplatform/xdk@0.6.6':
+    resolution: {integrity: sha512-ced4iHSz08eQe1L0N3UWVvJyfGnmGU0CRjecoXpr27dVIyQvc637Pxm3cdP4G85PwhHn5IGVJ1DJF2YD9zWfAg==}
+    engines: {node: '>=16.14'}
+    peerDependencies:
+      node-fetch: ^3.3.0
+    peerDependenciesMeta:
+      node-fetch:
+        optional: true
+
   '@xhmikosr/archive-type@8.1.0':
     resolution: {integrity: sha512-EXOjEbnZFE5c/nFMf4FOrEURVanzHpnkPYmnmr78u02/8hAhE0FMq8p9TK1IM0/bFr5VcyBUY0gfLm8f7dKy+Q==}
     engines: {node: '>=20'}
@@ -8604,6 +8653,9 @@ packages:
   jsonwebtoken@9.0.3:
     resolution: {integrity: sha512-MT/xP0CrubFRNLNKvxJ2BYfy53Zkm++5bX9dtuPbqAeQpTVe0MQTFhao8+Cp//EmJp244xt6Drw/GVEGCUj40g==}
     engines: {node: '>=12', npm: '>=6'}
+
+  juicebox-sdk@0.3.6:
+    resolution: {integrity: sha512-j4B9ExvbY5xJRNc5MrddVJOpglpdGzoWbHSqeu58GvUkg51nl/5QMDU+s00ZHJGuXuJzjHZ6b2IK8CogEXg9Tg==}
 
   jwa@2.0.1:
     resolution: {integrity: sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==}
@@ -17637,6 +17689,14 @@ snapshots:
       ulid: 3.0.2
       zod: 4.3.6
 
+  '@xdevplatform/chat-xdk@0.4.3(juicebox-sdk@0.3.6)':
+    optionalDependencies:
+      juicebox-sdk: 0.3.6
+
+  '@xdevplatform/xdk@0.6.6(node-fetch@3.3.2)':
+    optionalDependencies:
+      node-fetch: 3.3.2
+
   '@xhmikosr/archive-type@8.1.0':
     dependencies:
       file-type: 21.3.4
@@ -20188,6 +20248,8 @@ snapshots:
       lodash.once: 4.1.1
       ms: 2.1.3
       semver: 7.8.5
+
+  juicebox-sdk@0.3.6: {}
 
   jwa@2.0.1:
     dependencies:

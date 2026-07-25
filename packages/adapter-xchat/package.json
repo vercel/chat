@@ -1,0 +1,67 @@
+{
+  "name": "@chat-adapter/xchat",
+  "version": "0.1.0",
+  "description": "XChat adapter for Chat SDK: hold encrypted 1:1 and group conversations on X with all cryptography handled inside the adapter",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "@xdevplatform/chat-xdk": "^0.4.3",
+    "@xdevplatform/xdk": "^0.6.6",
+    "chat": "workspace:*",
+    "juicebox-sdk": "^0.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-xchat"
+  },
+  "homepage": "https://chat-sdk.dev/adapters/official/xchat",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "chat-sdk",
+    "chatbot",
+    "xchat",
+    "x",
+    "x-api",
+    "bot",
+    "adapter",
+    "messaging",
+    "encryption",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
+  ],
+  "license": "MIT"
+}
