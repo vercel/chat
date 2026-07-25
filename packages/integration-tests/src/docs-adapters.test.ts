@@ -262,6 +262,7 @@ describe("Official platform adapter OG images", () => {
         "web",
         "whatsapp",
         "x",
+        "xchat",
       ].sort()
     );
   });

@@ -100,6 +100,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-x"
   },
   {
+    "name": "XChat",
+    "slug": "xchat",
+    "type": "platform",
+    "description": "Hold encrypted 1:1 and group conversations on XChat with all cryptography handled inside the adapter.",
+    "packageName": "@chat-adapter/xchat",
+    "icon": "x",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-xchat"
+  },
+  {
     "name": "Messenger",
     "slug": "messenger",
     "type": "platform",

@@ -1093,6 +1093,51 @@ export const ADAPTERS = {
     slug: "x",
     type: "platform",
   },
+  xchat: {
+    description:
+      "Hold encrypted 1:1 and group conversations on XChat with all cryptography handled inside the adapter.",
+    env: {
+      optional: [
+        secretEnv(
+          "X_CONSUMER_SECRET",
+          "App consumer secret for webhook CRC and signature verification. Incoming webhook POSTs are not signature-verified when omitted."
+        ),
+        env(
+          "X_BOT_USERNAME",
+          "Bot account handle used for mention detection. Resolved from /2/users/me when omitted."
+        ),
+        env(
+          "X_VERIFY_SIGNATURES",
+          "Set to false to accept messages without verifiable signatures. Defaults to true."
+        ),
+        env(
+          "X_SIGNING_KEY_VERSION",
+          "Signing key version override. Fetched from the X API when omitted."
+        ),
+      ],
+      required: [
+        secretEnv(
+          "XCHAT_BOT_TOKEN",
+          "OAuth 2.0 user access token for the bot account.",
+          { aliases: ["X_ACCESS_TOKEN"] }
+        ),
+        env("XCHAT_USER_ID", "Bot account numeric X user ID.", {
+          aliases: ["X_USER_ID"],
+        }),
+        secretEnv(
+          "XCHAT_PIN",
+          "Juicebox PIN used to unlock the bot's private keys at startup."
+        ),
+      ],
+    },
+    factoryExport: "createXchatAdapter",
+    group: "official",
+    name: "XChat",
+    packageName: "@chat-adapter/xchat",
+    peerDeps: ["@xdevplatform/chat-xdk", "@xdevplatform/xdk", "juicebox-sdk"],
+    slug: "xchat",
+    type: "platform",
+  },
   zernio: {
     description:
       "Unified social media DM adapter covering Instagram, Facebook, Telegram, WhatsApp, X/Twitter, Bluesky, and Reddit through a single integration.",

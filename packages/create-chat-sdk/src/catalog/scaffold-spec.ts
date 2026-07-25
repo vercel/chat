@@ -329,6 +329,9 @@ export const CLI_SCAFFOLD_SPEC = {
   x: {
     invocation: { kind: "zero-arg" },
   },
+  xchat: {
+    invocation: { kind: "zero-arg" },
+  },
   zernio: {
     invocation: { kind: "zero-arg" },
   },
