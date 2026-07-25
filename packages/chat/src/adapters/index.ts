@@ -1107,11 +1107,6 @@ export const ADAPTERS = {
           "Bot account handle used for mention detection. Resolved from /2/users/me when omitted."
         ),
         env(
-          "XCHAT_USER_ID",
-          "Bot account numeric X user ID. Resolved from /2/users/me when omitted.",
-          { aliases: ["X_USER_ID"] }
-        ),
-        env(
           "X_VERIFY_SIGNATURES",
           "Set to false to accept messages without verifiable signatures. Defaults to true."
         ),

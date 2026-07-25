@@ -4,7 +4,7 @@
 "create-chat-sdk": patch
 ---
 
-New XChat adapter for X's encrypted messaging. All cryptography is handled inside the adapter via `@xdevplatform/chat-xdk` (wasm) and all REST goes through the typed `@xdevplatform/xdk` client.
+New XChat adapter for X's encrypted messaging. All cryptography is handled inside the adapter via `@xdevplatform/chat-xdk` (wasm) and all REST goes through the typed `@xdevplatform/xdk` client. Only a bot token and a Juicebox PIN are required — the bot's identity (user id and @handle) is resolved from `GET /2/users/me` at startup.
 
 - Encrypted send/receive in DMs and groups (webhook push + polling), signature verification on by default; undecryptable or unverified events are dropped
 - Mention detection from structured mention entities, swipe-replies to the bot, and a plain-text `@handle` fallback; group replies sent as quoted replies

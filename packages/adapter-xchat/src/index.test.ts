@@ -78,7 +78,6 @@ import type { XchatRawMessage } from "./types";
 
 // ── Error-message patterns asserted in tests ────────────────────────
 const MISSING_ACCESS_TOKEN_RE = /accessToken|botToken/i;
-const MISSING_USER_ID_RE = /userId/i;
 const UNINITIALIZED_RE = /uninitialized/;
 const NOT_INITIALIZED_RE = /not initialized/i;
 const NO_CONVERSATION_KEY_RE = /No conversation key/;
@@ -421,26 +420,13 @@ describe("handleWebhook", () => {
 describe("createXchatAdapter", () => {
   it("should throw when accessToken is missing", async () => {
     const { createXchatAdapter } = await import("./index");
-    expect(() =>
-      createXchatAdapter({
-        userId: "12345",
-      })
-    ).toThrow(MISSING_ACCESS_TOKEN_RE);
+    expect(() => createXchatAdapter({})).toThrow(MISSING_ACCESS_TOKEN_RE);
   });
 
-  it("should not require userId (resolved from /2/users/me at initialize)", async () => {
+  it("should create adapter with only a token (identity resolved at initialize)", async () => {
     const { createXchatAdapter } = await import("./index");
     const adapter = createXchatAdapter({
       accessToken: "token",
-    });
-    expect(adapter).toBeDefined();
-  });
-
-  it("should create adapter with only required config (interactive mode)", async () => {
-    const { createXchatAdapter } = await import("./index");
-    const adapter = createXchatAdapter({
-      accessToken: "token",
-      userId: "12345",
     });
     expect(adapter).toBeInstanceOf(XchatAdapter);
     expect(adapter.name).toBe("xchat");
@@ -451,7 +437,6 @@ describe("createXchatAdapter", () => {
     const { createXchatAdapter } = await import("./index");
     const adapter = createXchatAdapter({
       botToken: "token",
-      userId: "12345",
     });
     expect(adapter).toBeInstanceOf(XchatAdapter);
   });

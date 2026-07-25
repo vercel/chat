@@ -67,12 +67,6 @@ export interface XchatAdapterConfig {
    */
   signingKeyVersion?: string;
   /**
-   * The authenticated user's numeric X user ID. When omitted, resolved from
-   * the `XCHAT_USER_ID` or `X_USER_ID` env var by `createXchatAdapter`, or
-   * from `GET /2/users/me` during `initialize()`.
-   */
-  userId?: string;
-  /**
    * Bot @handle for mention detection. When omitted, initialize() loads it
    * from GET /2/users/me.
    */

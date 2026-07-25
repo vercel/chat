@@ -649,6 +649,8 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     config: XchatAdapterConfig & {
       accessToken: string;
       logger: Logger;
+      /** Skips the /2/users/me identity resolution (used in tests). */
+      userId?: string;
     }
   ) {
     this.accessToken = config.accessToken;
@@ -708,7 +710,7 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
         if (!this.userId) {
           if (typeof id !== "string" || id.length === 0) {
             throw new Error(
-              "GET /2/users/me did not return a user id; set userId (or XCHAT_USER_ID) explicitly"
+              "GET /2/users/me did not return a user id for the configured token"
             );
           }
           this.userId = id;
@@ -2763,8 +2765,6 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
  * - `botToken` / `accessToken` / `XCHAT_BOT_TOKEN` / `X_ACCESS_TOKEN`: OAuth2 access token
  *
  * **Optional:**
- * - `userId` / `XCHAT_USER_ID` / `X_USER_ID`: The bot's numeric user ID.
- *   When omitted, initialize() resolves it from GET /2/users/me.
  * - `pin` / `XCHAT_PIN`: Juicebox PIN; when set, initialize() auto-unlocks
  * - `signingKeyVersion` / `X_SIGNING_KEY_VERSION`: Override for signing key version.
  *   When omitted, fetched automatically from the X API during initialize().
@@ -2788,10 +2788,6 @@ export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
       "botToken/accessToken is required. Set XCHAT_BOT_TOKEN or X_ACCESS_TOKEN, or provide botToken/accessToken in config."
     );
   }
-
-  // Optional: when omitted, initialize() resolves the id from /2/users/me.
-  const userId =
-    config?.userId ?? process.env.XCHAT_USER_ID ?? process.env.X_USER_ID;
 
   const consumerSecret =
     config?.consumerSecret ?? process.env.X_CONSUMER_SECRET ?? undefined;
@@ -2818,7 +2814,6 @@ export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
     signingKeyVersion,
     verifySignatures,
     userName,
-    userId,
     welcomeMessage: config?.welcomeMessage,
   });
 }
