@@ -55,6 +55,20 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+Wire the webhook route (e.g. `app/api/webhooks/xchat/route.ts` in Next.js):
+
+```typescript
+import { bot } from "@/lib/bot";
+
+export async function GET(request: Request) {
+  return bot.webhooks.xchat(request);
+}
+
+export async function POST(request: Request) {
+  return bot.webhooks.xchat(request);
+}
+```
+
 When using `createXChatAdapter()` without arguments, credentials are auto-detected from environment variables. The bot's @handle is resolved from `GET /2/users/me` at startup, so mention detection works without any hardcoding.
 
 ## X Chat setup
