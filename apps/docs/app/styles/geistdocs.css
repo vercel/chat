@@ -40,6 +40,10 @@
 }
 
 :root {
+  /* Geist Sans is loaded from the `geist` npm package, which exposes the
+     `--font-geist-sans` variable. Alias it so `font-sans`/`--font-sans`
+     resolves to it. */
+  --font-sans: var(--font-geist-sans);
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
