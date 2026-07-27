@@ -36,40 +36,6 @@
       "tenant": { "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
     }
   },
-  "groupMention": {
-    "text": "<at>Chat SDK Demo</at> Hello",
-    "textFormat": "plain",
-    "type": "message",
-    "id": "1785137220000",
-    "channelId": "msteams",
-    "serviceUrl": "https://smba.trafficmanager.net/amer/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
-    "from": {
-      "id": "29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF",
-      "name": "Test User"
-    },
-    "conversation": {
-      "isGroup": true,
-      "conversationType": "groupChat",
-      "tenantId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "id": "a:group-chat-id"
-    },
-    "recipient": {
-      "id": "28:11111111-2222-3333-4444-555555555555",
-      "name": "Chat SDK Demo"
-    },
-    "entities": [
-      {
-        "mentioned": {
-          "id": "28:11111111-2222-3333-4444-555555555555",
-          "name": "Chat SDK Demo"
-        },
-        "type": "mention"
-      }
-    ],
-    "channelData": {
-      "tenant": { "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
-    }
-  },
   "followUp": {
     "text": "Hi",
     "textFormat": "plain",

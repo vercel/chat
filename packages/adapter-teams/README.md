@@ -207,7 +207,7 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 
 ## Conversation routing
 
-Incoming thread IDs preserve the Teams conversation type as `personal`, `groupChat`, or `channel`. The adapter uses that metadata to keep native streaming in personal chats and select the buffered fallback for group chats and channels, including group-chat IDs that begin with `a:`. Thread IDs created by older adapter versions remain supported.
+Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
 
 ## User lookup (`getUser`)
 

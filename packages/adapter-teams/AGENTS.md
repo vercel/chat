@@ -131,13 +131,15 @@ them before assembling the Chat SDK identifier:
 
 ```
 teams:{conversationId_base64url}:{serviceUrl_base64url}                    # legacy
-teams:{conversationId_base64url}:{serviceUrl_base64url}:{conversationType}
+teams:{conversationId_base64url}:{serviceUrl_base64url}:{conversationType} # classification override
 ```
 
 `encodeThreadId` / `decodeThreadId` are the only sanctioned way to
 construct these — never `string.replace(":", …)` your way around the
-encoding. The optional conversation type is `personal`, `groupChat`,
-or `channel`; IDs created before that segment was added remain valid.
+encoding. The optional conversation type is added only when `personal`,
+`groupChat`, or `channel` disagrees with the legacy conversation-ID
+prefix heuristic, so existing IDs stay stable unless that heuristic
+would route them incorrectly.
 
 `isDM(threadId)` returns `true` when the underlying conversation type
 is `personal` (1:1 with the bot) — useful inside handlers that need to

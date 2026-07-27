@@ -3,7 +3,7 @@
  * Updated for TeamsSDK (@microsoft/teams.apps) migration.
  */
 
-import type { TeamsAdapter } from "@chat-adapter/teams";
+import { encodeThreadId, type TeamsAdapter } from "@chat-adapter/teams";
 import { vi } from "vitest";
 
 export const TEAMS_APP_ID = "test-app-id";
@@ -313,10 +313,7 @@ export function getTeamsThreadId(
   serviceUrl: string,
   conversationType: "channel" | "groupChat" | "personal" = "groupChat"
 ): string {
-  const encodedConversationId =
-    Buffer.from(conversationId).toString("base64url");
-  const encodedServiceUrl = Buffer.from(serviceUrl).toString("base64url");
-  return `teams:${encodedConversationId}:${encodedServiceUrl}:${conversationType}`;
+  return encodeThreadId({ conversationId, conversationType, serviceUrl });
 }
 
 /**

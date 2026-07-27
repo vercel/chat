@@ -201,7 +201,10 @@ describe("listThreads", () => {
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
-      getGraphContext: async () => null,
+      getGraphContext: async () => ({
+        type: "dm",
+        graphChatId: "19:stale-personal-chat@unq.gbl.spaces",
+      }),
       logger: new ConsoleLogger("error"),
     });
     const channelId = encodeThreadId({
@@ -213,6 +216,10 @@ describe("listThreads", () => {
     const result = await reader.listThreads(channelId);
     const threadId = result.threads[0]?.id;
 
+    expect(graph.call).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ "chat-id": "a:group-chat-id" })
+    );
     expect(threadId).toBeDefined();
     expect(decodeThreadId(threadId as string).conversationType).toBe(
       "groupChat"

@@ -18,7 +18,12 @@ export function encodeThreadId(platformData: TeamsThreadId): string {
     "base64url"
   );
   const conversationType = platformData.conversationType;
-  return conversationType
+  const legacyIsDM = !platformData.conversationId.startsWith("19:");
+  const explicitIsDM = conversationType === "personal";
+  const needsConversationType =
+    conversationType !== undefined && explicitIsDM !== legacyIsDM;
+
+  return needsConversationType
     ? `teams:${encodedConversationId}:${encodedServiceUrl}:${conversationType}`
     : `teams:${encodedConversationId}:${encodedServiceUrl}`;
 }

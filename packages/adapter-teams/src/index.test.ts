@@ -102,18 +102,28 @@ threadIdContract<TeamsThreadId>({
 });
 
 describe("Teams conversation type routing", () => {
-  it.each([
-    ["personal", true],
-    ["groupChat", false],
-    ["channel", false],
-  ] as const)("classifies %s conversations", (conversationType, expected) => {
-    const threadId = contractAdapter.encodeThreadId({
-      conversationId: "a:conversation-id",
-      conversationType,
+  it("keeps the legacy ID when the conversation type agrees with its prefix", () => {
+    const personal = contractAdapter.encodeThreadId({
+      conversationId: "a:personal-conversation",
+      conversationType: "personal",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const legacyPersonal = contractAdapter.encodeThreadId({
+      conversationId: "a:personal-conversation",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const channel = contractAdapter.encodeThreadId({
+      conversationId: "19:channel@thread.tacv2",
+      conversationType: "channel",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const legacyChannel = contractAdapter.encodeThreadId({
+      conversationId: "19:channel@thread.tacv2",
       serviceUrl: "https://smba.trafficmanager.net/teams/",
     });
 
-    expect(contractAdapter.isDM(threadId)).toBe(expected);
+    expect(personal).toBe(legacyPersonal);
+    expect(channel).toBe(legacyChannel);
   });
 });
 
