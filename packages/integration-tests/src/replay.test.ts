@@ -263,6 +263,16 @@ describe("Replay Tests", () => {
       expectSentMessage(ctx.mockTeamsApp, "Thanks for mentioning me!");
     });
 
+    it("should route an a:-prefixed group chat as non-DM", async () => {
+      await ctx.sendWebhook(teamsFixtures.groupMention);
+
+      expectValidMention(ctx.captured, {
+        textContains: "Hello",
+        adapterName: "teams",
+      });
+      expect(ctx.captured.mentionThread?.isDM).toBe(false);
+    });
+
     it("should replay follow-up with correct message properties", async () => {
       // First send mention to subscribe
       await ctx.sendWebhook(teamsFixtures.mention);

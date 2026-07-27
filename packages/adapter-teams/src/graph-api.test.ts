@@ -1,8 +1,9 @@
 import { Client as GraphClient } from "@microsoft/teams.graph";
 import { ConsoleLogger } from "chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TeamsGraphReader } from "./graph-api";
 import { TeamsFormatConverter } from "./markdown";
+import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 
 function createTestReader(): TeamsGraphReader {
   return new TeamsGraphReader({
@@ -181,5 +182,41 @@ describe("chatIdFromContext", () => {
       "19:channel@thread.tacv2"
     );
     expect(result).toBe("19:channel@thread.tacv2");
+  });
+});
+
+describe("listThreads", () => {
+  it("preserves an explicit group-chat conversation type", async () => {
+    const graph = {
+      call: vi.fn(async () => ({
+        value: [
+          {
+            id: "message-1",
+            body: { content: "Hello", contentType: "text" },
+          },
+        ],
+      })),
+    };
+    const reader = new TeamsGraphReader({
+      botId: "test-app",
+      graph: graph as unknown as GraphClient,
+      formatConverter: new TeamsFormatConverter(),
+      getGraphContext: async () => null,
+      logger: new ConsoleLogger("error"),
+    });
+    const channelId = encodeThreadId({
+      conversationId: "a:group-chat-id",
+      conversationType: "groupChat",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    const result = await reader.listThreads(channelId);
+    const threadId = result.threads[0]?.id;
+
+    expect(threadId).toBeDefined();
+    expect(decodeThreadId(threadId as string).conversationType).toBe(
+      "groupChat"
+    );
+    expect(isDM(threadId as string)).toBe(false);
   });
 });

@@ -64,7 +64,12 @@ import {
   modalToAdaptiveCard,
   parseDialogSubmitValues,
 } from "./modals";
-import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
+import {
+  decodeThreadId,
+  encodeThreadId,
+  isDM,
+  parseConversationType,
+} from "./thread-id";
 import type {
   TeamsAdapterConfig,
   TeamsChannelContext,
@@ -354,6 +359,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
       replyToId: activity.replyToId,
     });
@@ -432,6 +440,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
     });
 
@@ -498,6 +509,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
     });
 
@@ -605,6 +619,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
     });
 
@@ -755,6 +772,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.encodeThreadId({
       conversationId,
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
     });
 
@@ -1574,6 +1594,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       return this.encodeThreadId({
         conversationId,
+        conversationType: "personal",
         serviceUrl,
       });
     } catch (error) {
@@ -1597,13 +1618,15 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   channelIdFromThreadId(threadId: string): string {
-    const { conversationId, serviceUrl } = this.decodeThreadId(threadId);
+    const { conversationId, conversationType, serviceUrl } =
+      this.decodeThreadId(threadId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
     );
     return this.encodeThreadId({
       conversationId: baseConversationId,
+      conversationType,
       serviceUrl,
     });
   }
@@ -1706,6 +1729,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const activity = raw as Activity;
     const threadId = this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
+      conversationType: parseConversationType(
+        activity.conversation?.conversationType
+      ),
       serviceUrl: activity.serviceUrl || "",
     });
     return this.parseTeamsMessage(activity, threadId);

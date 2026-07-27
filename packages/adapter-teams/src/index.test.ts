@@ -90,13 +90,31 @@ threadIdContract<TeamsThreadId>({
     fn: (id) => contractAdapter.isDM(id),
     dmThreadId: contractAdapter.encodeThreadId({
       conversationId: "a]8:orgid:user-id-here",
+      conversationType: "personal",
       serviceUrl: "https://smba.trafficmanager.net/teams/",
     }),
     nonDmThreadId: contractAdapter.encodeThreadId({
-      conversationId: "19:abc@thread.tacv2",
+      conversationId: "a:group-chat-id",
+      conversationType: "groupChat",
       serviceUrl: "https://smba.trafficmanager.net/teams/",
     }),
   },
+});
+
+describe("Teams conversation type routing", () => {
+  it.each([
+    ["personal", true],
+    ["groupChat", false],
+    ["channel", false],
+  ] as const)("classifies %s conversations", (conversationType, expected) => {
+    const threadId = contractAdapter.encodeThreadId({
+      conversationId: "a:conversation-id",
+      conversationType,
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    expect(contractAdapter.isDM(threadId)).toBe(expected);
+  });
 });
 
 describe("ESM compatibility", () => {

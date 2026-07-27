@@ -17,6 +17,7 @@ export const TEAMS_BOT_NAME = "TestBot";
  */
 export interface TeamsActivityOptions {
   conversationId: string;
+  conversationType?: "channel" | "groupChat" | "personal";
   fromId: string;
   fromName: string;
   isFromBot?: boolean;
@@ -40,6 +41,7 @@ export function createTeamsActivity(options: TeamsActivityOptions) {
     text,
     messageId,
     conversationId,
+    conversationType = "groupChat",
     serviceUrl = "https://smba.trafficmanager.net/teams/",
     fromId,
     fromName,
@@ -76,7 +78,7 @@ export function createTeamsActivity(options: TeamsActivityOptions) {
     },
     conversation: {
       id: conversationId,
-      conversationType: "personal",
+      conversationType,
       tenantId: "tenant-123",
     },
     recipient: {
@@ -308,12 +310,13 @@ export function injectMockTeamsApp(
  */
 export function getTeamsThreadId(
   conversationId: string,
-  serviceUrl: string
+  serviceUrl: string,
+  conversationType: "channel" | "groupChat" | "personal" = "groupChat"
 ): string {
   const encodedConversationId =
     Buffer.from(conversationId).toString("base64url");
   const encodedServiceUrl = Buffer.from(serviceUrl).toString("base64url");
-  return `teams:${encodedConversationId}:${encodedServiceUrl}`;
+  return `teams:${encodedConversationId}:${encodedServiceUrl}:${conversationType}`;
 }
 
 /**

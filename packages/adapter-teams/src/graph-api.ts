@@ -368,7 +368,8 @@ export class TeamsGraphReader {
     channelId: string,
     options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
-    const { conversationId, serviceUrl } = decodeThreadId(channelId);
+    const { conversationId, conversationType, serviceUrl } =
+      decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -403,6 +404,7 @@ export class TeamsGraphReader {
           }
           const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
+            conversationType: "channel",
             serviceUrl,
           });
 
@@ -455,6 +457,8 @@ export class TeamsGraphReader {
           $orderby: ["createdDateTime desc"],
         });
         const messages = response.value || [];
+        const threadConversationType =
+          graphContext?.type === "dm" ? "personal" : conversationType;
 
         for (const msg of messages) {
           if (!msg.id) {
@@ -462,6 +466,7 @@ export class TeamsGraphReader {
           }
           const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
+            conversationType: threadConversationType,
             serviceUrl,
           });
 

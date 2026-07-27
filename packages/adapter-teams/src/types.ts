@@ -57,6 +57,7 @@ export interface TeamsAdapterConfig {
 /** Teams-specific thread ID data */
 export interface TeamsThreadId {
   conversationId: string;
+  conversationType?: "channel" | "groupChat" | "personal";
   replyToId?: string;
   serviceUrl: string;
 }
