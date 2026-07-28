@@ -10,6 +10,7 @@ import {
 import type { IStreamer } from "@microsoft/teams.apps";
 import { ConsoleLogger, getEmoji } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TeamsActivityAttachment } from "./attachments";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
 
 const WHITESPACE_START_PATTERN = /^\s/;
@@ -35,8 +36,17 @@ class MockTeamsError extends Error {
 const logger = new ConsoleLogger("error");
 const TEST_SERVICE_URL = "https://smba.trafficmanager.net/teams/";
 
-function createAttachmentTestAdapter(): TeamsAdapter {
-  return createTeamsAdapter({
+class AttachmentTestAdapter extends TeamsAdapter {
+  createTestAttachment(
+    attachment: TeamsActivityAttachment,
+    serviceUrl?: string
+  ) {
+    return this.createAttachment(attachment, serviceUrl);
+  }
+}
+
+function createAttachmentTestAdapter(): AttachmentTestAdapter {
+  return new AttachmentTestAdapter({
     appId: "test-app",
     appPassword: "test",
     logger,
@@ -773,22 +783,14 @@ describe("TeamsAdapter", () => {
       const url =
         "https://smba.trafficmanager.net/teams/v3/attachments/image/views/original";
 
-      const message = adapter.parseMessage({
-        type: "message",
-        id: "msg-inline-image",
-        text: "",
-        from: { id: "user-1", name: "Alice" },
-        conversation: { id: "19:abc@thread.tacv2" },
-        serviceUrl: TEST_SERVICE_URL,
-        attachments: [
-          {
-            contentType: "image/png",
-            contentUrl: url,
-            name: "screenshot.png",
-          },
-        ],
-      });
-      const attachment = message.attachments[0];
+      const attachment = adapter.createTestAttachment(
+        {
+          contentType: "image/png",
+          contentUrl: url,
+          name: "screenshot.png",
+        },
+        TEST_SERVICE_URL
+      );
 
       expect(attachment.fetchMetadata).toEqual({
         url,

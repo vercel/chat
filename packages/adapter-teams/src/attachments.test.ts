@@ -55,6 +55,33 @@ describe("Teams attachments", () => {
     expect(fetchAuthenticated).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [".pdf", "application/pdf"],
+    [".xls", "application/vnd.ms-excel"],
+    [
+      ".xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+  ])("infers the MIME type for %s file cards", (fileType, mimeType) => {
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "application/vnd.microsoft.teams.file.download.info",
+        content: {
+          downloadUrl: "https://files.example.com/download",
+          fileType,
+        },
+        name: `report${fileType}`,
+      },
+      CONNECTOR_URL,
+      createFetchers(vi.fn())
+    );
+
+    expect(attachment).toMatchObject({
+      type: "file",
+      mimeType,
+    });
+  });
+
   it("keeps cross-origin and HTTP inline attachments compatible and anonymous", async () => {
     const fetchAuthenticated = vi.fn();
     const anonymousFetch = vi.fn(async () => new Response("public image"));

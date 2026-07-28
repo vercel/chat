@@ -15,6 +15,8 @@ const FILE_MIME_TYPES: Record<string, string> = {
   svg: "image/svg+xml",
   txt: "text/plain",
   webp: "image/webp",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
 type AttachmentRetrieval =
