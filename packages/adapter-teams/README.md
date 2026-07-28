@@ -209,6 +209,10 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 
 Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
 
+## Incoming attachments
+
+Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
+
 ## User lookup (`getUser`)
 
 The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:

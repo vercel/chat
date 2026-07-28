@@ -53,6 +53,12 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import {
+  createAnonymousAttachmentFetchData,
+  createTeamsAttachment,
+  rehydrateTeamsAttachment,
+  type TeamsActivityAttachment,
+} from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
 import { toAppOptions } from "./config";
@@ -850,56 +856,55 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
             att.contentType !== "application/vnd.microsoft.card.adaptive" &&
             !(att.contentType === "text/html" && !att.contentUrl)
         )
-        .map((att) => this.createAttachment(att)),
+        .map((att) => this.createAttachment(att, activity.serviceUrl)),
     });
   }
 
-  protected createAttachment(att: {
-    contentType?: string;
-    contentUrl?: string;
-    name?: string;
-  }): Attachment {
-    const url = att.contentUrl;
-
-    let type: Attachment["type"] = "file";
-    if (att.contentType?.startsWith("image/")) {
-      type = "image";
-    } else if (att.contentType?.startsWith("video/")) {
-      type = "video";
-    } else if (att.contentType?.startsWith("audio/")) {
-      type = "audio";
-    }
-
-    return {
-      type,
-      url,
-      name: att.name,
-      mimeType: att.contentType,
-      fetchMetadata: url ? { url } : undefined,
-      fetchData: url ? this.createFetchDataFn(url) : undefined,
-    };
+  protected createAttachment(
+    att: TeamsActivityAttachment,
+    serviceUrl?: string
+  ): Attachment {
+    return createTeamsAttachment(att, serviceUrl, {
+      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    });
   }
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
-    return async () => {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new NetworkError(
-          "teams",
-          `Failed to fetch file: ${response.status} ${response.statusText}`
-        );
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
-    };
+    return createAnonymousAttachmentFetchData(url);
+  }
+
+  private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
+    try {
+      const response = await this.app.api.http.get<ArrayBuffer>(url, {
+        maxRedirects: 0,
+        responseType: "arraybuffer",
+      });
+      return Buffer.from(response.data);
+    } catch (error) {
+      const status =
+        error &&
+        typeof error === "object" &&
+        "response" in error &&
+        error.response &&
+        typeof error.response === "object" &&
+        "status" in error.response &&
+        typeof error.response.status === "number"
+          ? error.response.status
+          : undefined;
+      throw new NetworkError(
+        "teams",
+        `Failed to fetch authenticated file${status ? `: ${status}` : ""}`,
+        error instanceof Error ? error : undefined
+      );
+    }
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    const url = attachment.fetchMetadata?.url ?? attachment.url;
-    if (!url) {
-      return attachment;
-    }
-    return { ...attachment, fetchData: this.createFetchDataFn(url) };
+    return rehydrateTeamsAttachment(attachment, {
+      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    });
   }
 
   protected normalizeMentions(text: string): string {

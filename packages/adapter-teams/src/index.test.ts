@@ -33,6 +33,31 @@ class MockTeamsError extends Error {
 }
 
 const logger = new ConsoleLogger("error");
+const TEST_SERVICE_URL = "https://smba.trafficmanager.net/teams/";
+
+function createAttachmentTestAdapter(): TeamsAdapter {
+  return createTeamsAdapter({
+    appId: "test-app",
+    appPassword: "test",
+    logger,
+  });
+}
+
+function setAuthenticatedAttachmentGet(
+  adapter: TeamsAdapter,
+  get: ReturnType<typeof vi.fn>
+): void {
+  const app = (
+    adapter as unknown as {
+      app: {
+        api: {
+          http: { get: typeof get };
+        };
+      };
+    }
+  ).app;
+  app.api.http.get = get;
+}
 
 // encodeThreadId/decodeThreadId/isDM are pure — a minimally configured adapter
 // suffices for the shared thread-id contract (no init/network needed).
@@ -193,6 +218,7 @@ describe("TeamsAdapter", () => {
 
   afterEach(() => {
     process.env = { ...savedEnv };
+    vi.unstubAllGlobals();
   });
 
   it("should export createTeamsAdapter function", () => {
@@ -734,6 +760,78 @@ describe("TeamsAdapter", () => {
       expect(message.attachments[1].type).toBe("video");
       expect(message.attachments[2].type).toBe("audio");
       expect(message.attachments[3].type).toBe("file");
+    });
+
+    it("authenticates trusted inline attachment downloads", async () => {
+      const adapter = createAttachmentTestAdapter();
+      const authenticatedGet = vi.fn(async () => ({
+        data: new TextEncoder().encode("protected image").buffer,
+      }));
+      setAuthenticatedAttachmentGet(adapter, authenticatedGet);
+      const anonymousFetch = vi.fn();
+      vi.stubGlobal("fetch", anonymousFetch);
+      const url =
+        "https://smba.trafficmanager.net/teams/v3/attachments/image/views/original";
+
+      const message = adapter.parseMessage({
+        type: "message",
+        id: "msg-inline-image",
+        text: "",
+        from: { id: "user-1", name: "Alice" },
+        conversation: { id: "19:abc@thread.tacv2" },
+        serviceUrl: TEST_SERVICE_URL,
+        attachments: [
+          {
+            contentType: "image/png",
+            contentUrl: url,
+            name: "screenshot.png",
+          },
+        ],
+      });
+      const attachment = message.attachments[0];
+
+      expect(attachment.fetchMetadata).toEqual({
+        url,
+        auth: "bot",
+        connectorOrigin: "https://smba.trafficmanager.net",
+      });
+      await expect(attachment.fetchData?.()).resolves.toEqual(
+        Buffer.from("protected image")
+      );
+      expect(authenticatedGet).toHaveBeenCalledWith(url, {
+        maxRedirects: 0,
+        responseType: "arraybuffer",
+      });
+      expect(anonymousFetch).not.toHaveBeenCalled();
+    });
+
+    it("preserves anonymous fetch overrides during rehydration", async () => {
+      const overriddenFetch = vi.fn(async () => Buffer.from("overridden"));
+
+      class CustomTeamsAdapter extends TeamsAdapter {
+        protected override createFetchDataFn(
+          url: string
+        ): () => Promise<Buffer> {
+          expect(url).toBe("https://files.example.com/report.pdf");
+          return overriddenFetch;
+        }
+      }
+
+      const adapter = new CustomTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const attachment = adapter.rehydrateAttachment({
+        type: "file",
+        url: "https://files.example.com/report.pdf",
+        fetchMetadata: { url: "https://files.example.com/report.pdf" },
+      });
+
+      await expect(attachment.fetchData?.()).resolves.toEqual(
+        Buffer.from("overridden")
+      );
+      expect(overriddenFetch).toHaveBeenCalledOnce();
     });
 
     it("should set metadata.edited to false for new messages", () => {
