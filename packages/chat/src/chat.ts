@@ -9,6 +9,7 @@ import {
   hasChatSingleton,
   setChatSingleton,
 } from "./chat-singleton";
+import { runInConversation } from "./context";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
@@ -962,7 +963,9 @@ export class Chat<
     event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
     options?: WebhookOptions
   ): void {
-    const task = this.handleReactionEvent(event).catch((err) => {
+    const task = runInConversation(event.threadId, () =>
+      this.handleReactionEvent(event)
+    ).catch((err) => {
       this.logger.error("Reaction processing error", {
         error: err,
         emoji: event.emoji,
@@ -983,7 +986,9 @@ export class Chat<
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
     options: WebhookOptions | undefined
   ): Promise<void> {
-    const task = this.handleActionEvent(event, options).catch((err) => {
+    const task = runInConversation(event.threadId, () =>
+      this.handleActionEvent(event, options)
+    ).catch((err) => {
       this.logger.error("Action processing error", {
         error: err,
         actionId: event.actionId,
@@ -1284,6 +1289,18 @@ export class Chat<
       adapter: event.adapter,
       stateAdapter: this._stateAdapter,
     });
+    return runInConversation(event.channelId, () =>
+      this.dispatchSlashCommand(event, channel, options)
+    );
+  }
+
+  private async dispatchSlashCommand(
+    event: Omit<SlashCommandEvent<TState>, "channel" | "openModal"> & {
+      adapter: Adapter;
+    },
+    channel: ChannelImpl<TState>,
+    options: WebhookOptions | undefined
+  ): Promise<void> {
     const fullEvent: SlashCommandEvent<TState> = {
       ...event,
       channel,
@@ -2008,7 +2025,17 @@ export class Chat<
    * - Bot filtering: Messages from the bot itself are skipped
    * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, burst, concurrent)
    */
-  async handleIncomingMessage(
+  handleIncomingMessage(
+    adapter: Adapter,
+    threadId: string,
+    message: Message
+  ): Promise<void> {
+    return runInConversation(threadId, () =>
+      this.routeIncomingMessage(adapter, threadId, message)
+    );
+  }
+
+  private async routeIncomingMessage(
     adapter: Adapter,
     threadId: string,
     message: Message
