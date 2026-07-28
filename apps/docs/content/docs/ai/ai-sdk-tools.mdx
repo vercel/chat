@@ -94,6 +94,51 @@ Omit `preset` entirely to get every tool (same as `'moderator'`).
 | `messenger` | `fetchMessages`, `fetchThread`, `getChannelInfo`, `getUser`, `postMessage`, `postChannelMessage`, `sendDirectMessage`, `addReaction`, `removeReaction`, `startTyping` |
 | `moderator` | All read tools plus `postMessage`, `postChannelMessage`, `sendDirectMessage`, `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`, `subscribeThread`, `unsubscribeThread`, `startTyping` |
 
+## Limiting what the agent can read
+
+Read tools take a thread or channel id chosen by the model, and they run with your bot's platform access. A bot is usually a member of channels a given user is not, so an agent handling untrusted input can be talked into fetching a conversation the user could never open themselves, then repeating it back.
+
+Pass `scope` with the conversation the agent is handling. Reads that resolve to a different channel are rejected before the platform is called:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  const tools = createChatTools({
+    chat,
+    preset: "reader",
+    scope: thread,
+  });
+
+  const result = await generateText({
+    model: "openai/gpt-5",
+    tools,
+    prompt: message.text,
+  });
+});
+```
+
+`scope` accepts a `Thread`, a `Channel`, or a raw id. Scoping is per channel, so the agent can still follow other threads in the conversation it was invited to, but not reach into another one.
+
+Tools built inside a handler pick this up automatically, so the common case needs no extra argument:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  // Reads are confined to this conversation.
+  const tools = createChatTools({ chat, preset: "reader" });
+
+  const result = await generateText({
+    model: "openai/gpt-5",
+    tools,
+    prompt: message.text,
+  });
+});
+```
+
+Pass `scope` explicitly when the agent runs outside a handler, such as a queued job that still answers on a user's behalf. Scoping is per channel, so an agent can still follow other threads in its own conversation.
+
+<Callout type="warn">
+  Agents created outside a handler have no conversation to inherit, so their reads are unrestricted. Pass `scope` there, or `scope: false` to say workspace-wide reads are intended.
+</Callout>
+
 ## Approval control
 
 Write operations (posting, editing, deleting, reacting, subscribing) default to `needsApproval: true`. The AI SDK pauses execution and surfaces an approval request that your application is expected to confirm before the tool runs. This keeps a human in the loop for anything visible to the workspace.
@@ -214,9 +259,11 @@ type ChatToolsOptions = {
   requireApproval?: boolean | Partial<Record<ChatWriteToolName, boolean>>;
   preset?: ChatToolPreset | ChatToolPreset[];
   overrides?: Partial<Record<ChatToolName, ToolOverrides>>;
+  scope?: ReadScope | false;
 };
 
 type ChatToolPreset = "reader" | "messenger" | "moderator";
+type ReadScope = string | { id: string };
 ```
 
 | Option | Description |
@@ -225,3 +272,4 @@ type ChatToolPreset = "reader" | "messenger" | "moderator";
 | `preset` | Preset (or array of presets) restricting which tools are returned. Omit to get every tool. |
 | `requireApproval` | `true` (default), `false`, or per-tool overrides. Read tools and `startTyping` are never gated. |
 | `overrides` | Per-tool customization of any AI SDK `tool()` property except `execute`, `inputSchema`, and `outputSchema`. |
+| `scope` | Conversation the read tools are confined to. Defaults to the conversation being handled. Pass a `Thread`, `Channel`, or `false` to read across every conversation the bot can see. |
