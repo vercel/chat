@@ -62,7 +62,29 @@ npm install -g @microsoft/teams.cli
 ```bash
 teams login
 teams status          # verify auth + sideloading permissions
+
+# ✔ Logged in as john.smith@company.com
+# ⚠ Sideloading: disabled
+#   Neither the tenant nor your user policy allows sideloading.
+#   Ask your admin to enable it in Teams Admin Center →
+#   Org-wide app settings → Custom apps → "Allow interaction with custom apps"
+
+# ✔ Logged in as john.smith@company.com
+# ⚠ Sideloading: disabled at tenant level
+#   Your user policy allows sideloading, but the tenant-wide setting is off.
+#   Ask your admin to enable it in Teams Admin Center →
+#   Org-wide app settings → Custom apps → "Allow interaction with custom apps"
+
+# ✔ Logged in as john.smith@company.com
+# ✔ Sideloading: enabled
+
 teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+
+# if you get Creating Azure AD app...Failed to create AAD app: 403 {"resultType":2,"result":null,"errorMessage":"Insufficient privileges to complete the operation."}
+# ask your Microsoft 365 administrator to either:
+# - assign you the Application Developer role, or
+# - enable Users can register applications, or
+# - run the command using an authorized admin account
 ```
 
 > [!TIP]
