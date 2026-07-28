@@ -2,6 +2,7 @@ import { type Tool, tool } from "ai";
 import { z } from "zod";
 import type { Message } from "../../message";
 import type { ChannelVisibility, ThreadSummary } from "../../types";
+import type { ScopeGuard } from "../scope";
 import type { ChatBinding, ToolOptions } from "../types";
 
 const FETCH_DIRECTION = z
@@ -60,7 +61,8 @@ const FETCH_MESSAGES_INPUT = z.object({
 });
 
 export const fetchMessages = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof FETCH_MESSAGES_INPUT>,
   { messages: ProjectedMessage[]; nextCursor: string | undefined }
@@ -70,6 +72,7 @@ export const fetchMessages = (
       "Fetch recent messages from a thread, ordered chronologically (oldest first within the page). Use to read the conversation before responding.",
     inputSchema: FETCH_MESSAGES_INPUT,
     execute: async ({ threadId, limit, cursor, direction }) => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       const result = await thread.adapter.fetchMessages(threadId, {
         limit,
@@ -91,7 +94,8 @@ const FETCH_CHANNEL_MESSAGES_INPUT = z.object({
 });
 
 export const fetchChannelMessages = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof FETCH_CHANNEL_MESSAGES_INPUT>,
   { messages: ProjectedMessage[]; nextCursor: string | undefined }
@@ -101,6 +105,7 @@ export const fetchChannelMessages = (
       "Fetch top-level messages in a channel (not thread replies). Returns messages in chronological order within the page.",
     inputSchema: FETCH_CHANNEL_MESSAGES_INPUT,
     execute: async ({ channelId, limit, cursor, direction }) => {
+      guard?.(channelId);
       const adapterName = channelId.split(":")[0];
       const adapter = adapterName ? chat.getAdapter(adapterName) : undefined;
       if (!adapter?.fetchChannelMessages) {
@@ -125,7 +130,8 @@ const FETCH_THREAD_INPUT = z.object({
 });
 
 export const fetchThread = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof FETCH_THREAD_INPUT>,
   {
@@ -141,6 +147,7 @@ export const fetchThread = (
       "Fetch metadata about a thread (channel id, channel name, visibility, DM status, etc).",
     inputSchema: FETCH_THREAD_INPUT,
     execute: async ({ threadId }) => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       const info = await thread.adapter.fetchThread(threadId);
       return {
@@ -160,7 +167,8 @@ const LIST_THREADS_INPUT = z.object({
 });
 
 export const listThreads = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof LIST_THREADS_INPUT>,
   {
@@ -178,6 +186,7 @@ export const listThreads = (
       "List recent threads in a channel. Returns lightweight summaries with the root message of each thread.",
     inputSchema: LIST_THREADS_INPUT,
     execute: async ({ channelId, limit, cursor }) => {
+      guard?.(channelId);
       const adapterName = channelId.split(":")[0];
       const adapter = adapterName ? chat.getAdapter(adapterName) : undefined;
       if (!adapter?.listThreads) {
@@ -203,7 +212,8 @@ const GET_THREAD_PARTICIPANTS_INPUT = z.object({
 });
 
 export const getThreadParticipants = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof GET_THREAD_PARTICIPANTS_INPUT>,
   {
@@ -220,6 +230,7 @@ export const getThreadParticipants = (
       "Return the unique non-bot participants in a thread. Useful for deciding whether to subscribe (1:1) or stay quiet (group).",
     inputSchema: GET_THREAD_PARTICIPANTS_INPUT,
     execute: async ({ threadId }) => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       const participants = await thread.getParticipants();
       return {

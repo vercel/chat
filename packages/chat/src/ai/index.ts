@@ -1,3 +1,4 @@
+import { createScopeGuard, type ReadScope } from "./scope";
 import { getChannelInfo } from "./tools/channels";
 import {
   deleteMessage,
@@ -176,6 +177,24 @@ export interface ChatToolsOptions {
    * @see {@link ApprovalConfig}
    */
   requireApproval?: ApprovalConfig;
+  /**
+   * Confine read tools to a single conversation, so a thread or channel id
+   * the model supplies that resolves elsewhere is rejected.
+   *
+   * Defaults to the conversation being handled, so tools created inside a
+   * handler are already confined to it. Set this when the agent runs outside
+   * a handler and still reads on a user's behalf.
+   *
+   * Pass `false` to read across every conversation the bot can see.
+   *
+   * @example
+   * ```ts
+   * bot.onNewMention(async (thread) => {
+   *   const tools = createChatTools({ chat, preset: 'reader' })
+   * })
+   * ```
+   */
+  scope?: ReadScope | false;
 }
 
 function resolveApproval(
@@ -261,6 +280,7 @@ export function createChatTools({
   requireApproval = true,
   preset,
   overrides,
+  scope,
 }: ChatToolsOptions) {
   if (!chat) {
     throw new Error(
@@ -273,16 +293,18 @@ export function createChatTools({
   });
   const allowed = preset ? resolvePresetTools(preset) : null;
 
+  const guard = createScopeGuard(chat, scope);
+
   // Each entry is built lazily so a preset filter skips both the
   // `approval()` lookup and the underlying `tool({ ... })` (and its zod
   // schema) construction for tools the agent will never see.
   const factories = {
-    fetchMessages: () => fetchMessages(chat),
-    fetchChannelMessages: () => fetchChannelMessages(chat),
-    fetchThread: () => fetchThread(chat),
-    listThreads: () => listThreads(chat),
-    getThreadParticipants: () => getThreadParticipants(chat),
-    getChannelInfo: () => getChannelInfo(chat),
+    fetchMessages: () => fetchMessages(chat, guard),
+    fetchChannelMessages: () => fetchChannelMessages(chat, guard),
+    fetchThread: () => fetchThread(chat, guard),
+    listThreads: () => listThreads(chat, guard),
+    getThreadParticipants: () => getThreadParticipants(chat, guard),
+    getChannelInfo: () => getChannelInfo(chat, guard),
     getUser: () => getUser(chat),
     startTyping: () => startTyping(chat),
     postMessage: () => postMessage(chat, approval("postMessage")),
@@ -326,6 +348,7 @@ export {
   type ToAiMessagesOptions,
   toAiMessages,
 } from "./messages";
+export type { ReadScope } from "./scope";
 export { getChannelInfo } from "./tools/channels";
 export {
   deleteMessage,

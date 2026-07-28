@@ -1,6 +1,7 @@
 import { type Tool, tool } from "ai";
 import { z } from "zod";
 import type { ChannelVisibility } from "../../types";
+import type { ScopeGuard } from "../scope";
 import type { ChatBinding } from "../types";
 
 // The explicit `Tool<Input, Output>` return type keeps the emitted
@@ -13,7 +14,8 @@ const GET_CHANNEL_INFO_INPUT = z.object({
 });
 
 export const getChannelInfo = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof GET_CHANNEL_INFO_INPUT>,
   {
@@ -29,6 +31,7 @@ export const getChannelInfo = (
       "Fetch metadata for a channel: name, member count, DM status, visibility, etc. Use to identify a channel before posting.",
     inputSchema: GET_CHANNEL_INFO_INPUT,
     execute: async ({ channelId }) => {
+      guard?.(channelId);
       const channel = chat.channel(channelId);
       const info = await channel.fetchMetadata();
       return {
