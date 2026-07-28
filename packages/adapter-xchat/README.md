@@ -160,7 +160,7 @@ All options are auto-detected from environment variables when not provided.
 | `verifySignatures` | No | Require verifiable signatures on incoming messages (default `true`). `X_VERIFY_SIGNATURES=false` opts out |
 | `signingKeyVersion` | No | Signing key version override. Normally fetched during `initialize()`. Auto-detected from `X_SIGNING_KEY_VERSION` |
 | `apiBaseUrl` | No | Base URL for media REST calls (defaults to `https://api.x.com`) |
-| `apiHeaders` | No | Extra headers on every X API request |
+| `apiHeaders` | No | Extra headers on every X API request. Unless it includes a `User-Agent`, the adapter prepends `chat-sdk-xchat/<version>` to the client's default so Chat SDK traffic is identifiable |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *Required at runtime — either via config or environment variable.

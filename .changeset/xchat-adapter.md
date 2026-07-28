@@ -13,4 +13,5 @@ New XChat adapter for X's encrypted messaging. All cryptography is handled insid
 - Edit and delete of the bot's own messages; the first edit of a fresh message is age-gated by `editSafetyDelayMs` (default 5000ms) so receiving clients have stored the original
 - Reactions in and out, read receipts (`sendReadReceipts`, default on), typing keep-alive, configurable group welcome message
 - Cards degrade to text with tappable URL/mention entities plus a URL preview attachment
+- Requests carry a chat-sdk-xchat/<version> User-Agent product token so Chat SDK traffic is identifiable in X API request logs (a User-Agent set via apiHeaders takes precedence)
 - Registered in the `chat/adapters` catalog and the `create-chat-sdk` CLI scaffold

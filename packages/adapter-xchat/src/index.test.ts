@@ -46,6 +46,14 @@ vi.mock("@xdevplatform/xdk", async (importOriginal) => {
         sendMessage: vi.fn(),
         sendTypingIndicator: vi.fn(),
       };
+      headers: Headers;
+      constructor(config?: { headers?: Record<string, string> }) {
+        // Mirror the real client: defaults first, config headers win.
+        this.headers = new Headers({
+          "User-Agent": "xdk-typescript/0.0.0-test",
+          ...config?.headers,
+        });
+      }
     },
   };
 });
@@ -57,6 +65,7 @@ import {
   extractMediaEntries,
   extractPostAttachments,
   mentionHandlesFromEntities,
+  withChatSdkUserAgent,
   XchatAdapter,
 } from "./index";
 import {
@@ -85,6 +94,9 @@ const NO_REGISTERED_CHAT_KEYS_RE = /no registered chat keys/;
 const NO_SEQUENCE_ID_RE = /No sequence id known/;
 const NO_JUICEBOX_CONFIG_RE = /no Juicebox config/;
 const HTTP_404_RE = /HTTP 404/;
+const CHAT_SDK_UA_TOKEN_RE = /^chat-sdk-xchat\/\d+\.\d+\.\d+/;
+const CHAT_SDK_THEN_XDK_UA_RE =
+  /^chat-sdk-xchat\/\d+\.\d+\.\d+ xdk-typescript\//;
 
 /**
  * Create a minimal XchatAdapter for testing.
@@ -568,6 +580,49 @@ describe("initialize (Juicebox)", () => {
     }
   });
 
+  it("stamps the Chat SDK product token on the client User-Agent", async () => {
+    const engine = await createTestCryptoEngine();
+    createChatMock.mockResolvedValue(juiceboxStubFromEngine(engine));
+
+    try {
+      const mockChat = createMockChatInstance();
+      const adapter = new XchatAdapter({
+        accessToken: "test-token",
+        userId: TEST_USER_ID,
+        pin: TEST_PIN,
+        userName: "test-bot",
+        logger: mockLogger,
+      });
+      await adapter.initialize(mockChat as unknown as ChatInstance);
+      const client = (adapter as any).xdkClient as { headers: Headers };
+      expect(client.headers.get("user-agent")).toMatch(CHAT_SDK_THEN_XDK_UA_RE);
+    } finally {
+      createChatMock.mockReset();
+    }
+  });
+
+  it("leaves a User-Agent supplied via apiHeaders untouched", async () => {
+    const engine = await createTestCryptoEngine();
+    createChatMock.mockResolvedValue(juiceboxStubFromEngine(engine));
+
+    try {
+      const mockChat = createMockChatInstance();
+      const adapter = new XchatAdapter({
+        accessToken: "test-token",
+        apiHeaders: { "User-Agent": "my-bot/1.0" },
+        userId: TEST_USER_ID,
+        pin: TEST_PIN,
+        userName: "test-bot",
+        logger: mockLogger,
+      });
+      await adapter.initialize(mockChat as unknown as ChatInstance);
+      const client = (adapter as any).xdkClient as { headers: Headers };
+      expect(client.headers.get("user-agent")).toBe("my-bot/1.0");
+    } finally {
+      createChatMock.mockReset();
+    }
+  });
+
   it("establishes the session identity on unlock", async () => {
     const engine = await createTestCryptoEngine();
     const setIdentitySpy = vi.spyOn(engine, "setIdentity");
@@ -1022,6 +1077,23 @@ describe("read receipts on delivery (real crypto)", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("withChatSdkUserAgent", () => {
+  it("prepends the product token to the xdk client's default", () => {
+    const ua = withChatSdkUserAgent("xdk-typescript/0.6.6");
+    expect(ua).toMatch(CHAT_SDK_UA_TOKEN_RE);
+    expect(ua.endsWith(" xdk-typescript/0.6.6")).toBe(true);
+  });
+
+  it("stands alone when there is no existing User-Agent", () => {
+    expect(withChatSdkUserAgent(null)).toMatch(CHAT_SDK_UA_TOKEN_RE);
+  });
+
+  it("does not stack tokens when applied twice", () => {
+    const once = withChatSdkUserAgent("xdk-typescript/0.6.6");
+    expect(withChatSdkUserAgent(once)).toBe(once);
   });
 });
 

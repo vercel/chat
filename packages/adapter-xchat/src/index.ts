@@ -22,6 +22,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createRequire } from "node:module";
 import { ValidationError } from "@chat-adapter/shared";
 import {
   type AttachmentDescriptor,
@@ -78,6 +79,29 @@ import type {
 
 /** Default base URL for X API requests */
 const DEFAULT_API_BASE_URL = "https://api.x.com";
+
+/** Adapter version, read from package.json (works from both src and dist). */
+const ADAPTER_VERSION: string = createRequire(import.meta.url)(
+  "../package.json"
+).version;
+
+/** Product token identifying Chat SDK traffic in X API request logs */
+const CHAT_SDK_UA_TOKEN = `chat-sdk-xchat/${ADAPTER_VERSION}`;
+
+/**
+ * Prepend the Chat SDK product token to a User-Agent, keeping the existing
+ * value (the xdk client's own token) so both products stay identifiable.
+ * No-op when the token is already present.
+ */
+export function withChatSdkUserAgent(existing: string | null): string {
+  if (!existing) {
+    return CHAT_SDK_UA_TOKEN;
+  }
+  if (existing.includes("chat-sdk-xchat/")) {
+    return existing;
+  }
+  return `${CHAT_SDK_UA_TOKEN} ${existing}`;
+}
 
 /** Re-send the typing indicator this often while a handler is running */
 const TYPING_INTERVAL_MS = 3000;
@@ -700,6 +724,19 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
         baseUrl: this.apiBaseUrl,
         headers: this.apiHeaders,
       });
+
+      // Mark this client's traffic as Chat SDK in X API request logs by
+      // prepending our product token to the xdk client's User-Agent. A
+      // User-Agent supplied via apiHeaders wins and is left untouched.
+      const userAgentFromConfig = Object.keys(this.apiHeaders).some(
+        (name) => name.toLowerCase() === "user-agent"
+      );
+      if (!userAgentFromConfig) {
+        this.xdkClient.headers.set(
+          "user-agent",
+          withChatSdkUserAgent(this.xdkClient.headers.get("user-agent"))
+        );
+      }
 
       // Resolve identity from /2/users/me unless the caller provided both
       // the user id and the @handle explicitly.
