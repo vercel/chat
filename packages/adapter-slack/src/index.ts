@@ -4653,6 +4653,54 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       wrapTablesForAppend: false,
     });
 
+    // Outgoing @name mention resolution state for the native streaming path.
+    // The post-and-edit fallback resolves mentions on every postMessage/
+    // editMessage call, so the committed renderer text is resolved here too
+    // before deltas are calculated. `resolvedSourceDone` indexes into the
+    // renderer's committable text; `resolvedCommitted` is its resolved
+    // counterpart and the coordinate space `lastAppended` tracks.
+    let resolvedCommitted = "";
+    let resolvedSourceDone = 0;
+    let insideResolvedFence = false;
+
+    const isFenceLine = (line: string): boolean => {
+      const trimmed = line.trimStart();
+      return trimmed.startsWith("```") || trimmed.startsWith("~~~");
+    };
+
+    /**
+     * Extend `resolvedCommitted` with newly committed renderer text, applying
+     * outgoing @name mention resolution. Works line by line, tracking code
+     * fence state: the renderer only commits partial lines inside fences
+     * (where mentions stay literal, matching resolveOutgoingMentions) or at
+     * inline-marker holdback cuts (which never split a bare mention), so
+     * every bare mention reaches the resolver whole even when it spans
+     * source chunks.
+     */
+    const resolveCommitted = async (committable: string): Promise<void> => {
+      while (resolvedSourceDone < committable.length) {
+        const lineStart =
+          committable.lastIndexOf("\n", resolvedSourceDone - 1) + 1;
+        const newlineAt = committable.indexOf("\n", resolvedSourceDone);
+        const lineEnd = newlineAt === -1 ? committable.length : newlineAt + 1;
+        const segment = committable.slice(resolvedSourceDone, lineEnd);
+        const fenceLine = isFenceLine(committable.slice(lineStart, lineEnd));
+        if (insideResolvedFence || fenceLine) {
+          // Fence delimiters and fenced content are literal.
+          resolvedCommitted += segment;
+        } else {
+          resolvedCommitted += await this.resolveOutgoingMentions(
+            segment,
+            threadId
+          );
+        }
+        if (newlineAt !== -1 && fenceLine) {
+          insideResolvedFence = !insideResolvedFence;
+        }
+        resolvedSourceDone = lineEnd;
+      }
+    };
+
     // In-stream fallback state. If the very first native call is rejected
     // (streaming methods unavailable — e.g. GovSlack — or the feature is off
     // for the workspace), nothing has rendered yet, so the rest of the stream
@@ -4713,17 +4761,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     /**
-     * Flush committed renderer text: as a markdown_text delta on the native
-     * stream, or as a throttled post/edit in fallback mode. A failure of the
-     * FIRST native flush (chat.startStream) switches to fallback mode.
+     * Flush committed renderer text: as a mention-resolved markdown_text
+     * delta on the native stream, or as a throttled post/edit in fallback
+     * mode (postMessage/editMessage resolve mentions themselves). A failure
+     * of the FIRST native flush (chat.startStream) switches to fallback mode.
      */
     const flushCommitted = async (force = false): Promise<void> => {
       if (fallback.mode === "fallback") {
         await flushFallback(force);
         return;
       }
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
+      await resolveCommitted(renderer.getCommittableText());
+      const delta = resolvedCommitted.slice(lastAppended.length);
       if (delta.length === 0) {
         return;
       }
@@ -4738,7 +4787,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         if (response) {
           fallback.nativeRendered = true;
         }
-        lastAppended = committable;
+        lastAppended = resolvedCommitted;
       } catch (error) {
         if (fallback.nativeRendered) {
           // A native call succeeded earlier; content is already rendering
