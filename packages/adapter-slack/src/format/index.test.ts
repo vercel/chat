@@ -101,6 +101,14 @@ describe("Slack format primitives", () => {
     );
   });
 
+  it("normalizes inverted Slack link tokens before Markdown conversion", () => {
+    expect(
+      slackMrkdwnToMarkdown(
+        "See <docs|https://example.com> and <https://a.com|A>"
+      )
+    ).toBe("See [docs](https://example.com) and [A](https://a.com)");
+  });
+
   it("converts basic Markdown bold to Slack mrkdwn bold", () => {
     expect(markdownBoldToSlackMrkdwn("The **domain** is example.com")).toBe(
       "The *domain* is example.com"
