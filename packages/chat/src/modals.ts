@@ -10,6 +10,8 @@ import type { FieldsElement, TextElement } from "./cards";
 
 export const VALID_MODAL_CHILD_TYPES = [
   "text_input",
+  "date_input",
+  "number_input",
   "select",
   "external_select",
   "radio_select",
@@ -19,6 +21,8 @@ export const VALID_MODAL_CHILD_TYPES = [
 
 export type ModalChild =
   | TextInputElement
+  | DateInputElement
+  | NumberInputElement
   | SelectElement
   | ExternalSelectElement
   | RadioSelectElement
@@ -48,6 +52,29 @@ export interface TextInputElement {
   optional?: boolean;
   placeholder?: string;
   type: "text_input";
+}
+
+export interface DateInputElement {
+  id: string;
+  /** Pre-filled date as `YYYY-MM-DD`. */
+  initialValue?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
+  type: "date_input";
+}
+
+export interface NumberInputElement {
+  /** Allow decimal values. Defaults to false (integers only). */
+  decimal?: boolean;
+  id: string;
+  initialValue?: number;
+  label: string;
+  max?: number;
+  min?: number;
+  optional?: boolean;
+  placeholder?: string;
+  type: "number_input";
 }
 
 export interface SelectElement {
@@ -166,6 +193,52 @@ export function TextInput(options: TextInputOptions): TextInputElement {
   };
 }
 
+export interface DateInputOptions {
+  id: string;
+  /** Pre-filled date as `YYYY-MM-DD`. */
+  initialValue?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
+}
+
+export function DateInput(options: DateInputOptions): DateInputElement {
+  return {
+    type: "date_input",
+    id: options.id,
+    label: options.label,
+    placeholder: options.placeholder,
+    initialValue: options.initialValue,
+    optional: options.optional,
+  };
+}
+
+export interface NumberInputOptions {
+  /** Allow decimal values. Defaults to false (integers only). */
+  decimal?: boolean;
+  id: string;
+  initialValue?: number;
+  label: string;
+  max?: number;
+  min?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
+export function NumberInput(options: NumberInputOptions): NumberInputElement {
+  return {
+    type: "number_input",
+    id: options.id,
+    label: options.label,
+    placeholder: options.placeholder,
+    initialValue: options.initialValue,
+    optional: options.optional,
+    min: options.min,
+    max: options.max,
+    decimal: options.decimal,
+  };
+}
+
 export interface SelectOptions {
   id: string;
   initialOption?: string;
@@ -277,6 +350,8 @@ type AnyModalElement = ModalElement | ModalChild | SelectOptionElement;
 const modalComponentMap = new Map<unknown, string>([
   [Modal, "Modal"],
   [TextInput, "TextInput"],
+  [DateInput, "DateInput"],
+  [NumberInput, "NumberInput"],
   [Select, "Select"],
   [ExternalSelect, "ExternalSelect"],
   [RadioSelect, "RadioSelect"],
@@ -331,6 +406,27 @@ export function fromReactModalElement(
         multiline: props.multiline as boolean | undefined,
         optional: props.optional as boolean | undefined,
         maxLength: props.maxLength as number | undefined,
+      });
+
+    case "DateInput":
+      return DateInput({
+        id: props.id as string,
+        label: props.label as string,
+        placeholder: props.placeholder as string | undefined,
+        initialValue: props.initialValue as string | undefined,
+        optional: props.optional as boolean | undefined,
+      });
+
+    case "NumberInput":
+      return NumberInput({
+        id: props.id as string,
+        label: props.label as string,
+        placeholder: props.placeholder as string | undefined,
+        initialValue: props.initialValue as number | undefined,
+        optional: props.optional as boolean | undefined,
+        min: props.min as number | undefined,
+        max: props.max as number | undefined,
+        decimal: props.decimal as boolean | undefined,
       });
 
     case "Select":

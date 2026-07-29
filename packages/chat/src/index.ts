@@ -98,6 +98,7 @@ import type {
   CardComponent,
   CardLinkComponent,
   ChartComponent,
+  DateInputComponent,
   DividerComponent,
   ExternalSelectComponent,
   FieldComponent,
@@ -105,6 +106,7 @@ import type {
   ImageComponent,
   LinkButtonComponent,
   ModalComponent,
+  NumberInputComponent,
   RadioSelectComponent,
   SectionComponent,
   SelectComponent,
@@ -142,10 +144,12 @@ export const toModalElement = _toModalElement;
 
 // Modal builders
 import {
+  DateInput as _DateInput,
   ExternalSelect as _ExternalSelect,
   fromReactModalElement as _fromReactModalElement,
   isModalElement as _isModalElement,
   Modal as _Modal,
+  NumberInput as _NumberInput,
   RadioSelect as _RadioSelect,
   Select as _Select,
   SelectOption as _SelectOption,
@@ -153,9 +157,11 @@ import {
 } from "./modals";
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
+export const DateInput = _DateInput as unknown as DateInputComponent;
 export const ExternalSelect =
   _ExternalSelect as unknown as ExternalSelectComponent;
 export const Modal = _Modal as unknown as ModalComponent;
+export const NumberInput = _NumberInput as unknown as NumberInputComponent;
 export const RadioSelect = _RadioSelect as unknown as RadioSelectComponent;
 export const Select = _Select as unknown as SelectComponent;
 export const SelectOption = _SelectOption as unknown as SelectOptionComponent;
@@ -216,6 +222,8 @@ export type {
   CardProps,
   ChatElement,
   ContainerProps,
+  DateInputComponent,
+  DateInputProps,
   DividerComponent,
   DividerProps,
   ExternalSelectComponent,
@@ -229,6 +237,8 @@ export type {
   LinkButtonProps,
   ModalComponent,
   ModalProps,
+  NumberInputComponent,
+  NumberInputProps,
   RadioSelectComponent,
   SectionComponent,
   SelectComponent,
@@ -307,11 +317,15 @@ export {
 } from "./markdown";
 // Modal types
 export type {
+  DateInputElement,
+  DateInputOptions,
   ExternalSelectElement,
   ExternalSelectOptions,
   ModalChild,
   ModalElement,
   ModalOptions,
+  NumberInputElement,
+  NumberInputOptions,
   RadioSelectElement,
   RadioSelectOptions,
   SelectElement,

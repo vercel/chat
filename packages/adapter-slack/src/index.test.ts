@@ -805,6 +805,52 @@ describe("handleWebhook - interactive payloads", () => {
     expect(response.status).toBe(200);
   });
 
+  it("flattens datepicker and number_input state into submitted values", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processModalSubmit = vi.fn().mockResolvedValue({
+      action: "close",
+    });
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const payload = JSON.stringify({
+      type: "view_submission",
+      trigger_id: "trigger123",
+      user: { id: "U123", username: "testuser", name: "Test User" },
+      view: {
+        id: "V123",
+        callback_id: "renewal_form",
+        state: {
+          values: {
+            renewal_date: { renewal_date: { selected_date: "2026-08-01" } },
+            quantity: { quantity: { value: "3" } },
+          },
+        },
+      },
+    });
+    const body = `payload=${encodeURIComponent(payload)}`;
+    const request = createWebhookRequest(body, secret, {
+      contentType: "application/x-www-form-urlencoded",
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+    expect(chatInstance.processModalSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callbackId: "renewal_form",
+        values: { renewal_date: "2026-08-01", quantity: "3" },
+      }),
+      undefined,
+      undefined
+    );
+  });
+
   it("responds with response_action: clear when handler returns clear", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });

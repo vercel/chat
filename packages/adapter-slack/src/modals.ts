@@ -4,9 +4,11 @@
  */
 
 import type {
+  DateInputElement,
   ExternalSelectElement,
   ModalChild,
   ModalElement,
+  NumberInputElement,
   RadioSelectElement,
   SelectElement,
   SelectOptionElement,
@@ -115,6 +117,10 @@ function modalChildToBlock(child: ModalChild): SlackBlock {
   switch (child.type) {
     case "text_input":
       return textInputToBlock(child);
+    case "date_input":
+      return dateInputToBlock(child);
+    case "number_input":
+      return numberInputToBlock(child);
     case "select":
       return selectToBlock(child);
     case "external_select":
@@ -159,6 +165,90 @@ function textInputToBlock(input: TextInputElement): SlackBlock {
   }
   if (input.maxLength) {
     element.max_length = input.maxLength;
+  }
+
+  return {
+    type: "input",
+    block_id: input.id,
+    optional: input.optional ?? false,
+    label: { type: "plain_text", text: input.label },
+    element,
+  };
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Slack rejects a `datepicker` whose `initial_date` is not a real `YYYY-MM-DD` date, and it fails the
+ * WHOLE `views.open` with `invalid_arguments` rather than degrading the one field — so a modal built from
+ * user- or template-supplied dates never opens at all. Adaptive Cards is lenient with a bad `Input.Date`
+ * value, so forwarding it verbatim would make the same modal work on Teams and die on Slack. Drop it with
+ * a warning instead, matching how `filterModalChildren` handles unsupported children.
+ */
+function toInitialDate(value: string | undefined): string | undefined {
+  if (!value) {
+    return;
+  }
+  // `Date` rolls impossible dates over (2026-02-31 becomes Mar 3), so round-trip rather than trust a parse.
+  const parsed = ISO_DATE_RE.test(value)
+    ? new Date(`${value}T00:00:00Z`)
+    : null;
+  if (
+    !parsed ||
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value
+  ) {
+    console.warn(
+      `[chat] DateInput "${value}" is not a YYYY-MM-DD date — ignoring initialValue`
+    );
+    return;
+  }
+  return value;
+}
+
+function dateInputToBlock(input: DateInputElement): SlackBlock {
+  const element: Record<string, unknown> = {
+    type: "datepicker",
+    action_id: input.id,
+  };
+
+  if (input.placeholder) {
+    element.placeholder = { type: "plain_text", text: input.placeholder };
+  }
+  const initialDate = toInitialDate(input.initialValue);
+  if (initialDate) {
+    element.initial_date = initialDate;
+  }
+
+  return {
+    type: "input",
+    block_id: input.id,
+    optional: input.optional ?? false,
+    label: { type: "plain_text", text: input.label },
+    element,
+  };
+}
+
+function numberInputToBlock(input: NumberInputElement): SlackBlock {
+  // Slack's number_input requires is_decimal_allowed, and takes its numeric
+  // bounds/initial value as strings.
+  const element: Record<string, unknown> = {
+    type: "number_input",
+    action_id: input.id,
+    is_decimal_allowed: input.decimal ?? false,
+  };
+
+  if (input.placeholder) {
+    element.placeholder = { type: "plain_text", text: input.placeholder };
+  }
+  if (input.initialValue !== undefined) {
+    element.initial_value = String(input.initialValue);
+  }
+  if (input.min !== undefined) {
+    element.min_value = String(input.min);
+  }
+  if (input.max !== undefined) {
+    element.max_value = String(input.max);
   }
 
   return {

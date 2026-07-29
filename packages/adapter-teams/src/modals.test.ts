@@ -7,9 +7,11 @@ import type {
 } from "chat";
 import {
   CardText,
+  DateInput,
   Field,
   Fields,
   Modal,
+  NumberInput,
   RadioSelect,
   Select,
   SelectOption,
@@ -307,5 +309,104 @@ describe("modalResponseToTaskModuleResponse", () => {
     };
     expect(card.body.length).toBeGreaterThanOrEqual(3);
     expect(card.body[0].text).toContain("Please fix");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Date and number inputs
+// ---------------------------------------------------------------------------
+
+describe("date and number inputs", () => {
+  it("renders a date input as Input.Date", () => {
+    const card = modalToAdaptiveCard(
+      makeModal({
+        children: [
+          DateInput({
+            id: "renewal_date",
+            label: "Renewal Date",
+            placeholder: "Pick a date",
+            initialValue: "2026-08-01",
+          }),
+        ],
+      }),
+      "ctx-1",
+      "cb-1"
+    );
+
+    expect(card.body?.[0]).toMatchObject({
+      type: "Input.Date",
+      id: "renewal_date",
+      label: "Renewal Date",
+      placeholder: "Pick a date",
+      value: "2026-08-01",
+      isRequired: true,
+    });
+  });
+
+  it("marks an optional date input as not required", () => {
+    const card = modalToAdaptiveCard(
+      makeModal({
+        children: [
+          DateInput({
+            id: "renewal_date",
+            label: "Renewal Date",
+            optional: true,
+          }),
+        ],
+      }),
+      "ctx-1",
+      "cb-1"
+    );
+
+    expect(card.body?.[0]).toMatchObject({
+      type: "Input.Date",
+      isRequired: false,
+    });
+  });
+
+  it("renders a number input as Input.Number with numeric bounds", () => {
+    const card = modalToAdaptiveCard(
+      makeModal({
+        children: [
+          NumberInput({
+            id: "quantity",
+            label: "Quantity",
+            placeholder: "How many?",
+            initialValue: 3,
+            min: 1,
+            max: 10,
+          }),
+        ],
+      }),
+      "ctx-1",
+      "cb-1"
+    );
+
+    expect(card.body?.[0]).toMatchObject({
+      type: "Input.Number",
+      id: "quantity",
+      label: "Quantity",
+      placeholder: "How many?",
+      value: 3,
+      min: 1,
+      max: 10,
+      isRequired: true,
+    });
+  });
+
+  it("stringifies numeric submit values", () => {
+    const parsed = parseDialogSubmitValues({
+      __contextId: "ctx-1",
+      __callbackId: "cb-1",
+      renewal_date: "2026-08-01",
+      quantity: 3,
+      ratio: 0,
+    });
+
+    expect(parsed.values).toEqual({
+      renewal_date: "2026-08-01",
+      quantity: "3",
+      ratio: "0",
+    });
   });
 });

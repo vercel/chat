@@ -3,7 +3,9 @@ import type {
   TeamsDialogSubmitValues,
   TeamsFieldsModalElement,
   TeamsModalChild,
+  TeamsModalDateInputElement,
   TeamsModalElement,
+  TeamsModalNumberInputElement,
   TeamsModalRadioSelectElement,
   TeamsModalResponse,
   TeamsModalSelectElement,
@@ -53,6 +55,9 @@ export function parseTeamsDialogSubmitValues(
     }
     if (typeof value === "string") {
       values[key] = value;
+    } else if (typeof value === "number") {
+      // Input.Number submits a JSON number
+      values[key] = String(value);
     }
   }
 
@@ -109,6 +114,10 @@ function modalChildToAdaptiveElements(child: TeamsModalChild): unknown[] {
       return [fieldsBlock(child)];
     case "text_input":
       return [textInput(child)];
+    case "date_input":
+      return [dateInput(child)];
+    case "number_input":
+      return [numberInput(child)];
     case "select":
       return [choiceSet(child, "compact")];
     case "radio_select":
@@ -148,6 +157,30 @@ function textInput(input: TeamsModalTextInputElement): unknown {
     ...(input.placeholder ? { placeholder: input.placeholder } : {}),
     ...(input.initialValue ? { value: input.initialValue } : {}),
     type: "Input.Text",
+  };
+}
+
+function dateInput(input: TeamsModalDateInputElement): unknown {
+  return {
+    id: input.id,
+    isRequired: !(input.optional ?? false),
+    label: input.label,
+    ...(input.placeholder ? { placeholder: input.placeholder } : {}),
+    ...(input.initialValue ? { value: input.initialValue } : {}),
+    type: "Input.Date",
+  };
+}
+
+function numberInput(input: TeamsModalNumberInputElement): unknown {
+  return {
+    id: input.id,
+    isRequired: !(input.optional ?? false),
+    label: input.label,
+    ...(input.max === undefined ? {} : { max: input.max }),
+    ...(input.min === undefined ? {} : { min: input.min }),
+    ...(input.placeholder ? { placeholder: input.placeholder } : {}),
+    ...(input.initialValue === undefined ? {} : { value: input.initialValue }),
+    type: "Input.Number",
   };
 }
 

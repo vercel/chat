@@ -534,7 +534,14 @@ interface SlackViewSubmissionPayload {
     state: {
       values: Record<
         string,
-        Record<string, { value?: string; selected_option?: { value: string } }>
+        Record<
+          string,
+          {
+            value?: string;
+            selected_date?: string;
+            selected_option?: { value: string };
+          }
+        >
       >;
     };
   };
@@ -2028,7 +2035,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const values: Record<string, string> = {};
     for (const blockValues of Object.values(payload.view.state.values)) {
       for (const [actionId, input] of Object.entries(blockValues)) {
-        values[actionId] = input.value ?? input.selected_option?.value ?? "";
+        values[actionId] =
+          input.value ??
+          input.selected_date ??
+          input.selected_option?.value ??
+          "";
       }
     }
 

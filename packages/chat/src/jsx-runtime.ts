@@ -66,6 +66,9 @@ import {
 } from "./cards";
 
 import {
+  DateInput,
+  type DateInputElement,
+  type DateInputOptions,
   ExternalSelect,
   type ExternalSelectElement,
   type ExternalSelectOptions,
@@ -75,6 +78,9 @@ import {
   type ModalChild,
   type ModalElement,
   type ModalOptions,
+  NumberInput,
+  type NumberInputElement,
+  type NumberInputOptions,
   RadioSelect,
   type RadioSelectElement,
   type RadioSelectOptions,
@@ -180,6 +186,27 @@ export interface TextInputProps {
   placeholder?: string;
 }
 
+/** Props for DateInput component in JSX */
+export interface DateInputProps {
+  id: string;
+  initialValue?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
+}
+
+/** Props for NumberInput component in JSX */
+export interface NumberInputProps {
+  decimal?: boolean;
+  id: string;
+  initialValue?: number;
+  label: string;
+  max?: number;
+  min?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
 /** Props for Select component in JSX */
 export interface SelectProps {
   children?: unknown;
@@ -234,6 +261,8 @@ export type CardJSXProps =
   | DividerProps
   | ModalProps
   | TextInputProps
+  | DateInputProps
+  | NumberInputProps
   | SelectProps
   | ExternalSelectProps
   | SelectOptionProps
@@ -255,6 +284,8 @@ type CardComponentFunction =
   | typeof Fields
   | typeof Modal
   | typeof TextInput
+  | typeof DateInput
+  | typeof NumberInput
   | typeof Select
   | typeof ExternalSelect
   | typeof RadioSelect
@@ -289,6 +320,8 @@ export type ChatElement =
   | FieldElement
   | ModalElement
   | TextInputElement
+  | DateInputElement
+  | NumberInputElement
   | SelectElement
   | ExternalSelectElement
   | SelectOptionElement
@@ -370,6 +403,16 @@ export interface ModalComponent {
 export interface TextInputComponent {
   (options: TextInputOptions): TextInputElement;
   (props: TextInputProps): ChatElement;
+}
+
+export interface DateInputComponent {
+  (options: DateInputOptions): DateInputElement;
+  (props: DateInputProps): ChatElement;
+}
+
+export interface NumberInputComponent {
+  (options: NumberInputOptions): NumberInputElement;
+  (props: NumberInputProps): ChatElement;
 }
 
 export interface SelectComponent {
@@ -568,6 +611,29 @@ function isTextInputProps(props: CardJSXProps): props is TextInputProps {
 }
 
 /**
+ * DateInput and NumberInput carry no discriminating prop beyond the id/label every input has — they are
+ * told apart by the component identity already matched in `resolveJSXElement`, so both guards share one
+ * predicate and differ only in the type they narrow to.
+ */
+function hasIdAndLabel(props: CardJSXProps): boolean {
+  return "id" in props && "label" in props;
+}
+
+/**
+ * Type guard to check if props match DateInputProps
+ */
+function isDateInputProps(props: CardJSXProps): props is DateInputProps {
+  return hasIdAndLabel(props);
+}
+
+/**
+ * Type guard to check if props match NumberInputProps
+ */
+function isNumberInputProps(props: CardJSXProps): props is NumberInputProps {
+  return hasIdAndLabel(props);
+}
+
+/**
  * Type guard to check if props match SelectProps
  */
 function isSelectProps(props: CardJSXProps): props is SelectProps {
@@ -748,6 +814,35 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       multiline: props.multiline,
       optional: props.optional,
       maxLength: props.maxLength,
+    });
+  }
+
+  if (type === DateInput) {
+    if (!isDateInputProps(props)) {
+      throw new Error("DateInput requires 'id' and 'label' props");
+    }
+    return DateInput({
+      id: props.id,
+      label: props.label,
+      placeholder: props.placeholder,
+      initialValue: props.initialValue,
+      optional: props.optional,
+    });
+  }
+
+  if (type === NumberInput) {
+    if (!isNumberInputProps(props)) {
+      throw new Error("NumberInput requires 'id' and 'label' props");
+    }
+    return NumberInput({
+      id: props.id,
+      label: props.label,
+      placeholder: props.placeholder,
+      initialValue: props.initialValue,
+      optional: props.optional,
+      min: props.min,
+      max: props.max,
+      decimal: props.decimal,
     });
   }
 
